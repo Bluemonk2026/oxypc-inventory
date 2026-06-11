@@ -1,0 +1,303 @@
+{% extends "base.html" %}
+{% block title %}CRM Contacts — OxyPC{% endblock %}
+{% block page_title %}CRM Contacts{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <form method="get" class="d-flex gap-2 flex-wrap">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search name, phone, city…" class="form-control form-control-sm" style="width:220px">
+    <select name="contact_type" class="form-select form-select-sm" style="width:130px">
+      <option value="">All Types</option>
+      <option value="supplier" {% if contact_type=='supplier' %}selected{% endif %}>Supplier</option>
+      <option value="buyer"    {% if contact_type=='buyer'    %}selected{% endif %}>Buyer</option>
+      <option value="both"     {% if contact_type=='both'     %}selected{% endif %}>Both</option>
+    </select>
+    <select name="source_type" class="form-select form-select-sm" style="width:150px">
+      <option value="">All Source Types</option>
+      {% for val, label in source_types %}
+      <option value="{{ val }}" {% if source_type==val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="buyer_type" class="form-select form-select-sm" style="width:150px">
+      <option value="">All Buyer Types</option>
+      {% for val, label in buyer_types %}
+      <option value="{{ val }}" {% if buyer_type==val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="contacted" class="form-select form-select-sm" style="width:135px">
+      <option value="">All Contacts</option>
+      <option value="yes" {% if contacted=='yes' %}selected{% endif %}>
+        ✅ Contacted
+      </option>
+      <option value="no"  {% if contacted=='no'  %}selected{% endif %}>
+        🕐 Not Yet
+      </option>
+    </select>
+    {% if current_user.role.value == 'admin' %}
+    <select name="created_by_filter" class="form-select form-select-sm" style="width:160px" title="Filter by agent who added contact">
+      <option value="">All Agents</option>
+      {% for uname, fname in crm_users %}
+      <option value="{{ uname }}" {% if created_by_filter == uname %}selected{% endif %}>{{ fname }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <button class="btn btn-sm btn-outline-primary">Filter</button>
+    {% if q or contact_type or source_type or buyer_type or contacted or created_by_filter %}
+    <a href="/crm/contacts" class="btn btn-sm btn-outline-secondary">Clear</a>
+    {% endif %}
+  </form>
+  <div class="d-flex gap-2">
+    <a href="/crm/contacts/upload" class="btn btn-sm btn-outline-primary"><i class="bi bi-cloud-upload me-1"></i>Bulk Upload CSV</a>
+    {% if current_user.role.value == 'admin' %}
+    <a href="/crm/contacts/export-csv?q={{ q }}&contact_type={{ contact_type }}&source_type={{ source_type }}&buyer_type={{ buyer_type }}&contacted={{ contacted }}&created_by_filter={{ created_by_filter }}"
+       class="btn btn-sm btn-outline-success">
+      <i class="bi bi-download me-1"></i>Export CSV
+    </a>
+    {% endif %}
+    <a href="/crm/contacts/new" class="btn btn-sm btn-primary"><i class="bi bi-person-plus me-1"></i>Add Contact</a>
+  </div>
+</div>
+
+<!-- Summary cards -->
+<div class="row g-3 mb-4">
+  {% for label, val, color in [('Total', counts.total, 'secondary'), ('Suppliers', counts.suppliers, 'primary'), ('Buyers', counts.buyers, 'info'), ('Active', counts.active, 'success')] %}
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-{{ color }}">{{ val }}</div>
+      <div class="small text-muted">{{ label }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Main contacts table -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      {% set oc_colors = {
+        'interested':     'success',
+        'order_placed':   'primary',
+        'callback':       'warning',
+        'not_interested': 'danger',
+        'no_answer':      'secondary',
+        'do_not_call':    'dark',
+        'followup':       'info',
+        'positive':       'success',
+        'negative':       'danger',
+        'neutral':        'secondary',
+        'pending':        'warning',
+      } %}
+      {# Column order: Type | Category | Company | Address | City | Phone | Person | Recent Contact Date | Status | Notes | Actions #}
+      <table class="table table-hover mb-0 small" id="contactsTable">
+        <thead class="table-light">
+          <tr>
+            <th>Type</th>
+            <th>Category</th>
+            <th>Company</th>
+            <th>Address</th>
+            <th>City</th>
+            <th>Phone</th>
+            <th>Person</th>
+            <th>Recent Contact Date</th>
+            <th>Status</th>
+            <th>Notes</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in contacts %}
+          {% set cid = c.id | string %}
+          {% set contacted = cid in contacted_set %}
+          {% set act = activity_map.get(cid, {}) %}
+          {% set last_outcome = act.get('outcome', '') if act else '' %}
+          {% set last_act_date = act.get('date', none) if act else none %}
+          <tr>
+            {# 1. Type #}
+            <td>
+              {% if c.contact_type == 'supplier' %}
+                <span class="badge bg-primary">Supplier</span>
+              {% elif c.contact_type == 'buyer' %}
+                <span class="badge bg-info text-white">Buyer</span>
+              {% else %}
+                <span class="badge bg-success">Both</span>
+              {% endif %}
+            </td>
+            {# 2. Category (Source / Buyer type) #}
+            <td>
+              {% if c.source_type %}
+                {% if c.source_type == 'endcust' %}
+                <span class="badge bg-light text-dark border me-1">Corporate</span>
+                {% else %}
+                <span class="badge bg-light text-dark border me-1">{{ c.source_type | title }}</span>
+                {% endif %}
+              {% endif %}
+              {% if c.buyer_type %}<span class="badge bg-light text-dark border">{{ c.buyer_type | replace('_',' ') | title }}</span>{% endif %}
+              {% if not c.source_type and not c.buyer_type %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            {# 3. Company + Contacted badge #}
+            <td style="max-width:160px">
+              <a href="/crm/contacts/{{ c.id }}" class="fw-semibold text-decoration-none"
+                 title="{{ c.company_name }}">
+                {{ c.company_name[:50] }}{% if c.company_name | length > 50 %}…{% endif %}
+              </a>
+              <div class="mt-1">
+                {% if contacted %}
+                <span class="badge bg-success bg-opacity-75" title="At least one log activity exists">
+                  <i class="bi bi-check-circle me-1"></i>Contacted
+                </span>
+                {% else %}
+                <span class="badge bg-secondary bg-opacity-50" title="No log activity yet">
+                  <i class="bi bi-clock me-1"></i>Not Yet
+                </span>
+                {% endif %}
+              </div>
+            </td>
+            {# 4. Address #}
+            <td>
+              {% if c.address %}
+              <span title="{{ c.address }}" style="cursor:default">
+                {{ c.address[:80] }}{% if c.address | length > 80 %}…{% endif %}
+              </span>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            {# 5. City #}
+            <td>{{ c.city or '—' }}</td>
+            {# 6. Phone #}
+            <td>{{ c.phone or '—' }}</td>
+            {# 7. Person #}
+            <td>{{ c.contact_person or '—' }}</td>
+            {# 8. Recent Contact Date (from latest activity log) #}
+            <td>
+              {% if last_act_date %}
+              <span class="text-nowrap">{{ last_act_date.strftime('%d-%m-%Y') }}</span>
+              <div class="text-muted" style="font-size:0.7rem">{{ last_act_date.strftime('%H:%M') }}</div>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            {# 9. Status — renamed from "Last Outcome", shows latest call/activity outcome badge #}
+            <td>
+              {% if last_outcome %}
+              <span class="badge bg-{{ oc_colors.get(last_outcome, 'secondary') }}">
+                {{ last_outcome | replace('_',' ') | title }}
+              </span>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            {# 10. Notes #}
+            <td style="max-width:160px">
+              {% if c.notes %}
+              <span title="{{ c.notes }}" style="cursor:default">
+                {{ c.notes[:60] }}{% if c.notes | length > 60 %}…{% endif %}
+              </span>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            {# 11. Actions #}
+            <td>
+              <div class="d-flex gap-1 flex-wrap">
+                <a href="/crm/contacts/{{ c.id }}"      class="btn btn-sm btn-outline-primary"   title="Profile"><i class="bi bi-eye"></i></a>
+                <a href="/crm/sourcing/new?contact_id={{ c.id }}" class="btn btn-sm btn-outline-secondary" title="New Sourcing Deal"><i class="bi bi-box-arrow-in-down"></i></a>
+                <a href="/crm/sales/new?contact_id={{ c.id }}"    class="btn btn-sm btn-outline-info"      title="New Sales Opp"><i class="bi bi-graph-up"></i></a>
+                <a href="/crm/contacts/{{ c.id }}/edit"  class="btn btn-sm btn-outline-secondary" title="Edit"><i class="bi bi-pencil"></i></a>
+                <form method="post" action="/crm/contacts/{{ c.id }}/trash" class="d-inline"
+                      onsubmit="return confirm('Move {{ c.company_name }} to trash?')">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+                  <button type="submit" class="btn btn-sm btn-outline-danger" title="Move to Trash">
+                    <i class="bi bi-trash3"></i>
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="11" class="text-center text-muted py-4">No contacts found. <a href="/crm/contacts/new">Add your first contact</a></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Trash accordion — collapsed by default -->
+<div class="accordion" id="trashAccordion">
+  <div class="accordion-item border-0 shadow-sm" style="border-left: 4px solid #dc3545 !important;">
+    <h2 class="accordion-header" id="trashHeading">
+      <button class="accordion-button collapsed fw-semibold text-danger bg-danger-subtle" type="button"
+              data-bs-toggle="collapse" data-bs-target="#trashCollapse"
+              aria-expanded="false" aria-controls="trashCollapse">
+        <i class="bi bi-trash3 me-2"></i>
+        Trash
+        <span class="badge bg-danger ms-2">{{ trashed_contacts | length }}</span>
+        <span class="text-muted fw-normal small ms-2">— contacts moved to trash</span>
+      </button>
+    </h2>
+    <div id="trashCollapse" class="accordion-collapse collapse"
+         aria-labelledby="trashHeading" data-bs-parent="#trashAccordion">
+      <div class="accordion-body p-0">
+        {% if trashed_contacts %}
+        <div class="table-responsive">
+          <table class="table table-hover mb-0 small">
+            <thead class="table-light">
+              <tr>
+                <th>Code</th><th>Company</th><th>Person</th>
+                <th>Phone</th><th>City</th><th>Type</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for c in trashed_contacts %}
+              <tr class="table-danger bg-opacity-25">
+                <td><code>{{ c.contact_code }}</code></td>
+                <td class="fw-semibold text-muted">{{ c.company_name }}</td>
+                <td>{{ c.contact_person or '—' }}</td>
+                <td>{{ c.phone or '—' }}</td>
+                <td>{{ c.city or '—' }}</td>
+                <td>
+                  {% if c.contact_type == 'supplier' %}
+                    <span class="badge bg-primary">Supplier</span>
+                  {% elif c.contact_type == 'buyer' %}
+                    <span class="badge bg-info text-white">Buyer</span>
+                  {% else %}
+                    <span class="badge bg-success">Both</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <form method="post" action="/crm/contacts/{{ c.id }}/restore" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+                    <button type="submit" class="btn btn-sm btn-outline-success" title="Restore contact">
+                      <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
+                    </button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="p-3 text-muted small">Trash is empty.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){
+  if($('#contactsTable tbody tr').length > 5){
+    // col index: 0=Type,1=Category,2=Company,3=Address,4=City,5=Phone,6=Person,7=Recent Contact Date,8=Status,9=Notes,10=Actions
+    $('#contactsTable').DataTable({
+      pageLength: 25,
+      order: [[2, 'asc']],  // default sort by Company
+      columnDefs: [{ orderable: false, targets: [10] }]
+    });
+  }
+});
+</script>
+{% endblock %}

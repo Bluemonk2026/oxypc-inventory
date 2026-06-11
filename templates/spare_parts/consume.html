@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Parts Used — OxyPC{% endblock %}
+{% block page_title %}Spare Parts Consumption{% endblock %}
+{% block content %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-dash-circle me-2"></i>Record Parts Used</div>
+  <div class="card-body">
+    <form action="/spare-parts/consume" method="post">
+      <div class="row g-3">
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">Part <span class="text-danger">*</span></label>
+          <select name="part_id" class="form-select" required>
+            <option value="">-- Select Part --</option>
+            {% for part in parts %}<option value="{{ part.id }}">{{ part.part_code }} — {{ part.name }} ({{ part.qty_in_stock }} left)</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label fw-semibold">Qty Used <span class="text-danger">*</span></label>
+          <input type="number" name="qty_used" class="form-control" min="1" placeholder="1" required>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Device Barcode</label>
+          <input type="text" name="device_barcode" class="form-control barcode-field font-monospace" placeholder="Scan or type">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Lot</label>
+          <select name="lot_id" class="form-select">
+            <option value="">-- Optional --</option>
+            {% for lot in lots %}<option value="{{ lot.id }}">{{ lot.lot_number }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Stage</label>
+          <select name="stage" class="form-select">
+            <option value="">— Any —</option>
+            <option>L1</option><option>L2</option><option>L3</option><option>IQC</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Notes</label>
+          <input type="text" name="notes" class="form-control" placeholder="Optional notes">
+        </div>
+        <div class="col-12">
+          <button type="submit" class="btn btn-warning"><i class="bi bi-dash-circle me-2"></i>Record Consumption</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold">Consumption Log</div>
+  <div class="card-body p-0">
+    <table id="consumeTable" class="table table-hover mb-0 small">
+      <thead class="table-dark"><tr><th>Date</th><th>Part</th><th>Qty</th><th>Unit Cost</th><th>Total Cost</th><th>Device</th><th>Stage</th><th>By</th></tr></thead>
+      <tbody>
+        {% for con, part_name, barcode in consumptions %}
+        <tr>
+          <td>{{ con.used_at.strftime('%d-%m-%Y') }}</td>
+          <td>{{ part_name }}</td>
+          <td>{{ con.qty_used }}</td>
+          <td>₹{{ "{:,.2f}".format(con.unit_cost) }}</td>
+          <td class="fw-semibold text-danger">₹{{ "{:,.0f}".format(con.total_cost) }}</td>
+          <td><code>{{ barcode or '—' }}</code></td>
+          <td>{{ con.stage or '—' }}</td>
+          <td class="text-muted">{{ con.used_by }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>$(document).ready(function(){ $('#consumeTable').DataTable({pageLength:25, order:[[0,'desc']]}); });</script>
+{% endblock %}

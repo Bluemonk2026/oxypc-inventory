@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if contact else 'New' }} Contact — OxyPC{% endblock %}
+{% block page_title %}{{ 'Edit Contact' if contact else 'New CRM Contact' }}{% endblock %}
+{% block content %}
+
+<div class="row justify-content-center">
+<div class="col-xl-9">
+<form method="post" action="{{ '/crm/contacts/'+contact.id|string+'/edit' if contact else '/crm/contacts/new' }}">
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-building me-2 text-primary"></i>Contact Type &amp; Classification</div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Contact Type <span class="text-danger">*</span></label>
+        <select name="contact_type" class="form-select" required>
+          <option value="supplier" {% if not contact or contact.contact_type=='supplier' %}selected{% endif %}>Supplier (we buy from them)</option>
+          <option value="buyer"    {% if contact and contact.contact_type=='buyer'    %}selected{% endif %}>Buyer (they buy from us)</option>
+          <option value="both"     {% if contact and contact.contact_type=='both'     %}selected{% endif %}>Both (buy &amp; sell)</option>
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Source Type (if supplier)</label>
+        <select name="source_type" class="form-select">
+          <option value="">— Select —</option>
+          {% for val, label in source_types %}
+          <option value="{{ val }}" {% if contact and contact.source_type==val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Buyer Type (if buyer)</label>
+        <select name="buyer_type" class="form-select">
+          <option value="">— Select —</option>
+          {% for val, label in buyer_types %}
+          <option value="{{ val }}" {% if contact and contact.buyer_type==val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-person me-2 text-primary"></i>Company &amp; Contact Details</div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-8">
+        <label class="form-label fw-semibold">Company / Business Name <span class="text-danger">*</span></label>
+        <input type="text" name="company_name" class="form-control" required value="{{ contact.company_name if contact else '' }}" placeholder="e.g. Sharma Recyclers Pvt Ltd">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Contact Person</label>
+        <input type="text" name="contact_person" class="form-control" value="{{ contact.contact_person or '' if contact else '' }}" placeholder="Name of primary contact">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Phone</label>
+        <input type="text" name="phone" class="form-control" value="{{ contact.phone or '' if contact else '' }}" placeholder="10-digit mobile">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">WhatsApp</label>
+        <input type="text" name="whatsapp" class="form-control" value="{{ contact.whatsapp or '' if contact else '' }}" placeholder="WhatsApp number">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Email</label>
+        <input type="email" name="email" class="form-control" value="{{ contact.email or '' if contact else '' }}" placeholder="email@company.com">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">GSTIN</label>
+        <input type="text" name="gstin" class="form-control" value="{{ contact.gstin or '' if contact else '' }}" placeholder="15-char GSTIN" maxlength="15">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">PAN</label>
+        <input type="text" name="pan" class="form-control" value="{{ contact.pan or '' if contact else '' }}" placeholder="10-char PAN" maxlength="10">
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-geo-alt me-2 text-primary"></i>Address</div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-12">
+        <label class="form-label fw-semibold">Address</label>
+        <textarea name="address" class="form-control" rows="2">{{ contact.address or '' if contact else '' }}</textarea>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">City</label>
+        <input type="text" name="city" class="form-control" value="{{ contact.city or '' if contact else '' }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">State</label>
+        <input type="text" name="state" class="form-control" value="{{ contact.state or '' if contact else '' }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Pincode</label>
+        <input type="text" name="pincode" class="form-control" value="{{ contact.pincode or '' if contact else '' }}" maxlength="6">
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-sliders me-2 text-primary"></i>CRM Settings</div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Credit Limit (₹)</label>
+        <input type="number" name="credit_limit" class="form-control" step="1000" min="0" value="{{ contact.credit_limit or 0 if contact else 0 }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Assigned To</label>
+        <input type="text" name="assigned_to" class="form-control" value="{{ contact.assigned_to or '' if contact else current_user.username }}" placeholder="Username">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Status</label>
+        <select name="status" class="form-select">
+          <option value="active"      {% if not contact or contact.status=='active'      %}selected{% endif %}>Active</option>
+          <option value="inactive"    {% if contact and contact.status=='inactive'    %}selected{% endif %}>Inactive</option>
+          <option value="blacklisted" {% if contact and contact.status=='blacklisted' %}selected{% endif %}>Blacklisted</option>
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Tags</label>
+        <input type="text" name="tags" class="form-control" value="{{ contact.tags or '' if contact else '' }}" placeholder="e.g. bulk-seller, reliable, delhi">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Notes</label>
+        <textarea name="notes" class="form-control" rows="1">{{ contact.notes or '' if contact else '' }}</textarea>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="d-flex gap-2">
+  <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle me-1"></i>{{ 'Update Contact' if contact else 'Create Contact' }}</button>
+  <a href="{{ '/crm/contacts/'+contact.id|string if contact else '/crm/contacts' }}" class="btn btn-outline-secondary">Cancel</a>
+</div>
+</form>
+</div>
+</div>
+{% endblock %}

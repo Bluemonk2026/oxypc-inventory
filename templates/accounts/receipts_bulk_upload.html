@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Bulk Upload Receipts — OxyPC{% endblock %}
+{% block page_title %}Customer Receipts — Bulk Upload{% endblock %}
+{% block content %}
+
+{% if results is not none %}
+<div class="alert {{ 'alert-success' if added > 0 else 'alert-warning' }} alert-dismissible fade show">
+  <i class="bi bi-check-circle me-2"></i>
+  <strong>{{ added }} receipt(s) added</strong>
+  {% if results|length > added %} — {{ results|length - added }} row(s) had errors{% endif %}.
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+<div class="row g-4">
+  <!-- Upload Form -->
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-upload me-2"></i>Upload CSV File
+      </div>
+      <div class="card-body">
+        <p class="text-muted small">
+          Upload a CSV file containing customer receipt records. Each row becomes one receipt entry.
+        </p>
+        <form action="/accounts/customer-receipts/bulk-upload" method="post" enctype="multipart/form-data" id="uploadForm">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          <div id="dropZone" class="border border-2 border-dashed rounded p-4 text-center mb-3"
+               style="cursor:pointer; border-color: #dee2e6 !important;">
+            <i class="bi bi-file-earmark-spreadsheet fs-1 text-primary mb-2"></i>
+            <p class="mb-1 fw-semibold">Drag &amp; drop your CSV here</p>
+            <p class="text-muted small mb-2">or click to browse</p>
+            <input type="file" name="file" id="fileInput" accept=".csv" class="d-none" required>
+            <span id="fileName" class="text-muted small">No file selected</span>
+          </div>
+
+          <div class="mb-3 p-3 bg-light rounded small">
+            <p class="fw-semibold mb-1">Required CSV columns:</p>
+            <ul class="mb-1 ps-3">
+              <li><code>amount</code> — numeric, e.g. <code>15000</code></li>
+              <li><code>payment_date</code> — YYYY-MM-DD format</li>
+              <li><code>payment_mode</code> — cash / upi / neft / rtgs / cheque / card</li>
+              <li><code>reference_no</code> — UTR / ref no (optional)</li>
+              <li><code>notes</code> — any notes (optional)</li>
+              <li><code>customer_name</code> — buyer name (optional, for reference)</li>
+            </ul>
+            <a href="/accounts/customer-receipts/bulk-upload-template" class="btn btn-outline-secondary btn-sm mt-1">
+              <i class="bi bi-download me-1"></i>Download Sample Template
+            </a>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary px-4">
+              <i class="bi bi-cloud-upload me-2"></i>Upload &amp; Process
+            </button>
+            <a href="/accounts/customer-receipts" class="btn btn-outline-secondary">
+              <i class="bi bi-arrow-left me-1"></i>Back to Receipts
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  {% if results is not none %}
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-table me-2"></i>Upload Results — {{ results|length }} row(s) processed
+      </div>
+      <div class="card-body p-0" style="max-height:600px; overflow-y:auto;">
+        <table class="table table-hover mb-0 small">
+          <thead class="table-dark sticky-top">
+            <tr>
+              <th>#</th><th>Amount</th><th>Date</th><th>Mode</th>
+              <th>Ref</th><th>Customer</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in results %}
+            <tr class="{{ 'table-success' if r.status == 'added' else 'table-danger' }}">
+              <td class="text-muted">{{ r.row }}</td>
+              <td class="fw-semibold">{% if r.status == 'added' %}&#8377;{{ "{:,.0f}".format(r.amount|float) }}{% else %}{{ r.amount }}{% endif %}</td>
+              <td>{{ r.date }}</td>
+              <td><span class="badge bg-secondary">{{ r.mode }}</span></td>
+              <td class="font-monospace">{{ r.ref }}</td>
+              <td>{{ r.customer }}</td>
+              <td>
+                {% if r.status == 'added' %}
+                <span class="badge bg-success"><i class="bi bi-check me-1"></i>Added</span>
+                {% else %}
+                <span class="badge bg-danger" title="{{ r.message }}">
+                  <i class="bi bi-x me-1"></i>Error
+                </span>
+                <div class="text-danger small">{{ r.message }}</div>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const fileName  = document.getElementById('fileName');
+
+dropZone.addEventListener('click', () => fileInput.click());
+
+dropZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropZone.classList.add('border-primary');
+  dropZone.style.backgroundColor = '#f0f4ff';
+});
+dropZone.addEventListener('dragleave', () => {
+  dropZone.classList.remove('border-primary');
+  dropZone.style.backgroundColor = '';
+});
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('border-primary');
+  dropZone.style.backgroundColor = '';
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    fileInput.files = dt.files;
+    fileName.textContent = file.name;
+    fileName.classList.replace('text-muted', 'text-success');
+  }
+});
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) {
+    fileName.textContent = fileInput.files[0].name;
+    fileName.classList.replace('text-muted', 'text-success');
+  }
+});
+</script>
+{% endblock %}

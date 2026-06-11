@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Storage Locations — OxyPC{% endblock %}
+{% block page_title %}Storage Location Master{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <span class="text-muted small">Manage physical zones, racks, crates and bins</span>
+  </div>
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addLocationModal">
+    <i class="bi bi-plus-circle me-1"></i> Add Location
+  </button>
+</div>
+
+<!-- Summary cards per zone -->
+<div class="row g-3 mb-4">
+  {% set zone_counts = {} %}
+  {% for loc in locations %}
+    {% if loc.zone.value not in zone_counts %}
+      {% set _ = zone_counts.update({loc.zone.value: {"total": 0, "devices": 0}}) %}
+    {% endif %}
+    {% set _ = zone_counts[loc.zone.value].update({"total": zone_counts[loc.zone.value].total + 1}) %}
+  {% endfor %}
+
+  {% for zone_val, zone_name in zone_labels.items() %}
+  {% set zone_locs = locations | selectattr("zone.value", "equalto", zone_val.value) | list %}
+  {% if zone_locs %}
+  <div class="col-md-3 col-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">{{ zone_name }}</div>
+        <div class="fw-bold fs-5">{{ zone_locs | length }}</div>
+        <div class="text-muted" style="font-size:0.75rem">
+          locations &bull;
+          {% set total_dev = namespace(v=0) %}
+          {% for l in zone_locs %}{% set total_dev.v = total_dev.v + (loc_counts[l.id | string] or 0) %}{% endfor %}
+          {{ total_dev.v }} devices
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+
+<!-- Location table -->
+<div class="card shadow-sm border-0">
+  <div class="card-body p-0">
+    <table class="table table-hover table-sm mb-0" id="locTable">
+      <thead class="table-light">
+        <tr>
+          <th>Unit ID</th>
+          <th>Zone</th>
+          <th>Type</th>
+          <th>Slot</th>
+          <th>Capacity</th>
+          <th>Current Devices</th>
+          <th>Description</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for loc in locations %}
+        <tr class="{% if not loc.is_active %}table-secondary text-muted{% endif %}">
+          <td><span class="badge bg-dark">{{ loc.unit_id }}</span></td>
+          <td>{{ zone_labels[loc.zone] }}</td>
+          <td>{{ unit_type_labels[loc.unit_type] }}</td>
+          <td>{{ loc.slot or "—" }}</td>
+          <td>{{ loc.capacity or "—" }}</td>
+          <td>
+            {% set cnt = loc_counts[loc.id | string] %}
+            <span class="badge {% if cnt > 0 %}bg-success{% else %}bg-secondary{% endif %}">
+              {{ cnt }}
+            </span>
+          </td>
+          <td class="text-muted small">{{ loc.description or "—" }}</td>
+          <td>
+            {% if loc.is_active %}
+            <span class="badge bg-success">Active</span>
+            {% else %}
+            <span class="badge bg-secondary">Inactive</span>
+            {% endif %}
+          </td>
+          <td>
+            <form action="/locations/master/{{ loc.id }}/toggle" method="post" class="d-inline">
+              <button class="btn btn-outline-secondary btn-sm py-0">
+                {% if loc.is_active %}Deactivate{% else %}Activate{% endif %}
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add Location Modal -->
+<div class="modal fade" id="addLocationModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form action="/locations/master/create" method="post">
+        <div class="modal-header">
+          <h5 class="modal-title">Add Storage Location</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Zone <span class="text-danger">*</span></label>
+              <select name="zone" class="form-select" required>
+                {% for z in zone_types %}
+                <option value="{{ z.value }}">{{ zone_labels[z] }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Unit Type <span class="text-danger">*</span></label>
+              <select name="unit_type" class="form-select" required>
+                {% for u in unit_types %}
+                <option value="{{ u.value }}">{{ unit_type_labels[u] }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Unit ID <span class="text-danger">*</span></label>
+              <input type="text" name="unit_id" class="form-control text-uppercase" placeholder="e.g. RACK-A1" required>
+              <div class="form-text">Unique code — will be printed on QR labels</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Slot / Bay</label>
+              <input type="text" name="slot" class="form-control" placeholder="e.g. Slot-3 (optional)">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Max Capacity</label>
+              <input type="number" name="capacity" class="form-control" placeholder="e.g. 20">
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Description</label>
+              <input type="text" name="description" class="form-control" placeholder="Optional note">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Location</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function(){ $('#locTable').DataTable({pageLength:50, order:[[0,'asc']]}); });
+</script>
+{% endblock %}

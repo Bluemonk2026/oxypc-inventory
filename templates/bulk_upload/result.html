@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Upload Result — OxyPC{% endblock %}
+{% block page_title %}Upload Result{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-cloud-upload me-2"></i>{{ upload_type }} Upload Complete
+      </div>
+      <div class="card-body">
+        <div class="row g-3 mb-4">
+          <div class="col-md-6">
+            <div class="alert alert-success mb-0">
+              <i class="bi bi-check-circle me-2"></i>
+              <strong>{{ inserted }}</strong> records inserted successfully
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="alert {{ 'alert-warning' if errors else 'alert-success' }} mb-0">
+              <i class="bi bi-{{ 'exclamation-triangle' if errors else 'check-circle' }} me-2"></i>
+              <strong>{{ errors|length }}</strong> row(s) with errors
+            </div>
+          </div>
+        </div>
+
+        {% if errors %}
+        <h6 class="fw-semibold mb-2">Error Details:</h6>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered small">
+            <thead class="table-warning"><tr><th>#</th><th>Error</th></tr></thead>
+            <tbody>
+              {% for err in errors %}
+              <tr><td>{{ loop.index }}</td><td>{{ err }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+
+        <div class="d-flex gap-2 mt-3">
+          <a href="{{ back_url }}" class="btn btn-primary">
+            <i class="bi bi-arrow-left me-2"></i>Back to List
+          </a>
+          <a href="/bulk-upload" class="btn btn-outline-secondary">
+            <i class="bi bi-upload me-2"></i>Upload Another File
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

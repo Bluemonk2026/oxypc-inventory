@@ -1,0 +1,350 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ device.barcode }} — OxyPC{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.bootstrap5.min.css">
+{% endblock %}
+{% block page_title %}Edit Device{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-xl-10">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div>
+        <span class="font-monospace fw-bold fs-5">{{ device.barcode }}</span>
+        <small class="text-muted ms-2">{{ device.brand or '' }} {{ device.model or '' }}</small>
+      </div>
+      <a href="/devices/{{ device.barcode }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i>Back to Detail
+      </a>
+    </div>
+
+    {% if success %}
+    <div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>{{ success | replace('+', ' ') }}</div>
+    {% endif %}
+
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-pencil me-2"></i>Edit Device Details
+      </div>
+      <div class="card-body">
+        <form action="/devices/{{ device.barcode }}/edit" method="post">
+
+          <!-- ── Section 1: Identity ── -->
+          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Identity</p>
+          <div class="row g-3 mb-3">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Lot <span class="text-danger">*</span></label>
+              <select name="lot_id" id="lot_id" class="form-select" required>
+                <option value="">-- Select Lot --</option>
+                {% for lot in lots %}
+                <option value="{{ lot.id }}" {% if lot.id == device.lot_id %}selected{% endif %}>
+                  {{ lot.lot_number }} — {{ lot.supplier_name }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">GRN Number</label>
+              <input type="text" name="grn_number" class="form-control font-monospace"
+                     value="{{ device.grn_number or '' }}" placeholder="e.g. GRN-2024-001">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Serial No.</label>
+              <input type="text" name="serial_no" class="form-control font-monospace"
+                     value="{{ device.serial_no or '' }}" placeholder="Serial number">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Sub-Category</label>
+              <select name="sub_category" class="form-select">
+                <option value="">-- Select --</option>
+                {% for opt in ['Laptop','Desktop','TFT / Monitor','All-in-One','Workstation','Mini PC','Tablet'] %}
+                <option {% if device.sub_category == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Device Type</label>
+              <select name="device_type" class="form-select">
+                <option value="">-- Select --</option>
+                {% for opt in ['Laptop','Desktop','AIO','Workstation','Mini PC','Server','Tablet'] %}
+                <option {% if device.device_type == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <!-- ── Section 2: Brand & Model ── -->
+          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Brand &amp; Model</p>
+          <div class="row g-3 mb-3">
+            <div class="col-md-4">
+              <label class="form-label">Brand / Make</label>
+              <select name="brand" id="edit-brand-select" class="form-select">
+                <option value="">-- Select --</option>
+                {% for opt in ['HP','Dell','Lenovo','Acer','Asus','Apple','Samsung','Toshiba','MSI','Microsoft','LG','Compaq','Other'] %}
+                <option {% if device.brand == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Model</label>
+              <input type="text" name="model" class="form-control"
+                     value="{{ device.model or '' }}" placeholder="e.g. ThinkPad T480">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Color</label>
+              <input type="text" name="color" class="form-control"
+                     value="{{ device.color or '' }}" placeholder="Black / Silver / Dark Grey">
+            </div>
+          </div>
+
+          <!-- ── Section 3: Hardware Specs ── -->
+          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Hardware Specifications</p>
+          <div class="row g-3 mb-3">
+            <div class="col-md-4">
+              <label class="form-label">CPU / Processor</label>
+              <input type="text" name="cpu" class="form-control"
+                     value="{{ device.cpu or '' }}" placeholder="e.g. Intel Core i7-1165G7">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Generation</label>
+              <select name="generation" class="form-select">
+                <option value="">Unknown</option>
+                {% for opt in ['4th Gen','5th Gen','6th Gen','7th Gen','8th Gen','9th Gen','10th Gen','11th Gen','12th Gen','13th Gen','14th Gen','AMD Ryzen 3','AMD Ryzen 5','AMD Ryzen 7'] %}
+                <option {% if device.generation == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">RAM (GB)</label>
+              <select name="ram_gb" class="form-select">
+                <option value="">Unknown</option>
+                {% for opt in [2,4,8,12,16,24,32,64] %}
+                <option value="{{ opt }}" {% if device.ram_gb == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">SSD Capacity (GB)</label>
+              <select name="storage_gb" class="form-select">
+                <option value="">Unknown</option>
+                {% for opt in [128,240,256,480,512,1000,2000] %}
+                <option value="{{ opt }}" {% if device.storage_gb == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Storage Type</label>
+              <select name="storage_type" class="form-select">
+                <option value="">Unknown</option>
+                {% for opt in ['SSD','NVMe SSD','HDD','eMMC','SSHD (Hybrid)'] %}
+                <option {% if device.storage_type == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">HDD Capacity (GB) <small class="text-muted">if dual</small></label>
+              <select name="hdd_capacity_gb" class="form-select">
+                <option value="">None / N/A</option>
+                {% for opt in [320,500,750,1000,2000] %}
+                <option value="{{ opt }}" {% if device.hdd_capacity_gb == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Screen Size</label>
+              <select name="screen_size" class="form-select">
+                <option value="">Unknown</option>
+                {% for opt in ['11.6"','12.5"','13.3"','14.0"','14.0" FHD','15.6"','15.6" FHD','17.3"','18.5"','21.5"','24"'] %}
+                <option {% if device.screen_size == opt %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Battery Health % <small class="text-muted">Laptops</small></label>
+              <input type="number" name="battery_health_pct" class="form-control"
+                     value="{{ device.battery_health_pct or '' }}" placeholder="e.g. 85" min="0" max="100">
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+              <div class="form-check ms-2 mb-2">
+                <input type="checkbox" name="bios_password" value="yes" class="form-check-input" id="biosPwd"
+                       {% if device.bios_password %}checked{% endif %}>
+                <label class="form-check-label" for="biosPwd">BIOS Password Set?</label>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Section 4: Condition & Location ── -->
+          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Condition &amp; Location</p>
+          <div class="row g-3 mb-3">
+            <div class="col-md-2">
+              <label class="form-label">Quantity</label>
+              <input type="number" name="qty" class="form-control" min="1"
+                     value="{{ device.qty or 1 }}" placeholder="1">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Unit Price (₹)</label>
+              <input type="number" name="device_price_input" class="form-control" step="0.01" min="0"
+                     value="{{ device.device_price or '' }}" placeholder="e.g. 4500.00">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Grade</label>
+              {# Grade is an enum — use static options, do NOT load from master data #}
+              <select name="grade" class="form-select">
+                <option value="">Not graded</option>
+                {% set cur_grade = device.grade.value if device.grade else '' %}
+                {% for g in ['A','B','C','D','scrap'] %}
+                <option value="{{ g }}" {% if cur_grade == g %}selected{% endif %}>{{ g }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Floor / Zone</label>
+              <select name="floor" class="form-select">
+                <option value="">N/A</option>
+                {% for f in ['Showroom','Ground Floor','1st Floor','2nd Floor','Warehouse','Workshop','Dispatch Area','Holding Zone'] %}
+                <option {% if device.floor == f %}selected{% endif %}>{{ f }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Warehouse / Area</label>
+              <select name="warehouse" class="form-select">
+                <option value="">— Select —</option>
+                {% for w in ['TRC 1st Floor','TRC 2nd Floor','TRC 3rd Floor','Main Warehouse','Workshop','Showroom','Dispatch Area','Holding Zone'] %}
+                <option {% if device.warehouse == w %}selected{% endif %}>{{ w }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <!-- Tracked storage location (new system) -->
+            <div class="col-12">
+              <div class="alert alert-info py-2 small mb-0">
+                <i class="bi bi-geo-alt-fill me-1"></i>
+                <strong>Precise Location Tracking</strong> — rack/crate/shelf level is managed separately.
+                <a href="/locations/device/{{ device.id }}" class="fw-semibold ms-1">
+                  Assign or update storage location →
+                </a>
+                {% if storage_locations %}
+                <span class="text-muted ms-2">({{ storage_locations | length }} locations configured)</span>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="col-12">
+              <label class="form-label">Notes / Issues Found</label>
+              <textarea name="notes" class="form-control" rows="2"
+                        placeholder="Physical condition, missing parts, cosmetic damage, functional issues...">{{ device.notes or '' }}</textarea>
+            </div>
+          </div>
+
+          <div class="mt-3 d-flex gap-2">
+            <button type="submit" class="btn btn-warning px-4">
+              <i class="bi bi-save me-2"></i>Save Changes
+            </button>
+            <a href="/devices/{{ device.barcode }}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Stage History Panel -->
+{% if movements %}
+<div class="row justify-content-center mt-3">
+  <div class="col-xl-10">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center"
+           data-bs-toggle="collapse" data-bs-target="#stageHistoryCollapse"
+           style="cursor:pointer">
+        <span><i class="bi bi-clock-history me-2 text-secondary"></i>Stage History <span class="badge bg-secondary ms-1">{{ movements|length }}</span></span>
+        <i class="bi bi-chevron-down text-muted small"></i>
+      </div>
+      <div class="collapse show" id="stageHistoryCollapse">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0 small">
+            <thead class="table-light">
+              <tr>
+                <th>Stage</th>
+                <th>From → To</th>
+                <th>Moved By</th>
+                <th>Entered At</th>
+                <th>Exited At</th>
+                <th>Duration</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for m in movements %}
+              <tr>
+                <td>
+                  <span class="badge bg-primary text-white">
+                    {{ m.to_stage.value.replace('_', ' ').title() if m.to_stage else '—' }}
+                  </span>
+                </td>
+                <td class="text-muted small">
+                  {% if m.from_stage %}
+                    <span class="text-secondary">{{ m.from_stage.value.replace('_', ' ').title() }}</span>
+                    <i class="bi bi-arrow-right mx-1"></i>
+                  {% endif %}
+                  <span class="fw-semibold">{{ m.to_stage.value.replace('_', ' ').title() if m.to_stage else '—' }}</span>
+                </td>
+                <td>{{ m.moved_by or '—' }}</td>
+                <td>{{ m.moved_at.strftime('%d %b %Y %H:%M') if m.moved_at else '—' }}</td>
+                <td>{{ m.exited_at.strftime('%d %b %Y %H:%M') if m.exited_at else '<span class="text-success small">Current</span>' | safe }}</td>
+                <td class="text-muted small">
+                  {% if m.moved_at and m.exited_at %}
+                    {% set delta = (m.exited_at - m.moved_at).total_seconds() | int %}
+                    {% if delta < 3600 %}{{ (delta // 60) }}m
+                    {% elif delta < 86400 %}{{ (delta // 3600) }}h {{ ((delta % 3600) // 60) }}m
+                    {% else %}{{ (delta // 86400) }}d {{ ((delta % 86400) // 3600) }}h{% endif %}
+                  {% else %}—{% endif %}
+                </td>
+                <td class="text-muted">{{ m.notes or '' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+<script>
+async function loadMasterOptions(category, selectId, currentVal) {
+  try {
+    const res = await fetch(`/admin/master/api/${category}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    const current = currentVal || sel.value || '';
+    const placeholder = sel.options[0];
+    sel.innerHTML = '';
+    if (placeholder && !placeholder.value) sel.add(placeholder);
+    (data.values || []).forEach(v => {
+      const opt = new Option(v, v, false, v === current);
+      sel.add(opt);
+    });
+    if (current) sel.value = current;
+  } catch(e) { console.warn('master data load failed', e); }
+}
+document.addEventListener('DOMContentLoaded', () => {
+  loadMasterOptions('brand', 'edit-brand-select', '{{ device.brand or "" }}');
+  // Grade uses enum values (A/B/C/D/scrap) — static options, not master data
+
+  // ── Lot searchable dropdown (Tom Select) ──────────────────────────────────
+  new TomSelect('#lot_id', {
+    maxOptions: 500,
+    placeholder: '— Search lot number or supplier —',
+    allowEmptyOption: true,
+    plugins: ['clear_button'],
+  });
+});
+</script>
+{% endblock %}

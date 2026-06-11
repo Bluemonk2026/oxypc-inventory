@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}RTM — QA{% endblock %}
+{% block page_title %}QA Dashboard{% endblock %}
+{% block content %}
+{% include 'qa/_tabs.html' %}
+
+<!-- Summary bar -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-3 fw-bold text-primary">{{ total_reqs }}</div>
+      <div class="small text-muted">Total Requirements</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-3 fw-bold text-success">{{ covered_reqs }}</div>
+      <div class="small text-muted">Requirements Covered</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-3 fw-bold {{ 'text-danger' if uncovered|length > 0 else 'text-success' }}">
+        {{ uncovered|length }}
+      </div>
+      <div class="small text-muted">Not Covered</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-3 fw-bold text-info">
+        {{ (covered_reqs / total_reqs * 100)|round if total_reqs else 0 }}%
+      </div>
+      <div class="small text-muted">Coverage</div>
+    </div>
+  </div>
+</div>
+
+{% if uncovered %}
+<div class="alert alert-warning border mb-3 small">
+  <strong><i class="bi bi-exclamation-triangle me-2"></i>{{ uncovered|length }} requirement(s) have NO test cases:</strong>
+  {% for row in uncovered %}
+  <span class="badge bg-warning text-dark ms-1">{{ row.req.req_code or row.req.title|truncate(25) }}</span>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- RTM Table -->
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-bordered table-sm mb-0 align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th class="ps-3" style="width:120px">Req Code</th>
+          <th style="width:200px">Requirement</th>
+          <th style="width:80px">Priority</th>
+          <th style="width:80px">Req Status</th>
+          <th>Test Cases</th>
+          <th style="width:90px">TC Coverage</th>
+          <th>UAT Scenarios</th>
+          <th style="width:90px">UAT Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rtm_rows %}
+        {% set req = row.req %}
+        {% set tcs = row.test_cases %}
+        {% set le  = row.last_exec %}
+        {% set uats = row.uat_scenarios %}
+        <tr class="{{ 'table-warning' if not tcs }}">
+          <!-- Requirement -->
+          <td class="ps-3 font-monospace small fw-semibold">{{ req.req_code or '—' }}</td>
+          <td class="small">
+            <div class="fw-semibold">{{ req.title }}</div>
+            {% if req.module %}
+            <span class="badge bg-light text-muted border" style="font-size:.65rem">{{ req.module }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% set pc = req.priority.value %}
+            <span class="badge bg-{{ 'danger' if pc == 'Critical' else 'warning text-dark' if pc == 'High' else 'info text-dark' if pc == 'Medium' else 'secondary' }}" style="font-size:.7rem">
+              {{ pc }}
+            </span>
+          </td>
+          <td>
+            {% set sc = req.status.value %}
+            <span class="badge bg-{{ 'success' if sc == 'Done' else 'primary' if sc == 'In Progress' else 'warning text-dark' }}" style="font-size:.7rem">
+              {{ sc }}
+            </span>
+          </td>
+
+          <!-- Test Cases -->
+          <td>
+            {% if tcs %}
+            <div class="d-flex flex-wrap gap-1">
+              {% for tc in tcs %}
+              {% set ex = le.get(tc.id|string) %}
+              <span class="badge bg-{{ 'success' if ex and ex.status.value == 'Pass' else 'danger' if ex and ex.status.value == 'Fail' else 'warning text-dark' if ex and ex.status.value == 'Blocked' else 'light text-muted border' }}"
+                    style="font-size:.68rem" title="{{ tc.title }}">
+                {{ tc.tc_code or tc.title|truncate(20) }}
+                {% if ex %} — {{ ex.status.value }}{% endif %}
+              </span>
+              {% endfor %}
+            </div>
+            {% else %}
+            <span class="text-danger small"><i class="bi bi-exclamation-circle me-1"></i>No test cases</span>
+            {% endif %}
+          </td>
+
+          <!-- Coverage indicator -->
+          <td class="text-center">
+            {% if tcs %}
+            {% set pass_count = tcs|selectattr('id', 'in', le.keys())|list|length %}
+            {% set total_run = namespace(n=0) %}
+            {% set pass_n = namespace(n=0) %}
+            {% for tc in tcs %}
+              {% set ex = le.get(tc.id|string) %}
+              {% if ex %}
+                {% set total_run.n = total_run.n + 1 %}
+                {% if ex.status.value == 'Pass' %}{% set pass_n.n = pass_n.n + 1 %}{% endif %}
+              {% endif %}
+            {% endfor %}
+            <div class="small">{{ total_run.n }}/{{ tcs|length }} run</div>
+            {% if total_run.n > 0 %}
+            <div class="progress mt-1" style="height:5px">
+              <div class="progress-bar bg-{{ 'success' if (pass_n.n / total_run.n) >= 0.8 else 'warning' }}"
+                   style="width:{{ (pass_n.n / total_run.n * 100)|round }}%"></div>
+            </div>
+            {% endif %}
+            {% else %}
+            <span class="text-danger small">—</span>
+            {% endif %}
+          </td>
+
+          <!-- UAT Scenarios -->
+          <td>
+            {% if uats %}
+            <div class="d-flex flex-wrap gap-1">
+              {% for u in uats %}
+              <span class="badge bg-{{ 'success' if u.status.value == 'Pass' else 'danger' if u.status.value == 'Fail' else 'warning text-dark' if u.status.value == 'Blocked' else 'light text-muted border' }}"
+                    style="font-size:.68rem">
+                {{ u.uat_code or u.title|truncate(20) }}
+              </span>
+              {% endfor %}
+            </div>
+            {% else %}
+            <span class="text-muted small">No UAT</span>
+            {% endif %}
+          </td>
+
+          <!-- UAT overall status -->
+          <td class="text-center">
+            {% if uats %}
+            {% set uat_pass_all = uats|selectattr('status.value', 'equalto', 'Pass')|list|length == uats|length %}
+            {% set uat_any_fail = uats|selectattr('status.value', 'equalto', 'Fail')|list|length > 0 %}
+            <span class="badge bg-{{ 'success' if uat_pass_all else 'danger' if uat_any_fail else 'warning text-dark' }}">
+              {{ 'PASS' if uat_pass_all else 'FAIL' if uat_any_fail else 'Partial' }}
+            </span>
+            {% else %}
+            <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-5">No requirements in the system yet. <a href="/qa/requirements">Add requirements</a> to build the RTM.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Stock Transfers — OxyPC{% endblock %}
+{% block page_title %}Stock Transfers{% endblock %}
+{% block content %}
+
+<!-- Filter Bar -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2">
+    <form method="get" action="/transfers" class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label small text-muted mb-1">Search Barcode / Device</label>
+        <input type="text" name="q" class="form-control form-control-sm" placeholder="Barcode..." value="{{ q }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small text-muted mb-1">Transfer Type</label>
+        <select name="transfer_type" class="form-select form-select-sm">
+          <option value="">All Types</option>
+          <option value="trc_to_showroom" {% if transfer_type == 'trc_to_showroom' %}selected{% endif %}>TRC → Showroom</option>
+          <option value="showroom_to_trc" {% if transfer_type == 'showroom_to_trc' %}selected{% endif %}>Showroom → TRC</option>
+          <option value="internal" {% if transfer_type == 'internal' %}selected{% endif %}>Internal</option>
+        </select>
+      </div>
+      <div class="col-auto d-flex gap-2">
+        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-search me-1"></i>Search</button>
+        <a href="/transfers" class="btn btn-sm btn-outline-secondary">Clear</a>
+        <a href="/transfers/new" class="btn btn-sm btn-success"><i class="bi bi-plus-circle me-1"></i>New Transfer</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="transfersTable" class="table table-hover mb-0 small">
+        <thead class="table-dark">
+          <tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Barcode</th>
+            <th>Make / Model</th>
+            <th>CPU</th>
+            <th>RAM</th>
+            <th>HDD</th>
+            <th>Lot</th>
+            <th>From</th>
+            <th>To</th>
+            <th>Dept.</th>
+            <th>Transferred By</th>
+            <th>Received By</th>
+            <th>Stage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in transfers %}
+          <tr>
+            <td class="text-nowrap">{{ t.transfer_date.strftime('%d-%m-%Y %H:%M') }}</td>
+            <td>
+              {% if t.transfer_type == 'trc_to_showroom' %}
+                <span class="badge bg-info">TRC → Showroom</span>
+              {% elif t.transfer_type == 'showroom_to_trc' %}
+                <span class="badge bg-warning text-dark">Showroom → TRC</span>
+              {% else %}
+                <span class="badge bg-secondary">{{ t.transfer_type | replace('_', ' ') | title }}</span>
+              {% endif %}
+            </td>
+            <td><a href="/devices/{{ t.barcode }}" class="font-monospace fw-semibold text-decoration-none">{{ t.barcode or '—' }}</a></td>
+            <td>{{ (t.make or '') ~ ' ' ~ (t.model or '') | trim or '—' }}</td>
+            <td>{{ t.cpu or '—' }}</td>
+            <td>{{ t.ram or '—' }}</td>
+            <td>{{ t.hdd or '—' }}</td>
+            <td class="font-monospace text-muted">{{ t.lot_number or '—' }}</td>
+            <td class="text-muted">{{ t.from_warehouse }}</td>
+            <td class="fw-semibold">{{ t.to_warehouse }}</td>
+            <td>{{ t.department or '—' }}</td>
+            <td>{{ t.transferred_by or '—' }}</td>
+            <td>{{ t.received_by or '—' }}</td>
+            <td><span class="badge bg-secondary">{{ (t.product_stage or '—').replace('_',' ').title() }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){
+  $('#transfersTable').DataTable({
+    pageLength: 50,
+    order: [[0, 'desc']],
+    scrollX: true,
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PO {{ po.po_number }}</title>
+<style>
+  @media print { .no-print { display: none !important; } body { margin: 0; } }
+  body { font-family: Arial, sans-serif; font-size: 13px; color: #111; }
+  .page { max-width: 800px; margin: 20px auto; padding: 24px; border: 2px solid #1565C0; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1565C0; padding-bottom: 12px; margin-bottom: 16px; }
+  .company-name { font-size: 22px; font-weight: bold; color: #1565C0; }
+  .po-title { font-size: 20px; font-weight: bold; text-align: right; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th { background: #1565C0; color: #fff; padding: 7px 8px; text-align: left; }
+  td { padding: 6px 8px; border-bottom: 1px solid #e0e0e0; }
+  .grand-total td { font-weight: bold; background: #1565C0; color: #fff; }
+  .section-title { font-weight: bold; color: #1565C0; margin: 14px 0 6px 0; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  .two-col { display: flex; gap: 24px; }
+  .two-col > div { flex: 1; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="company-name">OxyPC</div>
+      <div>Delhi, India</div>
+      <div style="font-size:11px;color:#555">GSTIN: 07XXXXX0000X1XX</div>
+    </div>
+    <div style="text-align:right">
+      <div class="po-title">PURCHASE ORDER</div>
+      <div><strong>PO #:</strong> {{ po.po_number }}</div>
+      <div><strong>Date:</strong> {{ po.po_date.strftime('%d %B %Y') if po.po_date else '—' }}</div>
+      <div><strong>Status:</strong> {{ po.status | upper }}</div>
+    </div>
+  </div>
+
+  <div class="two-col" style="margin-bottom:16px">
+    <div>
+      <div class="section-title">To (Supplier)</div>
+      <div><strong>{{ po.contact.company_name if po.contact else '—' }}</strong></div>
+      {% if po.contact and po.contact.contact_person %}<div>Attn: {{ po.contact.contact_person }}</div>{% endif %}
+      {% if po.contact and po.contact.phone %}<div>Ph: {{ po.contact.phone }}</div>{% endif %}
+      {% if po.contact and po.contact.gstin %}<div>GSTIN: {{ po.contact.gstin }}</div>{% endif %}
+    </div>
+    <div>
+      <div class="section-title">Delivery Details</div>
+      <div><strong>Deliver To:</strong> {{ po.delivery_address or 'OxyPC, Delhi' }}</div>
+      <div><strong>Expected By:</strong> {{ po.expected_delivery_date.strftime('%d %B %Y') if po.expected_delivery_date else '—' }}</div>
+      <div><strong>Payment Terms:</strong> {{ po.payment_terms or '—' }}</div>
+      {% if po.advance_amount %}<div><strong>Advance:</strong> ₹{{ "{:,.0f}".format(po.advance_amount) }}</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="section-title">Items Ordered</div>
+  <table>
+    <thead><tr><th>#</th><th>Description</th><th>Qty</th><th style="text-align:right">Unit Price (₹)</th><th style="text-align:right">Total (₹)</th></tr></thead>
+    <tbody>
+      {% for item in po.line_items %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ item.description }}</td>
+        <td>{{ item.quantity }}</td>
+        <td style="text-align:right">{{ "{:,.2f}".format(item.unit_price) }}</td>
+        <td style="text-align:right">{{ "{:,.2f}".format(item.total_price) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr class="grand-total"><td colspan="4">Grand Total</td><td style="text-align:right">&#8377; {{ "{:,.2f}".format(po.total_amount or 0) }}</td></tr>
+    </tfoot>
+  </table>
+
+  {% if po.notes %}
+  <div class="section-title" style="margin-top:20px">Notes</div>
+  <div>{{ po.notes }}</div>
+  {% endif %}
+
+  <div class="two-col" style="margin-top:40px">
+    <div style="text-align:center">
+      <div style="border-top:1px solid #999; padding-top:6px; font-size:11px">Authorised by (OxyPC)</div>
+    </div>
+    <div style="text-align:center">
+      <div style="border-top:1px solid #999; padding-top:6px; font-size:11px">Supplier Acknowledgement</div>
+    </div>
+  </div>
+
+  <div class="no-print" style="margin-top:24px;text-align:center">
+    <button onclick="window.print()" style="padding:8px 20px;background:#1565C0;color:#fff;border:none;border-radius:4px;cursor:pointer;margin-right:8px">Print PO</button>
+    <a href="/crm/purchase-orders" style="padding:8px 20px;border:1px solid #666;border-radius:4px;text-decoration:none;color:#333">Back</a>
+  </div>
+</div>
+</body>
+</html>

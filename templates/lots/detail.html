@@ -1,0 +1,677 @@
+{% extends "base.html" %}
+{% block title %}{{ lot.lot_number }} — OxyPC{% endblock %}
+{% block page_title %}Lot: {{ lot.lot_number }}{% endblock %}
+{% block content %}
+
+{% if request.query_params.get('success') %}
+<div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+{% if request.query_params.get('warning') %}
+<div class="alert alert-warning alert-dismissible fade show"><i class="bi bi-exclamation-triangle-fill me-2"></i>{{ request.query_params.get('warning') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+
+<!-- ── Top KPI Cards ── -->
+<div class="row g-3 mb-4">
+  <div class="col-md-2">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="text-muted small mb-1">Supplier</div>
+      <div class="fw-semibold small">{{ lot.supplier_name }}</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="text-muted small mb-1">Buying Price</div>
+      <div class="fw-bold text-danger">₹{{ "{:,.0f}".format(lot.buying_price) }}</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="text-muted small mb-1">Qty / Registered</div>
+      <div class="fw-semibold">{{ lot.qty }} / {{ devices|length }}</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="text-muted small mb-1">Invoice Value</div>
+      <div class="fw-semibold">{% if lot.invoice_value %}₹{{ "{:,.0f}".format(lot.invoice_value) }}{% else %}—{% endif %}</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="text-muted small mb-1">Total GST</div>
+      {% set total_gst = (lot.sgst or 0) + (lot.cgst or 0) + (lot.igst or 0) %}
+      <div class="fw-semibold text-info">₹{{ "{:,.0f}".format(total_gst) }}</div>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="text-muted small mb-1">Purchase Date</div>
+      <div class="fw-semibold">{{ lot.purchase_date.strftime('%d-%m-%Y') }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4 mb-4">
+  <!-- ── GRN / Invoice Details ── -->
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-receipt me-2"></i>GRN & Invoice Details</span>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-success py-0" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#grnInlineForm">
+            <i class="bi bi-receipt-cutoff me-1"></i>Record GRN
+          </button>
+          <a href="/grn/new?lot_id={{ lot.id }}" class="btn btn-sm btn-outline-success py-0">
+            <i class="bi bi-file-earmark-plus me-1"></i>Submit GRN (Full Form)
+          </a>
+          <a href="/lots/{{ lot.id }}/register" class="btn btn-sm btn-success py-0">
+            <i class="bi bi-upc-scan me-1"></i>Register Barcodes (GRN)
+          </a>
+          <a href="/lots/{{ lot.id }}/edit" class="btn btn-sm btn-outline-primary py-0">
+            <i class="bi bi-pencil me-1"></i>Edit
+          </a>
+        </div>
+      </div>
+      {# ── Inline GRN form (collapsed by default) ─────────── #}
+      <div class="collapse" id="grnInlineForm">
+        <div class="card-body border-bottom bg-light py-3">
+          <form method="post" action="/grn/submit">
+            <input type="hidden" name="lot_id" value="{{ lot.id }}">
+            <div class="row g-2 align-items-end">
+              <div class="col-md-2">
+                <label class="form-label small fw-semibold mb-1">Expected Qty</label>
+                <input type="number" name="expected_qty" class="form-control form-control-sm"
+                       value="{{ lot.qty }}" min="1" required>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small fw-semibold mb-1">Received Qty <span class="text-danger">*</span></label>
+                <input type="number" name="received_qty" class="form-control form-control-sm"
+                       placeholder="Actual count" min="0" required>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small fw-semibold mb-1">GRN Reference No.</label>
+                <input type="text" name="grn_number" class="form-control form-control-sm font-monospace"
+                       value="{{ lot.grn_number_new or '' }}" placeholder="GRN-2025-001">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small fw-semibold mb-1">Notes</label>
+                <input type="text" name="notes" class="form-control form-control-sm"
+                       placeholder="Optional remarks">
+              </div>
+              <div class="col-md-2">
+                <button type="submit" class="btn btn-success btn-sm w-100">
+                  <i class="bi bi-check2-circle me-1"></i>Submit GRN
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="card-body">
+        <table class="table table-sm table-borderless mb-0">
+          <tbody>
+            <tr><th class="text-muted w-40">GRN System No.</th><td>{{ lot.grn_system_number or '—' }}</td></tr>
+            <tr><th class="text-muted">GRN Number</th><td>{{ lot.grn_number_new or '—' }}</td></tr>
+            <tr><th class="text-muted">Material Received</th><td>{{ lot.grn_date.strftime('%d-%m-%Y') if lot.grn_date else '—' }}</td></tr>
+            <tr><th class="text-muted">Invoice No.</th><td><span class="font-monospace">{{ lot.invoice_no or '—' }}</span></td></tr>
+            <tr><th class="text-muted">Invoice Date</th><td>{{ lot.invoice_date.strftime('%d-%m-%Y') if lot.invoice_date else '—' }}</td></tr>
+            <tr><th class="text-muted">PO Number</th><td><span class="font-monospace">{{ lot.po_number or '—' }}</span></td></tr>
+            <tr><th class="text-muted">Vendor (PO)</th><td>{{ lot.vendor_name or '—' }}</td></tr>
+            <tr><th class="text-muted">Vehicle No.</th><td>{{ lot.vehicle_number or '—' }}</td></tr>
+            <tr><th class="text-muted">E-Way Bill</th><td>{{ lot.e_way_bill or '—' }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── GST Breakdown ── -->
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-currency-rupee me-2"></i>Financial & GST Breakdown
+      </div>
+      <div class="card-body">
+        <table class="table table-sm table-borderless mb-0">
+          <tbody>
+            <tr><th class="text-muted w-40">Invoice Value</th>
+                <td class="fw-semibold">{% if lot.invoice_value %}₹{{ "{:,.2f}".format(lot.invoice_value) }}{% else %}—{% endif %}</td></tr>
+            <tr><th class="text-muted">Taxable Amount</th>
+                <td>{% if lot.taxable_amount %}₹{{ "{:,.2f}".format(lot.taxable_amount) }}{% else %}—{% endif %}</td></tr>
+            <tr><td colspan="2"><hr class="my-1"></td></tr>
+            <tr><th class="text-muted">SGST</th>
+                <td>{% if lot.sgst %}₹{{ "{:,.2f}".format(lot.sgst) }}{% else %}—{% endif %}</td></tr>
+            <tr><th class="text-muted">CGST</th>
+                <td>{% if lot.cgst %}₹{{ "{:,.2f}".format(lot.cgst) }}{% else %}—{% endif %}</td></tr>
+            <tr><th class="text-muted">IGST</th>
+                <td>{% if lot.igst %}₹{{ "{:,.2f}".format(lot.igst) }}{% else %}—{% endif %}</td></tr>
+            <tr class="table-warning"><th>Total GST</th>
+                <td class="fw-bold">₹{{ "{:,.2f}".format((lot.sgst or 0) + (lot.cgst or 0) + (lot.igst or 0)) }}</td></tr>
+            <tr><td colspan="2"><hr class="my-1"></td></tr>
+            <tr class="table-primary"><th>Lot Buying Price</th>
+                <td class="fw-bold text-danger">₹{{ "{:,.2f}".format(lot.buying_price) }}</td></tr>
+          </tbody>
+        </table>
+        {% if lot.notes %}
+        <div class="alert alert-light mt-3 mb-0 py-2 small"><i class="bi bi-info-circle me-1"></i>{{ lot.notes }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Lot Profit Summary ──────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent fw-semibold">
+    <i class="bi bi-graph-up me-2"></i>Lot P&amp;L Summary
+  </div>
+  <div class="card-body">
+    <div class="row g-3 text-center">
+      <div class="col-6 col-md-2">
+        <div class="small text-muted">Revenue</div>
+        <div class="fw-bold">₹{{ "{:,.0f}".format(lot_revenue) }}</div>
+      </div>
+      <div class="col-6 col-md-2">
+        <div class="small text-muted">Buying Cost</div>
+        <div class="fw-bold text-danger">₹{{ "{:,.0f}".format(lot_buying) }}</div>
+      </div>
+      <div class="col-6 col-md-2">
+        <div class="small text-muted">Parts Cost</div>
+        <div class="fw-bold text-danger">₹{{ "{:,.0f}".format(lot_parts_cost) }}</div>
+      </div>
+      <div class="col-6 col-md-2">
+        <div class="small text-muted">Labour Cost</div>
+        <div class="fw-bold text-danger">₹{{ "{:,.0f}".format(lot_labour_cost) }}</div>
+      </div>
+      <div class="col-6 col-md-2">
+        <div class="small text-muted">Cosmetic Cost</div>
+        <div class="fw-bold text-danger">₹{{ "{:,.0f}".format(lot_cosmetic_cost) }}</div>
+      </div>
+      <div class="col-6 col-md-2">
+        <div class="small text-muted">Net Profit</div>
+        <div class="fw-bold {% if lot_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
+          ₹{{ "{:,.0f}".format(lot_profit) }}
+          <span class="badge {% if lot_profit >= 0 %}bg-success{% else %}bg-danger{% endif %} ms-1">
+            {{ lot_margin }}%
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Invoice Line Items (Category/Model-wise Prices) ── -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+    <span class="fw-semibold"><i class="bi bi-list-columns-reverse me-2"></i>Invoice Line Items — Category & Model-wise Prices</span>
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm btn-outline-secondary" onclick="exportLineItemsCSV()">
+        <i class="bi bi-download me-1"></i>Export CSV
+      </button>
+      <button class="btn btn-sm btn-outline-primary" onclick="openBulkLineImport()">
+        <i class="bi bi-upload me-1"></i>Bulk Import
+      </button>
+      <button class="btn btn-sm btn-success" onclick="openAddLineItem()">
+        <i class="bi bi-plus-circle me-1"></i>Add Line Item
+      </button>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div id="lineItemsContainer">
+      {% if line_items %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0" id="lineItemsTable">
+          <thead class="table-light">
+            <tr>
+              <th>#</th>
+              <th>Category</th>
+              <th>Brand / Model</th>
+              <th>Specs</th>
+              <th>Grade</th>
+              <th class="text-end">Unit Price</th>
+              <th class="text-center">Qty</th>
+              <th class="text-end">Line Total</th>
+              <th>Notes</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set ns = namespace(grand_total=0, grand_qty=0) %}
+            {% for item in line_items %}
+            {% set line_total = item.unit_price * item.qty %}
+            {% set ns.grand_total = ns.grand_total + line_total %}
+            {% set ns.grand_qty = ns.grand_qty + item.qty %}
+            <tr data-id="{{ item.id }}">
+              <td class="text-muted small">{{ loop.index }}</td>
+              <td>
+                <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle">
+                  {{ item.sub_category }}
+                </span>
+              </td>
+              <td>
+                <div class="fw-semibold small">{{ item.brand or '' }} {{ item.model or '' }}</div>
+                {% if item.cpu %}<div class="text-muted" style="font-size:.72rem;">{{ item.cpu }}{% if item.generation %} · {{ item.generation }}{% endif %}</div>{% endif %}
+              </td>
+              <td class="small">
+                {% if item.ram_gb %}
+                  <span class="badge bg-info bg-opacity-10 text-info border border-info-subtle me-1">{{ item.ram_gb }}GB RAM</span>
+                {% elif item.has_ram == false %}
+                  <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle me-1">No RAM</span>
+                {% endif %}
+                {% if item.storage_gb and item.storage_type %}
+                  <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle me-1">{{ item.storage_gb }}GB {{ item.storage_type }}</span>
+                {% elif item.storage_gb %}
+                  <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle me-1">{{ item.storage_gb }}GB</span>
+                {% elif item.has_storage == false %}
+                  <span class="badge bg-warning bg-opacity-10 text-warning border border-warning-subtle me-1">No HDD/SSD</span>
+                {% endif %}
+                {% if item.screen_size %}<span class="badge bg-light text-dark border me-1">{{ item.screen_size }}"</span>{% endif %}
+              </td>
+              <td>{% if item.grade %}<span class="badge bg-dark bg-opacity-10 text-dark border">{{ item.grade }}</span>{% else %}—{% endif %}</td>
+              <td class="text-end fw-semibold">₹{{ "{:,.0f}".format(item.unit_price) }}</td>
+              <td class="text-center">{{ item.qty }}</td>
+              <td class="text-end fw-bold text-success">₹{{ "{:,.0f}".format(item.unit_price * item.qty) }}</td>
+              <td class="text-muted small">{{ item.notes or '' }}</td>
+              <td class="text-nowrap">
+                <button class="btn btn-xs btn-outline-secondary py-0 px-1 me-1"
+                        onclick="editLineItem('{{ item.id }}', {{ {'id': item.id|string, 'sub_category': item.sub_category, 'brand': item.brand or '', 'model': item.model or '', 'cpu': item.cpu or '', 'generation': item.generation or '', 'ram_gb': item.ram_gb, 'has_ram': item.has_ram, 'storage_gb': item.storage_gb, 'storage_type': item.storage_type or '', 'has_storage': item.has_storage, 'screen_size': item.screen_size or '', 'grade': item.grade or '', 'unit_price': item.unit_price|string, 'qty': item.qty, 'notes': item.notes or ''} | tojson }})" title="Edit">
+                  <i class="bi bi-pencil" style="font-size:.7rem;"></i>
+                </button>
+                <button class="btn btn-xs btn-outline-danger py-0 px-1"
+                        onclick="deleteLineItem('{{ item.id }}')" title="Delete">
+                  <i class="bi bi-trash" style="font-size:.7rem;"></i>
+                </button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot class="table-dark">
+            <tr>
+              <td colspan="6" class="text-end fw-bold">Grand Total</td>
+              <td class="text-center fw-bold" id="footerQty">{{ ns.grand_qty }}</td>
+              <td class="text-end fw-bold text-warning" id="footerTotal">₹{{ "{:,.0f}".format(ns.grand_total) }}</td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {% else %}
+      <div class="text-center py-5 text-muted" id="emptyLineItems">
+        <i class="bi bi-list-columns-reverse fs-1 d-block mb-2"></i>
+        No invoice line items recorded yet.
+        <br><a href="#" onclick="openAddLineItem();return false;" class="btn btn-sm btn-success mt-2">
+          <i class="bi bi-plus-circle me-1"></i>Add First Line Item
+        </a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ── Add / Edit Line Item Modal ── -->
+<div class="modal fade" id="lineItemModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title fw-semibold" id="lineItemModalTitle"><i class="bi bi-plus-circle me-2"></i>Add Invoice Line Item</h6>
+        <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="liEditId">
+        <div class="row g-3">
+          <!-- Row 1: Category, Brand, Model -->
+          <div class="col-md-3">
+            <label class="form-label fw-semibold">Category <span class="text-danger">*</span></label>
+            <select id="liSubCat" class="form-select form-select-sm" required>
+              <option value="Laptop">Laptop</option>
+              <option value="Desktop">Desktop</option>
+              <option value="All-in-One">All-in-One</option>
+              <option value="Workstation">Workstation</option>
+              <option value="Mini PC">Mini PC</option>
+              <option value="Tablet">Tablet</option>
+              <option value="Monitor">Monitor</option>
+              <option value="TFT Screen">TFT Screen</option>
+              <option value="UPS">UPS</option>
+              <option value="Printer">Printer</option>
+              <option value="Server">Server</option>
+              <option value="Chromebook">Chromebook</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold">Brand</label>
+            <input type="text" id="liBrand" class="form-control form-control-sm" placeholder="HP, Dell, Lenovo...">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">Model</label>
+            <input type="text" id="liModel" class="form-control form-control-sm" placeholder="EliteBook 840 G6, Latitude 5490...">
+          </div>
+          <!-- Row 2: CPU, Generation, Screen Size -->
+          <div class="col-md-5">
+            <label class="form-label">CPU / Processor</label>
+            <input type="text" id="liCpu" class="form-control form-control-sm" placeholder="Intel Core i5-8250U">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Generation</label>
+            <input type="text" id="liGen" class="form-control form-control-sm" placeholder="8th Gen">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Screen Size</label>
+            <input type="text" id="liScreen" class="form-control form-control-sm" placeholder='14.0"'>
+          </div>
+          <!-- Row 3: RAM -->
+          <div class="col-md-3">
+            <label class="form-label fw-semibold">RAM (GB)</label>
+            <input type="number" id="liRam" class="form-control form-control-sm" placeholder="8">
+          </div>
+          <div class="col-md-3 d-flex align-items-end pb-1">
+            <div class="form-check ms-2">
+              <input class="form-check-input" type="checkbox" id="liHasRam" checked>
+              <label class="form-check-label small" for="liHasRam">Includes RAM</label>
+            </div>
+          </div>
+          <!-- Row 4: Storage -->
+          <div class="col-md-2">
+            <label class="form-label fw-semibold">Storage (GB)</label>
+            <input type="number" id="liStorageGb" class="form-control form-control-sm" placeholder="256">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label fw-semibold">Type</label>
+            <select id="liStorageType" class="form-select form-select-sm">
+              <option value="">—</option>
+              <option value="SSD">SSD</option>
+              <option value="NVMe SSD">NVMe SSD</option>
+              <option value="HDD">HDD</option>
+              <option value="eMMC">eMMC</option>
+              <option value="SSHD">SSHD</option>
+            </select>
+          </div>
+          <div class="col-md-2 d-flex align-items-end pb-1">
+            <div class="form-check ms-2">
+              <input class="form-check-input" type="checkbox" id="liHasStorage" checked>
+              <label class="form-check-label small" for="liHasStorage">Includes Storage</label>
+            </div>
+          </div>
+          <!-- Row 5: Grade, Unit Price, Qty -->
+          <div class="col-md-2">
+            <label class="form-label">Grade</label>
+            <select id="liGrade" class="form-select form-select-sm">
+              <option value="">—</option>
+              <option value="A">Grade A</option>
+              <option value="B">Grade B</option>
+              <option value="C">Grade C</option>
+              <option value="D">Grade D</option>
+              <option value="Scrap">Scrap</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold">Unit Price (₹) <span class="text-danger">*</span></label>
+            <input type="number" id="liUnitPrice" class="form-control form-control-sm" placeholder="3500" min="0" step="0.01" required>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label fw-semibold">Qty <span class="text-danger">*</span></label>
+            <input type="number" id="liQty" class="form-control form-control-sm" value="1" min="1" required>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label">Notes</label>
+            <input type="text" id="liNotes" class="form-control form-control-sm" placeholder="Optional notes from invoice">
+          </div>
+          <!-- Preview -->
+          <div class="col-12">
+            <div class="alert alert-info py-2 small mb-0" id="liPreview">
+              Fill in details above to see preview
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" onclick="saveLineItem()">
+          <i class="bi bi-save me-1"></i>Save Line Item
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Bulk Import Line Items Modal ── -->
+<div class="modal fade" id="bulkLineModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title fw-semibold"><i class="bi bi-upload me-2"></i>Bulk Import Line Items</h6>
+        <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="bulkLineForm" method="post" action="/lots/{{ lot.id }}/line-items/bulk-csv" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+        <div class="modal-body">
+          <div class="alert alert-info py-2 small">
+            CSV columns: <strong>sub_category, brand, model, cpu, generation, ram_gb, has_ram, storage_gb, storage_type, has_storage, screen_size, grade, unit_price, qty, notes</strong>
+            <br>Required: <strong>sub_category, unit_price</strong>. has_ram/has_storage: yes/no.
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">CSV File</label>
+            <input type="file" name="file" class="form-control" accept=".csv" required>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="downloadLineItemTemplate()">
+            <i class="bi bi-download me-1"></i>Download Template
+          </button>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-upload me-1"></i>Import</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ── Devices Table ── -->
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+    <span class="fw-semibold"><i class="bi bi-laptop me-2"></i>Devices in this Lot ({{ devices|length }})</span>
+    <a href="/iqc?lot={{ lot.lot_number }}" class="btn btn-sm btn-outline-success">
+      <i class="bi bi-plus-circle me-1"></i>Register Device
+    </a>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="deviceTable" class="table table-hover mb-0 small">
+        <thead class="table-dark">
+          <tr>
+            <th>Barcode</th><th>Brand</th><th>Model</th><th>CPU</th><th>RAM</th>
+            <th>Storage</th><th>Grade</th><th>Stage</th><th>Floor</th>
+            <th class="text-center" title="IQC done">IQC</th>
+            <th class="text-center" title="Repair attempts">Repairs</th>
+            <th class="text-center" title="QC checks">QC</th>
+            <th class="text-center">Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in devices %}
+          {% set did = d.id | string %}
+          <tr>
+            <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none fw-semibold">{{ d.barcode }}</a></td>
+            <td>{{ d.brand or '—' }}</td>
+            <td>{{ d.model or '—' }}</td>
+            <td>{{ d.cpu or '—' }}</td>
+            <td>{{ (d.ram_gb|string ~ ' GB') if d.ram_gb else '—' }}</td>
+            <td>{{ (d.storage_gb|string ~ ' GB ' ~ (d.storage_type or '')) if d.storage_gb else '—' }}</td>
+            <td>{{ d.grade or '—' }}</td>
+            <td><span class="badge bg-primary">{{ d.current_stage.value.replace('_',' ').title() }}</span></td>
+            <td>{{ d.floor or '—' }}</td>
+            <td class="text-center">
+              {% if did in iqc_set %}
+              <span class="badge bg-success" title="IQC completed"><i class="bi bi-check-circle"></i></span>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% set rc = repair_map.get(did, 0) %}
+              {% if rc > 0 %}
+              <span class="badge bg-info text-dark" title="{{ rc }} repair attempt(s)">{{ rc }}</span>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% set qc = qc_map.get(did, 0) %}
+              {% if qc > 0 %}
+              <span class="badge bg-purple" style="background:#6f42c1" title="{{ qc }} QC check(s)">{{ qc }}</span>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if did in sold_set %}
+              <span class="badge bg-success">Sold</span>
+              {% else %}
+              <span class="badge bg-secondary">Available</span>
+              {% endif %}
+            </td>
+            <td><a href="/devices/{{ d.barcode }}" class="btn btn-sm btn-outline-primary py-0">View</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){ $('#deviceTable').DataTable({pageLength:25, order:[[0,'asc']]}) });
+
+const LOT_ID = "{{ lot.id }}";
+
+// ─── Line Items ─────────────────────────────────────────────────────────────
+
+function openAddLineItem() {
+  document.getElementById('liEditId').value = '';
+  document.getElementById('lineItemModalTitle').innerHTML = '<i class="bi bi-plus-circle me-2"></i>Add Invoice Line Item';
+  ['liSubCat','liBrand','liModel','liCpu','liGen','liScreen','liRam','liStorageGb','liNotes'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el.tagName === 'SELECT') el.selectedIndex = 0; else el.value = '';
+  });
+  document.getElementById('liStorageType').value = '';
+  document.getElementById('liGrade').value = '';
+  document.getElementById('liHasRam').checked = true;
+  document.getElementById('liHasStorage').checked = true;
+  document.getElementById('liUnitPrice').value = '';
+  document.getElementById('liQty').value = '1';
+  updateLiPreview();
+  new bootstrap.Modal(document.getElementById('lineItemModal')).show();
+}
+
+function editLineItem(id, item) {
+  document.getElementById('liEditId').value = id;
+  document.getElementById('lineItemModalTitle').innerHTML = '<i class="bi bi-pencil me-2"></i>Edit Line Item';
+  document.getElementById('liSubCat').value   = item.sub_category || 'Laptop';
+  document.getElementById('liBrand').value    = item.brand || '';
+  document.getElementById('liModel').value    = item.model || '';
+  document.getElementById('liCpu').value      = item.cpu || '';
+  document.getElementById('liGen').value      = item.generation || '';
+  document.getElementById('liScreen').value   = item.screen_size || '';
+  document.getElementById('liRam').value      = item.ram_gb || '';
+  document.getElementById('liHasRam').checked = item.has_ram !== false;
+  document.getElementById('liStorageGb').value   = item.storage_gb || '';
+  document.getElementById('liStorageType').value = item.storage_type || '';
+  document.getElementById('liHasStorage').checked = item.has_storage !== false;
+  document.getElementById('liGrade').value    = item.grade || '';
+  document.getElementById('liUnitPrice').value = item.unit_price || '';
+  document.getElementById('liQty').value      = item.qty || 1;
+  document.getElementById('liNotes').value    = item.notes || '';
+  updateLiPreview();
+  new bootstrap.Modal(document.getElementById('lineItemModal')).show();
+}
+
+function getLineItemPayload() {
+  return {
+    sub_category: document.getElementById('liSubCat').value,
+    brand:        document.getElementById('liBrand').value,
+    model:        document.getElementById('liModel').value,
+    cpu:          document.getElementById('liCpu').value,
+    generation:   document.getElementById('liGen').value,
+    screen_size:  document.getElementById('liScreen').value,
+    ram_gb:       document.getElementById('liRam').value || null,
+    has_ram:      document.getElementById('liHasRam').checked,
+    storage_gb:   document.getElementById('liStorageGb').value || null,
+    storage_type: document.getElementById('liStorageType').value,
+    has_storage:  document.getElementById('liHasStorage').checked,
+    grade:        document.getElementById('liGrade').value,
+    unit_price:   parseFloat(document.getElementById('liUnitPrice').value) || 0,
+    qty:          parseInt(document.getElementById('liQty').value) || 1,
+    notes:        document.getElementById('liNotes').value,
+  };
+}
+
+function updateLiPreview() {
+  const p = getLineItemPayload();
+  const specs = [];
+  if (p.ram_gb) specs.push(`${p.ram_gb}GB RAM`);
+  else if (!p.has_ram) specs.push('No RAM');
+  if (p.storage_gb && p.storage_type) specs.push(`${p.storage_gb}GB ${p.storage_type}`);
+  else if (p.storage_gb) specs.push(`${p.storage_gb}GB`);
+  else if (!p.has_storage) specs.push('No HDD/SSD');
+  const label = [p.sub_category, p.brand, p.model, specs.length ? `[${specs.join(', ')}]` : ''].filter(Boolean).join(' — ');
+  const total = (p.unit_price * p.qty).toLocaleString('en-IN', {style:'currency', currency:'INR', maximumFractionDigits:0});
+  document.getElementById('liPreview').innerHTML = `<strong>${label}</strong> &nbsp;·&nbsp; ₹${p.unit_price.toLocaleString('en-IN')} × ${p.qty} = <strong>${total}</strong>`;
+}
+
+['liSubCat','liBrand','liModel','liCpu','liGen','liScreen','liRam','liHasRam','liStorageGb','liStorageType','liHasStorage','liGrade','liUnitPrice','liQty','liNotes'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', updateLiPreview), el.addEventListener('change', updateLiPreview);
+});
+
+async function saveLineItem() {
+  const editId = document.getElementById('liEditId').value;
+  const payload = getLineItemPayload();
+  if (!payload.unit_price) { alert('Unit price is required'); return; }
+
+  const url = editId
+    ? `/lots/${LOT_ID}/line-items/${editId}`
+    : `/lots/${LOT_ID}/line-items`;
+  const method = editId ? 'PUT' : 'POST';
+
+  const resp = await fetch(url, {
+    method,
+    headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken()},
+    body: JSON.stringify(payload)
+  });
+  const data = await resp.json();
+  if (data.ok) {
+    bootstrap.Modal.getInstance(document.getElementById('lineItemModal'))?.hide();
+    location.reload();
+  } else {
+    alert('Error: ' + (data.error || 'unknown'));
+  }
+}
+
+async function deleteLineItem(id) {
+  if (!confirm('Delete this line item?')) return;
+  const resp = await fetch(`/lots/${LOT_ID}/line-items/${id}`, { method: 'DELETE', headers: {'X-CSRF-Token': getCsrfToken()} });
+  const data = await resp.json();
+  if (data.ok) location.reload();
+  else alert('Error: ' + (data.error || 'unknown'));
+}
+
+function openBulkLineImport() {
+  new bootstrap.Modal(document.getElementById('bulkLineModal')).show();
+}
+
+function downloadLineItemTemplate() {
+  const csv = 'sub_category,brand,model,cpu,generation,ram_gb,has_ram,storage_gb,storage_type,has_storage,screen_size,grade,unit_price,qty,notes\nLaptop,HP,EliteBook 840 G6,Intel Core i5-8250U,8th Gen,8,yes,,, no,14.0,B,3500,5,From invoice\nDesktop,Dell,OptiPlex 7060,Intel Core i7-8700,,8,yes,500,HDD,yes,,B,2800,3,\n';
+  const blob = new Blob([csv], {type: 'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'line_items_template.csv'; a.click();
+}
+
+function exportLineItemsCSV() {
+  window.location.href = `/lots/${LOT_ID}/line-items/export`;
+}
+</script>
+{% endblock %}

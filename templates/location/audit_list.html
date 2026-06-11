@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Inventory Audits — OxyPC{% endblock %}
+{% block page_title %}Physical Inventory Audits{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <p class="text-muted mb-0">Monthly physical audits — compare system records vs actual floor count</p>
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newAuditModal">
+    <i class="bi bi-clipboard-plus me-1"></i> Initiate New Audit
+  </button>
+</div>
+
+<!-- Audit history table -->
+<div class="card shadow-sm border-0">
+  <div class="card-body p-0">
+    <table class="table table-hover table-sm mb-0" id="auditTable">
+      <thead class="table-light">
+        <tr>
+          <th>Audit #</th>
+          <th>Zone Scope</th>
+          <th>Status</th>
+          <th>Initiated By</th>
+          <th>Date</th>
+          <th>Expected</th>
+          <th>Found</th>
+          <th>Missing</th>
+          <th>Extra</th>
+          <th>Accuracy</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for audit in audits %}
+        <tr>
+          <td><span class="badge bg-dark">{{ audit.audit_number }}</span></td>
+          <td>
+            {% if audit.zone_filter %}
+              {{ zone_labels.get(audit.zone_filter, audit.zone_filter) }}
+            {% else %}
+              <span class="text-muted">All Zones</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if audit.status.value == 'completed' %}
+              <span class="badge bg-success">Completed</span>
+            {% elif audit.status.value == 'in_progress' %}
+              <span class="badge bg-warning text-dark">In Progress</span>
+            {% else %}
+              <span class="badge bg-secondary">Pending</span>
+            {% endif %}
+          </td>
+          <td class="small">{{ audit.initiated_by_name or "—" }}</td>
+          <td class="text-muted small">{{ audit.initiated_at.strftime('%d %b %Y') }}</td>
+          <td class="text-center">{{ audit.expected_count }}</td>
+          <td class="text-center {% if audit.found_count < audit.expected_count %}text-warning{% else %}text-success{% endif %}">
+            {{ audit.found_count }}
+          </td>
+          <td class="text-center {% if audit.missing_count > 0 %}text-danger fw-bold{% endif %}">
+            {{ audit.missing_count }}
+          </td>
+          <td class="text-center {% if audit.extra_count > 0 %}text-info{% endif %}">
+            {{ audit.extra_count }}
+          </td>
+          <td class="text-center">
+            {% if audit.status.value == 'completed' and audit.expected_count > 0 %}
+              {% set acc = ((audit.found_count / audit.expected_count) * 100) | round(1) %}
+              <span class="badge {% if acc >= 95 %}bg-success{% elif acc >= 80 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                {{ acc }}%
+              </span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="/locations/audit/{{ audit.id }}" class="btn btn-sm btn-outline-primary py-0">
+              {% if audit.status.value == 'in_progress' %}Continue{% else %}View{% endif %}
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- New Audit Modal -->
+<div class="modal fade" id="newAuditModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form action="/locations/audit/create" method="post">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-clipboard-plus me-2"></i>Initiate Physical Audit</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Zone Scope</label>
+            <select name="zone_filter" class="form-select">
+              <option value="">All Zones (Full Audit)</option>
+              {% for z in zone_types %}
+              <option value="{{ z.value }}">{{ zone_labels[z] }} only</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Restrict to one zone for faster partial audits</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Notes</label>
+            <textarea name="notes" class="form-control" rows="2"
+                      placeholder="e.g. Monthly audit March 2026 — Ground Floor"></textarea>
+          </div>
+          <div class="alert alert-info py-2 small">
+            <i class="bi bi-info-circle me-1"></i>
+            The system will calculate the <strong>expected device count</strong> from current location records.
+            You will then physically scan barcodes to compare.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Start Audit</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function(){ $('#auditTable').DataTable({pageLength:20, order:[[4,'desc']]}); });
+</script>
+{% endblock %}

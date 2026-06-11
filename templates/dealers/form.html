@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}{% if dealer %}Edit Dealer{% else %}New Dealer{% endif %} — OxyPC{% endblock %}
+{% block page_title %}{% if dealer %}Edit Dealer{% else %}Add Dealer{% endif %}{% endblock %}
+{% block content %}
+
+<div class="row justify-content-center">
+  <div class="col-xl-9">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <form method="post" action="{% if dealer %}/dealers/{{ dealer.id }}/edit{% else %}/dealers/new{% endif %}">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Business Name <span class="text-danger">*</span></label>
+              <input type="text" name="business_name" class="form-control" value="{{ dealer.business_name if dealer else '' }}" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Contact First Name <span class="text-muted small">(for WA: Hello Rajesh,)</span></label>
+              <input type="text" name="first_name" class="form-control" placeholder="e.g. Rajesh" value="{{ dealer.first_name if dealer else '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Contact Last Name</label>
+              <input type="text" name="last_name" class="form-control" placeholder="e.g. Kumar" value="{{ dealer.last_name if dealer else '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Contact Person / Company</label>
+              <input type="text" name="contact_person" class="form-control" value="{{ dealer.contact_person if dealer else '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Dealer Type</label>
+              <select name="dealer_type" class="form-select">
+                {% for t in ['retail','wholesale','corporate','service'] %}
+                <option value="{{ t }}" {% if dealer and dealer.dealer_type==t %}selected{% endif %}>{{ t | title }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Phone</label>
+              <input type="text" name="phone" class="form-control" value="{{ dealer.phone if dealer else '' }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">WhatsApp Number</label>
+              <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-whatsapp text-success"></i></span>
+                <input type="text" name="whatsapp_number" class="form-control" placeholder="91XXXXXXXXXX" value="{{ dealer.whatsapp_number if dealer else '' }}">
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Email</label>
+              <input type="email" name="email" class="form-control" value="{{ dealer.email if dealer else '' }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">GSTIN</label>
+              <input type="text" name="gstin" class="form-control" value="{{ dealer.gstin if dealer else '' }}" maxlength="15">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Address</label>
+              <textarea name="address" class="form-control" rows="2">{{ dealer.address if dealer else '' }}</textarea>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">City</label>
+              <input type="text" name="city" class="form-control" value="{{ dealer.city if dealer else '' }}">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">State</label>
+              <input type="text" name="state" class="form-control" value="{{ dealer.state if dealer else '' }}">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Pincode</label>
+              <input type="text" name="pincode" class="form-control" value="{{ dealer.pincode if dealer else '' }}" maxlength="6">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Preferred Categories</label>
+              <input type="text" name="preferred_categories" class="form-control" placeholder="Laptop, Desktop, TFT" value="{{ dealer.preferred_categories if dealer else '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Credit Limit (₹)</label>
+              <input type="number" name="credit_limit" class="form-control" value="{{ dealer.credit_limit if dealer else 0 }}" step="0.01" min="0">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Assigned To (Sales Exec)</label>
+              <select name="assigned_to" class="form-select">
+                <option value="">Unassigned</option>
+                {% for u in sales_users %}
+                <option value="{{ u.username }}" {% if dealer and dealer.assigned_to==u.username %}selected{% endif %}>{{ u.full_name }} ({{ u.username }})</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Status</label>
+              <select name="status" class="form-select">
+                {% for s in ['active','inactive','blacklisted'] %}
+                <option value="{{ s }}" {% if dealer and dealer.status==s %}selected{% endif %}>{{ s | title }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Internal Notes</label>
+              <textarea name="notes" class="form-control" rows="2" placeholder="Internal notes about this dealer...">{{ dealer.notes if dealer else '' }}</textarea>
+            </div>
+          </div>
+          <div class="mt-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle me-1"></i>Save Dealer</button>
+            <a href="/dealers" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

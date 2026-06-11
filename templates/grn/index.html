@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}GRN / Intake Control{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4><i class="bi bi-box-seam me-2 text-primary"></i>GRN — Goods Receipt Notes</h4>
+  <a href="/grn/new" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>New GRN</a>
+</div>
+
+{% if request.query_params.get('success') %}
+<div class="alert alert-success alert-dismissible fade show">{{ request.query_params.get('success') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+{% if request.query_params.get('warning') %}
+<div class="alert alert-warning alert-dismissible fade show"><i class="bi bi-exclamation-triangle me-2"></i>{{ request.query_params.get('warning') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead class="table-primary">
+        <tr>
+          <th>Lot Number</th><th>Supplier</th><th>GRN Number</th>
+          <th>GRN Date</th><th>Received Qty</th><th>Actual Devices</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in lot_data %}
+        {% set lot = item.lot %}
+        <tr class="{% if item.mismatch %}table-warning{% endif %}">
+          <td><a href="/lots/{{ lot.id }}" class="text-decoration-none fw-semibold">{{ lot.lot_number }}</a></td>
+          <td>{{ lot.supplier_name or '—' }}</td>
+          <td class="font-monospace small">{{ lot.grn_number_new or lot.grn_system_number or '—' }}</td>
+          <td class="text-muted small">{{ lot.grn_date.strftime('%d %b %Y') if lot.grn_date else '—' }}</td>
+          <td>{{ item.grn_received }}</td>
+          <td class="fw-semibold {% if item.mismatch %}text-danger{% else %}text-success{% endif %}">
+            {{ item.actual_devices }}
+          </td>
+          <td>
+            {% if item.mismatch %}
+            <span class="badge bg-warning text-dark">
+              <i class="bi bi-exclamation-triangle me-1"></i>Mismatch
+            </span>
+            {% else %}
+            <span class="badge bg-success"><i class="bi bi-check2 me-1"></i>OK</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No lots found. Create a lot first.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

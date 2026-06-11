@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}Dealer Bulk Upload — OxyPC{% endblock %}
+{% block page_title %}Dealer Bulk Upload{% endblock %}
+{% block content %}
+
+{% if error %}
+<div class="alert alert-danger alert-dismissible fade show">
+  <i class="bi bi-exclamation-circle me-2"></i>{{ error }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+{% if detected_cols %}
+<div class="alert alert-secondary py-2 small mb-3">
+  <strong>Columns detected in your file:</strong>
+  {% for c in detected_cols %}
+  <span class="badge {% if c == 'business_name' %}bg-success{% else %}bg-secondary{% endif %} me-1">{{ c }}</span>
+  {% endfor %}
+  {% if 'business_name' not in detected_cols %}
+  <div class="mt-1 text-danger fw-semibold">
+    <i class="bi bi-exclamation-triangle me-1"></i>
+    No <code>business_name</code> column found — rename your header and re-upload.
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="row g-4">
+  {# ── Upload form ── #}
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-cloud-upload me-2"></i>Upload Dealers CSV
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          Upload a CSV file to add multiple dealers at once. Download the template below to see the
+          required column format.
+        </p>
+        <div class="mb-3">
+          <a href="/dealers/bulk-upload-template" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-download me-1"></i>Download CSV Template
+          </a>
+        </div>
+        <form method="post" action="/dealers/bulk-upload" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">CSV or XLSX File <span class="text-danger">*</span></label>
+            <input type="file" name="file" class="form-control" accept=".csv,.xlsx,text/csv" required>
+            <div class="form-text">
+              Accepted: <strong>.csv</strong> or <strong>.xlsx</strong> (Excel) &nbsp;|&nbsp;
+              Column names are case-insensitive and can use spaces or underscores<br>
+              Required: <code>business_name</code> &nbsp;|&nbsp;
+              Optional: <code>contact_person, phone, email, city, dealer_type, gst_number, address, assigned_to</code>
+            </div>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-upload me-1"></i>Upload &amp; Import
+            </button>
+            <a href="/dealers" class="btn btn-outline-secondary">Back to Dealers</a>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {# ── Column guide ── #}
+    <div class="card border-0 shadow-sm mt-4">
+      <div class="card-header bg-transparent fw-semibold small">Column Reference</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0 small">
+          <thead class="table-light">
+            <tr><th>Column</th><th>Required</th><th>Valid Values</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>business_name</td><td><span class="badge bg-danger">Yes</span></td><td>Any text</td></tr>
+            <tr><td>contact_person</td><td>No</td><td>Any text</td></tr>
+            <tr><td>phone</td><td>No</td><td>10-digit number (duplicates skipped)</td></tr>
+            <tr><td>email</td><td>No</td><td>Email address</td></tr>
+            <tr><td>city</td><td>No</td><td>Any city name</td></tr>
+            <tr><td>dealer_type</td><td>No</td><td>retail, wholesale, online, corporate</td></tr>
+            <tr><td>gst_number</td><td>No</td><td>15-char GST number</td></tr>
+            <tr><td>address</td><td>No</td><td>Full address</td></tr>
+            <tr><td>assigned_to</td><td>No</td><td>Sales exec username</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {# ── Results panel ── #}
+  {% if results is not none %}
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-clipboard-check me-2"></i>Import Results
+      </div>
+      <div class="card-body">
+        <div class="row g-3 mb-3">
+          <div class="col-4 text-center">
+            <div class="fs-4 fw-bold text-success">{{ results.added|length }}</div>
+            <div class="small text-muted">Added</div>
+          </div>
+          <div class="col-4 text-center">
+            <div class="fs-4 fw-bold text-warning">{{ results.skipped|length }}</div>
+            <div class="small text-muted">Skipped</div>
+          </div>
+          <div class="col-4 text-center">
+            <div class="fs-4 fw-bold text-danger">{{ results.errors|length }}</div>
+            <div class="small text-muted">Errors</div>
+          </div>
+        </div>
+
+        {% if results.added %}
+        <h6 class="fw-semibold text-success mt-3">Added ({{ results.added|length }})</h6>
+        <div class="table-responsive" style="max-height:200px;overflow-y:auto">
+          <table class="table table-sm small mb-0">
+            <thead class="table-light sticky-top"><tr><th>Row</th><th>Business Name</th><th>Code</th></tr></thead>
+            <tbody>
+              {% for r in results.added %}
+              <tr>
+                <td>{{ r.row }}</td>
+                <td>{{ r.business_name }}</td>
+                <td><span class="badge bg-success font-monospace">{{ r.dealer_code }}</span></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+
+        {% if results.skipped %}
+        <h6 class="fw-semibold text-warning mt-3">Skipped ({{ results.skipped|length }})</h6>
+        <div class="table-responsive" style="max-height:180px;overflow-y:auto">
+          <table class="table table-sm small mb-0">
+            <thead class="table-light sticky-top"><tr><th>Row</th><th>Business</th><th>Reason</th></tr></thead>
+            <tbody>
+              {% for r in results.skipped %}
+              <tr>
+                <td>{{ r.row }}</td>
+                <td>{{ r.get('business_name', '—') }}</td>
+                <td class="text-warning">{{ r.reason }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+
+        {% if results.errors %}
+        <h6 class="fw-semibold text-danger mt-3">Errors ({{ results.errors|length }})</h6>
+        <div class="table-responsive" style="max-height:180px;overflow-y:auto">
+          <table class="table table-sm small mb-0">
+            <thead class="table-light sticky-top"><tr><th>Row</th><th>Business</th><th>Error</th></tr></thead>
+            <tbody>
+              {% for r in results.errors %}
+              <tr>
+                <td>{{ r.row }}</td>
+                <td>{{ r.get('business_name', '—') }}</td>
+                <td class="text-danger">{{ r.reason }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+
+        <div class="mt-3 d-flex gap-2">
+          <a href="/dealers" class="btn btn-primary btn-sm">
+            <i class="bi bi-people me-1"></i>View All Dealers
+          </a>
+          <a href="/dealers/bulk-upload" class="btn btn-outline-secondary btn-sm">Upload Another</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

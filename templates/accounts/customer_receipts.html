@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Customer Receipts — OxyPC{% endblock %}
+{% block page_title %}Customer Receipts{% endblock %}
+{% block content %}
+{% if request.query_params.get('success') %}
+<div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+{% if request.query_params.get('error') %}
+<div class="alert alert-danger alert-dismissible fade show">{{ request.query_params.get('error') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+
+{% if can_edit %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-plus-circle me-2"></i>Record New Receipt</div>
+  <div class="card-body">
+    <form action="/accounts/customer-receipts/new" method="post">
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">Dealer</label>
+          <select name="dealer_id" class="form-select form-select-sm">
+            <option value="">— Walk-in / No Dealer —</option>
+            {% for d in dealers %}<option value="{{ d.id }}">{{ d.business_name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-8">
+          <label class="form-label small fw-semibold">Dealer Order ID <span class="text-muted">(optional — auto-reconciles order balance)</span></label>
+          <input type="text" name="dealer_order_id" class="form-control form-control-sm font-monospace"
+                 placeholder="Paste order UUID to auto-reconcile outstanding balance">
+          <div class="form-text">If provided, the order's outstanding balance will be reduced by this receipt amount.</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Receipt Date <span class="text-danger">*</span></label>
+          <input type="date" name="receipt_date" class="form-control form-control-sm" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Amount (&#8377;) <span class="text-danger">*</span></label>
+          <input type="number" name="amount" class="form-control form-control-sm" min="0.01" step="0.01" placeholder="0" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Payment Mode</label>
+          <select name="payment_mode" class="form-select form-select-sm">
+            <option value="">— Select —</option>
+            {% for m in payment_modes %}<option value="{{ m }}">{{ m | upper }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Reference</label>
+          <input type="text" name="reference_no" class="form-control form-control-sm" placeholder="UTR / ref no">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Notes</label>
+          <input type="text" name="notes" class="form-control form-control-sm" placeholder="Notes">
+        </div>
+        <div class="col-12">
+          <button type="submit" class="btn btn-success btn-sm px-4"><i class="bi bi-check-circle me-2"></i>Record Receipt</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="d-flex justify-content-end mb-2">
+  <a href="/accounts/customer-receipts/bulk-upload" class="btn btn-outline-primary btn-sm">
+    <i class="bi bi-upload me-2"></i>Bulk Upload CSV
+  </a>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent d-flex justify-content-between">
+    <span class="fw-semibold"><i class="bi bi-list-ul me-2"></i>Receipt History</span>
+    <form class="d-flex gap-2 align-items-center" method="get" action="/accounts/customer-receipts">
+      <select name="dealer_id" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+        <option value="">All Dealers</option>
+        {% for d in dealers %}<option value="{{ d.id }}" {% if sel_dealer == d.id|string %}selected{% endif %}>{{ d.business_name }}</option>{% endfor %}
+      </select>
+    </form>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0 small">
+      <thead class="table-dark"><tr><th>Date</th><th>Contact</th><th>Dealer</th><th>Mode</th><th>Ref</th><th>Amount</th><th>By</th></tr></thead>
+      <tbody>
+        {% for r in receipts %}
+        <tr>
+          <td>{{ r.receipt_date.strftime('%d-%m-%Y') if r.receipt_date else '&mdash;' }}</td>
+          <td>{{ r.contact.company_name if r.contact else '&mdash;' }}</td>
+          <td>{{ r.dealer.business_name if r.dealer else '&mdash;' }}</td>
+          <td><span class="badge bg-secondary">{{ r.payment_mode or '&mdash;' }}</span></td>
+          <td class="font-monospace small">{{ r.reference_no or '&mdash;' }}</td>
+          <td class="fw-semibold text-success">&#8377;{{ "{:,.0f}".format(r.amount) }}</td>
+          <td class="text-muted">{{ r.created_by or '&mdash;' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No receipts recorded.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if receipts %}
+      <tfoot class="table-light">
+        <tr><td colspan="5" class="text-end fw-bold">Total:</td><td class="fw-bold text-success">&#8377;{{ "{:,.0f}".format(total) }}</td><td></td></tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+{% endblock %}

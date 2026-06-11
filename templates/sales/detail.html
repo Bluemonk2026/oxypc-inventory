@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}Sale {{ sale.sale_number }} — OxyPC{% endblock %}
+{% block page_title %}Sale Detail{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <span class="fw-bold fs-5">{{ sale.sale_number }}</span>
+    <span class="badge bg-success ms-2">₹{{ "{:,.0f}".format(sale.sale_price) }}</span>
+    <small class="text-muted ms-2">{{ sale.sold_at.strftime('%d %b %Y, %I:%M %p') }}</small>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="/invoices/print/{{ sale.id }}" target="_blank" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-receipt me-1"></i>Invoice
+    </a>
+    <a href="/invoices/waybill/{{ sale.id }}" target="_blank" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-truck me-1"></i>Waybill
+    </a>
+    <a href="/sales" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Back to List
+    </a>
+  </div>
+</div>
+
+<div class="row g-3">
+
+  {# ── Product Details ── #}
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-laptop me-2"></i>Product Details
+      </div>
+      <div class="card-body">
+        <table class="table table-sm table-borderless mb-0">
+          <tbody>
+            <tr><th class="text-muted w-40">Barcode</th>
+                <td><a href="/devices/{{ device.barcode }}" class="font-monospace fw-bold text-decoration-none">{{ device.barcode }}</a></td></tr>
+            <tr><th class="text-muted">Lot</th>
+                <td><a href="/lots/{{ lot.id }}" class="badge bg-info text-dark text-decoration-none">{{ lot.lot_number }}</a></td></tr>
+            <tr><th class="text-muted">Brand / Model</th>
+                <td>{{ device.brand or '—' }} {{ device.model or '' }}</td></tr>
+            <tr><th class="text-muted">Type</th>
+                <td>{{ device.device_type or device.sub_category or '—' }}</td></tr>
+            <tr><th class="text-muted">CPU</th>
+                <td>{{ device.cpu or '—' }}{% if device.generation %} ({{ device.generation }}){% endif %}</td></tr>
+            <tr><th class="text-muted">RAM</th>
+                <td>{% if device.ram_gb %}{{ device.ram_gb }} GB{% else %}—{% endif %}</td></tr>
+            <tr><th class="text-muted">Storage</th>
+                <td>
+                  {% if device.storage_gb %}{{ device.storage_gb }} GB {{ device.storage_type or '' }}{% endif %}
+                  {% if device.hdd_capacity_gb %} + {{ device.hdd_capacity_gb }} GB HDD{% endif %}
+                  {% if not device.storage_gb and not device.hdd_capacity_gb %}—{% endif %}
+                </td></tr>
+            <tr><th class="text-muted">Grade</th>
+                <td>
+                  {% if device.grade %}
+                  <span class="badge bg-{{ {'A':'success','B':'info','C':'warning','D':'secondary','scrap':'danger'}.get(device.grade.value, 'secondary') }}">
+                    {{ device.grade.value }}
+                  </span>
+                  {% else %}—{% endif %}
+                </td></tr>
+            <tr><th class="text-muted">Current Status</th>
+                <td>
+                  <span class="badge bg-{{ device.stage_color }}">{{ device.stage_label }}</span>
+                </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {# ── Customer Details ── #}
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-person me-2"></i>Customer Details
+      </div>
+      <div class="card-body">
+        <table class="table table-sm table-borderless mb-0">
+          <tbody>
+            <tr><th class="text-muted w-40">Name</th>
+                <td>{{ sale.customer_name or '—' }}</td></tr>
+            <tr><th class="text-muted">Phone</th>
+                <td>{{ sale.customer_phone or '—' }}</td></tr>
+            <tr><th class="text-muted">State</th>
+                <td>{{ sale.customer_state or '—' }}</td></tr>
+            <tr><th class="text-muted">Sold By</th>
+                <td>{{ sale.sold_by or '—' }}</td></tr>
+            <tr><th class="text-muted">Invoice No.</th>
+                <td>{{ sale.invoice_no or '—' }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {# ── Payment Details ── #}
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-credit-card me-2"></i>Payment Details
+      </div>
+      <div class="card-body">
+        <table class="table table-sm table-borderless mb-0">
+          <tbody>
+            <tr><th class="text-muted w-40">Sale Price</th>
+                <td class="fw-bold text-success fs-5">₹{{ "{:,.2f}".format(sale.sale_price) }}</td></tr>
+            <tr><th class="text-muted">Payment Mode</th>
+                <td>
+                  {% if sale.payment_mode %}
+                  <span class="badge bg-secondary">{{ sale.payment_mode }}</span>
+                  {% else %}—{% endif %}
+                </td></tr>
+            <tr><th class="text-muted">Payment Reference</th>
+                <td>{{ sale.payment_reference or '—' }}</td></tr>
+            <tr><th class="text-muted">Invoice No.</th>
+                <td>{{ sale.invoice_no or '—' }}</td></tr>
+            <tr><th class="text-muted">Sale Date</th>
+                <td>{{ sale.sold_at.strftime('%d-%m-%Y %H:%M') }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {# ── Transport Details ── #}
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-truck me-2"></i>Transport Details
+      </div>
+      <div class="card-body">
+        <table class="table table-sm table-borderless mb-0">
+          <tbody>
+            <tr><th class="text-muted w-40">Transport Mode</th>
+                <td>
+                  {% if sale.transport_mode %}
+                  <span class="badge bg-info text-dark">{{ sale.transport_mode | replace('_', ' ') | title }}</span>
+                  {% else %}<span class="text-muted">Not set</span>{% endif %}
+                </td></tr>
+            <tr><th class="text-muted">Courier / Via</th>
+                <td>{{ sale.transport_via or '—' }}</td></tr>
+            <tr><th class="text-muted">Tracking Number</th>
+                <td>
+                  {% if sale.tracking_number %}
+                  <span class="font-monospace">{{ sale.tracking_number }}</span>
+                  {% else %}—{% endif %}
+                </td></tr>
+            <tr><th class="text-muted">Dispatch Date</th>
+                <td>{% if sale.dispatch_date %}{{ sale.dispatch_date.strftime('%d-%m-%Y') }}{% else %}—{% endif %}</td></tr>
+            <tr><th class="text-muted">Delivery Status</th>
+                <td>
+                  {% set ds_colors = {'pending':'warning','dispatched':'info','delivered':'success'} %}
+                  {% if sale.delivery_status %}
+                  <span class="badge bg-{{ ds_colors.get(sale.delivery_status, 'secondary') }}">
+                    {{ sale.delivery_status | title }}
+                  </span>
+                  {% else %}<span class="text-muted">—</span>{% endif %}
+                </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {# ── Notes ── #}
+  {% if sale.notes %}
+  <div class="col-12">
+    <div class="alert alert-light border">
+      <i class="bi bi-info-circle me-1"></i><strong>Notes:</strong> {{ sale.notes }}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Link Sale — {{ opp.opp_number }}{% endblock %}
+{% block page_title %}Link Sale Records to {{ opp.opp_number }}{% endblock %}
+{% block content %}
+
+<div class="row justify-content-center">
+<div class="col-xl-10">
+
+  <div class="alert alert-info border-0 mb-3 py-2 small">
+    <i class="bi bi-info-circle me-1"></i>
+    Select the sale record(s) that fulfilled this opportunity. Multiple selections allowed.
+    After linking, the opportunity will advance to <strong>Invoiced</strong> stage.
+  </div>
+
+  <!-- Search bar -->
+  <form method="get" class="d-flex gap-2 mb-3">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search barcode, brand, model, sale#…"
+           class="form-control form-control-sm" style="max-width:320px">
+    <button class="btn btn-sm btn-outline-primary">Search</button>
+    {% if q %}<a href="/crm/sales/{{ opp.id }}/link-sale" class="btn btn-sm btn-outline-secondary">Clear</a>{% endif %}
+  </form>
+
+  <form method="post" action="/crm/sales/{{ opp.id }}/link-sale">
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0" id="salesLinkTable">
+            <thead class="table-light">
+              <tr>
+                <th style="width:40px"><input type="checkbox" id="selectAll" class="form-check-input"></th>
+                <th>Sale #</th>
+                <th>Barcode</th>
+                <th>Brand / Model</th>
+                <th>Grade</th>
+                <th>Lot</th>
+                <th>Sale Price</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in sales %}
+              {% set s, barcode, brand, model, grade, lot_number = row %}
+              <tr>
+                <td>
+                  <input type="checkbox" name="sale_ids" value="{{ s.id }}"
+                         class="form-check-input sale-cb"
+                         {% if s.id|string in existing_ids %}checked{% endif %}>
+                </td>
+                <td><code class="small">{{ s.sale_number }}</code></td>
+                <td><code class="small">{{ barcode or '—' }}</code></td>
+                <td class="small">{{ brand or '—' }} {{ model or '' }}</td>
+                <td>{% if grade %}<span class="badge bg-warning text-dark">{{ grade }}</span>{% else %}—{% endif %}</td>
+                <td class="small text-muted">{{ lot_number }}</td>
+                <td class="small fw-semibold">₹{{ "{:,.0f}".format(s.sale_price) }}</td>
+                <td class="small text-muted">{{ s.sold_at.strftime('%d %b %Y') if s.sold_at else '—' }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="8" class="text-center text-muted py-4">No sales found{% if q %} for "{{ q }}"{% endif %}.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">
+        <i class="bi bi-link-45deg me-1"></i>Link Selected Sales
+      </button>
+      <a href="/crm/sales/{{ opp.id }}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+  </form>
+
+</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('selectAll').addEventListener('change', function() {
+  document.querySelectorAll('.sale-cb').forEach(cb => cb.checked = this.checked);
+});
+$(document).ready(function() {
+  if ($('#salesLinkTable tbody tr').length > 5) {
+    $('#salesLinkTable').DataTable({ pageLength: 25, order: [[7, 'desc']] });
+  }
+});
+</script>
+{% endblock %}

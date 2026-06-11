@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Agent Performance — OxyPC{% endblock %}
+{% block page_title %}Telecalling Agent Performance{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <a href="/telecalling" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Back to Dashboard
+    </a>
+  </div>
+</div>
+
+{% if stats %}
+<!-- Summary stat cards -->
+<div class="row g-3 mb-4">
+  {% set total_calls = stats | sum(attribute='total') %}
+  {% set total_interested = stats | sum(attribute='interested') %}
+  {% set total_orders = stats | sum(attribute='order_placed') %}
+  {% set overall_conv = ((total_interested + total_orders) / total_calls * 100) | round(1) if total_calls else 0 %}
+  {% for label, val, color, icon in [
+      ('Total Calls', total_calls, 'primary', 'telephone'),
+      ('Interested', total_interested, 'success', 'hand-thumbs-up'),
+      ('Orders', total_orders, 'warning', 'bag-check'),
+      ('Conversion', overall_conv|string + '%', 'info', 'graph-up'),
+  ] %}
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body py-3 text-center">
+        <div class="fs-3 fw-bold text-{{ color }}">{{ val }}</div>
+        <div class="small text-muted"><i class="bi bi-{{ icon }} me-1"></i>{{ label }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Per-agent table -->
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold">
+    <i class="bi bi-person-lines-fill me-2"></i>Per-Agent Breakdown
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 small align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th>Agent</th>
+          <th class="text-center">Total Calls</th>
+          <th class="text-center text-success">Interested</th>
+          <th class="text-center text-warning">Callback</th>
+          <th class="text-center text-danger">Not Interested</th>
+          <th class="text-center text-secondary">No Answer</th>
+          <th class="text-center text-info">Order Placed</th>
+          <th class="text-center">Conversion %</th>
+          <th>Progress</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in stats %}
+        <tr>
+          <td class="fw-semibold">{{ s.agent }}</td>
+          <td class="text-center">{{ s.total }}</td>
+          <td class="text-center text-success fw-semibold">{{ s.interested }}</td>
+          <td class="text-center text-warning">{{ s.callback }}</td>
+          <td class="text-center text-danger">{{ s.not_interested }}</td>
+          <td class="text-center text-secondary">{{ s.no_answer }}</td>
+          <td class="text-center text-info fw-semibold">{{ s.order_placed }}</td>
+          <td class="text-center fw-bold {% if s.conversion_rate >= 20 %}text-success{% elif s.conversion_rate >= 10 %}text-warning{% else %}text-danger{% endif %}">
+            {{ s.conversion_rate }}%
+          </td>
+          <td style="min-width:120px">
+            <div class="progress" style="height:8px">
+              <div class="progress-bar bg-success" style="width:{{ [(s.interested / s.total * 100)|int, 100]|min }}%" title="Interested"></div>
+              <div class="progress-bar bg-info" style="width:{{ [(s.order_placed / s.total * 100)|int, 100]|min }}%" title="Orders"></div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+<div class="alert alert-info"><i class="bi bi-info-circle me-2"></i>No call data available yet.</div>
+{% endif %}
+{% endblock %}

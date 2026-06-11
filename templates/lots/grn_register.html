@@ -1,0 +1,462 @@
+{% extends "base.html" %}
+{% block title %}GRN Register — {{ lot.lot_number }}{% endblock %}
+{% block page_title %}GRN Barcode Registration{% endblock %}
+{% block content %}
+
+{% if request.query_params.get('success') %}
+<div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+
+{# ── Lot Info Banner ────────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-3" style="border-left:4px solid #075E54!important">
+  <div class="card-body py-3">
+    <div class="row g-3 align-items-center">
+      <div class="col-auto">
+        <div class="fw-bold fs-5 text-success">{{ lot.lot_number }}</div>
+        <div class="small text-muted">{{ lot.supplier_name }}</div>
+      </div>
+      <div class="col-auto border-start ps-3">
+        <div class="small text-muted">PO Number</div>
+        <div class="fw-semibold">{{ lot.po_number or '—' }}</div>
+      </div>
+      <div class="col-auto border-start ps-3">
+        <div class="small text-muted">Invoice No</div>
+        <div class="fw-semibold">{{ lot.invoice_no or '—' }}</div>
+      </div>
+      <div class="col-auto border-start ps-3">
+        <div class="small text-muted">GRN Number</div>
+        <div class="fw-semibold">{{ lot.grn_system_number or lot.grn_number_new or '—' }}</div>
+      </div>
+      <div class="col-auto border-start ps-3">
+        <div class="small text-muted">Expected Qty</div>
+        <div class="fw-bold fs-5 text-primary">{{ lot.qty }}</div>
+      </div>
+      <div class="col-auto border-start ps-3">
+        <div class="small text-muted">Registered</div>
+        <div class="fw-bold fs-5 text-success" id="totalRegistered">{{ total_registered }}</div>
+      </div>
+      <div class="col-auto border-start ps-3">
+        <div class="small text-muted">Pending</div>
+        <div class="fw-bold fs-5 text-warning" id="totalPending">{{ lot.qty - total_registered }}</div>
+      </div>
+      <div class="col ms-auto text-end">
+        <a href="/lots/{{ lot.id }}" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-arrow-left me-1"></i>Back to Lot</a>
+        <button class="btn btn-sm btn-warning" onclick="advanceToIQC()"><i class="bi bi-arrow-right-circle me-1"></i>Send All to IQC</button>
+      </div>
+    </div>
+    {# Progress bar #}
+    <div class="mt-2">
+      {% set pct = ((total_registered / lot.qty) * 100) | int if lot.qty > 0 else 0 %}
+      <div class="d-flex justify-content-between small text-muted mb-1">
+        <span>Registration Progress</span>
+        <span id="progressPct">{{ pct }}%</span>
+      </div>
+      <div class="progress" style="height:8px">
+        <div class="progress-bar bg-success" id="progressBar" style="width:{{ pct }}%"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+
+  {# ── Left: Scanner & Entry ─────────────────────────────────────────────── #}
+  <div class="col-xl-5">
+
+    {# Barcode Scanner Card #}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header fw-semibold" style="background:#075E54;color:#fff">
+        <i class="bi bi-upc-scan me-2"></i>Scan / Enter Barcode
+      </div>
+      <div class="card-body">
+        <!-- Line Item Picker -->
+        <div class="mb-2" id="lineItemPickerWrap">
+          <label class="form-label fw-semibold small">Apply Invoice Price (select line item)</label>
+          <select id="lineItemPicker" class="form-select form-select-sm" onchange="applyLineItem(this.value)">
+            <option value="">— Select to auto-fill price —</option>
+          </select>
+          <div class="text-muted small mt-1" id="lineItemPickerHint"></div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Barcode <span class="text-danger">*</span></label>
+          <input type="text" id="barcodeInput" class="form-control form-control-lg barcode-field"
+                 placeholder="Scan or type barcode…" autofocus autocomplete="off"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('registerBtn').click();}">
+        </div>
+        <div class="row g-2 mb-3">
+          <div class="col-6">
+            <label class="form-label small fw-semibold">Category</label>
+            <select id="subCatInput" class="form-select form-select-sm">
+              <option value="Laptop">Laptop</option>
+              <option value="Desktop">Desktop</option>
+              <option value="TFT">TFT / Monitor</option>
+              <option value="All-in-One">All-in-One</option>
+              <option value="Tablet">Tablet</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label small fw-semibold">Price (₹)</label>
+            <input type="number" id="priceInput" class="form-control form-control-sm" placeholder="Optional">
+          </div>
+        </div>
+        <div class="row g-2 mb-3">
+          <div class="col-4">
+            <label class="form-label small fw-semibold">Brand</label>
+            <input type="text" id="brandInput" class="form-control form-control-sm" placeholder="HP / Dell…"
+                   list="brandsList">
+            <datalist id="brandsList">
+              <option value="HP"><option value="Dell"><option value="Lenovo"><option value="Acer">
+              <option value="Asus"><option value="Apple"><option value="Samsung"><option value="LG">
+            </datalist>
+          </div>
+          <div class="col-4">
+            <label class="form-label small fw-semibold">Model</label>
+            <input type="text" id="modelInput" class="form-control form-control-sm" placeholder="e.g. T14 G2">
+          </div>
+          <div class="col-4">
+            <label class="form-label small fw-semibold">Serial No</label>
+            <input type="text" id="serialInput" class="form-control form-control-sm" placeholder="S/N">
+          </div>
+        </div>
+        <div class="d-flex gap-2">
+          <button id="registerBtn" class="btn btn-success flex-grow-1" onclick="registerDevice()">
+            <i class="bi bi-plus-circle me-1"></i>Register Device
+          </button>
+          <button class="btn btn-outline-secondary" onclick="clearForm()" title="Clear form">
+            <i class="bi bi-x-circle"></i>
+          </button>
+        </div>
+        <div id="scanFeedback" class="mt-2 d-none"></div>
+      </div>
+    </div>
+
+    {# Bulk Import Card #}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small">
+        <i class="bi bi-file-earmark-spreadsheet me-2 text-success"></i>Bulk Import from CSV / Invoice
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-2">Upload a CSV file with columns: <code>barcode, brand, model, serial_no, sub_category, device_price</code></p>
+        <div class="input-group">
+          <input type="file" id="csvFile" class="form-control form-control-sm" accept=".csv,.txt">
+          <button class="btn btn-sm btn-outline-success" onclick="uploadCSV()">
+            <i class="bi bi-upload me-1"></i>Import
+          </button>
+        </div>
+        <div id="csvFeedback" class="mt-2 d-none"></div>
+        <div class="mt-2">
+          <a href="#" class="small text-muted" onclick="downloadTemplate(); return false">
+            <i class="bi bi-download me-1"></i>Download CSV template
+          </a>
+        </div>
+      </div>
+    </div>
+
+    {# Lot Invoice Details #}
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold small">
+        <i class="bi bi-receipt me-2 text-primary"></i>Invoice / PO Details
+      </div>
+      <div class="card-body small">
+        <table class="table table-sm mb-0">
+          <tr><td class="text-muted">Invoice No</td><td class="fw-semibold">{{ lot.invoice_no or '—' }}</td></tr>
+          <tr><td class="text-muted">Invoice Date</td><td>{{ lot.invoice_date.strftime('%d-%m-%Y') if lot.invoice_date else '—' }}</td></tr>
+          <tr><td class="text-muted">Invoice Value</td><td>₹{{ "{:,.2f}".format(lot.invoice_value) if lot.invoice_value else '—' }}</td></tr>
+          <tr><td class="text-muted">PO Number</td><td>{{ lot.po_number or '—' }}</td></tr>
+          <tr><td class="text-muted">Vendor</td><td>{{ lot.vendor_name or lot.supplier_name }}</td></tr>
+          <tr><td class="text-muted">GRN Date</td><td>{{ lot.grn_date.strftime('%d-%m-%Y') if lot.grn_date else '—' }}</td></tr>
+          <tr><td class="text-muted">E-Way Bill</td><td>{{ lot.e_way_bill or '—' }}</td></tr>
+          <tr><td class="text-muted">Vehicle No</td><td>{{ lot.vehicle_number or '—' }}</td></tr>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  {# ── Right: Registered Devices ─────────────────────────────────────────── #}
+  <div class="col-xl-7">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <span class="fw-semibold small"><i class="bi bi-list-check me-2"></i>Registered Devices
+          <span class="badge bg-success ms-1" id="regBadge">{{ total_registered }}</span>
+        </span>
+        <div class="d-flex gap-2">
+          <input type="text" id="regSearch" class="form-control form-control-sm" style="width:160px"
+                 placeholder="Search barcode…" oninput="filterTable(this.value)">
+          <select id="catFilter" class="form-select form-select-sm" style="width:130px" onchange="filterTable(document.getElementById('regSearch').value)">
+            <option value="">All categories</option>
+            <option value="Laptop">Laptop</option>
+            <option value="Desktop">Desktop</option>
+            <option value="TFT">TFT</option>
+            <option value="All-in-One">All-in-One</option>
+            <option value="Tablet">Tablet</option>
+            <option value="Other">Other</option>
+          </select>
+          <a href="/devices?lot={{ lot.id }}" class="btn btn-sm btn-outline-secondary" title="View in Inventory">
+            <i class="bi bi-box-seam"></i>
+          </a>
+        </div>
+      </div>
+      <div class="card-body p-0" style="max-height:70vh;overflow-y:auto">
+        <table class="table table-hover table-sm mb-0 small" id="regTable">
+          <thead class="table-light sticky-top">
+            <tr>
+              <th>#</th>
+              <th>Barcode</th>
+              <th>Category</th>
+              <th>Brand / Model</th>
+              <th>Serial No</th>
+              <th>Price</th>
+              <th>Stage</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="regTbody">
+            {% for d in devices %}
+            <tr data-barcode="{{ d.barcode }}" data-cat="{{ d.sub_category or '' }}">
+              <td class="text-muted">{{ loop.index }}</td>
+              <td class="fw-semibold font-monospace">{{ d.barcode }}</td>
+              <td><span class="badge bg-info text-dark">{{ d.sub_category or '—' }}</span></td>
+              <td>{{ d.brand or '' }} {{ d.model or '' }}</td>
+              <td class="text-muted">{{ d.serial_no or '—' }}</td>
+              <td>{% if d.device_price %}₹{{ "{:,.0f}".format(d.device_price) }}{% else %}—{% endif %}</td>
+              <td>
+                <span class="badge bg-{% if d.current_stage.value == 'grn' %}warning text-dark{% else %}success{% endif %}">
+                  {{ d.current_stage.value | upper }}
+                </span>
+              </td>
+              <td>
+                {% if d.current_stage.value == 'grn' %}
+                <button class="btn btn-link btn-sm p-0 text-danger"
+                        onclick="removeDevice('{{ d.barcode }}')" title="Remove">
+                  <i class="bi bi-trash"></i>
+                </button>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr id="emptyRow"><td colspan="8" class="text-center text-muted py-4">No devices registered yet — scan a barcode to start</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const LOT_ID = "{{ lot.id }}";
+const LOT_QTY = {{ lot.qty }};
+let registeredCount = {{ total_registered }};
+
+// ── Register device ───────────────────────────────────────────────────────
+async function registerDevice() {
+  const barcode  = document.getElementById('barcodeInput').value.trim();
+  const brand    = document.getElementById('brandInput').value.trim();
+  const model    = document.getElementById('modelInput').value.trim();
+  const serial   = document.getElementById('serialInput').value.trim();
+  const subCat   = document.getElementById('subCatInput').value;
+  const price    = document.getElementById('priceInput').value;
+  const feedback = document.getElementById('scanFeedback');
+  const btn      = document.getElementById('registerBtn');
+
+  if (!barcode) {
+    showFeedback(feedback, 'danger', 'Barcode is required');
+    document.getElementById('barcodeInput').focus();
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Registering…';
+
+  try {
+    const r = await fetch(`/lots/${LOT_ID}/register-device`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ barcode, brand, model, serial_no: serial, sub_category: subCat, device_price: price || null })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      showFeedback(feedback, 'success', `✅ ${barcode} registered successfully`);
+      addRowToTable(d);
+      registeredCount++;
+      updateCounts();
+      clearForm();
+    } else {
+      showFeedback(feedback, 'danger', `❌ ${d.error}`);
+    }
+  } catch(e) {
+    showFeedback(feedback, 'danger', 'Network error — check server');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-plus-circle me-1"></i>Register Device';
+    document.getElementById('barcodeInput').focus();
+  }
+}
+
+// ── Remove device ─────────────────────────────────────────────────────────
+async function removeDevice(barcode) {
+  if (!confirm(`Remove barcode ${barcode} from this lot?`)) return;
+  try {
+    const r = await fetch(`/lots/${LOT_ID}/register-device/${encodeURIComponent(barcode)}`, { method: 'DELETE' });
+    const d = await r.json();
+    if (d.ok) {
+      document.querySelector(`tr[data-barcode="${barcode}"]`)?.remove();
+      registeredCount--;
+      updateCounts();
+    } else {
+      alert(d.error);
+    }
+  } catch(e) { alert('Network error'); }
+}
+
+// ── Advance to IQC ────────────────────────────────────────────────────────
+async function advanceToIQC() {
+  if (!confirm('Move all GRN-stage devices in this lot to IQC? This sends them into the inspection queue.')) return;
+  try {
+    const r = await fetch(`/lots/${LOT_ID}/advance-grn-to-iqc`, { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      alert(`✅ ${d.moved} devices moved to IQC inspection queue`);
+      window.location.reload();
+    } else {
+      alert(d.error || 'Failed');
+    }
+  } catch(e) { alert('Network error'); }
+}
+
+// ── CSV Upload ────────────────────────────────────────────────────────────
+async function uploadCSV() {
+  const file = document.getElementById('csvFile').files[0];
+  const fb   = document.getElementById('csvFeedback');
+  if (!file) { showFeedback(fb, 'warning', 'Please select a CSV file first'); return; }
+  const fd = new FormData();
+  fd.append('file', file);
+  showFeedback(fb, 'info', '<span class="spinner-border spinner-border-sm me-1"></span>Importing…');
+  try {
+    const r = await fetch(`/lots/${LOT_ID}/register-bulk-csv`, { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.ok) {
+      showFeedback(fb, 'success', `✅ Imported ${d.saved} devices. ${d.skipped} duplicates skipped.`);
+      setTimeout(() => window.location.reload(), 1500);
+    } else {
+      showFeedback(fb, 'danger', `❌ ${d.error}`);
+    }
+  } catch(e) { showFeedback(fb, 'danger', 'Network error'); }
+}
+
+// ── Download CSV template ─────────────────────────────────────────────────
+function downloadTemplate() {
+  const csv = 'barcode,brand,model,serial_no,sub_category,device_price\n,HP,EliteBook 840 G8,,Laptop,\n,Dell,Latitude 5420,,Laptop,\n';
+  const a = document.createElement('a');
+  a.href = 'data:text/csv,' + encodeURIComponent(csv);
+  a.download = 'grn_import_template.csv';
+  a.click();
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function clearForm() {
+  document.getElementById('barcodeInput').value = '';
+  document.getElementById('brandInput').value   = '';
+  document.getElementById('modelInput').value   = '';
+  document.getElementById('serialInput').value  = '';
+  document.getElementById('priceInput').value   = '';
+  document.getElementById('barcodeInput').focus();
+}
+
+function showFeedback(el, type, msg) {
+  el.className = `alert alert-${type} py-2 small mt-2`;
+  el.innerHTML = msg;
+  el.classList.remove('d-none');
+  if (type === 'success') setTimeout(() => el.classList.add('d-none'), 3000);
+}
+
+function updateCounts() {
+  document.getElementById('totalRegistered').textContent = registeredCount;
+  document.getElementById('totalPending').textContent    = Math.max(0, LOT_QTY - registeredCount);
+  document.getElementById('regBadge').textContent        = registeredCount;
+  const pct = LOT_QTY > 0 ? Math.min(100, Math.round((registeredCount / LOT_QTY) * 100)) : 0;
+  document.getElementById('progressBar').style.width     = pct + '%';
+  document.getElementById('progressPct').textContent     = pct + '%';
+  document.getElementById('emptyRow')?.remove();
+}
+
+function addRowToTable(d) {
+  const tbody = document.getElementById('regTbody');
+  const idx   = tbody.querySelectorAll('tr').length + 1;
+  const tr    = document.createElement('tr');
+  tr.dataset.barcode = d.barcode;
+  tr.dataset.cat     = d.sub_category;
+  tr.innerHTML = `
+    <td class="text-muted">${idx}</td>
+    <td class="fw-semibold font-monospace">${d.barcode}</td>
+    <td><span class="badge bg-info text-dark">${d.sub_category || '—'}</span></td>
+    <td>${d.brand || ''} ${d.model || ''}</td>
+    <td class="text-muted">${d.serial_no || '—'}</td>
+    <td>${d.device_price ? '₹'+Number(d.device_price).toLocaleString('en-IN') : '—'}</td>
+    <td><span class="badge bg-warning text-dark">GRN</span></td>
+    <td><button class="btn btn-link btn-sm p-0 text-danger" onclick="removeDevice('${d.barcode}')" title="Remove"><i class="bi bi-trash"></i></button></td>
+  `;
+  tbody.insertBefore(tr, tbody.firstChild);
+}
+
+function filterTable(q) {
+  const cat = document.getElementById('catFilter').value.toLowerCase();
+  q = q.toLowerCase();
+  document.querySelectorAll('#regTbody tr[data-barcode]').forEach(tr => {
+    const barcode = (tr.dataset.barcode || '').toLowerCase();
+    const trCat   = (tr.dataset.cat || '').toLowerCase();
+    const match   = (!q || barcode.includes(q)) && (!cat || trCat === cat);
+    tr.style.display = match ? '' : 'none';
+  });
+}
+
+// ── Line Item Picker ──────────────────────────────────────────────────────
+async function loadLineItems() {
+  const resp = await fetch(`/lots/{{ lot.id }}/line-items`);
+  const data = await resp.json();
+  const sel = document.getElementById('lineItemPicker');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— Select to auto-fill price —</option>';
+  if (data.items && data.items.length) {
+    data.items.forEach(item => {
+      const opt = document.createElement('option');
+      opt.value = JSON.stringify(item);
+      opt.textContent = `${item.label} — ₹${item.unit_price.toLocaleString('en-IN')} × ${item.qty}`;
+      sel.appendChild(opt);
+    });
+    document.getElementById('lineItemPickerHint').textContent = `${data.items.length} line item(s) available`;
+  } else {
+    document.getElementById('lineItemPickerHint').textContent = 'No line items defined for this lot. Add them from the Lot Detail page.';
+  }
+}
+
+function applyLineItem(val) {
+  if (!val) return;
+  try {
+    const item = JSON.parse(val);
+    // Auto-fill fields if they exist
+    const fields = {
+      'subCatInput': item.sub_category,
+      'brandInput': item.brand,
+      'modelInput': item.model,
+      'priceInput': item.unit_price,
+    };
+    Object.entries(fields).forEach(([id, value]) => {
+      const el = document.getElementById(id);
+      if (el && value) el.value = value;
+    });
+    document.getElementById('lineItemPickerHint').textContent =
+      `Applied: ₹${item.unit_price.toLocaleString('en-IN')} from invoice line item`;
+  } catch(e) {}
+}
+
+// Load line items on page load
+document.addEventListener('DOMContentLoaded', loadLineItems);
+
+// Auto-focus barcode input on load
+document.getElementById('barcodeInput')?.focus();
+</script>
+{% endblock %}

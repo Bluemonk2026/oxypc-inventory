@@ -1,0 +1,413 @@
+{% extends "base.html" %}
+{% block title %}Market Intelligence — OxyPC{% endblock %}
+{% block page_title %}Market Intelligence{% endblock %}
+{% block content %}
+
+{% if request.query_params.get('success') %}
+<div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+{% if request.query_params.get('error') %}
+<div class="alert alert-danger alert-dismissible fade show"><i class="bi bi-x-circle me-2"></i>{{ request.query_params.get('error') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+
+{# ── Summary cards ── #}
+<div class="row g-3 mb-3">
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fw-bold fs-3 text-success">{{ sell_total }}</div>
+      <div class="small text-muted"><i class="bi bi-box-arrow-up me-1"></i>Available to Buy (Sellers)</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fw-bold fs-3 text-primary">{{ buy_total }}</div>
+      <div class="small text-muted"><i class="bi bi-box-arrow-in-down me-1"></i>Dealers Buying</div>
+    </div>
+  </div>
+  <div class="col-md-6 d-flex align-items-center justify-content-end gap-2">
+    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addEntryModal">
+      <i class="bi bi-plus-circle me-1"></i>Add Entry
+    </button>
+    <a href="/whatsapp?tab=groups" class="btn btn-outline-secondary">
+      <i class="bi bi-whatsapp me-1"></i>WA Groups
+    </a>
+  </div>
+</div>
+
+{# ── Filters ── #}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2">
+    <form method="get" action="/market" class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <input type="text" name="q" class="form-control form-control-sm" placeholder="Search model, brand, processor, dealer…" value="{{ q }}">
+      </div>
+      <div class="col-md-2">
+        <select name="brand" class="form-select form-select-sm">
+          <option value="">All Brands</option>
+          {% for b in all_brands %}
+          <option value="{{ b }}" {% if brand==b %}selected{% endif %}>{{ b }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="category" class="form-select form-select-sm">
+          <option value="">All Categories</option>
+          {% for c in all_categories %}
+          <option value="{{ c }}" {% if category==c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="trade" class="form-select form-select-sm">
+          <option value="">Buy &amp; Sell</option>
+          <option value="sell" {% if trade=='sell' %}selected{% endif %}>Selling (Available)</option>
+          <option value="buy"  {% if trade=='buy'  %}selected{% endif %}>Buying (Required)</option>
+        </select>
+      </div>
+      <div class="col-md-1">
+        <select name="active" class="form-select form-select-sm">
+          <option value="1" {% if active=='1' %}selected{% endif %}>Active</option>
+          <option value=""  {% if active==''  %}selected{% endif %}>All</option>
+        </select>
+      </div>
+      <div class="col-md-2 d-flex gap-1">
+        <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search me-1"></i>Search</button>
+        <a href="/market" class="btn btn-outline-secondary btn-sm">✕</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Entries table ── #}
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center small fw-semibold">
+    <span><i class="bi bi-table me-2"></i>{{ total }} entries
+      {% if q or brand or category or trade %}<span class="text-muted ms-2">(filtered)</span>{% endif %}
+    </span>
+    <span class="text-muted">Page {{ page }}/{{ pages }}</span>
+  </div>
+  <div class="card-body p-0">
+    {% if entries %}
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Trade</th>
+            <th>Brand / Model</th>
+            <th>Spec</th>
+            <th>Cond / Grade</th>
+            <th class="text-center">Qty</th>
+            <th class="text-end">Price/unit</th>
+            <th class="text-center">Wty</th>
+            <th>Dealer / Group</th>
+            <th>Posted</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in entries %}
+          <tr class="{% if not e.is_active %}table-secondary text-muted{% endif %}">
+            <td>
+              <span class="badge bg-{% if e.trade_type=='sell' %}success{% else %}primary{% endif %}">
+                {% if e.trade_type=='sell' %}🟢 Sell{% else %}🔵 Buy{% endif %}
+              </span>
+            </td>
+            <td>
+              <div class="fw-semibold">{{ e.brand or '—' }} {{ e.model or '' }}</div>
+              {% if e.category %}<div class="text-muted" style="font-size:0.75rem">{{ e.category }}</div>{% endif %}
+            </td>
+            <td>
+              <div class="text-truncate" style="max-width:180px">
+                {% if e.processor %}{{ e.processor }}{% endif %}
+                {% if e.ram %} · {{ e.ram }}{% endif %}
+                {% if e.storage %} · {{ e.storage }}{% endif %}
+                {% if e.generation %} · {{ e.generation }}{% endif %}
+              </div>
+            </td>
+            <td>
+              {% if e.condition %}<span class="badge bg-light text-dark border">{{ e.condition | title }}</span>{% endif %}
+              {% if e.grade %}<span class="badge bg-secondary ms-1">{{ e.grade }}</span>{% endif %}
+            </td>
+            <td class="text-center fw-semibold">{{ e.qty or '—' }}</td>
+            <td class="text-end fw-semibold">
+              {% if e.price_per_unit %}₹{{ "{:,.0f}".format(e.price_per_unit) }}{% if e.is_negotiable %}<span class="text-muted small"> neg.</span>{% endif %}
+              {% else %}—{% endif %}
+            </td>
+            <td class="text-center text-muted">{{ e.warranty_months ~ 'm' if e.warranty_months else '—' }}</td>
+            <td>
+              {% if e.dealer_name %}<div class="fw-semibold text-truncate" style="max-width:120px">{{ e.dealer_name }}</div>{% endif %}
+              {% if e.group_name %}<div class="text-muted text-truncate" style="max-width:120px;font-size:0.72rem"><i class="bi bi-people me-1"></i>{{ e.group_name }}</div>{% endif %}
+            </td>
+            <td class="text-muted text-nowrap">{{ e.posted_date | ist if e.posted_date else '—' }}</td>
+            <td>
+              <div class="d-flex gap-1">
+                <a href="/market/{{ e.id }}/edit" class="btn btn-xs btn-outline-secondary" style="padding:2px 6px;font-size:0.72rem"><i class="bi bi-pencil"></i></a>
+                <form method="post" action="/market/{{ e.id }}/toggle" class="d-inline">
+                  {% if e.is_active %}
+                  <button class="btn btn-xs btn-outline-danger" style="padding:2px 6px;font-size:0.72rem" title="Mark as Closed/Dealt">
+                    <i class="bi bi-x-circle me-1"></i>Close
+                  </button>
+                  {% else %}
+                  <button class="btn btn-xs btn-outline-success" style="padding:2px 6px;font-size:0.72rem" title="Reopen">
+                    <i class="bi bi-check-circle me-1"></i>Reopen
+                  </button>
+                  {% endif %}
+                </form>
+              </div>
+              {% if e.source_message_text %}
+              <button type="button" class="btn btn-link p-0 text-muted mt-1" style="font-size:0.7rem" onclick="toggleSource(this)"><i class="bi bi-chat-left-text"></i> src</button>
+              <div class="src-msg d-none bg-light rounded p-1 mt-1 small" style="white-space:pre-wrap;max-height:80px;overflow-y:auto;max-width:200px">{{ e.source_message_text }}</div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {# Pagination #}
+    {% if pages > 1 %}
+    <div class="d-flex justify-content-center gap-1 py-2 border-top">
+      {% for p in range(1, pages+1) %}
+      <a href="?q={{ q }}&brand={{ brand }}&category={{ category }}&trade={{ trade }}&active={{ active }}&page={{ p }}"
+         class="btn btn-sm {% if p == page %}btn-primary{% else %}btn-outline-secondary{% endif %}">{{ p }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-graph-up fs-2 d-block mb-2"></i>
+      No market entries found. Add entries manually or extract from WhatsApp group messages.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Link Group to Dealer Section ── #}
+<div class="card border-0 shadow-sm mt-3">
+  <div class="card-header bg-transparent fw-semibold small">
+    <i class="bi bi-link-45deg me-2"></i>Link WhatsApp Groups to Dealers & Categories
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small">
+        <thead class="table-light">
+          <tr><th>Group Name</th><th>Members</th><th>Category</th><th>Linked Dealer</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for g in wa_groups %}
+          <tr>
+            <td class="fw-semibold">{{ g.group_name }}</td>
+            <td class="text-center">{{ g.participant_count }}</td>
+            <td>
+              <span class="badge bg-{% if g.group_category=='dealer' %}success{% elif g.group_category=='personal' %}primary{% else %}secondary{% endif %}">
+                {{ g.group_category | title }}
+              </span>
+            </td>
+            <td>
+              {% if g.linked_dealer_id %}
+                {% for d in dealers %}{% if d.id | string == g.linked_dealer_id | string %}
+                  <span class="text-success fw-semibold">{{ d.first_name or d.business_name }}</span>
+                {% endif %}{% endfor %}
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td>
+              <button class="btn btn-sm btn-outline-primary" style="padding:2px 8px;font-size:0.75rem"
+                      onclick="openLinkModal('{{ g.group_wa_id }}','{{ g.group_name }}','{{ g.group_category }}','{{ g.linked_dealer_id or '' }}')">
+                <i class="bi bi-pencil me-1"></i>Edit
+              </button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-center text-muted py-3">No groups synced. Go to WhatsApp → Groups → Sync.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{# ── Add Entry Modal ── #}
+<div class="modal fade" id="addEntryModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Add Market Entry</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="/market/add">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Trade Type</label>
+              <select name="trade_type" class="form-select form-select-sm">
+                <option value="sell">🟢 Selling (I have)</option>
+                <option value="buy">🔵 Buying (I need)</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Category</label>
+              <select name="category" class="form-select form-select-sm">
+                <option value="">—</option>
+                <option>Laptop</option><option>Desktop</option><option>Monitor / TFT</option>
+                <option>Printer</option><option>Server</option><option>Tablet</option>
+                <option>Projector</option><option>Spare Parts</option><option>Other</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Brand</label>
+              <input type="text" name="brand" class="form-control form-control-sm" placeholder="HP, Dell, Lenovo…">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Model <span class="text-danger">*</span></label>
+              <input type="text" name="model" class="form-control form-control-sm" placeholder="840 G3, Latitude 5480…" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Processor / Generation</label>
+              <input type="text" name="processor" class="form-control form-control-sm" placeholder="i5-8250U, Ryzen 5 5500U…">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small fw-semibold">Generation</label>
+              <input type="text" name="generation" class="form-control form-control-sm" placeholder="8th Gen, 11th…">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small fw-semibold">RAM</label>
+              <input type="text" name="ram" class="form-control form-control-sm" placeholder="8GB, 16GB">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Storage</label>
+              <input type="text" name="storage" class="form-control form-control-sm" placeholder="256GB SSD, 1TB HDD">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small fw-semibold">Condition</label>
+              <select name="condition" class="form-select form-select-sm">
+                <option value="refurb">Refurbished</option>
+                <option value="new">New</option>
+                <option value="used">Used</option>
+                <option value="as-is">As-Is</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small fw-semibold">Grade</label>
+              <select name="grade" class="form-select form-select-sm">
+                <option value="">—</option>
+                <option>A</option><option>A+</option><option>B</option><option>C</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small fw-semibold">Qty</label>
+              <input type="number" name="qty" class="form-control form-control-sm" min="1" placeholder="10">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Price / Unit (₹)</label>
+              <input type="number" name="price_per_unit" class="form-control form-control-sm" step="100" placeholder="15000">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small fw-semibold">Warranty (months)</label>
+              <input type="number" name="warranty_months" class="form-control form-control-sm" min="0" placeholder="3">
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="is_negotiable" value="1" id="negChk" checked>
+                <label class="form-check-label small" for="negChk">Price Negotiable</label>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Dealer</label>
+              <select name="dealer_id" class="form-select form-select-sm">
+                <option value="">— Select Dealer (optional) —</option>
+                {% for d in dealers %}
+                <option value="{{ d.id }}">{{ d.business_name }}{% if d.first_name %} ({{ d.first_name }}){% endif %}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">WhatsApp Group</label>
+              <select name="group_wa_id" class="form-select form-select-sm" onchange="setGrpName(this)">
+                <option value="">— Select Group (optional) —</option>
+                {% for g in wa_groups %}
+                <option value="{{ g.group_wa_id }}" data-gname="{{ g.group_name }}">{{ g.group_name }}</option>
+                {% endfor %}
+              </select>
+              <input type="hidden" name="group_name" id="groupNameHidden">
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Source Message / Notes</label>
+              <textarea name="source_message_text" class="form-control form-control-sm" rows="2" placeholder="Paste original WA message here (optional)…"></textarea>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Internal Notes</label>
+              <textarea name="notes" class="form-control form-control-sm" rows="2" placeholder="Additional details…"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success"><i class="bi bi-check-circle me-1"></i>Save Entry</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# ── Link Group to Dealer Modal ── #}
+<div class="modal fade" id="linkModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title"><i class="bi bi-link-45deg me-2"></i>Group Settings: <span id="linkGroupName"></span></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="/market/link-dealer">
+        <input type="hidden" name="group_wa_id" id="linkGroupId">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Group Category</label>
+            <select name="group_category" id="linkGroupCat" class="form-select">
+              <option value="dealer">Dealer Group</option>
+              <option value="personal">Personal Group</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Linked Dealer <span class="text-muted small">(optional)</span></label>
+            <select name="dealer_id" id="linkDealerId" class="form-select">
+              <option value="">— Unlinked —</option>
+              {% for d in dealers %}
+              <option value="{{ d.id }}">{{ d.business_name }}{% if d.first_name %} ({{ d.first_name }}){% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="small text-muted">When linked, messages from this group will be associated with the selected dealer.</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check me-1"></i>Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+function toggleSource(btn) {
+  btn.nextElementSibling?.classList.toggle('d-none');
+}
+function setGrpName(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  document.getElementById('groupNameHidden').value = opt.dataset.gname || '';
+}
+function openLinkModal(gid, gname, cat, dealerId) {
+  document.getElementById('linkGroupId').value = gid;
+  document.getElementById('linkGroupName').textContent = gname;
+  const catSel = document.getElementById('linkGroupCat');
+  if (catSel) catSel.value = cat || 'other';
+  const dSel = document.getElementById('linkDealerId');
+  if (dSel) dSel.value = dealerId || '';
+  new bootstrap.Modal(document.getElementById('linkModal')).show();
+}
+</script>
+{% endblock %}

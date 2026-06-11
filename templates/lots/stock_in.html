@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Stock In — OxyPC{% endblock %}
+{% block page_title %}Stock In{% endblock %}
+{% block content %}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-transparent fw-semibold">Move Device to Stock In (Barcode)</div>
+  <div class="card-body">
+    <form action="/stock/move-to-stock" method="post" class="d-flex gap-2">
+      <input type="text" name="barcode" class="form-control barcode-field w-auto" placeholder="Scan barcode" style="min-width:250px" autofocus>
+      <input type="text" name="notes" class="form-control w-auto" placeholder="Notes (optional)" style="min-width:200px">
+      <button class="btn btn-success"><i class="bi bi-arrow-right-circle me-1"></i>Move to Stock</button>
+    </form>
+  </div>
+</div>
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="stockTable" class="table table-hover mb-0 small">
+        <thead class="table-dark"><tr><th>Barcode</th><th>Lot</th><th>Brand</th><th>Model</th><th>RAM</th><th>Storage</th><th>Grade</th></tr></thead>
+        <tbody>
+          {% for device, lot_number in devices %}
+          <tr>
+            <td><code>{{ device.barcode }}</code></td>
+            <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
+            <td>{{ device.brand or '—' }}</td>
+            <td>{{ device.model or '—' }}</td>
+            <td>{{ (device.ram_gb|string ~ 'GB') if device.ram_gb else '—' }}</td>
+            <td>{{ (device.storage_gb|string ~ 'GB') if device.storage_gb else '—' }}</td>
+            <td>{{ device.grade or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% if total_pages and total_pages > 1 %}
+<nav class="mt-3" aria-label="Device list pagination">
+  <ul class="pagination pagination-sm justify-content-center mb-0">
+    <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+      <a class="page-link" href="?page={{ page - 1 }}&page_size={{ page_size }}">&#8249; Prev</a>
+    </li>
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page %}
+        <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+      {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+        <li class="page-item"><a class="page-link" href="?page={{ p }}&page_size={{ page_size }}">{{ p }}</a></li>
+      {% elif p == page - 3 or p == page + 3 %}
+        <li class="page-item disabled"><span class="page-link">&#8230;</span></li>
+      {% endif %}
+    {% endfor %}
+    <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+      <a class="page-link" href="?page={{ page + 1 }}&page_size={{ page_size }}">Next &#8250;</a>
+    </li>
+  </ul>
+  <p class="text-center text-muted small mt-1">{{ total }} device(s) in stage &bull; Page {{ page }} of {{ total_pages }}</p>
+</nav>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>$(document).ready(function(){ $('#stockTable').DataTable({paging:false}); });</script>
+{% endblock %}

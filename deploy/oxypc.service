@@ -1,0 +1,28 @@
+# systemd unit — copy to /etc/systemd/system/oxypc.service
+# Auto-starts OxyPC Inventory, restarts on crash, runs as www-data.
+#
+#   sudo cp deploy/oxypc.service /etc/systemd/system/oxypc.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now oxypc
+#   sudo systemctl status oxypc
+
+[Unit]
+Description=OxyPC Inventory (FastAPI)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/oxypc
+EnvironmentFile=/opt/oxypc/.env
+ExecStart=/opt/oxypc/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 2
+Restart=always
+RestartSec=5
+# Basic hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}Sales — OxyPC{% endblock %}
+{% block page_title %}Sales List{% endblock %}
+{% block content %}
+
+{# ── Registered Device Stats Bar ── #}
+<div class="row g-2 mb-3">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-2">
+      <div class="fs-5 fw-bold text-primary">{{ total_registered }}</div>
+      <div class="small text-muted">Total Registered</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-2">
+      <div class="fs-5 fw-bold text-success">{{ total_devices_sold }}</div>
+      <div class="small text-muted">Sold</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-2">
+      <div class="fs-5 fw-bold text-warning">{{ total_available }}</div>
+      <div class="small text-muted">Available</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-2">
+      <div class="fs-5 fw-bold text-info">{{ total }}</div>
+      <div class="small text-muted">Filtered Sales</div>
+    </div>
+  </div>
+</div>
+
+{# ── Filter Bar ── #}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2">
+    <form class="d-flex flex-wrap gap-2 align-items-center" method="get" action="/sales" id="filterForm">
+      <input type="text" name="q" value="{{ q }}" placeholder="Device barcode/brand/model"
+             class="form-control form-control-sm" style="width:190px">
+      <input type="text" name="sale_no" value="{{ sale_no }}" placeholder="Sale#"
+             class="form-control form-control-sm" style="width:110px">
+      <input type="text" name="customer" value="{{ customer }}" placeholder="Customer name"
+             class="form-control form-control-sm" style="width:160px">
+      <select name="sold_by_filter" class="form-select form-select-sm" style="width:145px">
+        <option value="">All Users</option>
+        {% for seller in sellers %}
+        <option value="{{ seller }}" {% if sold_by_filter == seller %}selected{% endif %}>{{ seller }}</option>
+        {% endfor %}
+      </select>
+      <select name="grade" class="form-select form-select-sm" style="width:110px">
+        <option value="">All Grades</option>
+        {% for g in ['A','B','C','D','scrap'] %}
+        <option value="{{ g }}" {% if grade == g %}selected{% endif %}>Grade {{ g }}</option>
+        {% endfor %}
+      </select>
+      <select name="lot_id" class="form-select form-select-sm" style="width:130px">
+        <option value="">All Lots</option>
+        {% for lot in lots %}
+        <option value="{{ lot.id }}" {% if selected_lot == lot.id|string %}selected{% endif %}>{{ lot.lot_number }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+      <a href="/sales" class="btn btn-sm btn-outline-secondary">Clear</a>
+      <div class="ms-auto d-flex gap-2">
+        <button type="button" id="exportSelectedBtn" class="btn btn-sm btn-outline-warning" onclick="exportSelected()" disabled>
+          <i class="bi bi-download me-1"></i>Export Selected
+        </button>
+        <a href="/reports/export/sales" class="btn btn-sm btn-outline-success">
+          <i class="bi bi-download me-1"></i>Export All CSV
+        </a>
+      </div>
+    </form>
+    {# Hidden form for POST export-selected #}
+    <form id="exportForm" action="/sales/export-selected" method="post" style="display:none">
+      <input type="hidden" name="sale_ids" id="selectedIds">
+    </form>
+  </div>
+</div>
+
+{# ── Table ── #}
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table id="salesTable" class="table table-hover mb-0 small">
+      <thead class="table-dark">
+        <tr>
+          <th style="width:36px">
+            <input type="checkbox" id="selectAll" title="Select all visible rows">
+          </th>
+          <th>Sale#</th><th>Date</th><th>Barcode</th><th>Brand/Model</th>
+          <th>Lot</th><th>Grade</th><th>Cost/Unit</th><th>Price</th><th>Margin</th><th>Customer</th>
+          <th>Payment</th><th>By</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set ns = namespace(total=0) %}
+        {% for row in sales %}
+        {% set ns.total = ns.total + (row.Sale.sale_price | float) %}
+        <tr>
+          <td><input type="checkbox" class="row-check" value="{{ row.Sale.id }}"></td>
+          <td class="fw-semibold">
+            <a href="/sales/{{ row.Sale.id }}" class="text-decoration-none">{{ row.Sale.sale_number }}</a>
+          </td>
+          <td>{{ row.Sale.sold_at.strftime('%d-%m-%Y') }}</td>
+          <td><a href="/devices/{{ row.barcode }}" class="text-decoration-none"><code>{{ row.barcode }}</code></a></td>
+          <td>{{ row.brand }} {{ row.model }}</td>
+          <td><a href="/devices?lot={{ row.lot_number }}" class="text-decoration-none">
+            <span class="badge bg-info text-dark">{{ row.lot_number }}</span></a>
+          </td>
+          <td>{{ row.grade.value if row.grade else '—' }}</td>
+          {% set cost_unit = (row.buying_price / row.qty) | float | round(0) if row.buying_price and row.qty and row.qty > 0 else 0 %}
+          <td class="text-muted">{% if cost_unit %}₹{{ "{:,.0f}".format(cost_unit) }}{% else %}—{% endif %}</td>
+          <td class="fw-semibold text-success">₹{{ "{:,.0f}".format(row.Sale.sale_price) }}</td>
+          {% set margin = (row.Sale.sale_price | float) - cost_unit %}
+          <td class="fw-semibold {% if margin > 0 %}text-success{% elif margin < 0 %}text-danger{% else %}text-muted{% endif %}">
+            {% if cost_unit %}{% if margin >= 0 %}+{% endif %}₹{{ "{:,.0f}".format(margin) }}{% else %}—{% endif %}
+          </td>
+          <td>{{ row.Sale.customer_name or '—' }}</td>
+          <td><span class="badge bg-secondary">{{ row.Sale.payment_mode or '—' }}</span></td>
+          <td class="text-muted">{{ row.Sale.sold_by }}</td>
+          <td>
+            <div class="d-flex gap-1">
+              <a href="/sales/{{ row.Sale.id }}" class="btn btn-outline-info btn-sm py-0 px-1" title="View Detail"><i class="bi bi-eye"></i></a>
+              <a href="/invoices/print/{{ row.Sale.id }}" target="_blank" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Invoice"><i class="bi bi-receipt"></i></a>
+              <a href="/invoices/waybill/{{ row.Sale.id }}" target="_blank" class="btn btn-outline-primary btn-sm py-0 px-1" title="Waybill"><i class="bi bi-truck"></i></a>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="14" class="text-center text-muted py-4">No sales match your filters.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if sales %}
+      <tfoot class="table-light">
+        <tr>
+          <td></td>
+          <td colspan="6" class="text-end fw-semibold">Total Revenue (this page):</td>
+          <td class="fw-bold text-success">₹{{ "{:,.0f}".format(ns.total) }}</td>
+          <td colspan="4"></td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+
+{# ── Overdue Orders ── #}
+<div class="card border-0 shadow-sm mt-4" style="border-left: 4px solid #dc3545 !important;">
+  <div class="card-header bg-danger bg-opacity-10 d-flex align-items-center justify-content-between py-2">
+    <span class="fw-semibold text-danger">
+      <i class="bi bi-exclamation-circle me-2"></i>Overdue Orders
+    </span>
+    <a href="/dealers/overdue" class="btn btn-sm btn-danger">
+      <i class="bi bi-arrow-right me-1"></i>View All Overdue Orders
+    </a>
+  </div>
+  <div class="card-body py-3 text-muted small">
+    Dealer orders past their expected delivery date. Click <strong>View All Overdue Orders</strong> to see the full list, filter by dealer, and follow up.
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+// ── Select All / individual checkboxes ──────────────────────────────────────
+const selectAll = document.getElementById('selectAll');
+const exportBtn = document.getElementById('exportSelectedBtn');
+
+selectAll.addEventListener('change', function() {
+  document.querySelectorAll('.row-check').forEach(cb => cb.checked = this.checked);
+  updateExportBtn();
+});
+
+document.addEventListener('change', function(e) {
+  if (e.target.classList.contains('row-check')) updateExportBtn();
+});
+
+function updateExportBtn() {
+  const checked = document.querySelectorAll('.row-check:checked').length;
+  exportBtn.disabled = checked === 0;
+  exportBtn.textContent = checked > 0 ? `Export Selected (${checked})` : 'Export Selected';
+  if (checked > 0) {
+    exportBtn.innerHTML = `<i class="bi bi-download me-1"></i>Export Selected (${checked})`;
+  } else {
+    exportBtn.innerHTML = '<i class="bi bi-download me-1"></i>Export Selected';
+  }
+}
+
+function exportSelected() {
+  const ids = Array.from(document.querySelectorAll('.row-check:checked')).map(cb => cb.value);
+  if (!ids.length) return;
+  document.getElementById('selectedIds').value = ids.join(',');
+  document.getElementById('exportForm').submit();
+}
+
+// ── DataTable ───────────────────────────────────────────────────────────────
+$(document).ready(function() {
+  $('#salesTable').DataTable({
+    pageLength: 25,
+    order: [[1, 'desc']],
+    columnDefs: [
+      { orderable: false, targets: [0, 11] }  // checkbox and actions not sortable
+    ]
+  });
+});
+</script>
+{% endblock %}

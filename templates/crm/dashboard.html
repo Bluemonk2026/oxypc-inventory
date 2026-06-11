@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}CRM Dashboard — OxyPC{% endblock %}
+{% block page_title %}CRM Dashboard{% endblock %}
+{% block content %}
+
+<!-- KPI Row -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="fs-3 fw-bold text-primary">{{ open_sourcing_count }}</div>
+        <div class="small text-muted">Sourcing Deals Open</div>
+        <div class="small fw-semibold text-success mt-1">₹{{ "{:,.0f}".format(sourcing_pipeline_value) }}</div>
+        <a href="/crm/sourcing" class="btn btn-sm btn-outline-primary mt-2 w-100">View All →</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="fs-3 fw-bold text-info">{{ open_sales_count }}</div>
+        <div class="small text-muted">Sales Opportunities Open</div>
+        <div class="small fw-semibold text-success mt-1">₹{{ "{:,.0f}".format(sales_pipeline_value) }}</div>
+        <a href="/crm/sales" class="btn btn-sm btn-outline-info mt-2 w-100">View All →</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        {% if overdue_count > 0 %}
+        <div class="fs-3 fw-bold text-danger">{{ overdue_count }}</div>
+        {% else %}
+        <div class="fs-3 fw-bold text-muted">0</div>
+        {% endif %}
+        <div class="small text-muted">Follow-ups Overdue</div>
+        <div class="small text-warning mt-1">{{ today_count }} due today</div>
+        <a href="/crm/activities/followups" class="btn btn-sm btn-outline-danger mt-2 w-100">View All →</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="fs-3 fw-bold text-secondary">{{ contact_total }}</div>
+        <div class="small text-muted">Total Contacts</div>
+        <div class="small text-muted mt-1">{{ supplier_count }} suppliers · {{ buyer_count }} buyers</div>
+        <a href="/crm/contacts" class="btn btn-sm btn-outline-secondary mt-2 w-100">View All →</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Funnels + Follow-ups -->
+<div class="row g-3">
+
+  <!-- Sourcing Funnel -->
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-box-arrow-in-down me-1 text-primary"></i>Sourcing Funnel</span>
+        <a href="/crm/sourcing/new" class="btn btn-sm btn-primary"><i class="bi bi-plus"></i> New Deal</a>
+      </div>
+      <div class="card-body py-2">
+        {% set stages_to_show = [('lead','Lead'), ('contacted','Contacted'), ('inspection','Inspection'), ('negotiation','Negotiation'), ('agreed','Agreed'), ('po_raised','PO Raised')] %}
+        {% for key, label in stages_to_show %}
+        {% set cnt = sourcing_funnel.get(key, 0) %}
+        <div class="d-flex align-items-center mb-2">
+          <div class="small text-muted" style="width:110px">{{ label }}</div>
+          <div class="flex-grow-1 mx-2">
+            <div class="progress" style="height:14px">
+              {% set pct = [cnt * 15, 100]|min %}
+              <div class="progress-bar bg-primary" style="width:{{ pct if cnt else 2 }}%"></div>
+            </div>
+          </div>
+          <div class="small fw-semibold" style="width:20px">{{ cnt }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Sales Funnel -->
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-graph-up-arrow me-1 text-info"></i>Sales Funnel</span>
+        <a href="/crm/sales/new" class="btn btn-sm btn-info text-white"><i class="bi bi-plus"></i> New Opp</a>
+      </div>
+      <div class="card-body py-2">
+        {% set sstages = [('lead','Lead'), ('contacted','Contacted'), ('quoted','Quoted'), ('negotiation','Negotiation'), ('confirmed','Confirmed'), ('invoiced','Invoiced')] %}
+        {% for key, label in sstages %}
+        {% set cnt = sales_funnel.get(key, 0) %}
+        <div class="d-flex align-items-center mb-2">
+          <div class="small text-muted" style="width:110px">{{ label }}</div>
+          <div class="flex-grow-1 mx-2">
+            <div class="progress" style="height:14px">
+              {% set pct = [cnt * 15, 100]|min %}
+              <div class="progress-bar bg-info" style="width:{{ pct if cnt else 2 }}%"></div>
+            </div>
+          </div>
+          <div class="small fw-semibold" style="width:20px">{{ cnt }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Today's Follow-ups -->
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-bell me-1 text-warning"></i>Follow-ups Due</span>
+        <a href="/crm/activities/followups" class="btn btn-sm btn-outline-warning">See All</a>
+      </div>
+      <div class="card-body p-0">
+        {% if all_due %}
+        <div class="list-group list-group-flush">
+          {% for act in all_due[:8] %}
+          {% set is_overdue = act.next_followup and act.next_followup <= now %}
+          <div class="list-group-item px-3 py-2 border-0 border-bottom">
+            <div class="d-flex justify-content-between">
+              <span class="badge {% if is_overdue %}bg-danger{% else %}bg-warning text-dark{% endif %} me-2">
+                {{ "OVERDUE" if is_overdue else "TODAY" }}
+              </span>
+              <small class="text-muted">{{ act.next_followup.strftime('%d %b %H:%M') if act.next_followup }}</small>
+            </div>
+            {% if act.deal_id %}
+              {% set deal = sourcing_map.get(act.deal_id|string) or sales_map.get(act.deal_id|string) %}
+              {% if deal %}
+              <div class="small mt-1">
+                <a href="/crm/{{ 'sourcing' if act.deal_type == 'sourcing' else 'sales' }}/{{ act.deal_id }}" class="text-decoration-none fw-semibold">{{ deal.title[:50] }}{% if deal.title|length > 50 %}…{% endif %}</a>
+              </div>
+              {% endif %}
+            {% endif %}
+            <div class="small text-muted">{{ act.summary[:60] }}{% if act.summary|length > 60 %}…{% endif %}</div>
+            <form method="post" action="/crm/activities/{{ act.id }}/done" class="mt-1">
+              <input type="hidden" name="redirect_to" value="/crm/">
+              <button class="btn btn-xs btn-outline-success btn-sm py-0 px-2" style="font-size:.7rem">✓ Mark Done</button>
+            </form>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-4"><i class="bi bi-check-circle text-success fs-3"></i><div class="small mt-2">No follow-ups due — all clear!</div></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Quick Actions -->
+<div class="row g-2 mt-3">
+  <div class="col-12">
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="/crm/contacts/new" class="btn btn-outline-secondary btn-sm"><i class="bi bi-person-plus me-1"></i>Add Contact</a>
+      <a href="/crm/sourcing/new" class="btn btn-outline-primary btn-sm"><i class="bi bi-box-arrow-in-down me-1"></i>New Sourcing Deal</a>
+      <a href="/crm/sales/new" class="btn btn-outline-info btn-sm"><i class="bi bi-graph-up me-1"></i>New Sales Opportunity</a>
+      <a href="/crm/quotes/new" class="btn btn-outline-success btn-sm"><i class="bi bi-file-earmark-text me-1"></i>New Quote</a>
+      <a href="/crm/activities/followups" class="btn btn-outline-warning btn-sm"><i class="bi bi-bell me-1"></i>All Follow-ups</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

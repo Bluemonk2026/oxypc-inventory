@@ -1,0 +1,49 @@
+# ─── Secrets & credentials (NEVER commit) ───────────────────────────
+.env
+*.env
+!.env.example
+config.ini
+OxyPC_passwords.docx
+UAT_Credentials_Sheet.txt
+setup_uat_input.txt
+*.pem
+*.key
+
+# ─── WhatsApp service: live auth session + cache (account-takeover risk) ──
+wa-service/.wwebjs_auth/
+wa-service/.wwebjs_cache/
+
+# ─── Dependencies (install, don't commit) ───────────────────────────
+node_modules/
+.venv/
+venv/
+env/
+*.egg-info/
+
+# ─── Python build / cache artifacts ─────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+build/
+dist/
+
+# ─── Runtime user uploads (CRM lists, IQC photos, KYC docs — PII) ───
+uploads/*
+!uploads/.gitkeep
+
+# ─── Database backups & dumps ───────────────────────────────────────
+backups/
+*.dump
+*.sqlite
+*.sqlite3
+
+# ─── Logs ───────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── OS / editor cruft ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp

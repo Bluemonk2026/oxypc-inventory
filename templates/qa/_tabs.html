@@ -1,0 +1,45 @@
+{# Shared QA tab navigation — include at the top of every QA page content block #}
+<ul class="nav nav-tabs mb-4">
+  <li class="nav-item">
+    <a class="nav-link {% if request.url.path == '/qa/' or request.url.path == '/qa' %}active{% endif %}"
+       href="/qa/">
+      <i class="bi bi-speedometer2 me-1"></i>Dashboard
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if '/qa/requirements' in request.url.path %}active{% endif %}"
+       href="/qa/requirements">
+      <i class="bi bi-list-check me-1"></i>Requirements
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if '/qa/test-cases' in request.url.path %}active{% endif %}"
+       href="/qa/test-cases">
+      <i class="bi bi-clipboard-data me-1"></i>Test Cases
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if '/qa/defects' in request.url.path %}active{% endif %}"
+       href="/qa/defects">
+      <i class="bi bi-bug me-1"></i>Defects
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if '/qa/uat' in request.url.path %}active{% endif %}"
+       href="/qa/uat">
+      <i class="bi bi-person-check me-1"></i>UAT Board
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if '/qa/releases' in request.url.path %}active{% endif %}"
+       href="/qa/releases">
+      <i class="bi bi-rocket me-1"></i>Releases
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if '/qa/rtm' in request.url.path %}active{% endif %}"
+       href="/qa/rtm">
+      <i class="bi bi-table me-1"></i>RTM
+    </a>
+  </li>
+</ul>

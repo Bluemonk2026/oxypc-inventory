@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}New Stock Transfer — OxyPC{% endblock %}
+{% block page_title %}New Stock Transfer{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-xl-9">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-arrow-left-right me-2"></i>Record Stock Transfer
+      </div>
+      <div class="card-body">
+        {% if error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>{% endif %}
+
+        <!-- Step 1: Barcode lookup -->
+        <div class="bg-light rounded p-3 mb-4">
+          <h6 class="fw-bold text-primary mb-3"><i class="bi bi-upc-scan me-2"></i>Device Lookup</h6>
+          <form method="get" action="/transfers/new" class="row g-2 align-items-end">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Barcode / Tag Number</label>
+              <input type="text" name="barcode" class="form-control font-monospace"
+                     placeholder="Scan or type barcode" value="{{ barcode }}" autofocus>
+            </div>
+            <div class="col-auto">
+              <button type="submit" class="btn btn-outline-primary">
+                <i class="bi bi-search me-1"></i>Lookup
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {% if device %}
+        <!-- Device Info Card -->
+        <div class="alert alert-success py-2 mb-4">
+          <strong><i class="bi bi-laptop me-2"></i>{{ device.barcode }}</strong> —
+          {{ device.brand or '' }} {{ device.model or '' }}
+          {% if device.cpu %} | {{ device.cpu }}{% endif %}
+          {% if device.ram_gb %} | {{ device.ram_gb }} GB RAM{% endif %}
+          {% if device.storage_gb %} | {{ device.storage_gb }} GB Storage{% endif %}
+          <span class="badge bg-primary ms-2">{{ device.current_stage.value.replace('_',' ').title() }}</span>
+        </div>
+
+        <!-- Transfer Form -->
+        <form action="/transfers/new" method="post">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          <input type="hidden" name="barcode" value="{{ device.barcode }}">
+
+          <div class="row g-3 mb-4">
+            <!-- Transfer Type -->
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Transfer Type <span class="text-danger">*</span></label>
+              <select name="transfer_type" class="form-select" required>
+                <option value="">— Select Type —</option>
+                <option value="trc_to_showroom">TRC → Showroom</option>
+                <option value="showroom_to_trc">Showroom → TRC</option>
+                <option value="internal">Internal Transfer</option>
+              </select>
+            </div>
+
+            <!-- Transfer Date -->
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Transfer Date</label>
+              <input type="date" name="transfer_date" class="form-control"
+                     value="{{ now.strftime('%Y-%m-%d') if now else '' }}">
+            </div>
+
+            <!-- Department -->
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Department</label>
+              <select name="department" class="form-select">
+                <option value="">— Select Department —</option>
+                {% for d in departments %}
+                <option value="{{ d }}">{{ d }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <!-- From Warehouse -->
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Transfer From <span class="text-danger">*</span></label>
+              <select name="from_warehouse" class="form-select" required>
+                <option value="">— Select Warehouse —</option>
+                {% for w in warehouses %}
+                <option value="{{ w }}" {% if device.warehouse == w %}selected{% endif %}>{{ w }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <!-- To Warehouse -->
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Transfer To <span class="text-danger">*</span></label>
+              <select name="to_warehouse" class="form-select" required>
+                <option value="">— Select Warehouse —</option>
+                {% for w in warehouses %}
+                <option value="{{ w }}">{{ w }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <!-- Transferred By -->
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Order By / Transferred By</label>
+              <input type="text" name="transferred_by" class="form-control"
+                     placeholder="Username of sender"
+                     value="{{ current_user.username }}">
+            </div>
+
+            <!-- Received By -->
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Receiver Name</label>
+              <input type="text" name="received_by" class="form-control"
+                     placeholder="Username / name of receiver">
+            </div>
+
+            <!-- Notes -->
+            <div class="col-12">
+              <label class="form-label fw-semibold">Notes</label>
+              <textarea name="notes" class="form-control" rows="2"
+                        placeholder="Any additional notes about this transfer"></textarea>
+            </div>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary px-4">
+              <i class="bi bi-send me-2"></i>Record Transfer
+            </button>
+            <a href="/transfers" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+
+        {% elif barcode %}
+        <div class="alert alert-warning">
+          <i class="bi bi-exclamation-triangle me-2"></i>
+          Device <strong>{{ barcode }}</strong> not found. Please check the barcode and try again.
+        </div>
+        {% else %}
+        <div class="text-muted text-center py-4">
+          <i class="bi bi-upc-scan fs-1 d-block mb-2"></i>
+          Scan or enter a barcode above to look up a device before recording a transfer.
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}OxyPC Inventory{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap5.min.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+<div class="d-flex" id="wrapper">
+  <!-- Sidebar -->
+  <nav id="sidebar" class="sidebar-nav d-flex flex-column flex-shrink-0 p-0">
+    <div class="sidebar-brand d-flex align-items-center px-3 py-3">
+      <i class="bi bi-laptop me-2 fs-4"></i>
+      <span class="fs-5 fw-bold">OxyPC</span>
+    </div>
+    <ul class="nav nav-pills flex-column mb-auto px-2">
+      <li class="nav-item">
+        <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">
+          <i class="bi bi-speedometer2 me-2"></i> Dashboard
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="/devices" class="nav-link {% if request.url.path.startswith('/devices') %}active{% endif %}">
+          <i class="bi bi-search me-2"></i> Inventory Search
+        </a>
+      </li>
+
+      {# ── ATTENDANCE (moved here, below Inventory Search) ─────────────── #}
+      <li class="nav-section">ATTENDANCE</li>
+      <li><a href="/attendance" class="nav-link {% if request.url.path.startswith('/attendance') and 'report' not in request.url.path %}active{% endif %}">
+        <i class="bi bi-person-check me-2"></i> My Attendance
+      </a></li>
+      {% set role = current_user.role.value %}
+      {% if role in ['admin','inventory_manager'] %}
+      <li><a href="/attendance/report" class="nav-link {% if '/attendance/report' in request.url.path %}active{% endif %}">
+        <i class="bi bi-file-earmark-bar-graph me-2"></i> Attendance Report
+      </a></li>
+      {% endif %}
+
+      {# ── INTAKE ──────────────────────────────────────────────────────── #}
+      {% if role in ['admin','inventory_manager','iqc_inspector'] %}
+      <li class="nav-section">INTAKE</li>
+      {% if has_perm(role,'lots','enable') %}
+      <li><a href="/lots" class="nav-link {% if '/lots' in request.url.path %}active{% endif %}">
+        <i class="bi bi-box-seam me-2"></i> Lots of Devices
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'iqc','enable') %}
+      <li><a href="/iqc" class="nav-link {% if '/iqc' in request.url.path %}active{% endif %}">
+        <i class="bi bi-clipboard-check me-2"></i> IQC of Devices
+      </a></li>
+      {% endif %}
+      {% endif %}
+      {% if role in ['admin','inventory_manager'] %}
+      {% if has_perm(role,'stock','enable') %}
+      <li><a href="/stock" class="nav-link {% if '/stock' in request.url.path %}active{% endif %}">
+        <i class="bi bi-archive me-2"></i> Stock In Devices
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'transfers','enable') %}
+      <li><a href="/transfers" class="nav-link {% if '/transfers' in request.url.path %}active{% endif %}">
+        <i class="bi bi-arrow-left-right me-2"></i> Stock Transfers
+      </a></li>
+      {% endif %}
+      {% endif %}
+
+      {# ── REPAIR ──────────────────────────────────────────────────────── #}
+      {% if role in ['admin','inventory_manager','l1_engineer','l2_engineer','l3_engineer'] %}
+      <li class="nav-section">REPAIR</li>
+      {% endif %}
+      {% if role in ['admin','inventory_manager','l1_engineer'] and has_perm(role,'repair_l1','enable') %}
+      <li><a href="/repair/l1" class="nav-link {% if '/repair/l1' in request.url.path %}active{% endif %}">
+        <i class="bi bi-tools me-2"></i> L1 Repair
+      </a></li>
+      {% endif %}
+      {% if role in ['admin','inventory_manager','l2_engineer'] and has_perm(role,'repair_l2','enable') %}
+      <li><a href="/repair/l2" class="nav-link {% if '/repair/l2' in request.url.path %}active{% endif %}">
+        <i class="bi bi-wrench me-2"></i> L2 Repair
+      </a></li>
+      {% endif %}
+      {% if role in ['admin','inventory_manager','l3_engineer'] and has_perm(role,'repair_l3','enable') %}
+      <li><a href="/repair/l3" class="nav-link {% if '/repair/l3' in request.url.path %}active{% endif %}">
+        <i class="bi bi-cpu me-2"></i> L3 Repair
+      </a></li>
+      {% endif %}
+      {% if role in ['admin','qc_inspector'] and has_perm(role,'qc_check','enable') %}
+      <li><a href="/qc" class="nav-link {% if request.url.path.startswith('/qc') %}active{% endif %}">
+        <i class="bi bi-patch-check me-2"></i> QC Check
+      </a></li>
+      {% endif %}
+      {% if role in ['admin','inventory_manager','l1_engineer','l2_engineer','l3_engineer','iqc_inspector','qc_inspector'] %}
+      <li><a href="/repair/move/form" class="nav-link {% if 'move' in request.url.path %}active{% endif %}">
+        <i class="bi bi-arrow-left-right me-2"></i> Move Device
+      </a></li>
+      {% endif %}
+
+      {# ── COSMETIC REFURB ─────────────────────────────────────────────── #}
+      {% if role in ['admin','inventory_manager','qc_inspector'] and has_perm(role,'cosmetic','enable') %}
+      <li class="nav-section">COSMETIC REFURB</li>
+      <li><a href="/cosmetic" class="nav-link {% if '/cosmetic' in request.url.path %}active{% endif %}">
+        <i class="bi bi-brush me-2"></i> Pipeline View
+      </a></li>
+      <li><a href="/cosmetic/cleaning" class="nav-link {% if request.url.path == '/cosmetic/cleaning' %}active{% endif %}">
+        <i class="bi bi-droplet me-2"></i> Stages
+      </a></li>
+      <li><a href="/cosmetic/final_qc" class="nav-link {% if request.url.path == '/cosmetic/final_qc' %}active{% endif %}">
+        <i class="bi bi-shield-check me-2"></i> Final QC
+      </a></li>
+      {% endif %}
+
+      {# ── CRM ─────────────────────────────────────────────────────────── #}
+      {% if role in ['admin','sales','sales_manager','telecaller','inventory_manager'] %}
+      <li class="nav-section">CRM</li>
+      <li><a href="/crm/" class="nav-link {% if request.url.path.startswith('/crm') %}active{% endif %}">
+        <i class="bi bi-diagram-3 me-2"></i> CRM Dashboard
+      </a></li>
+      {% if has_perm(role,'crm_contacts','enable') %}
+      <li><a href="/crm/contacts" class="nav-link {% if request.url.path.startswith('/crm/contacts') %}active{% endif %}">
+        <i class="bi bi-people me-2"></i> Contacts
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'crm_sourcing','enable') %}
+      <li><a href="/crm/sourcing" class="nav-link {% if request.url.path.startswith('/crm/sourcing') %}active{% endif %}">
+        <i class="bi bi-box-arrow-in-down me-2"></i> Sourcing Deals
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'crm_sales_opp','enable') %}
+      <li><a href="/crm/sales" class="nav-link {% if (request.url.path.startswith('/crm/sales') and not request.url.path.startswith('/crm/sales/')) or request.url.path == '/crm/sales' %}active{% endif %}">
+        <i class="bi bi-graph-up-arrow me-2"></i> Sales Opportunities
+      </a></li>
+      {% endif %}
+      <li><a href="/crm/price-matrix" class="nav-link {% if request.url.path.startswith('/crm/price-matrix') %}active{% endif %}">
+        <i class="bi bi-table me-2"></i> Price Matrix
+      </a></li>
+      <li><a href="/crm/purchase-orders" class="nav-link {% if request.url.path.startswith('/crm/purchase-orders') %}active{% endif %}">
+        <i class="bi bi-file-earmark-text me-2"></i> Purchase Orders
+      </a></li>
+      <li><a href="/crm/reports" class="nav-link {% if request.url.path.startswith('/crm/reports') %}active{% endif %}">
+        <i class="bi bi-bar-chart me-2"></i> CRM Analytics
+      </a></li>
+      {% endif %}
+
+      {# ── SALES & CRM (Overdue Orders removed — now on Sales List page) ─ #}
+      {% if role in ['admin','sales','sales_manager','telecaller'] %}
+      <li class="nav-section">SALES & CRM</li>
+      {% if role in ['admin','sales','sales_manager'] and has_perm(role,'sales','enable') %}
+      <li><a href="/sales/ready" class="nav-link {% if '/sales/ready' in request.url.path %}active{% endif %}">
+        <i class="bi bi-check-circle me-2"></i> Ready to Sale
+      </a></li>
+      <li><a href="/sales" class="nav-link {% if request.url.path == '/sales' %}active{% endif %}">
+        <i class="bi bi-receipt me-2"></i> Sales List
+      </a></li>
+      {% endif %}
+      {% if role in ['admin','sales','sales_manager'] and has_perm(role,'returns','enable') %}
+      <li><a href="/returns" class="nav-link {% if '/returns' in request.url.path %}active{% endif %}">
+        <i class="bi bi-arrow-return-left me-2"></i> Returns
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'dealers','enable') %}
+      <li><a href="/dealers" class="nav-link {% if request.url.path.startswith('/dealers') and '/dealers/overdue' not in request.url.path %}active{% endif %}">
+        <i class="bi bi-building me-2"></i> Dealers
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'telecalling','enable') %}
+      <li><a href="/telecalling" class="nav-link {% if request.url.path.startswith('/telecalling') %}active{% endif %}">
+        <i class="bi bi-telephone me-2"></i> Telecalling
+      </a></li>
+      {% endif %}
+      <li><a href="/whatsapp" class="nav-link {% if request.url.path.startswith('/whatsapp') %}active{% endif %}">
+        <i class="bi bi-whatsapp me-2"></i> WhatsApp
+      </a></li>
+      {% endif %}
+
+      {# ── PARTS ───────────────────────────────────────────────────────── #}
+      {% if role in ['admin','spare_parts_manager'] and has_perm(role,'spare_parts','enable') %}
+      <li class="nav-section">PARTS</li>
+      <li><a href="/spare-parts" class="nav-link {% if request.url.path == '/spare-parts' %}active{% endif %}">
+        <i class="bi bi-gear me-2"></i> Part Master
+      </a></li>
+      <li><a href="/spare-parts/purchase" class="nav-link {% if '/purchase' in request.url.path %}active{% endif %}">
+        <i class="bi bi-bag-plus me-2"></i> Parts Purchased
+      </a></li>
+      <li><a href="/ram-tracking" class="nav-link {% if '/ram' in request.url.path %}active{% endif %}">
+        <i class="bi bi-memory me-2"></i> Parts Tracking
+      </a></li>
+      {% endif %}
+      {% if role not in ['spare_parts_manager'] %}
+      <li><a href="/spare-parts/consume" class="nav-link {% if '/consume' in request.url.path %}active{% endif %}">
+        <i class="bi bi-dash-circle me-2"></i> Parts Consumption
+      </a></li>
+      {% endif %}
+
+      {# ── FINANCE (moved after PARTS) ─────────────────────────────────── #}
+      {% if role in ['admin','inventory_manager','sales_manager'] and has_perm(role,'finance','enable') %}
+      <li class="nav-section">FINANCE</li>
+      <li><a href="/accounts" class="nav-link {% if request.url.path == '/accounts' %}active{% endif %}">
+        <i class="bi bi-wallet2 me-2"></i> Accounts
+      </a></li>
+      <li><a href="/accounts/supplier-payments" class="nav-link {% if '/accounts/supplier-payments' in request.url.path %}active{% endif %}">
+        <i class="bi bi-arrow-up-circle me-2"></i> Supplier Payments
+      </a></li>
+      <li><a href="/accounts/customer-receipts" class="nav-link {% if '/accounts/customer-receipts' in request.url.path %}active{% endif %}">
+        <i class="bi bi-arrow-down-circle me-2"></i> Customer Receipts
+      </a></li>
+      {% endif %}
+
+      {# ── INVENTORY LOCATIONS ─────────────────────────────────────────── #}
+      <li class="nav-section">INVENTORY LOCATIONS</li>
+      <li><a href="/locations/dashboard" class="nav-link {% if '/locations/dashboard' in request.url.path %}active{% endif %}">
+        <i class="bi bi-boxes me-2"></i> Location Map
+      </a></li>
+      <li><a href="/locations/gaps" class="nav-link {% if '/locations/gaps' in request.url.path %}active{% endif %}">
+        <i class="bi bi-exclamation-triangle me-2"></i> Gap Alerts
+      </a></li>
+      {% if role in ['admin','inventory_manager'] %}
+      <li><a href="/locations/audit" class="nav-link {% if '/locations/audit' in request.url.path %}active{% endif %}">
+        <i class="bi bi-clipboard-check me-2"></i> Physical Audit
+      </a></li>
+      <li><a href="/locations/master" class="nav-link {% if '/locations/master' in request.url.path %}active{% endif %}">
+        <i class="bi bi-geo-alt me-2"></i> Manage Locations
+      </a></li>
+      <li><a href="/trash" class="nav-link {% if request.url.path.startswith('/trash') %}active{% endif %}">
+        <i class="bi bi-trash3 me-2 text-danger"></i> Trash
+      </a></li>
+      {% endif %}
+
+      {# ── REPORTS ─────────────────────────────────────────────────────── #}
+      {% if has_perm(role,'reports','enable') %}
+      <li class="nav-section">REPORTS</li>
+      <li><a href="/reports/lot-pl" class="nav-link {% if '/reports/lot' in request.url.path %}active{% endif %}">
+        <i class="bi bi-graph-up me-2"></i> Lot P&amp;L
+      </a></li>
+      <li><a href="/reports/sales" class="nav-link {% if '/reports/sales' in request.url.path %}active{% endif %}">
+        <i class="bi bi-bar-chart me-2"></i> Sales Report
+      </a></li>
+      <li><a href="/reports/stage-movement" class="nav-link {% if '/reports/stage' in request.url.path %}active{% endif %}">
+        <i class="bi bi-shuffle me-2"></i> Stage Log
+      </a></li>
+      <li><a href="/reports/business-pl" class="nav-link {% if '/reports/business-pl' in request.url.path %}active{% endif %}">
+        <i class="bi bi-graph-up-arrow me-2"></i> Business P&amp;L
+      </a></li>
+      <li><a href="/reports/stock-aging" class="nav-link {% if '/reports/stock-aging' in request.url.path %}active{% endif %}">
+        <i class="bi bi-hourglass-split me-2"></i> Stock Aging
+      </a></li>
+      <li><a href="/reports/overdue" class="nav-link {% if '/reports/overdue' in request.url.path %}active{% endif %}">
+        <i class="bi bi-exclamation-triangle me-2"></i> Overdue Devices
+      </a></li>
+      <li><a href="/reports/receivables" class="nav-link {% if '/reports/receivables' in request.url.path %}active{% endif %}">
+        <i class="bi bi-hourglass-split me-2 text-warning"></i> Receivables
+      </a></li>
+      <li><a href="/market" class="nav-link {% if request.url.path.startswith('/market') %}active{% endif %}">
+        <i class="bi bi-graph-up-arrow me-2"></i> Market Intel
+      </a></li>
+      {% endif %}{# end reports enable #}
+
+      {# ── ADMIN ───────────────────────────────────────────────────────── #}
+      {% if role == 'admin' %}
+      <li class="nav-section">ADMIN</li>
+      <li><a href="/admin/users" class="nav-link {% if '/admin/users' in request.url.path %}active{% endif %}">
+        <i class="bi bi-people me-2"></i> Users
+      </a></li>
+      <li><a href="/admin/cost-config" class="nav-link {% if '/admin/cost-config' in request.url.path %}active{% endif %}">
+        <i class="bi bi-calculator me-2"></i> Cost Config
+      </a></li>
+      <li><a href="/admin/master" class="nav-link {% if '/admin/master' in request.url.path %}active{% endif %}">
+        <i class="bi bi-database-gear me-2"></i> Master Data
+      </a></li>
+      <li><a href="/whatsapp/audit" class="nav-link {% if '/whatsapp/audit' in request.url.path %}active{% endif %}">
+        <i class="bi bi-whatsapp me-2 text-success"></i> WA Audit Log
+      </a></li>
+      <li><a href="/settings" class="nav-link {% if request.url.path == '/settings' %}active{% endif %}">
+        <i class="bi bi-gear me-2"></i> Company Settings
+      </a></li>
+
+      {# Application Settings — collapsible group (replaces R-OS ENGINE section) #}
+      {% set app_settings_active = '/stage-control' in request.url.path or '/admin/audit-log' in request.url.path %}
+      <li class="nav-item">
+        <a href="#appSettingsCollapse" class="nav-link d-flex align-items-center {% if app_settings_active %}active{% endif %}"
+           data-bs-toggle="collapse" role="button"
+           aria-expanded="{{ 'true' if app_settings_active else 'false' }}"
+           aria-controls="appSettingsCollapse">
+          <i class="bi bi-sliders me-2"></i>
+          Application Settings
+          <i class="bi bi-chevron-down ms-auto small transition-icon"></i>
+        </a>
+        <div class="collapse {% if app_settings_active %}show{% endif %}" id="appSettingsCollapse">
+          <ul class="nav flex-column ps-3 pb-1">
+            <li><a href="/stage-control" class="nav-link py-1 small {% if request.url.path == '/stage-control' %}active{% endif %}">
+              <i class="bi bi-diagram-3 me-2"></i> Stage Control
+            </a></li>
+            <li><a href="/stage-control/aging" class="nav-link py-1 small {% if '/stage-control/aging' in request.url.path %}active{% endif %}">
+              <i class="bi bi-hourglass-split me-2"></i> Aging Tracker
+            </a></li>
+            <li><a href="/stage-control/audit" class="nav-link py-1 small {% if '/stage-control/audit' in request.url.path %}active{% endif %}">
+              <i class="bi bi-journal-text me-2"></i> Stage Audit Log
+            </a></li>
+            <li><a href="/admin/audit-log" class="nav-link py-1 small {% if '/admin/audit-log' in request.url.path %}active{% endif %}">
+              <i class="bi bi-shield-check me-2"></i> System Audit Log
+            </a></li>
+          </ul>
+        </div>
+      </li>
+
+      {# QA Dashboard — admin only, all sub-pages accessible via tabs on the QA pages #}
+      <li><a href="/qa/" class="nav-link {% if request.url.path.startswith('/qa') %}active{% endif %}">
+        <i class="bi bi-speedometer2 me-2"></i> QA Dashboard
+      </a></li>
+      {% endif %}
+    </ul>
+    <div class="sidebar-footer px-3 py-2">
+      <small class="text-muted">v1.0 &bull; OxyPC</small>
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <div id="page-content-wrapper" class="flex-grow-1 d-flex flex-column">
+    <!-- Topbar -->
+    <nav class="navbar navbar-expand topbar px-3">
+      <button class="btn btn-link me-3" id="sidebarToggle"><i class="bi bi-list fs-5"></i></button>
+      <span class="navbar-brand mb-0 h1 fw-bold text-primary">{% block page_title %}{% endblock %}</span>
+      <div class="ms-auto d-flex align-items-center gap-3">
+        <span class="badge bg-primary">{{ current_user.role_label }}</span>
+        <span class="text-muted small">{{ current_user.full_name }}</span>
+        <form action="/auth/logout" method="post" class="m-0">
+          <button class="btn btn-outline-secondary btn-sm"><i class="bi bi-box-arrow-right me-1"></i>Logout</button>
+        </form>
+      </div>
+    </nav>
+
+    <!-- Flash messages -->
+    <div class="px-4 pt-2">
+      {% if request.query_params.get('success') %}
+      <div class="alert alert-success alert-dismissible fade show py-2" role="alert">
+        <i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success') | replace('+', ' ') }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+      {% endif %}
+      {% if request.query_params.get('error') %}
+      <div class="alert alert-danger alert-dismissible fade show py-2" role="alert">
+        <i class="bi bi-exclamation-circle me-2"></i>{{ request.query_params.get('error') | replace('+', ' ') }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Content -->
+    <main class="flex-grow-1 px-4 py-3">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.8/js/dataTables.bootstrap5.min.js"></script>
+<script src="/static/js/app.js"></script>
+<script src="/static/js/barcode.js"></script>
+{% block scripts %}{% endblock %}
+<script>
+/* ── Sidebar scroll position persistence ─────────────────────────────────── */
+(function () {
+  var STORAGE_KEY = 'oxypc_sidebar_scroll';
+  var sidebar = document.getElementById('sidebar');
+  if (!sidebar) return;
+
+  // Restore saved position immediately (before first paint)
+  var saved = sessionStorage.getItem(STORAGE_KEY);
+  if (saved) sidebar.scrollTop = parseInt(saved, 10) || 0;
+
+  // Save position on every navigation click inside the sidebar
+  sidebar.addEventListener('click', function (e) {
+    var link = e.target.closest('a.nav-link, a[href]');
+    if (link && !link.dataset.bsToggle) {
+      // Store the CURRENT scrollTop (before navigation starts)
+      sessionStorage.setItem(STORAGE_KEY, sidebar.scrollTop);
+    }
+  });
+})();
+</script>
+<!-- Session Expiry Warning Modal -->
+<div class="modal fade" id="sessionModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content border-warning">
+      <div class="modal-header bg-warning text-dark py-2">
+        <h6 class="modal-title mb-0"><i class="bi bi-clock-history me-2"></i>Session Expiring Soon</h6>
+      </div>
+      <div class="modal-body py-3 text-center">
+        <p class="mb-2 small">Your session expires in <strong id="sessionCountdown">5:00</strong>.</p>
+        <p class="text-muted small mb-0">Click <em>Stay Logged In</em> to continue working.</p>
+      </div>
+      <div class="modal-footer py-2 justify-content-center gap-2">
+        <button type="button" class="btn btn-warning btn-sm" id="sessionExtendBtn">
+          <i class="bi bi-arrow-clockwise me-1"></i>Stay Logged In
+        </button>
+        <a href="/auth/login" class="btn btn-outline-secondary btn-sm">Log Out</a>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var WARN_BEFORE_SECS = 300; // show modal 5 minutes before expiry
+  function getCookieVal(name) {
+    var match = document.cookie.split(';')
+      .map(function(c){ return c.trim(); })
+      .find(function(c){ return c.startsWith(name + '='); });
+    return match ? decodeURIComponent(match.split('=')[1]) : null;
+  }
+  var expiresEpoch = parseInt(getCookieVal('session_expires') || '0', 10);
+  if (!expiresEpoch) return; // no cookie — skip (e.g. if user cleared cookies)
+
+  var sessionModal = null;
+  var countdownInterval = null;
+
+  function showWarning(secsLeft) {
+    if (!sessionModal) {
+      sessionModal = new bootstrap.Modal(document.getElementById('sessionModal'));
+    }
+    sessionModal.show();
+    updateCountdown(secsLeft);
+    countdownInterval = setInterval(function() {
+      secsLeft -= 1;
+      if (secsLeft <= 0) {
+        clearInterval(countdownInterval);
+        window.location.href = '/auth/login';
+      } else {
+        updateCountdown(secsLeft);
+      }
+    }, 1000);
+  }
+
+  function updateCountdown(secs) {
+    var m = Math.floor(secs / 60), s = secs % 60;
+    document.getElementById('sessionCountdown').textContent =
+      m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  // Schedule modal appearance
+  var nowEpoch = Math.floor(Date.now() / 1000);
+  var totalSecs = expiresEpoch - nowEpoch;
+  if (totalSecs <= 0) {
+    window.location.href = '/auth/login'; // already expired
+    return;
+  }
+  var warnIn = (totalSecs - WARN_BEFORE_SECS) * 1000;
+  if (warnIn <= 0) {
+    // Already within warning window — show immediately with remaining time
+    showWarning(totalSecs);
+  } else {
+    setTimeout(function() { showWarning(WARN_BEFORE_SECS); }, warnIn);
+  }
+
+  // Stay Logged In button
+  document.getElementById('sessionExtendBtn').addEventListener('click', function() {
+    fetch('/auth/extend-session', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok) {
+          clearInterval(countdownInterval);
+          if (sessionModal) sessionModal.hide();
+          // Re-schedule from new session_expires cookie
+          var newExpires = parseInt(getCookieVal('session_expires') || '0', 10);
+          var nowNow = Math.floor(Date.now() / 1000);
+          var newWarnIn = (newExpires - nowNow - WARN_BEFORE_SECS) * 1000;
+          if (newWarnIn > 0) {
+            setTimeout(function() { showWarning(WARN_BEFORE_SECS); }, newWarnIn);
+          }
+        } else {
+          window.location.href = '/auth/login';
+        }
+      })
+      .catch(function() { window.location.href = '/auth/login'; });
+  });
+})();
+</script>
+<script>
+/* CSRF Auto-Inject — reads csrf_token cookie, injects hidden input into every POST form */
+(function () {
+  function getCsrfToken() {
+    var match = document.cookie.split(';')
+      .map(function (c) { return c.trim(); })
+      .find(function (c) { return c.startsWith('csrf_token='); });
+    return match ? decodeURIComponent(match.split('=')[1]) : '';
+  }
+  // Expose globally so page-level JS (AJAX fetch calls) can use it
+  window.getCsrfToken = getCsrfToken;
+  function injectCsrf() {
+    var token = getCsrfToken();
+    if (!token) return;
+    document.querySelectorAll('form').forEach(function (form) {
+      var method = (form.getAttribute('method') || 'get').toLowerCase();
+      if (method !== 'post') return;
+      if (form.querySelector('input[name="csrf_token"]')) return; // already present
+      var inp = document.createElement('input');
+      inp.type = 'hidden';
+      inp.name = 'csrf_token';
+      inp.value = token;
+      form.appendChild(inp);
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', injectCsrf);
+  } else {
+    injectCsrf();
+  }
+})();
+</script>
+</body>
+</html>

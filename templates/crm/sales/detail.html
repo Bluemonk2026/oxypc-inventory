@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+{% block title %}{{ opp.opp_number }} — Sales — OxyPC{% endblock %}
+{% block page_title %}{{ opp.opp_number }}: {{ opp.title[:60] }}{% if opp.title|length > 60 %}…{% endif %}{% endblock %}
+{% block content %}
+
+{% set stage_colors = {
+  'lead': 'secondary', 'contacted': 'secondary', 'quoted': 'info',
+  'negotiation': 'warning', 'confirmed': 'primary', 'invoiced': 'primary',
+  'delivered': 'success', 'payment': 'success', 'won': 'success', 'lost': 'danger'
+} %}
+{% set priority_colors = {'low':'secondary','medium':'info','high':'warning','urgent':'danger'} %}
+
+<div class="row g-4">
+
+  <!-- Left col: info -->
+  <div class="col-xl-4">
+
+    <!-- Opportunity Info Card -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-graph-up me-1 text-info"></i>Opportunity Info</span>
+        <span class="badge bg-{{ stage_colors.get(opp.stage,'secondary') }}">
+          {{ opp.stage | replace('_',' ') | title }}
+        </span>
+      </div>
+      <div class="card-body">
+        <div class="mb-2">
+          <div class="small text-muted">Opp Number</div>
+          <code>{{ opp.opp_number }}</code>
+        </div>
+        <div class="mb-2">
+          <div class="small text-muted">Title</div>
+          <div class="fw-semibold">{{ opp.title }}</div>
+        </div>
+        {% if contact %}
+        <div class="mb-2">
+          <div class="small text-muted">Buyer</div>
+          <a href="/crm/contacts/{{ contact.id }}" class="text-decoration-none">{{ contact.company_name }}</a>
+          {% if contact.contact_person %}<div class="small text-muted">{{ contact.contact_person }}</div>{% endif %}
+        </div>
+        {% endif %}
+        <div class="mb-2">
+          <div class="small text-muted">Buyer Type</div>
+          <div>{% if opp.buyer_type %}<span class="badge bg-light text-dark border">{{ buyer_map.get(opp.buyer_type, opp.buyer_type | replace('_',' ') | title) }}</span>{% else %}—{% endif %}</div>
+        </div>
+        <div class="mb-2">
+          <div class="small text-muted">Device Type</div>
+          <div>{{ opp.device_type or '—' }}</div>
+        </div>
+        <div class="mb-2">
+          <div class="small text-muted">Material Type</div>
+          <div>{% if opp.material_type %}<span class="badge bg-light text-dark border">{{ material_map.get(opp.material_type, opp.material_type | title) }}</span>{% else %}—{% endif %}</div>
+        </div>
+        <div class="mb-2">
+          <div class="small text-muted">Grade Required</div>
+          <div>{% if opp.grade_required %}<span class="badge bg-warning text-dark">{{ opp.grade_required }}</span>{% else %}—{% endif %}</div>
+        </div>
+        <div class="row g-2 mt-1">
+          <div class="col-6">
+            <div class="small text-muted">Qty Required</div>
+            <div class="fw-semibold">{{ opp.required_qty or '—' }}</div>
+          </div>
+          <div class="col-6">
+            <div class="small text-muted">Est. Value</div>
+            <div class="fw-semibold text-success">{% if opp.estimated_value %}₹{{ "{:,.0f}".format(opp.estimated_value) }}{% else %}—{% endif %}</div>
+          </div>
+          {% if opp.expected_close_date %}
+          <div class="col-12">
+            <div class="small text-muted">Expected Close</div>
+            <div class="small {% if opp.expected_close_date < now.date() and opp.stage not in ['won','lost'] %}text-danger fw-semibold{% endif %}">
+              {{ opp.expected_close_date.strftime('%d %b %Y') }}
+            </div>
+          </div>
+          {% endif %}
+        </div>
+        <hr class="my-2">
+        <div class="mb-2">
+          <div class="small text-muted">Priority</div>
+          <span class="badge bg-{{ priority_colors.get(opp.priority,'secondary') }}">{{ opp.priority | title }}</span>
+        </div>
+        <div class="mb-2">
+          <div class="small text-muted">Assigned To</div>
+          <div>{{ opp.assigned_to or '—' }}</div>
+        </div>
+        {% if opp.notes %}
+        <hr class="my-2">
+        <div class="small text-muted fw-semibold mb-1">Notes</div>
+        <div class="small">{{ opp.notes }}</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Quote Card -->
+    {% if quote %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-file-earmark-text me-1 text-success"></i>Linked Quote</div>
+      <div class="card-body">
+        <div class="mb-1">
+          <a href="/crm/quotes/{{ quote.id }}" class="fw-semibold text-decoration-none">{{ quote.quote_number }}</a>
+        </div>
+        {% set qstatus_colors = {'draft':'secondary','sent':'info','negotiating':'warning','accepted':'success','rejected':'danger','expired':'secondary'} %}
+        <span class="badge bg-{{ qstatus_colors.get(quote.status,'secondary') }}">{{ quote.status | title }}</span>
+        {% if quote.total_amount %}
+        <div class="small text-muted mt-2">Total: <strong class="text-success">₹{{ "{:,.0f}".format(quote.total_amount) }}</strong></div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Action Buttons -->
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="/crm/sales/{{ opp.id }}/edit" class="btn btn-sm btn-outline-info"><i class="bi bi-pencil me-1"></i>Edit</a>
+      {% if quote %}
+      <a href="/crm/quotes/{{ quote.id }}" class="btn btn-sm btn-outline-success"><i class="bi bi-file-earmark-text me-1"></i>View Quote</a>
+      {% else %}
+      <a href="/crm/quotes/new?opp_id={{ opp.id }}" class="btn btn-sm btn-success"><i class="bi bi-file-earmark-plus me-1"></i>Create Quote</a>
+      {% endif %}
+      <a href="/crm/sales/{{ opp.id }}/link-sale" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-link-45deg me-1"></i>Link Sale{% if opp.linked_sale_ids %} ({{ opp.linked_sale_ids.split(',')|length }}){% endif %}
+      </a>
+      {% if opp.stage not in ['won','lost'] %}
+      <form method="post" action="/crm/sales/{{ opp.id }}/stage" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+        <input type="hidden" name="new_stage" value="won">
+        <button class="btn btn-sm btn-success"><i class="bi bi-trophy me-1"></i>Mark WON</button>
+      </form>
+      <form method="post" action="/crm/sales/{{ opp.id }}/stage" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+        <input type="hidden" name="new_stage" value="lost">
+        <button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-circle me-1"></i>Mark LOST</button>
+      </form>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <!-- Right col: stage + activities -->
+  <div class="col-xl-8">
+
+    <!-- Stage Progress Bar -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-diagram-3 me-1 text-info"></i>Stage Progress</div>
+      <div class="card-body">
+        <div class="d-flex flex-wrap gap-1 mb-3">
+          {% for i, (val, label) in stage_list %}
+          <div class="text-center" style="flex:1;min-width:70px">
+            <div class="rounded px-2 py-1 small fw-semibold
+              {% if i < current_idx %}bg-success text-white
+              {% elif i == current_idx %}bg-info text-white
+              {% else %}bg-light text-muted{% endif %}">
+              {{ label }}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+
+        <!-- Stage Move Form -->
+        {% if opp.stage not in ['won','lost'] %}
+        <form method="post" action="/crm/sales/{{ opp.id }}/stage" class="row g-2 align-items-end">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          <div class="col-md-5">
+            <label class="form-label small fw-semibold mb-1">Move to Stage</label>
+            <select name="new_stage" class="form-select form-select-sm">
+              {% for val, label in sales_stages %}
+              <option value="{{ val }}" {% if val==opp.stage %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label small fw-semibold mb-1">Win/Loss Reason</label>
+            <input type="text" name="win_loss_reason" class="form-control form-control-sm" placeholder="Optional">
+          </div>
+          <div class="col-md-2">
+            <button class="btn btn-sm btn-info text-white w-100"><i class="bi bi-arrow-right-circle me-1"></i>Update</button>
+          </div>
+        </form>
+        {% else %}
+        <div class="alert alert-{{ 'success' if opp.stage=='won' else 'danger' }} py-2 mb-0">
+          <strong>Opportunity {{ opp.stage | upper }}</strong>{% if opp.win_loss_reason %} — {{ opp.win_loss_reason }}{% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Next Follow-up Alert -->
+    {% if next_fu and not next_fu.followup_done %}
+    <div class="alert alert-warning d-flex justify-content-between align-items-center mb-3">
+      <div>
+        <i class="bi bi-alarm me-2"></i>
+        <strong>Follow-up:</strong> {{ next_fu.next_followup.strftime('%d %b %Y %H:%M') }}
+        {% if next_fu.followup_assigned_to %} &rarr; {{ next_fu.followup_assigned_to }}{% endif %}
+        {% if next_fu.next_followup < now %}<span class="badge bg-danger ms-2">OVERDUE</span>{% endif %}
+        <div class="small mt-1">{{ next_fu.summary }}</div>
+      </div>
+      <form method="post" action="/crm/activities/{{ next_fu.id }}/done" class="ms-3 flex-shrink-0">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+        <input type="hidden" name="redirect_to" value="/crm/sales/{{ opp.id }}">
+        <button class="btn btn-sm btn-success"><i class="bi bi-check me-1"></i>Mark Done</button>
+      </form>
+    </div>
+    {% endif %}
+
+    <!-- Log Activity -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-plus-circle me-1 text-success"></i>Log Activity</div>
+      <div class="card-body">
+        <form method="post" action="/crm/activities/log" class="row g-2">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          <input type="hidden" name="contact_id" value="{{ contact.id if contact else '' }}">
+          <input type="hidden" name="deal_id" value="{{ opp.id }}">
+          <input type="hidden" name="deal_type" value="sales">
+          <input type="hidden" name="redirect_to" value="/crm/sales/{{ opp.id }}">
+          <div class="col-md-3">
+            <select name="activity_type" class="form-select form-select-sm">
+              <option value="call">📞 Call</option>
+              <option value="whatsapp">💬 WhatsApp</option>
+              <option value="visit">🤝 Visit</option>
+              <option value="email">📧 Email</option>
+              <option value="meeting">👥 Meeting</option>
+              <option value="note">📝 Note</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <select name="outcome" class="form-select form-select-sm">
+              <option value="">Outcome…</option>
+              <option value="interested">Interested</option>
+              <option value="not_interested">Not Interested</option>
+              <option value="callback">Callback</option>
+              <option value="order_placed">Order Placed</option>
+              <option value="no_answer">No Answer</option>
+              <option value="followup">Follow-up</option>
+              <option value="done">Done</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <input type="text" name="summary" class="form-control form-control-sm" placeholder="What was discussed? *" required>
+          </div>
+          <div class="col-md-4">
+            <input type="datetime-local" name="next_followup" class="form-control form-control-sm" title="Next follow-up">
+          </div>
+          <div class="col-md-4">
+            <input type="text" name="followup_assigned_to" class="form-control form-control-sm" placeholder="Follow-up assigned to" value="{{ current_user.username }}">
+          </div>
+          <div class="col-md-4">
+            <button class="btn btn-sm btn-success w-100"><i class="bi bi-check me-1"></i>Log Activity</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Activity Timeline -->
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-clock-history me-1 text-muted"></i>Activity Log</div>
+      <div class="card-body p-0">
+        {% if activities %}
+        <div class="list-group list-group-flush">
+          {% for act in activities %}
+          <div class="list-group-item border-0 border-bottom px-3 py-2">
+            <div class="d-flex justify-content-between align-items-start">
+              <span class="badge bg-light text-dark border me-2">
+                {% if act.activity_type=='call' %}📞{% elif act.activity_type=='whatsapp' %}💬{% elif act.activity_type=='visit' %}🤝{% elif act.activity_type=='email' %}📧{% elif act.activity_type=='meeting' %}👥{% else %}📝{% endif %}
+                {{ act.activity_type | title }}
+              </span>
+              <small class="text-muted">{{ act.activity_date.strftime('%d %b %Y %H:%M') }}</small>
+            </div>
+            <div class="small mt-1">{{ act.summary }}</div>
+            {% if act.outcome %}<span class="badge bg-light text-dark border mt-1 small">{{ act.outcome | replace('_',' ') | title }}</span>{% endif %}
+            <div class="small text-muted mt-1">by {{ act.performed_by }}</div>
+            {% if act.next_followup and not act.followup_done %}
+            <div class="small text-warning mt-1"><i class="bi bi-alarm me-1"></i>Follow-up: {{ act.next_followup.strftime('%d %b %Y %H:%M') }} → {{ act.followup_assigned_to or '—' }}</div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-4">No activities logged yet.</div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Business P&L {{ year }} — OxyPC{% endblock %}
+{% block page_title %}Business P&L Dashboard — {{ year }}{% endblock %}
+{% block content %}
+<!-- Year selector -->
+<div class="d-flex gap-2 mb-3">
+  {% for y in range(year - 2, year + 3) %}
+  <a href="?year={{ y }}" class="btn btn-sm {% if y == year %}btn-primary{% else %}btn-outline-secondary{% endif %}">{{ y }}</a>
+  {% endfor %}
+</div>
+
+<!-- KPI Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body text-center">
+        <div class="fs-6 text-muted">Total Revenue</div>
+        <div class="fs-2 fw-bold text-primary">₹{{ "{:,.0f}".format(total_revenue) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body text-center">
+        <div class="fs-6 text-muted">Gross Profit</div>
+        <div class="fs-2 fw-bold {% if gross_profit >= 0 %}text-success{% else %}text-danger{% endif %}">₹{{ "{:,.0f}".format(gross_profit) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body text-center">
+        <div class="fs-6 text-muted">Gross Margin</div>
+        <div class="fs-2 fw-bold {% if gross_margin >= 15 %}text-success{% elif gross_margin >= 5 %}text-warning{% else %}text-danger{% endif %}">{{ gross_margin }}%</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body text-center">
+        <div class="fs-6 text-muted">Devices Sold</div>
+        <div class="fs-2 fw-bold text-info">{{ total_sales_ct }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body text-center">
+        <div class="fs-6 text-muted">Avg Sale Price</div>
+        <div class="fs-4 fw-bold">₹{{ "{:,.0f}".format(avg_sale_price) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body text-center">
+        <div class="fs-6 text-muted">Inventory @ Cost</div>
+        <div class="fs-4 fw-bold text-secondary">₹{{ "{:,.0f}".format(inv_value) }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-graph-up me-2"></i>Monthly Revenue vs COGS (Device + Parts) vs Gross Profit</span>
+  </div>
+  <div class="card-body">
+    <canvas id="plChart" height="80"></canvas>
+  </div>
+</div>
+
+<!-- Monthly Table -->
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-table me-2"></i>Monthly Breakdown</div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0 small">
+      <thead class="table-dark">
+        <tr>
+          <th>Month</th><th>Revenue</th>
+          <th>Device COGS</th><th>Parts Cost</th><th>Total COGS</th>
+          <th>Gross Profit</th><th>Margin %</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
+        {% for i in range(12) %}
+        {% set rev    = monthly_rev[i] %}
+        {% set dcogs  = monthly_device_cogs[i] %}
+        {% set pcogs  = monthly_parts_cogs[i] %}
+        {% set cogs   = monthly_cogs[i] %}
+        {% set profit = monthly_profit[i] %}
+        {% set margin = (profit / rev * 100) | round(1) if rev > 0 else 0 %}
+        <tr>
+          <td class="fw-semibold">{{ months[i] }} {{ year }}</td>
+          <td>₹{{ "{:,.0f}".format(rev) }}</td>
+          <td>₹{{ "{:,.0f}".format(dcogs) }}</td>
+          <td class="text-warning">₹{{ "{:,.0f}".format(pcogs) }}</td>
+          <td>₹{{ "{:,.0f}".format(cogs) }}</td>
+          <td class="{% if profit >= 0 %}text-success{% else %}text-danger{% endif %} fw-semibold">
+            ₹{{ "{:,.0f}".format(profit) }}
+          </td>
+          <td>{% if rev > 0 %}{{ margin }}%{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-light fw-bold">
+        <tr>
+          <td>Total {{ year }}</td>
+          <td>₹{{ "{:,.0f}".format(total_revenue) }}</td>
+          <td>₹{{ "{:,.0f}".format(total_device_cogs) }}</td>
+          <td class="text-warning">₹{{ "{:,.0f}".format(total_parts_cogs) }}</td>
+          <td>₹{{ "{:,.0f}".format(total_cogs) }}</td>
+          <td class="{% if gross_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
+            ₹{{ "{:,.0f}".format(gross_profit) }}
+          </td>
+          <td>{{ gross_margin }}%</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const ctx = document.getElementById('plChart').getContext('2d');
+new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+    datasets: [
+      { label: 'Revenue', data: {{ monthly_rev | tojson }}, borderColor: '#1565C0', backgroundColor: 'rgba(21,101,192,0.05)', tension: 0.3, fill: false },
+      { label: 'COGS', data: {{ monthly_cogs | tojson }}, borderColor: '#C62828', backgroundColor: 'rgba(198,40,40,0.05)', tension: 0.3, fill: false },
+      { label: 'Gross Profit', data: {{ monthly_profit | tojson }}, borderColor: '#2E7D32', backgroundColor: 'rgba(46,125,50,0.1)', tension: 0.3, fill: true },
+    ]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { position: 'top' } },
+    scales: { y: { beginAtZero: true, ticks: { callback: v => '₹' + v.toLocaleString('en-IN') } } }
+  }
+});
+</script>
+{% endblock %}

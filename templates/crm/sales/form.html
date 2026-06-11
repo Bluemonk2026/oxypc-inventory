@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if opp else 'New' }} Sales Opportunity — OxyPC{% endblock %}
+{% block page_title %}{{ 'Edit Opportunity' if opp else 'New Sales Opportunity' }}{% endblock %}
+{% block content %}
+
+<div class="row justify-content-center">
+<div class="col-xl-10">
+<form method="post" action="{{ '/crm/sales/'+opp.id|string+'/edit' if opp else '/crm/sales/new' }}" enctype="multipart/form-data">
+<input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-graph-up me-2 text-info"></i>Opportunity Details</div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-12">
+        <label class="form-label fw-semibold">Title <span class="text-danger">*</span></label>
+        <input type="text" name="title" class="form-control" required value="{{ opp.title if opp else '' }}" placeholder="e.g. 30 Refurbished Laptops for XYZ Corp">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Contact (Buyer)</label>
+        <select name="contact_id" class="form-select">
+          <option value="">— Select Contact —</option>
+          {% for c in contacts %}
+          <option value="{{ c.id }}"
+            {% if opp and opp.contact_id == c.id %}selected
+            {% elif preselect and preselect|string == c.id|string %}selected
+            {% endif %}>
+            {{ c.company_name }}{% if c.contact_person %} ({{ c.contact_person }}){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Buyer Type</label>
+        <select name="buyer_type" class="form-select">
+          <option value="">— Select —</option>
+          {% for val, label in buyer_types %}
+          <option value="{{ val }}" {% if opp and opp.buyer_type==val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Device Type</label>
+        <input type="text" name="device_type" class="form-control" value="{{ opp.device_type or '' if opp else '' }}" placeholder="e.g. Laptop, Desktop, Mix">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Required Qty</label>
+        <input type="number" name="required_qty" id="required_qty" class="form-control" min="0"
+          value="{{ opp.required_qty or '' if opp else '' }}" placeholder="0"
+          oninput="calcEstValue()">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Material Type</label>
+        <select name="material_type" class="form-select">
+          <option value="">— Select —</option>
+          {% for val, label in material_types %}
+          <option value="{{ val }}" {% if opp and opp.material_type==val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Grade Required</label>
+        <select name="grade_required" class="form-select">
+          <option value="">— Any Grade —</option>
+          {% for g in grades %}
+          <option value="{{ g }}" {% if opp and opp.grade_required==g %}selected{% endif %}>{{ g }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Budget Per Unit (₹)</label>
+        <input type="number" name="budget_per_unit" id="budget_per_unit" class="form-control" step="0.01" min="0"
+          value="{{ opp.budget_per_unit or '' if opp else '' }}" placeholder="0.00"
+          oninput="calcEstValue()">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Estimated Value (₹)</label>
+        <input type="number" name="estimated_value" id="estimated_value" class="form-control" step="0.01" min="0"
+          value="{{ opp.estimated_value or '' if opp else '' }}" placeholder="Auto-calculated" readonly>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Expected Close Date</label>
+        <input type="date" name="expected_close_date" class="form-control"
+          value="{{ opp.expected_close_date.strftime('%Y-%m-%d') if opp and opp.expected_close_date else '' }}">
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-sliders me-2 text-info"></i>Assignment &amp; Notes</div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Priority</label>
+        <select name="priority" class="form-select">
+          {% for p in priorities %}
+          <option value="{{ p }}" {% if opp and opp.priority==p %}selected{% elif not opp and p=='medium' %}selected{% endif %}>{{ p | title }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Assigned To</label>
+        <input type="text" name="assigned_to" class="form-control"
+          value="{{ opp.assigned_to if opp else current_user.username }}" placeholder="Username">
+      </div>
+      <div class="col-12">
+        <label class="form-label fw-semibold">Notes</label>
+        <textarea name="notes" class="form-control" rows="3" placeholder="Any additional requirements or context…">{{ opp.notes or '' if opp else '' }}</textarea>
+      </div>
+      <div class="col-12">
+        <label class="form-label fw-semibold">Product Records <span class="text-muted small">(XLS / XLSX / CSV)</span></label>
+        <input type="file" name="product_records" class="form-control" accept=".xls,.xlsx,.csv">
+        {% if opp and opp.product_records_file %}
+        <div class="mt-1 small text-muted">
+          <i class="bi bi-file-earmark-arrow-down me-1 text-success"></i>
+          Current file: <a href="/uploads/crm/{{ opp.product_records_file }}" target="_blank" class="text-success">Download</a>
+          — upload a new file to replace it
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="d-flex gap-2">
+  <button type="submit" class="btn btn-info text-white"><i class="bi bi-check-circle me-1"></i>{{ 'Update Opportunity' if opp else 'Create Opportunity' }}</button>
+  <a href="{{ '/crm/sales/'+opp.id|string if opp else '/crm/sales' }}" class="btn btn-outline-secondary">Cancel</a>
+</div>
+
+</form>
+</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function calcEstValue() {
+  var qty    = parseFloat(document.getElementById('required_qty').value)    || 0;
+  var budget = parseFloat(document.getElementById('budget_per_unit').value) || 0;
+  if (qty > 0 && budget > 0) {
+    document.getElementById('estimated_value').value = (qty * budget).toFixed(2);
+  }
+}
+</script>
+{% endblock %}

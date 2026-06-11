@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}{{ stage_label }} — OxyPC{% endblock %}
+{% block page_title %}{{ stage_label }}{% endblock %}
+{% block content %}
+
+<!-- Pipeline breadcrumb -->
+<nav class="mb-3">
+  <ol class="breadcrumb small">
+    <li class="breadcrumb-item"><a href="/cosmetic">Cosmetic Pipeline</a></li>
+    <li class="breadcrumb-item active">{{ stage_label }}</li>
+  </ol>
+</nav>
+
+<!-- Stage nav tabs -->
+<div class="d-flex gap-2 mb-3 flex-wrap">
+  {% for s in pipeline %}
+  <a href="/cosmetic/{{ s.value }}"
+     class="btn btn-sm {{ 'btn-primary' if s == stage else 'btn-outline-secondary' }}">
+    {{ stage_labels[s] }}
+  </a>
+  {% endfor %}
+</div>
+
+<div class="row g-4">
+  <!-- Device list -->
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-list-check me-2"></i>Devices in {{ stage_label }}</span>
+        <span class="badge bg-warning text-dark">{{ devices|length }} device(s)</span>
+      </div>
+      <div class="card-body p-0">
+        <table id="cosmeticTable" class="table table-hover mb-0 small">
+          <thead class="table-dark">
+            <tr><th>Barcode</th><th>Brand</th><th>Model</th><th>CPU</th><th>Grade</th><th>Lot</th><th>Since</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+            {% for device, lot_number in devices %}
+            <tr>
+              <td><code>{{ device.barcode }}</code></td>
+              <td>{{ device.brand or '—' }}</td>
+              <td>{{ device.model or '—' }}</td>
+              <td class="text-muted small">{{ device.cpu or '—' }}</td>
+              <td>
+                {% if device.grade %}
+                <span class="badge {{ 'bg-success' if device.grade.value == 'A' else 'bg-warning text-dark' if device.grade.value == 'B' else 'bg-danger' }}">
+                  {{ device.grade.value }}
+                </span>
+                {% else %}—{% endif %}
+              </td>
+              <td><span class="badge bg-secondary">{{ lot_number }}</span></td>
+              <td class="text-muted small">{{ device.updated_at.strftime('%d-%b %H:%M') if device.updated_at else '—' }}</td>
+              <td>
+                <form action="/cosmetic/advance" method="post" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+                  <input type="hidden" name="barcode" value="{{ device.barcode }}">
+                  <button type="submit" class="btn btn-sm btn-success py-0 px-2">
+                    ▶ {{ next_stage_label }}
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scan to advance -->
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold"><i class="bi bi-upc-scan me-2"></i>
+        {% if stage.value == 'final_qc' %}Final QC{% else %}Scan to Advance{% endif %}
+      </div>
+      <div class="card-body">
+        {% if stage.value == 'final_qc' %}
+        <p class="small text-muted">Complete Final QC. Update spec if needed. Pass → Ready to Sale.</p>
+        <form action="/cosmetic/advance" method="post">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          <div class="mb-2">
+            <label class="form-label fw-semibold small">Barcode</label>
+            <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan barcode" autofocus>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Final Status</label>
+            <select name="final_qc_status" class="form-select form-select-sm">
+              <option value="pass">Pass</option><option value="fail">Fail</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Failure Reason <small class="text-muted">(if fail)</small></label>
+            <select name="failure_reason" class="form-select form-select-sm">
+              <option value="">— N/A —</option>
+              <option>Functional</option><option>Paint</option><option>Plastic Part</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Grade</label>
+            <select name="grade" class="form-select form-select-sm">
+              <option value="">— No change —</option>
+              <option>A</option><option>B</option><option>C</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Warehouse</label>
+            <select name="warehouse" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              <option>TRC 2ND Floor</option><option>Bluemonk House Showroom</option>
+              <option>Manesar</option><option>Amazon</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Updated Brand</label>
+            <select name="updated_make" class="form-select form-select-sm">
+              <option value="">— No change —</option>
+              <option>HP</option><option>Dell</option><option>Lenovo</option><option>Acer</option>
+              <option>Apple</option><option>Microsoft</option><option>Asus</option><option>Other</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Updated Model</label>
+            <input type="text" name="updated_model" class="form-control form-control-sm" placeholder="If correction needed">
+          </div>
+          <div class="row g-1 mb-2">
+            <div class="col-6">
+              <label class="form-label small">Updated CPU</label>
+              <select name="updated_cpu" class="form-select form-select-sm">
+                <option value="">—</option>
+                <option>I3</option><option>I5</option><option>I7</option><option>I9</option>
+                <option>AMD</option><option>Celeron</option><option>Other</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small">Updated Gen</label>
+              <select name="updated_generation" class="form-select form-select-sm">
+                <option value="">—</option>
+                <option>4th</option><option>5th</option><option>6th</option><option>7th</option>
+                <option>8th</option><option>9th</option><option>10th</option><option>11th</option>
+                <option>12th</option>
+              </select>
+            </div>
+          </div>
+          <div class="row g-1 mb-2">
+            <div class="col-6">
+              <label class="form-label small">Updated RAM</label>
+              <select name="updated_ram" class="form-select form-select-sm">
+                <option value="">—</option>
+                <option>4GB</option><option>8GB</option><option>16GB</option><option>32GB</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small">Updated Storage</label>
+              <select name="updated_hdd" class="form-select form-select-sm">
+                <option value="">—</option>
+                <option>128 GB SSD</option><option>256 GB SSD</option><option>512 GB SSD</option>
+                <option>500 GB HDD</option><option>1 TB HDD</option><option>NO HDD</option>
+              </select>
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Faults / Notes</label>
+            <input type="text" name="notes" class="form-control form-control-sm" placeholder="Issues or remarks">
+          </div>
+          <button type="submit" class="btn btn-success w-100">
+            <i class="bi bi-patch-check me-2"></i>Final QC → Ready to Sale
+          </button>
+        </form>
+        {% else %}
+        <p class="small text-muted">Scan a barcode to move the device from <strong>{{ stage_label }}</strong> → <strong>{{ next_stage_label }}</strong>.</p>
+        <form action="/cosmetic/advance" method="post">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Barcode</label>
+            <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan barcode" autofocus>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Notes (optional)</label>
+            <input type="text" name="notes" class="form-control" placeholder="Any remarks">
+          </div>
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-arrow-right-circle me-2"></i>Move to {{ next_stage_label }}
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Stage info card -->
+    <div class="card border-0 shadow-sm mt-3">
+      <div class="card-header bg-transparent fw-semibold"><i class="bi bi-info-circle me-2"></i>Stage Guide</div>
+      <div class="card-body small">
+        {% if stage.value == 'cleaning' %}
+        <p>Remove dust, grease, and contaminants from all surfaces. Clean keyboard, ports, vents.</p>
+        {% elif stage.value == 'dry_sanding' %}
+        <p>Dry sand the plastic casing to remove deep scratches and prepare for painting.</p>
+        {% elif stage.value == 'masking' %}
+        <p>Mask ports, screen, keyboard, and labels before painting.</p>
+        {% elif stage.value == 'painting' %}
+        <p>Apply primer and colour coat. Allow to fully cure before proceeding.</p>
+        {% elif stage.value == 'water_sanding' %}
+        <p>Wet sand the painted surface to achieve a smooth finish. Remove orange peel.</p>
+        {% elif stage.value == 'final_qc' %}
+        <p>Final quality inspection after cosmetic work. Verify all ports functional, no paint overspray, screen clean. Pass → Ready to Sale.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>$(document).ready(function(){ $('#cosmeticTable').DataTable({pageLength:25,order:[[6,'asc']]}) })</script>
+{% endblock %}

@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Sales Opportunities — OxyPC{% endblock %}
+{% block page_title %}Sales Opportunities{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <form method="get" class="d-flex gap-2 flex-wrap">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search opportunities…" class="form-control form-control-sm" style="width:200px">
+    <select name="stage" class="form-select form-select-sm" style="width:150px">
+      <option value="">All Stages</option>
+      {% for val, label in sales_stages %}
+      <option value="{{ val }}" {% if stage==val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="buyer_type" class="form-select form-select-sm" style="width:150px">
+      <option value="">All Buyer Types</option>
+      {% for val, label in buyer_types %}
+      <option value="{{ val }}" {% if buyer_type==val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="priority" class="form-select form-select-sm" style="width:120px">
+      <option value="">All Priority</option>
+      {% for p in priorities %}
+      <option value="{{ p }}" {% if priority==p %}selected{% endif %}>{{ p | title }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-sm btn-outline-info">Filter</button>
+    {% if q or stage or buyer_type or priority %}
+    <a href="/crm/sales" class="btn btn-sm btn-outline-secondary">Clear</a>
+    {% endif %}
+  </form>
+  <a href="/crm/sales/new" class="btn btn-sm btn-info text-white"><i class="bi bi-plus-circle me-1"></i>New Opportunity</a>
+</div>
+
+<!-- Summary cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-4">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-info">{{ opps | selectattr('stage', 'ne', 'won') | selectattr('stage', 'ne', 'lost') | list | length }}</div>
+      <div class="small text-muted">Open Opportunities</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-success">₹{{ "{:,.0f}".format(pipeline_value) }}</div>
+      <div class="small text-muted">Pipeline Value</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold {% if overdue_count > 0 %}text-danger{% else %}text-muted{% endif %}">{{ overdue_count }}</div>
+      <div class="small text-muted">Overdue Follow-ups</div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="salesTable">
+        <thead class="table-light">
+          <tr>
+            <th>Opp #</th>
+            <th>Title</th>
+            <th>Buyer Type</th>
+            <th>Stage</th>
+            <th>Qty Req.</th>
+            <th>Est. Value</th>
+            <th>Grade</th>
+            <th>Priority</th>
+            <th>Assigned To</th>
+            <th>Download</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for o in opps %}
+          {% set stage_colors = {
+            'lead': 'secondary', 'contacted': 'secondary', 'quoted': 'info',
+            'negotiation': 'warning', 'confirmed': 'primary', 'invoiced': 'primary',
+            'delivered': 'success', 'payment': 'success', 'won': 'success', 'lost': 'danger'
+          } %}
+          {% set priority_colors = {'low':'secondary','medium':'info','high':'warning','urgent':'danger'} %}
+          <tr>
+            <td><code class="small">{{ o.opp_number }}</code></td>
+            <td>
+              <a href="/crm/sales/{{ o.id }}" class="fw-semibold text-decoration-none">
+                {{ o.title[:55] }}{% if o.title|length > 55 %}…{% endif %}
+              </a>
+              {% set contact = contacts_map.get(o.contact_id|string) %}
+              {% if contact %}<div class="small text-muted">{{ contact.company_name }}</div>{% endif %}
+            </td>
+            <td>
+              {% if o.buyer_type %}
+              <span class="badge bg-light text-dark border">{{ o.buyer_type | replace('_',' ') | title }}</span>
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              <span class="badge bg-{{ stage_colors.get(o.stage,'secondary') }}">
+                {{ stage_labels.get(o.stage, o.stage | replace('_',' ') | title) }}
+              </span>
+            </td>
+            <td class="small">{{ o.required_qty or '—' }}</td>
+            <td class="small">{% if o.estimated_value %}₹{{ "{:,.0f}".format(o.estimated_value) }}{% else %}—{% endif %}</td>
+            <td class="small">{% if o.grade_required %}<span class="badge bg-light text-dark border">{{ o.grade_required }}</span>{% else %}—{% endif %}</td>
+            <td>
+              <span class="badge bg-{{ priority_colors.get(o.priority,'secondary') }}">{{ o.priority | title }}</span>
+            </td>
+            <td class="small">{{ o.assigned_to or '—' }}</td>
+            <td class="text-center">
+              {% if o.product_records_file %}
+              <a href="/uploads/crm/{{ o.product_records_file }}" class="btn btn-sm btn-outline-success" title="Download Product Records" target="_blank" download>
+                <i class="bi bi-file-earmark-arrow-down me-1"></i>Download
+              </a>
+              {% else %}
+              <span class="text-muted small">—</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="btn-group btn-group-sm">
+                <a href="/crm/sales/{{ o.id }}" class="btn btn-outline-info" title="View"><i class="bi bi-eye"></i></a>
+                <a href="/crm/sales/{{ o.id }}/edit" class="btn btn-outline-secondary" title="Edit"><i class="bi bi-pencil"></i></a>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="11" class="text-center text-muted py-4">No opportunities found. <a href="/crm/sales/new">Create your first opportunity</a></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>$(document).ready(function(){ if($('#salesTable tbody tr').length > 5){ $('#salesTable').DataTable({pageLength:25, order:[[0,'desc']]}); } });</script>
+{% endblock %}

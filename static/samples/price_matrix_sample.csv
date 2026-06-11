@@ -1,0 +1,6 @@
+device_type,grade,material_type,brand,min_buy_price,max_buy_price,target_sell,min_margin_pct,notes
+Laptop,A,plastic,Dell,8000,12000,16000,25,Grade A working condition - cosmetic defects allowed
+Laptop,B,plastic,HP,4000,7000,10000,20,Grade B functional - screen issues acceptable
+Desktop,A,mixed,,5000,9000,13000,20,Full tower - HDD/RAM required
+Monitor,C,mixed,LG,500,1500,2500,15,Cracked stand OK if panel is good
+UPS,B,plastic,,800,2000,3000,20,Battery not required

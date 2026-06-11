@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}Inventory Search — OxyPC{% endblock %}
+{% block page_title %}Inventory Search{% endblock %}
+{% block content %}
+
+<!-- Filter Bar -->
+<form method="get" action="/devices" class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label small fw-semibold mb-1">Search</label>
+        <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm barcode-field font-monospace"
+               placeholder="Barcode, brand, model, serial, CPU, GRN…">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Stage</label>
+        <select name="stage" class="form-select form-select-sm">
+          <option value="">All Stages</option>
+          {% for s in stages %}
+          <option value="{{ s.value }}" {% if stage == s.value %}selected{% endif %}>
+            {{ stage_labels.get(s, s.value) }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Lot</label>
+        <select name="lot" class="form-select form-select-sm">
+          <option value="">All Lots</option>
+          {% for l in lots %}
+          <option value="{{ l.lot_number }}" {% if lot == l.lot_number %}selected{% endif %}>
+            {{ l.lot_number }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Grade</label>
+        <select name="grade" class="form-select form-select-sm">
+          <option value="">All Grades</option>
+          {% for g in ['A','B','C','D','scrap'] %}
+          <option value="{{ g }}" {% if grade == g %}selected{% endif %}>{{ g }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2 d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+          <i class="bi bi-search me-1"></i>Search
+        </button>
+        <a href="/devices" class="btn btn-outline-secondary btn-sm">Reset</a>
+      </div>
+    </div>
+  </div>
+</form>
+
+<!-- Results Header -->
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <span class="text-muted small">
+    {% if q or stage or lot or grade %}
+      <strong>{{ total }}</strong> result(s) found
+      {% if total == 500 %}<span class="text-warning ms-1">(showing first 500)</span>{% endif %}
+    {% else %}
+      <strong>{{ total }}</strong> device(s) total
+      {% if total == 500 %}<span class="text-warning ms-1">(showing first 500 — use filters to narrow)</span>{% endif %}
+    {% endif %}
+  </span>
+  <a href="/devices/export?q={{ q }}&stage={{ stage }}&lot={{ lot }}&grade={{ grade }}"
+     class="btn btn-sm btn-outline-success">
+    <i class="bi bi-download me-1"></i>Export CSV
+  </a>
+</div>
+
+<!-- Device Table -->
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="devicesTable" class="table table-hover table-sm mb-0">
+        <thead class="table-dark">
+          <tr>
+            <th>Barcode</th>
+            <th>Lot</th>
+            <th>Brand</th>
+            <th>Model</th>
+            <th>CPU</th>
+            <th>RAM</th>
+            <th>Storage</th>
+            <th>Grade</th>
+            <th>Stage</th>
+            <th>Location</th>
+            <th>Updated</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for device, lot_number in devices %}
+          <tr>
+            <td><a href="/devices/{{ device.barcode }}" class="text-decoration-none"><code class="small">{{ device.barcode }}</code></a></td>
+            <td><a href="/devices?lot={{ lot_number }}" class="text-decoration-none"><span class="badge bg-info text-dark small">{{ lot_number }}</span></a></td>
+            <td class="small">{{ device.brand or '—' }}</td>
+            <td class="small">{{ device.model or '—' }}</td>
+            <td class="text-muted small">{{ device.cpu or '—' }}</td>
+            <td class="small">{{ device.ram_gb ~ 'GB' if device.ram_gb else '—' }}</td>
+            <td class="small">
+              {% if device.storage_gb %}
+                {{ device.storage_gb }}GB {{ device.storage_type or '' }}
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if device.grade %}
+              {% set g = device.grade.value if device.grade.value is defined else device.grade | string %}
+              <span class="badge bg-{{ 'success' if g == 'A' else 'warning text-dark' if g == 'B' else 'secondary' if g == 'C' else 'danger' if g in ['D','scrap'] else 'light text-dark' }}">
+                {{ g }}
+              </span>
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% set s = device.current_stage %}
+              {% if s.value in ['iqc'] %}
+                <span class="badge bg-secondary">{{ stage_labels.get(s, s.value) }}</span>
+              {% elif s.value in ['stock_in'] %}
+                <span class="badge bg-info text-dark">{{ stage_labels.get(s, s.value) }}</span>
+              {% elif s.value in ['l1','l2','l3'] %}
+                <span class="badge bg-warning text-dark">{{ stage_labels.get(s, s.value) }}</span>
+              {% elif s.value in ['qc_check','final_qc'] %}
+                <span class="badge bg-primary">{{ stage_labels.get(s, s.value) }}</span>
+              {% elif s.value == 'ready_to_sale' %}
+                <span class="badge bg-success">{{ stage_labels.get(s, s.value) }}</span>
+              {% elif s.value == 'sold' %}
+                <span class="badge bg-dark">{{ stage_labels.get(s, s.value) }}</span>
+              {% elif s.value == 'returned' %}
+                <span class="badge bg-danger">{{ stage_labels.get(s, s.value) }}</span>
+              {% elif s.value in ['cleaning','dry_sanding','masking','painting','water_sanding'] %}
+                <span class="badge bg-purple" style="background:#6f42c1">{{ stage_labels.get(s, s.value) }}</span>
+              {% else %}
+                <span class="badge bg-light text-dark">{{ stage_labels.get(s, s.value) }}</span>
+              {% endif %}
+            </td>
+            <td class="small">
+              {% set loc = location_map.get(device.id | string) %}
+              {% if loc and loc.unit_id %}
+                {% if loc.action == 'picked_up' %}
+                  <span class="badge bg-warning text-dark" title="In hand — {{ loc.actor_name }}">
+                    <i class="bi bi-hand-index me-1"></i>{{ loc.unit_id }}
+                  </span>
+                {% else %}
+                  <span class="badge bg-success">{{ loc.unit_id }}</span>
+                {% endif %}
+              {% elif loc and loc.action == 'picked_up' %}
+                <span class="badge bg-warning text-dark" title="In hand — {{ loc.actor_name }}">
+                  <i class="bi bi-hand-index me-1"></i>In Hand
+                </span>
+              {% else %}
+                <a href="/locations/device/{{ device.id }}" class="text-muted small text-decoration-none" title="No location — click to assign">
+                  <i class="bi bi-geo-alt text-danger"></i> —
+                </a>
+              {% endif %}
+            </td>
+            <td class="small text-muted">
+              {{ device.updated_at.strftime('%d-%m-%Y') if device.updated_at else '—' }}
+            </td>
+            <td class="text-nowrap">
+              <a href="/devices/{{ device.barcode }}" class="btn btn-xs btn-outline-primary py-0 px-1 small">
+                <i class="bi bi-eye"></i>
+              </a>
+              <button class="btn btn-xs btn-outline-danger py-0 px-1 small"
+                      onclick="if(confirm('Move {{ device.barcode }} to Trash?')) { document.getElementById('trashDev_{{ loop.index }}').submit(); }"
+                      title="Move to Trash">
+                <i class="bi bi-trash3"></i>
+              </button>
+              <form id="trashDev_{{ loop.index }}" method="post" action="/trash/devices/{{ device.barcode }}" style="display:none">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function() {
+  $('#devicesTable').DataTable({
+    pageLength: 25,
+    order: [],
+    columnDefs: [{ orderable: false, targets: -1 }],
+    dom: '<"d-flex justify-content-between align-items-center mb-2"lf>t<"d-flex justify-content-between"ip>',
+  });
+});
+</script>
+{% endblock %}

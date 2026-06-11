@@ -1,0 +1,497 @@
+{% extends "base.html" %}
+{% block title %}{{ deal.deal_number }} — Sourcing — OxyPC{% endblock %}
+{% block page_title %}{{ deal.deal_number }}: {{ deal.title[:60] }}{% if deal.title|length > 60 %}…{% endif %}{% endblock %}
+{% block content %}
+
+{% set stage_colors = {
+  'lead': 'secondary', 'contacted': 'info', 'inspection': 'warning',
+  'negotiation': 'warning', 'agreed': 'success', 'po_raised': 'primary',
+  'received': 'success', 'won': 'success', 'lost': 'danger'
+} %}
+{% set priority_colors = {'low':'secondary','medium':'info','high':'warning','urgent':'danger'} %}
+
+<div class="row g-4">
+
+  <!-- Left col: info -->
+  <div class="col-xl-4">
+
+    <!-- Deal Info Card -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-box-arrow-in-down me-1 text-primary"></i>Deal Info</span>
+        <span class="badge bg-{{ stage_colors.get(deal.stage,'secondary') }}">
+          {{ stage_labels.get(deal.stage, deal.stage | replace('_',' ') | title) }}
+        </span>
+      </div>
+      <div class="card-body">
+        <div class="mb-2">
+          <div class="small text-muted">Deal Number</div>
+          <code>{{ deal.deal_number }}</code>
+        </div>
+        <div class="mb-2">
+          <div class="small text-muted">Title</div>
+          <div class="fw-semibold">{{ deal.title }}</div>
+        </div>
+        {% if contact %}
+        <div class="mb-2">
+          <div class="small text-muted">Contact</div>
+          <a href="/crm/contacts/{{ contact.id }}" class="text-decoration-none">{{ contact.company_name }}</a>
+          {% if contact.contact_person %}<div class="small text-muted">{{ contact.contact_person }}</div>{% endif %}
+        </div>
+        {% endif %}
+        <div class="mb-2">
+          <div class="small text-muted">Source Type</div>
+          <div>{% if deal.source_type %}<span class="badge bg-light text-dark border">{{ deal.source_type | replace('_',' ') | title }}</span>{% else %}—{% endif %}</div>
+        </div>
+        <div class="mb-2">
+          <div class="small text-muted">Device Type</div>
+          <div>{{ deal.device_type or '—' }}</div>
+        </div>
+        <div class="mb-2">
+          <div class="small text-muted">Material Type</div>
+          <div>{% if deal.material_type %}<span class="badge bg-light text-dark border">{{ material_map.get(deal.material_type, deal.material_type | title) }}</span>{% else %}—{% endif %}</div>
+        </div>
+        <div class="mb-2">
+          <div class="small text-muted">Priority</div>
+          <span class="badge bg-{{ priority_colors.get(deal.priority,'secondary') }}">{{ deal.priority | title }}</span>
+        </div>
+        <div class="mb-2">
+          <div class="small text-muted">Assigned To</div>
+          <div>{{ deal.assigned_to or '—' }}</div>
+        </div>
+        {% if deal.notes %}
+        <hr class="my-2">
+        <div class="small text-muted fw-semibold mb-1">Notes</div>
+        <div class="small">{{ deal.notes }}</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Financial Card -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-currency-rupee me-1 text-success"></i>Financials</div>
+      <div class="card-body">
+        <div class="row g-2 text-center">
+          <div class="col-6">
+            <div class="small text-muted">Asking / Unit</div>
+            <div class="fw-semibold small">{% if deal.asking_price_unit %}₹{{ "{:,.0f}".format(deal.asking_price_unit) }}{% else %}—{% endif %}</div>
+          </div>
+          <div class="col-6">
+            <div class="small text-muted">Asking Total</div>
+            <div class="fw-semibold small">{% if deal.asking_price_total %}₹{{ "{:,.0f}".format(deal.asking_price_total) }}{% else %}—{% endif %}</div>
+          </div>
+          <div class="col-6">
+            <div class="small text-muted">Our Offer / Unit</div>
+            <div class="fw-semibold small text-primary">{% if deal.our_offer_unit %}₹{{ "{:,.0f}".format(deal.our_offer_unit) }}{% else %}—{% endif %}</div>
+          </div>
+          <div class="col-6">
+            <div class="small text-muted">Our Offer Total</div>
+            <div class="fw-semibold small text-primary">{% if deal.our_offer_total %}₹{{ "{:,.0f}".format(deal.our_offer_total) }}{% else %}—{% endif %}</div>
+          </div>
+          {% if deal.final_price_unit %}
+          <div class="col-6">
+            <div class="small text-muted">Final / Unit</div>
+            <div class="fw-semibold small text-success">₹{{ "{:,.0f}".format(deal.final_price_unit) }}</div>
+          </div>
+          <div class="col-6">
+            <div class="small text-muted">Final Total</div>
+            <div class="fw-semibold small text-success">{% if deal.final_price_total %}₹{{ "{:,.0f}".format(deal.final_price_total) }}{% else %}—{% endif %}</div>
+          </div>
+          {% endif %}
+        </div>
+        {% if deal.payment_advance_pct %}
+        <hr class="my-2">
+        <div class="small text-muted">Payment Advance: <strong>{{ deal.payment_advance_pct }}%</strong></div>
+        {% endif %}
+        {% if deal.payment_terms %}
+        <div class="small text-muted mt-1">Terms: {{ deal.payment_terms }}</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Lot Card -->
+    {% if lot %}
+    <div class="card border-0 shadow-sm mb-3" style="border-left:4px solid #0dcaf0 !important;">
+      <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-boxes me-1 text-info"></i>Linked Lot</span>
+        <a href="/lots/{{ lot.id }}" class="btn btn-outline-info btn-sm py-0 px-2">
+          <i class="bi bi-arrow-up-right-square me-1"></i>Open
+        </a>
+      </div>
+      <div class="card-body pb-2">
+        <div class="fw-bold font-monospace mb-1">
+          <a href="/lots/{{ lot.id }}" class="text-decoration-none">{{ lot.lot_number }}</a>
+        </div>
+        {% if lot.supplier_name %}
+        <div class="small text-muted mb-3">{{ lot.supplier_name }}</div>
+        {% endif %}
+
+        {# ── Lot Status Stats ── #}
+        <div class="row g-2 text-center mb-2">
+          <div class="col-4">
+            <div class="border rounded py-2">
+              <div class="fs-5 fw-bold text-secondary">{{ lot.qty }}</div>
+              <div class="small text-muted">PO Qty</div>
+            </div>
+          </div>
+          <div class="col-4">
+            <div class="border rounded py-2">
+              <div class="fs-5 fw-bold text-primary">{{ lot_registered }}</div>
+              <div class="small text-muted">Registered</div>
+            </div>
+          </div>
+          <div class="col-4">
+            <div class="border rounded py-2">
+              <div class="fs-5 fw-bold text-success">{{ lot_sold }}</div>
+              <div class="small text-muted">Sold</div>
+            </div>
+          </div>
+        </div>
+
+        {# ── Registration progress bar ── #}
+        {% if lot.qty and lot.qty > 0 %}
+        {% set reg_pct = [(lot_registered / lot.qty * 100), 100] | min | round %}
+        {% set sold_pct = [(lot_sold / lot.qty * 100), 100] | min | round %}
+        <div class="mb-1">
+          <div class="d-flex justify-content-between small text-muted mb-1">
+            <span>Registration</span><span>{{ reg_pct }}%</span>
+          </div>
+          <div class="progress" style="height:6px">
+            <div class="progress-bar bg-primary" style="width:{{ reg_pct }}%"></div>
+          </div>
+        </div>
+        <div class="mb-2">
+          <div class="d-flex justify-content-between small text-muted mb-1">
+            <span>Sold</span><span>{{ sold_pct }}%</span>
+          </div>
+          <div class="progress" style="height:6px">
+            <div class="progress-bar bg-success" style="width:{{ sold_pct }}%"></div>
+          </div>
+        </div>
+        {% endif %}
+
+        {% if lot.purchase_date %}
+        <div class="small text-muted">
+          <i class="bi bi-calendar3 me-1"></i>{{ lot.purchase_date.strftime('%d-%m-%Y') }}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Action Buttons -->
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="/crm/sourcing/{{ deal.id }}/edit" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil me-1"></i>Edit Deal</a>
+      {% if deal.stage not in ['won','lost'] %}
+      {# Create Lot pre-fills with deal data and auto-marks deal as WON after creation #}
+      <a href="/lots/new?from_deal={{ deal.id }}&prefill_supplier={{ (contact.company_name if contact else deal.title) | urlencode }}&prefill_qty={{ deal.est_quantity or '' }}&prefill_price={{ deal.final_price_total or deal.our_offer_total or '' }}&prefill_notes={{ deal.title | urlencode }}&prefill_po={{ deal.deal_number | urlencode }}"
+         class="btn btn-sm btn-success">
+        <i class="bi bi-boxes me-1"></i>Create Lot &amp; Mark WON
+      </a>
+      <form method="post" action="/crm/sourcing/{{ deal.id }}/stage" class="d-inline">
+        <input type="hidden" name="new_stage" value="won">
+        <button class="btn btn-sm btn-outline-success"><i class="bi bi-trophy me-1"></i>Mark WON (no lot)</button>
+      </form>
+      <form method="post" action="/crm/sourcing/{{ deal.id }}/stage" class="d-inline">
+        <input type="hidden" name="new_stage" value="lost">
+        <button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-circle me-1"></i>Mark LOST</button>
+      </form>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <!-- Right col: stage + activities -->
+  <div class="col-xl-8">
+
+    <!-- Stage Progress Bar -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-diagram-3 me-1 text-primary"></i>Stage Progress</div>
+      <div class="card-body">
+        <div class="d-flex flex-wrap gap-1 mb-3">
+          {% for i, (val, label) in stage_list %}
+          <div class="text-center" style="flex:1;min-width:70px">
+            <div class="rounded px-2 py-1 small fw-semibold
+              {% if i < current_idx %}bg-success text-white
+              {% elif i == current_idx %}bg-primary text-white
+              {% else %}bg-light text-muted{% endif %}">
+              {{ label }}
+            </div>
+            {% if not loop.last %}<div class="text-muted" style="font-size:0.6rem">&#9658;</div>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+
+        <!-- Stage Move Form -->
+        {% if deal.stage not in ['won','lost'] %}
+        <form method="post" action="/crm/sourcing/{{ deal.id }}/stage" class="row g-2 align-items-end">
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold mb-1">Move to Stage</label>
+            <select name="new_stage" class="form-select form-select-sm">
+              {% for val, label in sourcing_stages %}
+              <option value="{{ val }}" {% if val==deal.stage %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold mb-1">Final Price / Unit (₹)</label>
+            <input type="number" name="final_price_unit" class="form-control form-control-sm" step="0.01" min="0"
+              value="{{ deal.final_price_unit or '' }}" placeholder="Optional">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold mb-1">Win/Loss Reason</label>
+            <input type="text" name="win_loss_reason" class="form-control form-control-sm" placeholder="Optional">
+          </div>
+          <div class="col-12">
+            <button class="btn btn-sm btn-primary"><i class="bi bi-arrow-right-circle me-1"></i>Update Stage</button>
+          </div>
+        </form>
+        {% else %}
+        <div class="alert alert-{{ 'success' if deal.stage=='won' else 'danger' }} py-2 mb-0">
+          <strong>Deal {{ deal.stage | upper }}</strong>{% if deal.win_loss_reason %} — {{ deal.win_loss_reason }}{% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- ═══ Pricing / Profitability Calculator ═══ -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center"
+           style="cursor:pointer" data-bs-toggle="collapse" data-bs-target="#calcBody">
+        <span class="fw-semibold"><i class="bi bi-calculator me-1 text-success"></i>Deal Profitability Calculator</span>
+        <i class="bi bi-chevron-down text-muted small"></i>
+      </div>
+      <div class="collapse show" id="calcBody">
+        <div class="card-body">
+          <div class="row g-2 mb-3">
+            <!-- Inputs -->
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold mb-1">Acquisition ₹/unit</label>
+              <input type="number" id="c_acq" class="form-control form-control-sm" step="1" min="0"
+                     value="{{ deal.our_offer_unit or deal.asking_price_unit or '' }}" placeholder="0">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold mb-1">Qty (units)</label>
+              <input type="number" id="c_qty" class="form-control form-control-sm" step="1" min="1"
+                     value="{{ deal.est_quantity or '' }}" placeholder="0">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold mb-1">Pickup cost (₹ total)</label>
+              <input type="number" id="c_pickup" class="form-control form-control-sm" step="1" min="0" value="0" placeholder="0">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold mb-1">Transport cost (₹ total)</label>
+              <input type="number" id="c_transport" class="form-control form-control-sm" step="1" min="0" value="0" placeholder="0">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold mb-1">Processing ₹/unit</label>
+              <input type="number" id="c_process" class="form-control form-control-sm" step="1" min="0" value="0" placeholder="0">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold mb-1">Grade-mix loss %</label>
+              <input type="number" id="c_loss" class="form-control form-control-sm" step="1" min="0" max="100" value="10" placeholder="10">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold mb-1">Expected sell ₹/unit</label>
+              <input type="number" id="c_sell" class="form-control form-control-sm" step="1" min="0" value="0" placeholder="0">
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+              <button class="btn btn-success btn-sm w-100" onclick="calcProfit()">
+                <i class="bi bi-play-fill me-1"></i>Calculate
+              </button>
+            </div>
+          </div>
+
+          <!-- Results (hidden until calc runs) -->
+          <div id="calcResults" style="display:none">
+            <hr class="my-2">
+            <div class="row g-2 text-center">
+              <div class="col-6 col-md-3">
+                <div class="small text-muted">Total Cost</div>
+                <div class="fw-bold small" id="r_cost">—</div>
+              </div>
+              <div class="col-6 col-md-3">
+                <div class="small text-muted">Realisable Rev.</div>
+                <div class="fw-bold small text-success" id="r_rev">—</div>
+              </div>
+              <div class="col-6 col-md-3">
+                <div class="small text-muted">Gross Profit</div>
+                <div class="fw-bold small" id="r_gp">—</div>
+              </div>
+              <div class="col-6 col-md-3">
+                <div class="small text-muted">Net Margin %</div>
+                <div class="fw-bold" id="r_margin">—</div>
+              </div>
+            </div>
+            <div class="text-center mt-3">
+              <span id="r_verdict" class="badge fs-6 px-4 py-2"></span>
+            </div>
+            <div class="mt-2 small text-muted text-center" id="r_note"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Next Follow-up Alert -->
+    {% if next_fu and not next_fu.followup_done %}
+    <div class="alert alert-warning d-flex justify-content-between align-items-center mb-3">
+      <div>
+        <i class="bi bi-alarm me-2"></i>
+        <strong>Follow-up:</strong> {{ next_fu.next_followup.strftime('%d %b %Y %H:%M') }}
+        {% if next_fu.followup_assigned_to %} &rarr; {{ next_fu.followup_assigned_to }}{% endif %}
+        {% if next_fu.next_followup < now %}<span class="badge bg-danger ms-2">OVERDUE</span>{% endif %}
+        <div class="small mt-1">{{ next_fu.summary }}</div>
+      </div>
+      <form method="post" action="/crm/activities/{{ next_fu.id }}/done" class="ms-3 flex-shrink-0">
+        <input type="hidden" name="redirect_to" value="/crm/sourcing/{{ deal.id }}">
+        <button class="btn btn-sm btn-success"><i class="bi bi-check me-1"></i>Mark Done</button>
+      </form>
+    </div>
+    {% endif %}
+
+    <!-- Log Activity -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-plus-circle me-1 text-success"></i>Log Activity</div>
+      <div class="card-body">
+        <form method="post" action="/crm/activities/log" class="row g-2">
+          <input type="hidden" name="contact_id" value="{{ contact.id if contact else '' }}">
+          <input type="hidden" name="deal_id" value="{{ deal.id }}">
+          <input type="hidden" name="deal_type" value="sourcing">
+          <input type="hidden" name="redirect_to" value="/crm/sourcing/{{ deal.id }}">
+          <div class="col-md-3">
+            <select name="activity_type" class="form-select form-select-sm">
+              <option value="call">📞 Call</option>
+              <option value="whatsapp">💬 WhatsApp</option>
+              <option value="visit">🤝 Visit</option>
+              <option value="email">📧 Email</option>
+              <option value="meeting">👥 Meeting</option>
+              <option value="note">📝 Note</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <select name="outcome" class="form-select form-select-sm">
+              <option value="">Outcome…</option>
+              <option value="interested">Interested</option>
+              <option value="not_interested">Not Interested</option>
+              <option value="callback">Callback</option>
+              <option value="order_placed">Order Placed</option>
+              <option value="no_answer">No Answer</option>
+              <option value="followup">Follow-up</option>
+              <option value="done">Done</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <input type="text" name="summary" class="form-control form-control-sm" placeholder="What was discussed? *" required>
+          </div>
+          <div class="col-md-4">
+            <input type="datetime-local" name="next_followup" class="form-control form-control-sm" title="Next follow-up">
+          </div>
+          <div class="col-md-4">
+            <input type="text" name="followup_assigned_to" class="form-control form-control-sm" placeholder="Follow-up assigned to" value="{{ current_user.username }}">
+          </div>
+          <div class="col-md-4">
+            <button class="btn btn-sm btn-success w-100"><i class="bi bi-check me-1"></i>Log Activity</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Activity Timeline -->
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-clock-history me-1 text-muted"></i>Activity Log</div>
+      <div class="card-body p-0">
+        {% if activities %}
+        <div class="list-group list-group-flush">
+          {% for act in activities %}
+          <div class="list-group-item border-0 border-bottom px-3 py-2">
+            <div class="d-flex justify-content-between align-items-start">
+              <span class="badge bg-light text-dark border me-2">
+                {% if act.activity_type=='call' %}📞{% elif act.activity_type=='whatsapp' %}💬{% elif act.activity_type=='visit' %}🤝{% elif act.activity_type=='email' %}📧{% elif act.activity_type=='meeting' %}👥{% else %}📝{% endif %}
+                {{ act.activity_type | title }}
+              </span>
+              <small class="text-muted">{{ act.activity_date.strftime('%d %b %Y %H:%M') }}</small>
+            </div>
+            <div class="small mt-1">{{ act.summary }}</div>
+            {% if act.outcome %}<span class="badge bg-light text-dark border mt-1 small">{{ act.outcome | replace('_',' ') | title }}</span>{% endif %}
+            <div class="small text-muted mt-1">by {{ act.performed_by }}</div>
+            {% if act.next_followup and not act.followup_done %}
+            <div class="small text-warning mt-1"><i class="bi bi-alarm me-1"></i>Follow-up: {{ act.next_followup.strftime('%d %b %Y %H:%M') }} → {{ act.followup_assigned_to or '—' }}</div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-4">No activities logged yet.</div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function calcProfit() {
+  var acq      = parseFloat(document.getElementById('c_acq').value)      || 0;
+  var qty      = parseFloat(document.getElementById('c_qty').value)      || 0;
+  var pickup   = parseFloat(document.getElementById('c_pickup').value)   || 0;
+  var transport= parseFloat(document.getElementById('c_transport').value)|| 0;
+  var process  = parseFloat(document.getElementById('c_process').value)  || 0;
+  var lossPct  = parseFloat(document.getElementById('c_loss').value)     || 0;
+  var sell     = parseFloat(document.getElementById('c_sell').value)     || 0;
+
+  if (qty <= 0) { alert('Please enter quantity'); return; }
+
+  // Cost build-up
+  var totalAcq       = acq * qty;
+  var totalProcess   = process * qty;
+  var totalCost      = totalAcq + pickup + transport + totalProcess;
+  var costPerUnit    = qty > 0 ? totalCost / qty : 0;
+
+  // Revenue after grade-mix loss (e.g. 10% units are C/D grade, sold at lower price)
+  var sellableQty    = qty * (1 - lossPct / 100);
+  var totalRevenue   = sell * sellableQty;
+
+  var grossProfit    = totalRevenue - totalCost;
+  var marginPct      = totalRevenue > 0 ? (grossProfit / totalRevenue * 100) : 0;
+
+  // Fill result cells
+  function fmt(n) { return '₹' + Math.round(n).toLocaleString('en-IN'); }
+  document.getElementById('r_cost').textContent    = fmt(totalCost) + ' (' + fmt(costPerUnit) + '/unit)';
+  document.getElementById('r_rev').textContent     = fmt(totalRevenue);
+  document.getElementById('r_gp').textContent      = fmt(grossProfit);
+  var mEl = document.getElementById('r_margin');
+  mEl.textContent = marginPct.toFixed(1) + '%';
+
+  // Verdict
+  var verdict = document.getElementById('r_verdict');
+  var note    = document.getElementById('r_note');
+  if (marginPct >= 20) {
+    verdict.className = 'badge bg-success fs-6 px-4 py-2';
+    verdict.textContent = '✅ ACCEPT — Strong Margin';
+    note.textContent = 'Margin ≥ 20% — deal is profitable. Proceed to PO.';
+    mEl.className = 'fw-bold text-success';
+  } else if (marginPct >= 10) {
+    verdict.className = 'badge bg-warning text-dark fs-6 px-4 py-2';
+    verdict.textContent = '⚠️ RENEGOTIATE — Thin Margin';
+    note.textContent = 'Margin 10–20% — try to reduce acquisition price by ₹' +
+      Math.round(totalCost * 0.10 / qty) + '/unit or negotiate logistics costs.';
+    mEl.className = 'fw-bold text-warning';
+  } else {
+    verdict.className = 'badge bg-danger fs-6 px-4 py-2';
+    verdict.textContent = '❌ DECLINE — Below Break-even';
+    note.textContent = 'Margin < 10% — deal is not viable at current pricing. Walk away or demand significant price reduction.';
+    mEl.className = 'fw-bold text-danger';
+  }
+
+  document.getElementById('calcResults').style.display = 'block';
+}
+// Auto-run if all key fields populated
+window.addEventListener('DOMContentLoaded', function() {
+  var acq  = document.getElementById('c_acq').value;
+  var qty  = document.getElementById('c_qty').value;
+  var sell = document.getElementById('c_sell').value;
+  if (acq && qty && sell && parseFloat(sell) > 0) calcProfit();
+});
+</script>
+{% endblock %}

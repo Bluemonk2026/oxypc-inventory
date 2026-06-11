@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Stock Aging — OxyPC{% endblock %}
+{% block page_title %}Stock Aging Report{% endblock %}
+{% block content %}
+
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm text-center">
+      <div class="card-body">
+        <div class="text-muted small">Devices in Stock</div>
+        <div class="fs-3 fw-bold text-primary">{{ grand['count'] }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm text-center">
+      <div class="card-body">
+        <div class="text-muted small">Total Cost @ Buying Price</div>
+        <div class="fs-4 fw-bold text-secondary">₹{{ "{:,.0f}".format(grand['cost']) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm text-center">
+      <div class="card-body">
+        <div class="text-muted small">Aged 61+ Days</div>
+        {% set aged61 = bracket_totals['61–90 days']['count'] + bracket_totals['90+ days']['count'] %}
+        <div class="fs-3 fw-bold {% if aged61 > 0 %}text-warning{% else %}text-success{% endif %}">{{ aged61 }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm text-center">
+      <div class="card-body">
+        <div class="text-muted small">Aged 90+ Days</div>
+        <div class="fs-3 fw-bold {% if bracket_totals['90+ days']['count'] > 0 %}text-danger{% else %}text-success{% endif %}">
+          {{ bracket_totals['90+ days']['count'] }}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Aging Matrix -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent fw-semibold">
+    <i class="bi bi-hourglass-split me-2"></i>Aging by Stage
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small">
+        <thead class="table-dark">
+          <tr>
+            <th>Stage</th>
+            {% for b in brackets %}<th class="text-end">{{ b }}</th>{% endfor %}
+            <th class="text-end">Total</th>
+            <th class="text-end">Cost</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for stage, buckets in stage_data.items() %}
+          <tr>
+            <td class="fw-semibold">{{ stage }}</td>
+            {% for b in brackets %}
+            {% set cell = buckets[b] %}
+            <td class="text-end">
+              {% if cell['count'] > 0 %}
+                <span class="{% if b in ['61–90 days','90+ days'] %}text-danger fw-semibold{% endif %}">{{ cell['count'] }}</span>
+                <small class="text-muted d-block" style="font-size:10px">₹{{ "{:,.0f}".format(cell['cost']) }}</small>
+              {% else %}—{% endif %}
+            </td>
+            {% endfor %}
+            <td class="text-end fw-semibold">{{ stage_totals[stage]['count'] }}</td>
+            <td class="text-end">₹{{ "{:,.0f}".format(stage_totals[stage]['cost']) }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="{{ brackets|length + 3 }}" class="text-center text-muted py-4">No devices in stock.</td></tr>
+          {% endfor %}
+        </tbody>
+        {% if stage_data %}
+        <tfoot class="table-light fw-bold">
+          <tr>
+            <td>Total</td>
+            {% for b in brackets %}<td class="text-end">{{ bracket_totals[b]['count'] }}</td>{% endfor %}
+            <td class="text-end">{{ grand['count'] }}</td>
+            <td class="text-end">₹{{ "{:,.0f}".format(grand['cost']) }}</td>
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if oldest_devices %}
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold">
+    <i class="bi bi-clock-history me-2"></i>50 Oldest Devices in Stock
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0 small">
+      <thead class="table-dark">
+        <tr><th>Barcode</th><th>Brand / Model</th><th>Stage</th><th>Grade</th>
+            <th class="text-end">Age (Days)</th><th class="text-end">Cost</th></tr>
+      </thead>
+      <tbody>
+        {% for d in oldest_devices %}
+        <tr class="{{ 'table-danger' if d.age > 90 else 'table-warning' if d.age > 60 else '' }}">
+          <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
+          <td>{{ d.brand }} {{ d.model }}</td>
+          <td><span class="badge bg-secondary">{{ d.stage }}</span></td>
+          <td>{{ d.grade }}</td>
+          <td class="text-end fw-semibold {% if d.age > 90 %}text-danger{% elif d.age > 60 %}text-warning{% endif %}">
+            {{ d.age }}
+          </td>
+          <td class="text-end">₹{{ "{:,.0f}".format(d.cost) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

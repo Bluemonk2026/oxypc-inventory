@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Bulk Upload Contacts — OxyPC{% endblock %}
+{% block page_title %}Bulk Upload CRM Contacts{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+
+    {% if error %}
+    <div class="alert alert-danger alert-dismissible fade show">
+      <i class="bi bi-exclamation-triangle me-2"></i>{{ error }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+
+    {% if result %}
+    <!-- Upload Result -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-clipboard-check me-2"></i>Import Result
+      </div>
+      <div class="card-body">
+        <div class="row g-3 mb-3 text-center">
+          <div class="col-4">
+            <div class="fs-3 fw-bold text-success">{{ result.created }}</div>
+            <div class="small text-muted">Contacts Created</div>
+          </div>
+          <div class="col-4">
+            <div class="fs-3 fw-bold text-warning">{{ result.skipped }}</div>
+            <div class="small text-muted">Skipped (duplicates)</div>
+          </div>
+          <div class="col-4">
+            <div class="fs-3 fw-bold text-danger">{{ result.errors | length }}</div>
+            <div class="small text-muted">Errors</div>
+          </div>
+        </div>
+        {% if result.errors %}
+        <div class="alert alert-warning py-2 small mb-3">
+          <strong>Row errors:</strong>
+          <ul class="mb-0 mt-1">
+            {% for e in result.errors %}<li>{{ e }}</li>{% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+        <div class="d-flex gap-2">
+          <a href="/crm/contacts" class="btn btn-primary btn-sm">
+            <i class="bi bi-people me-1"></i>View All Contacts
+          </a>
+          <a href="/crm/contacts/upload" class="btn btn-outline-secondary btn-sm">Upload Another</a>
+        </div>
+      </div>
+    </div>
+
+    {% else %}
+    <!-- Upload Form -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-cloud-upload me-2"></i>Upload Contacts CSV
+      </div>
+      <div class="card-body">
+
+        <!-- Step 1: Download sample -->
+        <div class="mb-3">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <span class="fw-semibold small">
+              <i class="bi bi-1-circle-fill text-primary me-1"></i>Download &amp; fill the sample file
+            </span>
+            <a href="/static/samples/crm_contacts_sample.csv"
+               class="btn btn-sm btn-primary" download>
+              <i class="bi bi-file-earmark-spreadsheet me-1"></i>Download Sample CSV
+            </a>
+          </div>
+          <!-- Column preview table -->
+          <div class="table-responsive border rounded" style="max-height:150px;overflow-y:auto">
+            <table class="table table-sm table-bordered mb-0" style="font-size:.7rem;white-space:nowrap">
+              <thead class="table-dark">
+                <tr>
+                  <th>company_name *</th>
+                  <th>contact_person</th>
+                  <th>phone</th>
+                  <th>whatsapp</th>
+                  <th>email</th>
+                  <th>contact_type</th>
+                  <th>source_type</th>
+                  <th>buyer_type</th>
+                  <th>city</th>
+                  <th>state</th>
+                  <th>gstin</th>
+                  <th>tags</th>
+                  <th>notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Acme Computers</td>
+                  <td>Rajesh Kumar</td>
+                  <td>9876543210</td>
+                  <td>9876543210</td>
+                  <td>raj@acme.com</td>
+                  <td>buyer</td>
+                  <td>dealer</td>
+                  <td>dealer</td>
+                  <td>Delhi</td>
+                  <td>Delhi</td>
+                  <td>07AABCA1234B1ZP</td>
+                  <td>laptop;desktop</td>
+                  <td>Bulk buyer</td>
+                </tr>
+                <tr>
+                  <td>TechBazaar Pvt Ltd</td>
+                  <td>Sanjay Mehta</td>
+                  <td>9123456789</td>
+                  <td></td>
+                  <td>s@tb.com</td>
+                  <td>supplier</td>
+                  <td>trader</td>
+                  <td></td>
+                  <td>Mumbai</td>
+                  <td>Maharashtra</td>
+                  <td></td>
+                  <td>wholesale</td>
+                  <td>Monthly lot supplier</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <hr class="my-3">
+
+        <!-- Step 2: Upload -->
+        <div class="fw-semibold small mb-2">
+          <i class="bi bi-2-circle-fill text-primary me-1"></i>Upload your filled file
+        </div>
+        <form action="/crm/contacts/upload" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          <div class="mb-3">
+            <input type="file" name="file" class="form-control form-control-sm" accept=".csv" required>
+            <div class="form-text">
+              Required: <code>company_name</code> &nbsp;|&nbsp;
+              Duplicates (same company + phone) are skipped automatically
+            </div>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-upload me-1"></i>Upload &amp; Import
+            </button>
+            <a href="/crm/contacts" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+
+      </div>
+    </div>
+
+    <!-- Column reference -->
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold small">Column Reference</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0 small">
+          <thead class="table-light">
+            <tr><th>Column</th><th>Required</th><th>Valid Values</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>company_name</td><td><span class="badge bg-danger">Yes</span></td><td>Any text</td></tr>
+            <tr><td>contact_person</td><td>No</td><td>Any name</td></tr>
+            <tr><td>phone</td><td>No</td><td>10-digit mobile number</td></tr>
+            <tr><td>whatsapp</td><td>No</td><td>WhatsApp number</td></tr>
+            <tr><td>email</td><td>No</td><td>Email address</td></tr>
+            <tr><td>contact_type</td><td>No</td><td><code>buyer</code>, <code>supplier</code>, <code>both</code> (default: buyer)</td></tr>
+            <tr><td>source_type</td><td>No</td><td>recycler, refurb_vendor, end_customer, trader, individual, online_platform</td></tr>
+            <tr><td>buyer_type</td><td>No</td><td>corp_buyer, dealer, online_seller, exporter, retail, government</td></tr>
+            <tr><td>city</td><td>No</td><td>Any city name</td></tr>
+            <tr><td>state</td><td>No</td><td>Any state name</td></tr>
+            <tr><td>gstin</td><td>No</td><td>15-char GST number</td></tr>
+            <tr><td>tags</td><td>No</td><td>Comma or semicolon separated tags</td></tr>
+            <tr><td>notes</td><td>No</td><td>Any text notes</td></tr>
+            <tr><td>status</td><td>No</td><td><code>active</code>, <code>inactive</code>, <code>blacklisted</code> (default: active)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

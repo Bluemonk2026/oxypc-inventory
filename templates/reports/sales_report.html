@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Sales Report — OxyPC{% endblock %}
+{% block page_title %}Sales Report{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <span class="fw-bold text-success">Total: ₹{{ "{:,.0f}".format(total) }}</span>
+  <a href="/reports/export/sales" class="btn btn-outline-success btn-sm"><i class="bi bi-download me-1"></i>Export CSV</a>
+</div>
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table id="srTable" class="table table-hover mb-0 small">
+      <thead class="table-dark"><tr><th>Sale#</th><th>Date</th><th>Barcode</th><th>Brand/Model</th><th>Lot</th><th>Grade</th><th>Price</th><th>Customer</th><th>Payment</th><th>By</th></tr></thead>
+      <tbody>
+        {% for row in sales %}
+        <tr>
+          <td class="fw-semibold">{{ row.Sale.sale_number }}</td>
+          <td>{{ row.Sale.sold_at.strftime('%d-%m-%Y') }}</td>
+          <td><code>{{ row.barcode }}</code></td>
+          <td>{{ row.brand }} {{ row.model }}</td>
+          <td><span class="badge bg-info text-dark">{{ row.lot_number }}</span></td>
+          <td>{{ row.grade or '—' }}</td>
+          <td class="fw-semibold text-success">₹{{ "{:,.0f}".format(row.Sale.sale_price) }}</td>
+          <td>{{ row.Sale.customer_name or '—' }}</td>
+          <td><span class="badge bg-secondary">{{ row.Sale.payment_mode }}</span></td>
+          <td>{{ row.Sale.sold_by }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>$(document).ready(function(){ $('#srTable').DataTable({pageLength:50, order:[[0,'desc']]}); });</script>
+{% endblock %}

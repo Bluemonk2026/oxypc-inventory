@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Invoice {{ order.invoice_number }}{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width:800px">
+
+  <div class="d-print-none mb-3 d-flex gap-2">
+    <button onclick="window.print()" class="btn btn-primary">
+      <i class="bi bi-printer me-1"></i> Print / Save PDF
+    </button>
+    <a href="/dealers/{{ dealer.id }}" class="btn btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i> Back to Dealer
+    </a>
+  </div>
+
+  <div class="card border shadow-sm p-4" id="invoice-body">
+
+    <div class="d-flex justify-content-between align-items-start mb-4">
+      <div>
+        <h4 class="fw-bold mb-0">TAX INVOICE</h4>
+        <div class="text-muted small">OxyPC — Refurbished IT Equipment</div>
+      </div>
+      <div class="text-end">
+        <div class="fw-bold fs-5">{{ order.invoice_number or order.order_number }}</div>
+        <div class="text-muted small">Date: {{ order.order_date.strftime('%d %b %Y') }}</div>
+        {% if order.payment_due_date %}
+        <div class="text-muted small">Due: {{ order.payment_due_date.strftime('%d %b %Y') }}</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <hr>
+
+    <div class="row mb-4">
+      <div class="col-6">
+        <div class="fw-semibold small text-muted mb-1">BILL TO</div>
+        <div class="fw-bold">{{ dealer.business_name or (dealer.first_name ~ ' ' ~ (dealer.last_name or '')) }}</div>
+        {% if dealer.address %}<div class="small">{{ dealer.address }}</div>{% endif %}
+        {% if dealer.phone %}<div class="small">Ph: {{ dealer.phone }}</div>{% endif %}
+      </div>
+      <div class="col-6 text-end">
+        <div class="fw-semibold small text-muted mb-1">ORDER DETAILS</div>
+        <div class="small">Order #: <strong>{{ order.order_number }}</strong></div>
+        <div class="small">Status: <span class="text-capitalize">{{ order.status }}</span></div>
+        {% if order.payment_mode %}
+        <div class="small">Payment Mode: {{ order.payment_mode | title }}</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <table class="table table-bordered small mb-4">
+      <thead class="table-dark">
+        <tr>
+          <th>#</th>
+          <th>Description</th>
+          <th class="text-end">Amount (&#8377;)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td>{{ order.items_description or 'Goods / Services as per order' }}</td>
+          <td class="text-end fw-semibold">&#8377;{{ "{:,.2f}".format(order.total_amount or 0) }}</td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="2" class="text-end fw-bold">Total</td>
+          <td class="text-end fw-bold">&#8377;{{ "{:,.2f}".format(order.total_amount or 0) }}</td>
+        </tr>
+        <tr>
+          <td colspan="2" class="text-end text-success">Amount Paid</td>
+          <td class="text-end text-success">&#8377;{{ "{:,.2f}".format(order.paid_amount or 0) }}</td>
+        </tr>
+        <tr class="{% if (order.due_amount or 0) > 0 %}table-danger{% else %}table-success{% endif %}">
+          <td colspan="2" class="text-end fw-bold">Balance Due</td>
+          <td class="text-end fw-bold">&#8377;{{ "{:,.2f}".format(order.due_amount or 0) }}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    {% if order.notes %}
+    <div class="small text-muted mt-2"><strong>Notes:</strong> {{ order.notes }}</div>
+    {% endif %}
+
+    <div class="mt-4 pt-3 border-top d-flex justify-content-between small text-muted">
+      <div>Generated: {{ as_of.strftime('%d %b %Y %H:%M') }}</div>
+      <div>This is a computer-generated invoice.</div>
+    </div>
+  </div>
+</div>
+
+<style>
+@media print {
+  .d-print-none { display: none !important; }
+  body { background: white !important; }
+  .card { border: none !important; box-shadow: none !important; }
+}
+</style>
+{% endblock %}

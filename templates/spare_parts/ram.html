@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}RAM Tracking — OxyPC{% endblock %}
+{% block page_title %}RAM Tracking{% endblock %}
+{% block content %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-memory me-2"></i>Log RAM Movement</div>
+  <div class="card-body">
+    <form action="/ram-tracking" method="post">
+      <div class="row g-3">
+        <div class="col-md-2">
+          <label class="form-label fw-semibold">Action <span class="text-danger">*</span></label>
+          <select name="action" class="form-select" required>
+            <option value="removed">Removed from device</option>
+            <option value="added">Added to device</option>
+            <option value="cannibalized">Cannibalized (device→device)</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Source Device Barcode</label>
+          <input type="text" name="device_barcode" class="form-control barcode-field font-monospace" placeholder="Scan source">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Destination Barcode</label>
+          <input type="text" name="destination_barcode" class="form-control font-monospace" placeholder="For cannibalize/add">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label fw-semibold">RAM (GB) <span class="text-danger">*</span></label>
+          <select name="ram_gb" class="form-select" required>
+            <option>2</option><option>4</option><option>8</option><option>12</option>
+            <option>16</option><option>24</option><option>32</option><option>64</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">RAM Type</label>
+          <select name="ram_type" class="form-select">
+            <option value="">Unknown</option>
+            <option>DDR3</option><option>DDR4</option><option>DDR5</option><option>LPDDR4</option><option>LPDDR5</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Notes</label>
+          <input type="text" name="notes" class="form-control" placeholder="Optional">
+        </div>
+        <div class="col-12"><button type="submit" class="btn btn-primary"><i class="bi bi-save me-2"></i>Log RAM</button></div>
+      </div>
+    </form>
+  </div>
+</div>
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold">RAM Movement Log</div>
+  <div class="card-body p-0">
+    <table id="ramTable" class="table table-hover mb-0 small">
+      <thead class="table-dark"><tr><th>Date</th><th>Action</th><th>Source Device</th><th>RAM</th><th>Type</th><th>By</th><th>Notes</th></tr></thead>
+      <tbody>
+        {% for entry, barcode in entries %}
+        <tr>
+          <td>{{ entry.at.strftime('%d-%m-%Y %H:%M') }}</td>
+          <td>
+            <span class="badge {{ 'bg-danger' if entry.action == 'removed' else 'bg-success' if entry.action == 'added' else 'bg-warning text-dark' }}">
+              {{ entry.action }}
+            </span>
+          </td>
+          <td><code>{{ barcode or '—' }}</code></td>
+          <td>{{ entry.ram_gb }}GB</td>
+          <td>{{ entry.ram_type or '—' }}</td>
+          <td class="text-muted">{{ entry.by_user }}</td>
+          <td class="text-muted">{{ entry.notes or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>$(document).ready(function(){ $('#ramTable').DataTable({pageLength:25, order:[[0,'desc']]}); });</script>
+{% endblock %}

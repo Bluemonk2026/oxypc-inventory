@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% block title %}Spare Parts — OxyPC{% endblock %}
+{% block page_title %}Spare Parts Inventory{% endblock %}
+{% block content %}
+
+{% if request.query_params.get('success') %}
+<div class="alert alert-success alert-dismissible fade show">
+  <i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success') }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+<!-- ── Summary Cards ── -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-3 fw-bold text-primary">{{ total_part_types }}</div>
+      <div class="text-muted small">Part Types</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center p-3 {{ 'border-danger' if below_min_count > 0 else '' }}">
+      <div class="fs-3 fw-bold {{ 'text-danger' if below_min_count > 0 else 'text-success' }}">{{ below_min_count }}</div>
+      <div class="text-muted small">Below Min Stock</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-3 fw-bold text-success">&#8377;{{ "{:,.0f}".format(total_stock_value) }}</div>
+      <div class="text-muted small">Total Stock Value</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-3 fw-bold text-info">{{ consumed_this_month }}</div>
+      <div class="text-muted small">Consumed This Month</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Tab Navigation ── -->
+<ul class="nav nav-tabs mb-0" id="sparePartsTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="master-tab" data-bs-toggle="tab"
+            data-bs-target="#masterTab" type="button" role="tab">
+      <i class="bi bi-box-seam me-1"></i>Part Master
+      <span class="badge bg-secondary ms-1">{{ total_part_types }}</span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="stockin-tab" data-bs-toggle="tab"
+            data-bs-target="#stockinTab" type="button" role="tab">
+      <i class="bi bi-box-arrow-in-down me-1"></i>Stock In (Purchases)
+      <span class="badge bg-secondary ms-1">{{ purchases|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="consumption-tab" data-bs-toggle="tab"
+            data-bs-target="#consumptionTab" type="button" role="tab">
+      <i class="bi bi-tools me-1"></i>Consumption
+      <span class="badge bg-secondary ms-1">{{ consumptions|length }}</span>
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content border border-top-0 rounded-bottom shadow-sm bg-white">
+
+  <!-- ── TAB 1: Part Master ── -->
+  <div class="tab-pane fade show active p-0" id="masterTab" role="tabpanel">
+    <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
+      <span class="text-muted small">{{ total_part_types }} part type(s) &nbsp;|&nbsp;
+        {% if below_min_count > 0 %}<span class="text-danger fw-semibold">{{ below_min_count }} below min stock</span>{% else %}<span class="text-success">All stocked OK</span>{% endif %}
+      </span>
+      <a href="/spare-parts/new" class="btn btn-primary btn-sm">
+        <i class="bi bi-plus-circle me-1"></i>Add Part
+      </a>
+    </div>
+    <div class="table-responsive">
+      <table id="partsTable" class="table table-hover mb-0 small">
+        <thead class="table-dark">
+          <tr>
+            <th>Code</th><th>Name</th><th>Category</th>
+            <th>Unit Price</th><th>In Stock</th><th>Min Alert</th>
+            <th>Stock Value</th><th>Supplier</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for part in parts %}
+          <tr class="{{ 'table-danger' if part.qty_in_stock <= part.min_stock_alert else '' }}">
+            <td><code>{{ part.part_code }}</code></td>
+            <td class="fw-semibold">{{ part.name }}</td>
+            <td><span class="badge bg-secondary">{{ part.category }}</span></td>
+            <td>&#8377;{{ "{:,.2f}".format(part.unit_price) }}</td>
+            <td>
+              <span class="badge {{ 'bg-danger' if part.qty_in_stock <= part.min_stock_alert else 'bg-success' }}">
+                {{ part.qty_in_stock }}
+              </span>
+            </td>
+            <td>{{ part.min_stock_alert }}</td>
+            <td>&#8377;{{ "{:,.0f}".format(part.unit_price * part.qty_in_stock) }}</td>
+            <td class="text-muted">{{ part.supplier or '—' }}</td>
+            <td>
+              <div class="d-flex gap-1 flex-wrap">
+                <a href="/spare-parts/{{ part.id }}/edit"
+                   class="btn btn-xs btn-outline-primary btn-sm py-0 px-2">Edit</a>
+                <a href="/spare-parts/purchase?part_id={{ part.id }}"
+                   class="btn btn-xs btn-outline-success btn-sm py-0 px-2"
+                   title="Record Purchase">
+                  <i class="bi bi-box-arrow-in-down"></i> Buy
+                </a>
+                <a href="/spare-parts/consume?part_id={{ part.id }}"
+                   class="btn btn-xs btn-outline-warning btn-sm py-0 px-2"
+                   title="Record Consumption">
+                  <i class="bi bi-tools"></i> Use
+                </a>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="text-center text-muted py-4">No parts registered.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── TAB 2: Stock In (Purchases) ── -->
+  <div class="tab-pane fade p-0" id="stockinTab" role="tabpanel">
+    <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
+      <span class="text-muted small">Last {{ purchases|length }} purchase records</span>
+      <a href="/spare-parts/purchase" class="btn btn-success btn-sm">
+        <i class="bi bi-plus-circle me-1"></i>Record Purchase
+      </a>
+    </div>
+    <div class="table-responsive">
+      <table id="purchasesTable" class="table table-hover mb-0 small">
+        <thead class="table-dark">
+          <tr>
+            <th>Part Name</th><th>Code</th><th>Qty</th>
+            <th>Unit Price</th><th>Total</th><th>Supplier</th>
+            <th>Invoice No</th><th>Date</th><th>Purchased By</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for purchase, part_name, part_code in purchases %}
+          <tr>
+            <td class="fw-semibold">{{ part_name }}</td>
+            <td><code>{{ part_code }}</code></td>
+            <td><span class="badge bg-success">{{ purchase.qty }}</span></td>
+            <td>&#8377;{{ "{:,.2f}".format(purchase.unit_price) }}</td>
+            <td class="fw-semibold">&#8377;{{ "{:,.0f}".format(purchase.total_price) }}</td>
+            <td class="text-muted">{{ purchase.supplier or '—' }}</td>
+            <td class="font-monospace small">{{ purchase.invoice_no or '—' }}</td>
+            <td>{{ purchase.purchase_date.strftime('%d-%m-%Y') if purchase.purchase_date else '—' }}</td>
+            <td class="text-muted">{{ purchase.purchased_by or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="text-center text-muted py-4">No purchases recorded.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── TAB 3: Consumption ── -->
+  <div class="tab-pane fade p-0" id="consumptionTab" role="tabpanel">
+    <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
+      <span class="text-muted small">Last {{ consumptions|length }} consumption records</span>
+      <a href="/spare-parts/consume" class="btn btn-warning btn-sm">
+        <i class="bi bi-plus-circle me-1"></i>Record Consumption
+      </a>
+    </div>
+    <div class="table-responsive">
+      <table id="consumptionTable" class="table table-hover mb-0 small">
+        <thead class="table-dark">
+          <tr>
+            <th>Part Name</th><th>Code</th><th>Qty Used</th>
+            <th>Unit Cost</th><th>Total Cost</th>
+            <th>Device Barcode</th><th>Stage</th>
+            <th>Used By</th><th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for consumption, part_name, part_code, device_barcode in consumptions %}
+          <tr>
+            <td class="fw-semibold">{{ part_name }}</td>
+            <td><code>{{ part_code }}</code></td>
+            <td><span class="badge bg-warning text-dark">{{ consumption.qty_used }}</span></td>
+            <td>&#8377;{{ "{:,.2f}".format(consumption.unit_cost) }}</td>
+            <td class="fw-semibold">&#8377;{{ "{:,.0f}".format(consumption.total_cost) }}</td>
+            <td>
+              {% if device_barcode %}
+              <a href="/devices/{{ device_barcode }}" class="font-monospace small text-decoration-none">
+                {{ device_barcode }}
+              </a>
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if consumption.stage %}
+              <span class="badge bg-secondary">{{ consumption.stage }}</span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="text-muted">{{ consumption.used_by or '—' }}</td>
+            <td>{{ consumption.used_at.strftime('%d-%m-%Y') if consumption.used_at else '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="text-center text-muted py-4">No consumptions recorded.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+  $('#partsTable').DataTable({ pageLength: 25, order: [[2, 'asc']] });
+  $('#purchasesTable').DataTable({ pageLength: 25, order: [[7, 'desc']] });
+  $('#consumptionTable').DataTable({ pageLength: 25, order: [[8, 'desc']] });
+});
+
+// Preserve active tab across page reloads
+const activeTabKey = 'spareParts_activeTab';
+const savedTab = localStorage.getItem(activeTabKey);
+if (savedTab) {
+  const el = document.querySelector(`[data-bs-target="${savedTab}"]`);
+  if (el) { new bootstrap.Tab(el).show(); }
+}
+document.querySelectorAll('#sparePartsTabs button').forEach(btn => {
+  btn.addEventListener('shown.bs.tab', (e) => {
+    localStorage.setItem(activeTabKey, e.target.getAttribute('data-bs-target'));
+  });
+});
+</script>
+{% endblock %}

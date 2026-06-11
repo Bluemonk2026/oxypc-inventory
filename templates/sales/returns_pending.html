@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Pending Returns — OxyPC{% endblock %}
+{% block page_title %}Pending Return Approvals{% endblock %}
+{% block content %}
+
+{% if request.query_params.get('success') %}
+<div class="alert alert-success alert-dismissible fade show">
+  <i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success') }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+{% if request.query_params.get('error') %}
+<div class="alert alert-danger alert-dismissible fade show">
+  {{ request.query_params.get('error') }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <span class="text-muted">{{ pending|length }} pending return(s) awaiting approval</span>
+  <a href="/returns" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>All Returns
+  </a>
+</div>
+
+{% if not pending %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-check-circle fs-1 text-success mb-3 d-block"></i>
+    No pending returns. All caught up.
+  </div>
+</div>
+{% else %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0 small">
+      <thead class="table-dark">
+        <tr>
+          <th>Return Date</th>
+          <th>Barcode</th>
+          <th>Device</th>
+          <th>Sale No.</th>
+          <th>Sale Price</th>
+          <th>Reason</th>
+          <th>Condition</th>
+          <th>Action Requested</th>
+          <th>Submitted By</th>
+          <th>Approve / Reject</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ret, barcode, brand, model, sale_price, sale_number in pending %}
+        <tr>
+          <td>{{ ret.return_date.strftime('%d-%b-%Y') if ret.return_date else '—' }}</td>
+          <td>
+            <a href="/devices/{{ barcode }}" class="font-monospace text-decoration-none">
+              {{ barcode }}
+            </a>
+          </td>
+          <td>{{ brand }} {{ model }}</td>
+          <td><code>{{ sale_number }}</code></td>
+          <td>&#8377;{{ "{:,.0f}".format(sale_price) }}</td>
+          <td>{{ ret.reason or '—' }}</td>
+          <td>
+            {% if ret.condition_on_return %}
+            <span class="badge {{ 'bg-danger' if ret.condition_on_return in ('Major damage', 'Non-functional') else 'bg-warning text-dark' }}">
+              {{ ret.condition_on_return }}
+            </span>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            <span class="badge {{ 'bg-secondary' if ret.action_taken == 'restock' else 'bg-danger' }}">
+              {{ ret.action_taken or '—' }}
+            </span>
+            {% if ret.refund_amount %}
+            <div class="text-muted small">Refund: &#8377;{{ "{:,.0f}".format(ret.refund_amount) }}</div>
+            {% endif %}
+          </td>
+          <td class="text-muted">{{ ret.processed_by or '—' }}</td>
+          <td>
+            <div class="d-flex flex-column gap-1">
+              <!-- Approve -->
+              <form action="/returns/{{ ret.id }}/approve" method="post" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+                <button type="submit" class="btn btn-success btn-sm w-100"
+                        onclick="return confirm('Approve this return? Device will move to {{ ret.reentered_stage }} stage.')">
+                  <i class="bi bi-check-circle me-1"></i>Approve
+                </button>
+              </form>
+              <!-- Reject -->
+              <button type="button" class="btn btn-danger btn-sm w-100"
+                      data-bs-toggle="modal" data-bs-target="#rejectModal{{ loop.index }}">
+                <i class="bi bi-x-circle me-1"></i>Reject
+              </button>
+            </div>
+
+            <!-- Reject Modal -->
+            <div class="modal fade" id="rejectModal{{ loop.index }}" tabindex="-1">
+              <div class="modal-dialog">
+                <div class="modal-content">
+                  <div class="modal-header">
+                    <h5 class="modal-title">Reject Return — {{ barcode }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                  </div>
+                  <form action="/returns/{{ ret.id }}/reject" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+                    <div class="modal-body">
+                      <p class="text-muted small">
+                        Rejecting keeps the device in <strong>sold</strong> state. No stage change will occur.
+                      </p>
+                      <label class="form-label fw-semibold">Rejection Reason</label>
+                      <textarea name="rejection_reason" class="form-control" rows="3"
+                                placeholder="Explain why the return is rejected..."></textarea>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                      <button type="submit" class="btn btn-danger">Confirm Reject</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

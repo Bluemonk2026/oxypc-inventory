@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}QA / UAT Dashboard — OxyPC{% endblock %}
+{% block page_title %}QA &amp; UAT Dashboard{% endblock %}
+{% block content %}
+{% include 'qa/_tabs.html' %}
+
+<!-- KPI row -->
+<div class="row g-3 mb-4">
+
+  <!-- Requirements -->
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="fs-2 fw-bold text-primary">{{ total_reqs }}</div>
+        <div class="small text-muted">Requirements</div>
+        <div class="mt-1"><span class="badge bg-warning text-dark">{{ open_reqs }} open</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Test Cases -->
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="fs-2 fw-bold text-info">{{ total_tcs }}</div>
+        <div class="small text-muted">Test Cases</div>
+        <div class="mt-1"><span class="badge bg-secondary">{{ automated }} automated</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pass Rate -->
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="fs-2 fw-bold {{ 'text-success' if pass_rate >= 80 else 'text-warning' if pass_rate >= 50 else 'text-danger' }}">{{ pass_rate }}%</div>
+        <div class="small text-muted">Pass Rate</div>
+        <div class="mt-1">
+          <span class="badge bg-success">{{ exec_pass }} pass</span>
+          <span class="badge bg-danger ms-1">{{ exec_fail }} fail</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Defects -->
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="fs-2 fw-bold {{ 'text-danger' if def_critical > 0 else 'text-secondary' }}">{{ def_open }}</div>
+        <div class="small text-muted">Open Defects</div>
+        <div class="mt-1">
+          {% if def_critical > 0 %}
+          <span class="badge bg-danger">{{ def_critical }} critical</span>
+          {% else %}
+          <span class="badge bg-success">0 critical</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- UAT + Release row -->
+<div class="row g-3 mb-4">
+
+  <!-- UAT Progress -->
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-person-check me-2"></i>UAT Progress
+      </div>
+      <div class="card-body">
+        <div class="d-flex justify-content-between mb-2">
+          <span class="small">Total Scenarios</span>
+          <span class="badge bg-primary">{{ uat_total }}</span>
+        </div>
+        <div class="d-flex justify-content-between mb-2">
+          <span class="small">Passed</span>
+          <span class="badge bg-success">{{ uat_pass }}</span>
+        </div>
+        <div class="d-flex justify-content-between mb-3">
+          <span class="small">Pending</span>
+          <span class="badge bg-warning text-dark">{{ uat_pending }}</span>
+        </div>
+        {% if uat_total > 0 %}
+        <div class="progress" style="height:8px">
+          <div class="progress-bar bg-success"
+               style="width:{{ (uat_pass / uat_total * 100)|round }}%"></div>
+        </div>
+        <div class="small text-muted mt-1 text-end">
+          {{ (uat_pass / uat_total * 100)|round }}% complete
+        </div>
+        {% endif %}
+        <a href="/qa/uat" class="btn btn-sm btn-outline-primary w-100 mt-2">View UAT Board</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active Releases -->
+  <div class="col-md-8">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase d-flex justify-content-between">
+        <span><i class="bi bi-rocket me-2"></i>Active Releases</span>
+        <a href="/qa/releases" class="btn btn-xs btn-outline-secondary py-0 px-2" style="font-size:.75rem">All Releases</a>
+      </div>
+      <div class="card-body p-0">
+        {% if active_releases %}
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr><th class="ps-3">Version</th><th>Title</th><th>Status</th><th>Planned</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for rel in active_releases %}
+            <tr>
+              <td class="ps-3 font-monospace fw-semibold small">{{ rel.version }}</td>
+              <td class="small">{{ rel.title or '—' }}</td>
+              <td>
+                {% set sc = rel.status.value %}
+                <span class="badge bg-{{ 'success' if sc == 'Deployed' else 'primary' if sc in ('In QA','In UAT') else 'warning text-dark' if sc in ('QA Done','UAT Done') else 'secondary' }}">
+                  {{ sc }}
+                </span>
+              </td>
+              <td class="small text-muted">
+                {{ rel.planned_date.strftime('%d %b %Y') if rel.planned_date else '—' }}
+              </td>
+              <td>
+                <a href="/qa/releases" class="btn btn-xs btn-outline-secondary py-0 px-1" style="font-size:.7rem">
+                  <i class="bi bi-pencil"></i>
+                </a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center text-muted py-3 small">No active releases</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Critical Defects -->
+{% if critical_defects %}
+<div class="card border-0 shadow-sm mb-4 border-danger border-opacity-25">
+  <div class="card-header bg-danger bg-opacity-10 fw-semibold small text-uppercase text-danger">
+    <i class="bi bi-exclamation-triangle me-2"></i>Open Critical &amp; High Defects
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr><th class="ps-3">ID</th><th>Title</th><th>Severity</th><th>Module</th><th>Status</th><th>Assigned To</th><th>Reported</th></tr>
+      </thead>
+      <tbody>
+        {% for d in critical_defects %}
+        <tr>
+          <td class="ps-3 font-monospace small">{{ d.defect_code or d.id|string|truncate(8, True, '') }}</td>
+          <td class="small fw-semibold">{{ d.title }}</td>
+          <td>
+            <span class="badge bg-{{ 'danger' if d.severity.value == 'Critical' else 'warning text-dark' }}">
+              {{ d.severity.value }}
+            </span>
+          </td>
+          <td class="small text-muted">{{ d.module or '—' }}</td>
+          <td><span class="badge bg-secondary small">{{ d.status.value }}</span></td>
+          <td class="small">{{ d.assigned_to or '—' }}</td>
+          <td class="small text-muted">{{ d.reported_at.strftime('%d-%m-%Y') if d.reported_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Quick links -->
+<div class="row g-2">
+  {% set links = [
+    ('/qa/requirements', 'bi-list-check', 'Requirements', 'primary'),
+    ('/qa/test-cases',   'bi-clipboard-data', 'Test Cases', 'info'),
+    ('/qa/defects',      'bi-bug', 'Defect Tracker', 'danger'),
+    ('/qa/uat',          'bi-person-check', 'UAT Board', 'success'),
+    ('/qa/releases',     'bi-rocket', 'Releases', 'secondary'),
+    ('/qa/rtm',          'bi-table', 'RTM', 'dark'),
+  ] %}
+  {% for url, icon, label, color in links %}
+  <div class="col-6 col-md-2">
+    <a href="{{ url }}" class="btn btn-outline-{{ color }} w-100 py-3 d-flex flex-column align-items-center gap-1">
+      <i class="bi {{ icon }} fs-4"></i>
+      <span class="small fw-semibold">{{ label }}</span>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}

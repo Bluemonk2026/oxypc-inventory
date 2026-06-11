@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title %}Lots — OxyPC{% endblock %}
+{% block page_title %}Lot Management{% endblock %}
+{% block content %}
+
+{% if request.query_params.get('success') %}
+<div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+{% if request.query_params.get('warning') %}
+<div class="alert alert-warning alert-dismissible fade show"><i class="bi bi-exclamation-triangle me-2"></i>{{ request.query_params.get('warning') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+
+<form method="get" action="/lots" class="row g-2 mb-3 align-items-end">
+  <div class="col-md-4">
+    <label class="form-label small fw-semibold">Search Supplier / Lot</label>
+    <input type="text" name="q" class="form-control form-control-sm"
+           placeholder="Supplier name, lot number…" value="{{ q }}">
+  </div>
+  <div class="col-md-3">
+    <label class="form-label small fw-semibold">Purchase From</label>
+    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+  </div>
+  <div class="col-md-3">
+    <label class="form-label small fw-semibold">Purchase To</label>
+    <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+  </div>
+  <div class="col-auto">
+    <button type="submit" class="btn btn-sm btn-primary">
+      <i class="bi bi-funnel me-1"></i>Filter
+    </button>
+    <a href="/lots" class="btn btn-sm btn-outline-secondary ms-1">Clear</a>
+  </div>
+</form>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <span class="text-muted">
+    {{ lot_stats|length }} lot(s)
+    {% if q or date_from or date_to %}
+    <span class="badge bg-warning text-dark ms-1">Filtered</span>
+    {% endif %}
+  </span>
+  <div class="d-flex gap-2 flex-wrap">
+    {# Export respects current filters: passes q / date_from / date_to as query params #}
+    <a href="/lots/export-all-csv?q={{ q }}&date_from={{ date_from }}&date_to={{ date_to }}"
+       class="btn btn-outline-info btn-sm"
+       title="{% if q or date_from or date_to %}Export filtered lots{% else %}Export all lots{% endif %}">
+      <i class="bi bi-file-earmark-arrow-down me-1"></i>
+      {% if q or date_from or date_to %}Export Filtered CSV{% else %}Export All CSV{% endif %}
+    </a>
+    <button type="button" class="btn btn-outline-success btn-sm" id="exportSelectedBtn" onclick="submitExportSelected()" disabled>
+      <i class="bi bi-download me-1"></i>Export Selected
+    </button>
+    <a href="/bulk-upload/template/lots" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-download me-1"></i>CSV Template
+    </a>
+    <a href="/bulk-upload?type=lots" class="btn btn-outline-success btn-sm">
+      <i class="bi bi-cloud-upload me-1"></i>Bulk Upload Lots
+    </a>
+    <a href="/lots/new" class="btn btn-primary btn-sm">
+      <i class="bi bi-plus-circle me-1"></i>New Lot
+    </a>
+  </div>
+</div>
+
+{# Hidden form used to POST selected lot IDs for CSV export #}
+<form id="exportSelectedForm" method="post" action="/lots/export-csv" style="display:none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+</form>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="lotsTable" class="table table-hover mb-0 small">
+        <thead class="table-dark">
+          <tr>
+            <th><input type="checkbox" id="selectAllLots" title="Select all" class="form-check-input"></th>
+            <th>Lot #</th>
+            <th>GRN #</th>
+            <th>Supplier</th>
+            <th>Created</th>
+            <th>Purchase Date</th>
+            <th>Rcvd Date</th>
+            <th>Invoice No.</th>
+            <th>Invoice Value</th>
+            <th>SGST</th><th>CGST</th><th>IGST</th>
+            <th>Qty</th>
+            <th>Registered</th>
+            <th>Sold</th>
+            <th>Buying Price</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for stat in lot_stats %}
+          {% set lot = stat.lot %}
+          <tr>
+            <td><input type="checkbox" class="form-check-input lot-checkbox" value="{{ lot.id }}"></td>
+            <td><a href="/lots/{{ lot.id }}" class="fw-semibold text-decoration-none font-monospace">{{ lot.lot_number }}</a></td>
+            <td class="font-monospace text-muted">
+              {% if lot.grn_system_number %}{{ lot.grn_system_number }}
+              {% elif lot.grn_number_new %}{{ lot.grn_number_new }}
+              {% else %}<span class="text-warning">—</span>{% endif %}
+            </td>
+            <td>{{ lot.supplier_name }}</td>
+            <td class="text-muted small">{{ lot.created_at.strftime('%d-%m-%Y %H:%M') if lot.created_at else '—' }}</td>
+            <td>{{ lot.purchase_date.strftime('%d-%m-%Y') }}</td>
+            <td>{{ lot.grn_date.strftime('%d-%m-%Y') if lot.grn_date else '—' }}</td>
+            <td class="font-monospace small">{{ lot.invoice_no or '—' }}</td>
+            <td>{% if lot.invoice_value %}₹{{ "{:,.0f}".format(lot.invoice_value) }}{% else %}—{% endif %}</td>
+            <td>{% if lot.sgst %}₹{{ "{:,.0f}".format(lot.sgst) }}{% else %}—{% endif %}</td>
+            <td>{% if lot.cgst %}₹{{ "{:,.0f}".format(lot.cgst) }}{% else %}—{% endif %}</td>
+            <td>{% if lot.igst %}₹{{ "{:,.0f}".format(lot.igst) }}{% else %}—{% endif %}</td>
+            <td class="text-center">{{ lot.qty }}</td>
+            <td class="text-center"><span class="badge bg-primary">{{ stat.devices }}</span></td>
+            <td class="text-center"><span class="badge bg-success">{{ stat.sold }}</span></td>
+            <td class="fw-semibold text-danger">₹{{ "{:,.0f}".format(lot.buying_price) }}</td>
+            <td class="text-nowrap">
+              <a href="/lots/{{ lot.id }}" class="btn btn-sm btn-outline-primary py-0">View</a>
+              <a href="/lots/{{ lot.id }}/edit" class="btn btn-sm btn-outline-secondary py-0">Edit</a>
+              <button type="button" class="btn btn-sm btn-outline-success py-0"
+                      data-bs-toggle="modal" data-bs-target="#grnModal"
+                      data-lot-id="{{ lot.id }}"
+                      data-lot-number="{{ lot.lot_number }}"
+                      data-expected="{{ lot.qty }}">
+                <i class="bi bi-receipt-cutoff me-1"></i>GRN
+              </button>
+              <form method="post" action="/lots/{{ lot.id }}/delete" class="d-inline"
+                    onsubmit="return confirm('Permanently delete lot {{ lot.lot_number }}?\n\nThis cannot be undone. All lot data will be removed.')">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger py-0" title="Delete Lot">
+                  <i class="bi bi-trash3"></i>
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{# ── GRN Quick-entry Modal ──────────────────────────────────────── #}
+<div class="modal fade" id="grnModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="/grn/submit">
+        <div class="modal-header text-white" style="background:#198754">
+          <h5 class="modal-title">
+            <i class="bi bi-receipt-cutoff me-2"></i>Record GRN — <span id="grnLotLabel"></span>
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          <input type="hidden" name="lot_id" id="grnLotId">
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label fw-semibold">Expected Qty</label>
+              <input type="number" name="expected_qty" id="grnExpected" class="form-control" min="1" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label fw-semibold">Received Qty <span class="text-danger">*</span></label>
+              <input type="number" name="received_qty" id="grnReceived" class="form-control" min="0" required
+                     placeholder="Actual count">
+            </div>
+            <div class="col-12">
+              <label class="form-label">GRN Reference No.</label>
+              <input type="text" name="grn_number" class="form-control font-monospace"
+                     placeholder="e.g. GRN-2025-001">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notes / Remarks</label>
+              <textarea name="notes" class="form-control" rows="2"
+                        placeholder="Discrepancy notes, condition, etc."></textarea>
+            </div>
+          </div>
+          <div class="alert alert-info small mt-3 mb-0 py-2">
+            <i class="bi bi-info-circle me-1"></i>A <strong>mismatch warning</strong> will flag if Expected ≠ Received.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success px-4">
+            <i class="bi bi-check2-circle me-2"></i>Submit GRN
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){
+  $('#lotsTable').DataTable({ pageLength:25, order:[[1,'desc']], scrollX:true });
+});
+
+// Pre-fill GRN modal from row data attributes
+document.getElementById('grnModal').addEventListener('show.bs.modal', function(e) {
+  const btn = e.relatedTarget;
+  document.getElementById('grnLotId').value        = btn.dataset.lotId;
+  document.getElementById('grnLotLabel').textContent = btn.dataset.lotNumber;
+  document.getElementById('grnExpected').value     = btn.dataset.expected;
+  document.getElementById('grnReceived').value     = '';
+  document.getElementById('grnReceived').focus();
+});
+
+// Checkbox select-all logic
+document.getElementById('selectAllLots').addEventListener('change', function() {
+  document.querySelectorAll('.lot-checkbox').forEach(cb => cb.checked = this.checked);
+  updateExportBtn();
+});
+document.addEventListener('change', function(e) {
+  if (e.target.classList.contains('lot-checkbox')) updateExportBtn();
+});
+function updateExportBtn() {
+  const anyChecked = document.querySelectorAll('.lot-checkbox:checked').length > 0;
+  document.getElementById('exportSelectedBtn').disabled = !anyChecked;
+}
+function submitExportSelected() {
+  const form = document.getElementById('exportSelectedForm');
+  // Remove any previously added hidden inputs
+  form.querySelectorAll('input[name="lot_ids"]').forEach(el => el.remove());
+  document.querySelectorAll('.lot-checkbox:checked').forEach(cb => {
+    const inp = document.createElement('input');
+    inp.type = 'hidden';
+    inp.name = 'lot_ids';
+    inp.value = cb.value;
+    form.appendChild(inp);
+  });
+  form.submit();
+}
+</script>
+{% endblock %}

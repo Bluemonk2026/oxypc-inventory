@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+{% block title %}Audit {{ audit.audit_number }} — OxyPC{% endblock %}
+{% block page_title %}Audit — {{ audit.audit_number }}{% endblock %}
+
+{% block content %}
+<!-- Header status bar -->
+<div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+  <div>
+    <span class="badge bg-dark me-2 fs-6">{{ audit.audit_number }}</span>
+    {% if audit.status.value == 'completed' %}
+      <span class="badge bg-success">Completed</span>
+    {% elif audit.status.value == 'in_progress' %}
+      <span class="badge bg-warning text-dark">In Progress</span>
+    {% else %}
+      <span class="badge bg-secondary">Pending</span>
+    {% endif %}
+    <span class="text-muted ms-3 small">
+      Zone: <strong>{{ zone_labels.get(audit.zone_filter, 'All Zones') if audit.zone_filter else 'All Zones' }}</strong>
+      &bull; Initiated by {{ audit.initiated_by_name }} on {{ audit.initiated_at.strftime('%d %b %Y %H:%M') }}
+    </span>
+    {% if audit.completed_at %}
+    <span class="text-muted ms-2 small">&bull; Completed {{ audit.completed_at.strftime('%d %b %Y %H:%M') }}</span>
+    {% endif %}
+  </div>
+  {% if audit.status.value == 'in_progress' %}
+  <form action="/locations/audit/{{ audit.id }}/close" method="post"
+        onsubmit="return confirm('Close this audit? This is final and cannot be undone.')">
+    <button class="btn btn-success btn-sm">
+      <i class="bi bi-check2-circle me-1"></i> Close Audit
+    </button>
+  </form>
+  {% endif %}
+</div>
+
+<!-- Summary cards -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3 col-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body py-2 px-3 text-center">
+        <div class="text-muted small">Expected</div>
+        <div class="fw-bold fs-3">{{ audit.expected_count }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card border-0 shadow-sm border-start border-success border-3">
+      <div class="card-body py-2 px-3 text-center">
+        <div class="text-muted small">Found</div>
+        <div class="fw-bold fs-3 text-success">{{ found_count }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card border-0 shadow-sm border-start border-danger border-3">
+      <div class="card-body py-2 px-3 text-center">
+        <div class="text-muted small">Missing</div>
+        <div class="fw-bold fs-3 text-danger">{{ missing_rows | length }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="card border-0 shadow-sm border-start border-info border-3">
+      <div class="card-body py-2 px-3 text-center">
+        <div class="text-muted small">Extra / Unknown</div>
+        <div class="fw-bold fs-3 text-info">{{ extra_count }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if audit.status.value == 'completed' and audit.expected_count > 0 %}
+{% set acc = ((found_count / audit.expected_count) * 100) | round(1) %}
+<div class="mb-3">
+  <div class="d-flex justify-content-between small mb-1">
+    <span>Audit Accuracy</span>
+    <strong class="{% if acc >= 95 %}text-success{% elif acc >= 80 %}text-warning{% else %}text-danger{% endif %}">
+      {{ acc }}%
+    </strong>
+  </div>
+  <div class="progress" style="height:12px;">
+    <div class="progress-bar {% if acc >= 95 %}bg-success{% elif acc >= 80 %}bg-warning{% else %}bg-danger{% endif %}"
+         style="width:{{ acc }}%"></div>
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-4">
+
+  <!-- Left: Scan input (only for in-progress) + scans log -->
+  <div class="col-md-7">
+
+    {% if audit.status.value == 'in_progress' %}
+    <div class="card shadow-sm border-0 mb-3">
+      <div class="card-header py-2 bg-primary bg-opacity-10">
+        <strong><i class="bi bi-upc-scan me-2"></i>Scan a Barcode</strong>
+      </div>
+      <div class="card-body">
+        <form action="/locations/audit/{{ audit.id }}/scan" method="post" id="scanForm">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-5">
+              <label class="form-label small fw-semibold">Barcode <span class="text-danger">*</span></label>
+              <input type="text" name="barcode" id="barcodeInput" class="form-control"
+                     placeholder="Scan or type barcode" required autofocus>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label small fw-semibold">Location <span class="text-danger">*</span></label>
+              <select name="location_id" class="form-select" required>
+                <option value="">— Where is it? —</option>
+                {% for loc in all_locs %}
+                <option value="{{ loc.id }}">{{ loc.unit_id }} — {{ zone_labels[loc.zone] }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2">
+              <button type="submit" class="btn btn-primary w-100">
+                <i class="bi bi-check-lg"></i>
+              </button>
+            </div>
+            <div class="col-12">
+              <input type="text" name="notes" class="form-control form-control-sm"
+                     placeholder="Notes (optional)">
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Scans log -->
+    <div class="card shadow-sm border-0">
+      <div class="card-header py-2 d-flex justify-content-between">
+        <strong><i class="bi bi-list-check me-2"></i>Scanned Items</strong>
+        <span class="badge bg-secondary">{{ scans | length }}</span>
+      </div>
+      <div class="card-body p-0" style="max-height:450px;overflow-y:auto;">
+        {% if scans %}
+        <table class="table table-sm table-hover mb-0">
+          <thead class="table-light sticky-top">
+            <tr>
+              <th>Barcode</th>
+              <th>Device</th>
+              <th>Result</th>
+              <th>Location</th>
+              <th>By</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for scan, barcode, brand, model, sub_cat in scans %}
+            <tr>
+              <td><span class="badge bg-dark">{{ scan.barcode_scanned }}</span></td>
+              <td class="small">
+                {% if brand %}{{ brand }} {{ model }}
+                {% else %}<span class="text-danger">Unknown</span>{% endif %}
+              </td>
+              <td>
+                {% if scan.scan_status.value == 'found' %}
+                  <span class="badge bg-success">Found</span>
+                {% elif scan.scan_status.value == 'extra' %}
+                  <span class="badge bg-info">Extra</span>
+                {% else %}
+                  <span class="badge bg-danger">Missing</span>
+                {% endif %}
+              </td>
+              <td class="small text-muted">
+                {% for loc in all_locs %}
+                  {% if loc.id == scan.location_id %}{{ loc.unit_id }}{% endif %}
+                {% endfor %}
+              </td>
+              <td class="small">{{ scan.scanned_by_name or "—" }}</td>
+              <td class="text-muted small">{{ scan.scanned_at.strftime('%H:%M') }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center text-muted py-4">No scans recorded yet.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Missing devices report -->
+  <div class="col-md-5">
+    <div class="card shadow-sm border-0">
+      <div class="card-header py-2 bg-danger bg-opacity-10">
+        <strong><i class="bi bi-exclamation-triangle me-2 text-danger"></i>Missing Devices
+          <span class="badge bg-danger ms-1">{{ missing_rows | length }}</span>
+        </strong>
+      </div>
+      <div class="card-body p-0" style="max-height:550px;overflow-y:auto;">
+        {% if missing_rows %}
+        <table class="table table-sm mb-0">
+          <thead class="table-light sticky-top">
+            <tr>
+              <th>Barcode</th>
+              <th>Device</th>
+              <th>Expected Location</th>
+              <th>Stage</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for log, barcode, brand, model, sub_cat, stage in missing_rows %}
+            <tr class="table-danger">
+              <td>
+                <a href="/locations/device/{{ log.device_id }}" class="badge bg-dark text-decoration-none">
+                  {{ barcode }}
+                </a>
+              </td>
+              <td class="small">{{ brand }} {{ model }}</td>
+              <td class="small">
+                {% for loc in all_locs %}
+                  {% if loc.id == log.location_id %}
+                    <span class="badge bg-secondary">{{ loc.unit_id }}</span>
+                  {% endif %}
+                {% endfor %}
+              </td>
+              <td>
+                <span class="badge bg-secondary" style="font-size:0.65rem;">
+                  {{ stage.value if stage else "—" }}
+                </span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-4">
+          {% if audit.status.value == 'in_progress' %}
+          <span class="text-muted small">Scan items above — missing devices will appear here</span>
+          {% else %}
+          <div class="text-success py-2">
+            <i class="bi bi-check-circle fs-3 d-block mb-1"></i>
+            No missing devices!
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if audit.notes %}
+    <div class="card shadow-sm border-0 mt-3">
+      <div class="card-header py-2"><strong>Notes</strong></div>
+      <div class="card-body small text-muted">{{ audit.notes }}</div>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Auto-focus barcode field after each scan submission
+document.getElementById('barcodeInput')?.focus();
+</script>
+{% endblock %}

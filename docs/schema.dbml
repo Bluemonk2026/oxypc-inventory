@@ -1,0 +1,1231 @@
+// ============================================================
+// OxyPC Inventory — Complete DBML Schema
+// Generated: 2026-04-29 | Tables: 57 | Source: models/
+// Import at: https://dbdiagram.io
+// ============================================================
+
+// ── users ────────────────────────────────────────────────────
+Table users {
+  id uuid [pk, not null]
+  username varchar(50) [not null, unique, note: 'indexed']
+  full_name varchar(100) [not null]
+  password_hash varchar(200) [not null]
+  role varchar(50) [not null, default: 'sales']
+  status bool [default: true]
+  created_at datetime [default: `now()`]
+  created_by varchar(50)
+  last_login datetime
+  tenant varchar(50) [default: 'oxypc_internal', note: 'indexed']
+}
+
+// ── login_logs ───────────────────────────────────────────────
+Table login_logs {
+  id uuid [pk, not null]
+  user_id uuid [not null]
+  action varchar(50) [not null]
+  ip_address varchar(50)
+  timestamp datetime [default: `now()`]
+  notes varchar(200)
+}
+
+// ── user_permissions ─────────────────────────────────────────
+Table user_permissions {
+  id uuid [pk, not null]
+  user_id uuid [not null]
+  permission varchar(100) [not null]
+  granted bool [default: true]
+  granted_by varchar(50)
+  granted_at datetime [default: `now()`]
+}
+
+// ── lots ─────────────────────────────────────────────────────
+Table lots {
+  id uuid [pk, not null]
+  lot_number varchar(20) [not null, unique, note: 'indexed']
+  supplier_name varchar(200) [not null]
+  grn_system_number varchar(50)
+  grn_number_new int
+  grn_date datetime
+  invoice_date datetime
+  invoice_no varchar(100)
+  invoice_value decimal(14,2)
+  taxable_amount decimal(14,2)
+  sgst decimal(12,2)
+  cgst decimal(12,2)
+  igst decimal(12,2)
+  vehicle_number varchar(30)
+  e_way_bill varchar(50)
+  po_number varchar(100)
+  vendor_name varchar(200)
+  buying_price decimal(12,2) [not null]
+  qty int [not null]
+  purchase_date datetime [not null]
+  notes text
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+}
+
+// ── lot_line_items ───────────────────────────────────────────
+Table lot_line_items {
+  id uuid [pk, not null]
+  lot_id uuid [not null, note: 'indexed']
+  sub_category varchar(50) [not null]
+  brand varchar(50)
+  model varchar(100)
+  cpu varchar(100)
+  generation varchar(50)
+  ram_gb int
+  has_ram bool [default: true]
+  storage_gb int
+  storage_type varchar(20)
+  has_storage bool [default: true]
+  screen_size varchar(20)
+  grade varchar(10)
+  unit_price decimal(12,2) [not null]
+  qty int [not null, default: 1]
+  notes text
+  created_at datetime [default: `now()`]
+}
+
+// ── devices ──────────────────────────────────────────────────
+Table devices {
+  id uuid [pk, not null]
+  barcode varchar(100) [not null, unique, note: 'indexed']
+  lot_id uuid [not null]
+  brand varchar(50) [note: 'indexed']
+  model varchar(100)
+  device_type varchar(30)
+  serial_no varchar(100)
+  sub_category varchar(20) [note: 'indexed']
+  cpu varchar(100)
+  generation varchar(50)
+  ram_gb int
+  storage_gb int
+  storage_type varchar(20)
+  hdd_capacity_gb int
+  battery_health_pct int
+  screen_size varchar(20)
+  color varchar(30)
+  bios_password bool [default: false]
+  grade varchar(10)
+  current_stage varchar(30) [not null, default: 'iqc', note: 'indexed']
+  floor varchar(50)
+  warehouse varchar(100)
+  grn_number varchar(50)
+  device_price decimal(12,2)
+  lot_line_item_id uuid
+  notes text
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`, note: 'indexed']
+}
+
+// ── stage_movements ──────────────────────────────────────────
+Table stage_movements {
+  id uuid [pk, not null]
+  device_id uuid [not null]
+  from_stage varchar(30)
+  to_stage varchar(30) [not null]
+  moved_by varchar(50)
+  moved_at datetime [default: `now()`]
+  exited_at datetime
+  notes text
+}
+
+// ── repair_jobs ──────────────────────────────────────────────
+Table repair_jobs {
+  id uuid [pk, not null]
+  device_id uuid [not null, note: 'indexed']
+  stage varchar(5) [not null, note: 'indexed']
+  engineer_id uuid
+  engineer_name varchar(100)
+  started_at datetime [default: `now()`]
+  completed_at datetime
+  issue_description text
+  resolution text
+  status varchar(30) [default: 'open', note: 'indexed']
+  team_name varchar(100)
+  assigned_engineer varchar(100)
+  faults text
+  dust_cleaning varchar(20)
+  cmos_battery_change varchar(20)
+  thermal_paste varchar(20)
+  final_status varchar(30)
+  ram_status varchar(20)
+  ram_removed_gb varchar(20)
+  ram_added_gb varchar(20)
+  hdd_updated varchar(5)
+  hdd_removed varchar(30)
+  hdd_added varchar(30)
+  problem_reported text
+  action_taken varchar(50)
+  problem_observed text
+  scrap_reason varchar(100)
+  received_from varchar(50)
+  customer_internal varchar(30)
+}
+
+// ── qc_checks ────────────────────────────────────────────────
+Table qc_checks {
+  id uuid [pk, not null]
+  device_id uuid [not null, note: 'indexed']
+  inspector_id uuid
+  inspector_name varchar(100)
+  battery_score int
+  screen_score int
+  keyboard_score int
+  body_score int
+  total_score int
+  result varchar(10) [not null]
+  grade varchar(5)
+  attempt_number int [not null, default: 1]
+  checked_at datetime [default: `now()`]
+  notes text
+  issues_found text
+  send_to_stage varchar(20)
+}
+
+// ── sales ────────────────────────────────────────────────────
+Table sales {
+  id uuid [pk, not null]
+  sale_number varchar(20) [not null, unique, note: 'indexed']
+  device_id uuid [not null]
+  sale_price decimal(12,2) [not null]
+  customer_name varchar(100)
+  customer_phone varchar(20)
+  customer_state varchar(100)
+  invoice_no varchar(50)
+  payment_mode varchar(20)
+  sold_by varchar(50) [note: 'indexed']
+  sold_at datetime [default: `now()`]
+  notes text
+}
+
+// ── returns ──────────────────────────────────────────────────
+Table returns {
+  id uuid [pk, not null]
+  sale_id uuid [not null, note: 'indexed']
+  device_id uuid [not null, note: 'indexed']
+  return_date datetime [default: `now()`]
+  reason text
+  condition_on_return varchar(50)
+  action_taken varchar(30)
+  reentered_stage varchar(50)
+  processed_by varchar(50)
+  refund_amount decimal(12,2)
+  notes text
+}
+
+// ── spare_parts ──────────────────────────────────────────────
+Table spare_parts {
+  id uuid [pk, not null]
+  part_code varchar(20) [not null, unique, note: 'indexed']
+  name varchar(150) [not null]
+  category varchar(30) [not null]
+  unit_price decimal(10,2) [not null, default: 0]
+  qty_in_stock int [not null, default: 0]
+  min_stock_alert int [not null, default: 5]
+  supplier varchar(100)
+  notes text
+  created_at datetime [default: `now()`]
+}
+
+// ── spare_parts_purchases ────────────────────────────────────
+Table spare_parts_purchases {
+  id uuid [pk, not null]
+  part_id uuid [not null]
+  qty int [not null]
+  unit_price decimal(10,2) [not null]
+  total_price decimal(12,2) [not null]
+  supplier varchar(100)
+  purchase_date datetime [not null, default: `now()`]
+  invoice_no varchar(50)
+  purchased_by varchar(50)
+}
+
+// ── spare_parts_consumption ──────────────────────────────────
+Table spare_parts_consumption {
+  id uuid [pk, not null]
+  device_id uuid
+  lot_id uuid
+  part_id uuid [not null]
+  qty_used int [not null]
+  unit_cost decimal(10,2) [not null]
+  total_cost decimal(12,2) [not null]
+  used_by varchar(50)
+  used_at datetime [default: `now()`]
+  stage varchar(20)
+  notes text
+}
+
+// ── ram_tracking ─────────────────────────────────────────────
+Table ram_tracking {
+  id uuid [pk, not null]
+  action varchar(20) [not null]
+  device_id uuid
+  destination_device_id uuid
+  ram_gb int
+  ram_type varchar(20)
+  by_user varchar(50)
+  at datetime [default: `now()`]
+  notes text
+}
+
+// ── repair_attempts ──────────────────────────────────────────
+Table repair_attempts {
+  id uuid [pk, not null]
+  device_id uuid [not null, note: 'indexed']
+  repair_job_id uuid
+  level int [not null]
+  attempt_no int [not null, default: 1]
+  cost decimal(10,2) [not null, default: 0]
+  time_spent int
+  outcome varchar(30)
+  notes text
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+}
+
+// ── device_costing ───────────────────────────────────────────
+Table device_costing {
+  id uuid [pk, not null]
+  device_id uuid [not null, unique, note: 'indexed']
+  base_cost decimal(12,2) [not null, default: 0]
+  parts_cost decimal(12,2) [not null, default: 0]
+  labour_cost decimal(12,2) [not null, default: 0]
+  total_cost decimal(12,2) [not null, default: 0]
+  expected_sale_value decimal(12,2)
+  updated_at datetime [default: `now()`]
+}
+
+// ── spare_parts_ledger ───────────────────────────────────────
+Table spare_parts_ledger {
+  id uuid [pk, not null]
+  part_id uuid [not null, note: 'indexed']
+  entry_type varchar(10) [not null]
+  qty int [not null]
+  cost_per_unit decimal(10,2) [not null, default: 0]
+  total_cost decimal(12,2) [not null, default: 0]
+  reference_type varchar(30)
+  reference_id varchar(50)
+  device_id uuid
+  notes text
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+}
+
+// ── device_aging ─────────────────────────────────────────────
+Table device_aging {
+  id uuid [pk, not null]
+  device_id uuid [not null, unique, note: 'indexed']
+  days_in_stage int [not null, default: 0]
+  total_days int [not null, default: 0]
+  stage_entered_at datetime
+  is_stuck bool [not null, default: false]
+  is_dead_stock bool [not null, default: false]
+  refreshed_at datetime [default: `now()`]
+}
+
+// ── audit_logs ───────────────────────────────────────────────
+Table audit_logs {
+  id uuid [pk, not null]
+  user_id uuid
+  username varchar(50)
+  action varchar(50) [not null]
+  table_name varchar(50)
+  record_id varchar(50)
+  old_value text
+  new_value text
+  ip_address varchar(45)
+  notes text
+  timestamp datetime [not null, note: 'indexed', default: `now()`]
+}
+
+// ── dealers ──────────────────────────────────────────────────
+Table dealers {
+  id uuid [pk, not null]
+  dealer_code varchar(20) [not null, unique, note: 'indexed']
+  business_name varchar(200) [not null]
+  first_name varchar(100)
+  last_name varchar(100)
+  contact_person varchar(100)
+  phone varchar(20)
+  whatsapp_number varchar(20)
+  email varchar(100)
+  address text
+  city varchar(100)
+  state varchar(100)
+  pincode varchar(10)
+  gstin varchar(20)
+  dealer_type varchar(30) [default: 'retail']
+  credit_limit decimal(14,2) [default: 0]
+  outstanding_amount decimal(14,2) [default: 0]
+  total_purchases decimal(14,2) [default: 0]
+  last_sale_date datetime
+  last_sale_amount decimal(14,2)
+  preferred_categories varchar(200)
+  notes text
+  status varchar(20) [default: 'active']
+  assigned_to varchar(50)
+  created_by varchar(50)
+  source varchar(200)
+  added_by varchar(50)
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+}
+
+// ── dealer_assignments ───────────────────────────────────────
+Table dealer_assignments {
+  id uuid [pk, not null]
+  dealer_id uuid [not null]
+  assigned_to varchar(50) [not null]
+  assigned_by varchar(50) [not null]
+  assigned_at datetime [default: `now()`]
+  is_active bool [default: true]
+  notes text
+}
+
+// ── dealer_calls ─────────────────────────────────────────────
+Table dealer_calls {
+  id uuid [pk, not null]
+  dealer_id uuid [not null]
+  called_by varchar(50) [not null]
+  call_date datetime [default: `now()`]
+  call_type varchar(20) [default: 'outbound']
+  call_mode varchar(20) [default: 'phone']
+  duration_mins int
+  call_outcome varchar(30)
+  items_discussed text
+  quote_given decimal(12,2)
+  next_followup_date datetime [note: 'indexed']
+  whatsapp_sent bool [default: false]
+  notes text
+  created_at datetime [default: `now()`]
+}
+
+// ── dealer_orders ────────────────────────────────────────────
+Table dealer_orders {
+  id uuid [pk, not null]
+  dealer_id uuid [not null]
+  order_number varchar(30) [not null, unique]
+  order_date datetime [default: `now()`]
+  items_description text
+  total_amount decimal(14,2) [default: 0]
+  paid_amount decimal(14,2) [default: 0]
+  due_amount decimal(14,2) [default: 0]
+  payment_due_date datetime
+  payment_mode varchar(20)
+  invoice_number varchar(50)
+  invoice_sent_whatsapp bool [default: false]
+  payment_reminder_sent bool [default: false]
+  status varchar(20) [default: 'pending']
+  notes text
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+}
+
+// ── dealer_credit_notes ──────────────────────────────────────
+Table dealer_credit_notes {
+  id uuid [pk, not null]
+  credit_number varchar(30) [not null, unique, note: 'indexed']
+  dealer_id uuid [not null, note: 'indexed']
+  order_id uuid [note: 'indexed']
+  credit_date datetime [default: `now()`]
+  amount decimal(14,2) [not null]
+  reason varchar(200)
+  items_description text
+  notes text
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+  is_applied bool [not null, default: false]
+  applied_at datetime
+  applied_to_order_id uuid
+}
+
+// ── attendance ───────────────────────────────────────────────
+Table attendance {
+  id uuid [pk, not null]
+  user_id uuid [not null, note: 'indexed']
+  username varchar(50) [not null]
+  full_name varchar(100)
+  date date [not null, note: 'indexed']
+  check_in datetime
+  check_out datetime
+  check_in_ip varchar(50)
+  check_out_ip varchar(50)
+  status varchar(20) [default: 'present']
+  notes text
+  marked_by varchar(50)
+  created_at datetime [default: `now()`]
+}
+
+// ── storage_locations ────────────────────────────────────────
+Table storage_locations {
+  id uuid [pk, not null]
+  zone varchar(30) [not null]
+  unit_type varchar(20) [not null]
+  unit_id varchar(50) [not null, unique]
+  slot varchar(20)
+  description varchar(200)
+  capacity int
+  is_active bool [default: true]
+  created_at datetime [default: `now()`]
+}
+
+// ── device_location_logs ─────────────────────────────────────
+Table device_location_logs {
+  id uuid [pk, not null]
+  device_id uuid [not null]
+  location_id uuid
+  action varchar(20) [not null]
+  actor_id uuid [not null]
+  actor_name varchar(100)
+  notes text
+  logged_at datetime [default: `now()`, note: 'indexed']
+}
+
+// ── inventory_audits ─────────────────────────────────────────
+Table inventory_audits {
+  id uuid [pk, not null]
+  audit_number varchar(30) [not null, unique]
+  zone_filter varchar(50)
+  status varchar(20) [default: 'pending']
+  initiated_by uuid [not null]
+  initiated_by_name varchar(100)
+  initiated_at datetime [default: `now()`]
+  completed_at datetime
+  notes text
+  expected_count int [default: 0]
+  found_count int [default: 0]
+  missing_count int [default: 0]
+  extra_count int [default: 0]
+}
+
+// ── audit_scan_items ─────────────────────────────────────────
+Table audit_scan_items {
+  id uuid [pk, not null]
+  audit_id uuid [not null]
+  device_id uuid
+  barcode_scanned varchar(100) [not null]
+  location_id uuid
+  scan_status varchar(20) [not null]
+  scanned_by uuid
+  scanned_by_name varchar(100)
+  scanned_at datetime [default: `now()`]
+  notes text
+}
+
+// ── stage_master ─────────────────────────────────────────────
+Table stage_master {
+  id uuid [pk, not null]
+  name varchar(50) [not null, unique]
+  label varchar(100) [not null]
+  sequence int [not null, default: 0]
+  created_at datetime [default: `now()`]
+}
+
+// ── allowed_transitions ──────────────────────────────────────
+Table allowed_transitions {
+  id uuid [pk, not null]
+  from_stage varchar(50) [not null]
+  to_stage varchar(50) [not null]
+  created_at datetime [default: `now()`]
+
+  indexes {
+    (from_stage, to_stage) [unique, name: 'uq_transition']
+  }
+}
+
+// ── master_data ──────────────────────────────────────────────
+Table master_data {
+  id uuid [pk, not null]
+  category varchar(50) [not null, note: 'indexed']
+  value varchar(200) [not null]
+  description varchar(500)
+  display_order int [default: 0]
+  is_active bool [default: true]
+  created_at datetime [default: `now()`]
+
+  indexes {
+    (category, value) [unique, name: 'uq_master_category_value']
+  }
+}
+
+// ── market_availability ──────────────────────────────────────
+Table market_availability {
+  id uuid [pk, not null]
+  brand varchar(100)
+  model varchar(200)
+  category varchar(50)
+  generation varchar(50)
+  processor varchar(200)
+  ram varchar(50)
+  storage varchar(100)
+  condition varchar(20)
+  grade varchar(10)
+  trade_type varchar(10) [not null, default: 'sell']
+  qty int
+  price_per_unit decimal(12,2)
+  warranty_months int
+  is_negotiable bool [default: true]
+  dealer_id uuid
+  dealer_name varchar(200)
+  group_wa_id varchar(100)
+  group_name varchar(200)
+  source_message_id uuid
+  source_message_text text
+  notes text
+  is_active bool [default: true]
+  posted_date datetime [default: `now()`]
+  expires_at datetime
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+}
+
+// ── telecalling_sessions ─────────────────────────────────────
+Table telecalling_sessions {
+  id uuid [pk, not null]
+  agent_username varchar(50) [not null]
+  session_date datetime [default: `now()`]
+  total_calls int [default: 0]
+  connected_calls int [default: 0]
+  interested_leads int [default: 0]
+  orders_placed int [default: 0]
+  target_calls int [default: 50]
+  notes text
+  created_at datetime [default: `now()`]
+}
+
+// ── telecalling_records ──────────────────────────────────────
+Table telecalling_records {
+  id uuid [pk, not null]
+  dealer_id uuid
+  dealer_name varchar(200)
+  customer_name varchar(200)
+  phone varchar(20) [not null]
+  email varchar(200)
+  customer_type varchar(30)
+  city varchar(100)
+  state varchar(100)
+  category varchar(50)
+  brand varchar(100)
+  model varchar(200)
+  generation varchar(50)
+  processor varchar(200)
+  ram varchar(50)
+  hard_disk varchar(100)
+  product_type varchar(30)
+  grade varchar(10)
+  lot_reference varchar(100)
+  product_interest varchar(200)
+  called_by varchar(50) [not null]
+  call_date datetime [default: `now()`]
+  call_outcome varchar(30)
+  quantity_required int
+  budget decimal(12,2)
+  next_followup datetime
+  whatsapp_sent bool [default: false]
+  notes text
+  created_at datetime [default: `now()`]
+}
+
+// ── whatsapp_sessions ────────────────────────────────────────
+Table whatsapp_sessions {
+  id uuid [pk, not null]
+  username varchar(50) [not null, unique]
+  phone_number varchar(20)
+  status varchar(20) [default: 'disconnected']
+  session_data text
+  connected_at datetime
+  last_seen datetime
+  created_at datetime [default: `now()`]
+}
+
+// ── whatsapp_messages ────────────────────────────────────────
+Table whatsapp_messages {
+  id uuid [pk, not null]
+  sent_by varchar(50) [not null]
+  recipient_phone varchar(50) [not null]
+  recipient_name varchar(100)
+  message_type varchar(20) [default: 'text']
+  message_text text
+  dealer_id uuid
+  reference_type varchar(20)
+  reference_id varchar(100)
+  status varchar(20) [default: 'pending']
+  sent_at datetime
+  error_msg text
+  direction varchar(10) [default: 'outgoing']
+  sender_name varchar(200)
+  sender_phone varchar(30)
+  created_at datetime [default: `now()`]
+}
+
+// ── whatsapp_groups ──────────────────────────────────────────
+Table whatsapp_groups {
+  id uuid [pk, not null]
+  group_wa_id varchar(100) [not null, unique]
+  group_name varchar(200) [not null]
+  participant_count int [default: 0]
+  tags varchar(200)
+  group_category varchar(20) [default: 'other']
+  linked_dealer_id uuid
+  synced_by varchar(50)
+  last_synced datetime [default: `now()`]
+  created_at datetime [default: `now()`]
+}
+
+// ── whatsapp_broadcasts ──────────────────────────────────────
+Table whatsapp_broadcasts {
+  id uuid [pk, not null]
+  broadcast_name varchar(200)
+  message_type varchar(20) [default: 'text']
+  message_text text [not null]
+  sent_by varchar(50) [not null]
+  total_recipients int [default: 0]
+  sent_count int [default: 0]
+  failed_count int [default: 0]
+  status varchar(20) [default: 'done']
+  created_at datetime [default: `now()`]
+}
+
+// ── app_settings ─────────────────────────────────────────────
+Table app_settings {
+  key varchar(50) [pk, not null]
+  value text
+  description varchar(200)
+  updated_by varchar(50)
+  updated_at datetime [default: `now()`]
+}
+
+// ── iqc_inspections ──────────────────────────────────────────
+Table iqc_inspections {
+  id uuid [pk, not null]
+  device_id uuid [not null, unique]
+  inspector_name varchar(100)
+  inspected_at datetime [default: `now()`]
+  power_on varchar(5)
+  bios_password varchar(5)
+  all_ok varchar(5)
+  status varchar(50)
+  screen_dot varchar(10)
+  screen_line varchar(10)
+  screen_functional varchar(10)
+  screen_discoloration varchar(10)
+  screen_patch varchar(10)
+  screen_broken varchar(10)
+  screen_flickering varchar(10)
+  screen_scratch varchar(20)
+  screen_loose varchar(10)
+  screen_missing varchar(10)
+  screen_hinge_broken varchar(10)
+  screen_colour_spread varchar(10)
+  screen_keyboard_mark varchar(10)
+  screen_hard_press varchar(10)
+  panel_a_scratch varchar(20)
+  panel_a_broken varchar(20)
+  panel_a_missing varchar(10)
+  panel_a_dent varchar(20)
+  panel_a_colour_fade varchar(10)
+  panel_b_scratch varchar(20)
+  panel_b_colour_fade varchar(10)
+  panel_b_rubber_cut varchar(10)
+  panel_b_broken varchar(20)
+  panel_b_missing varchar(10)
+  panel_c_scratch varchar(20)
+  panel_c_broken varchar(20)
+  panel_c_missing varchar(10)
+  panel_c_dent varchar(20)
+  panel_c_colour_fade varchar(10)
+  panel_d_dent varchar(20)
+  panel_d_colour_fade varchar(10)
+  panel_d_scratch varchar(20)
+  panel_d_broken varchar(20)
+  panel_d_missing varchar(10)
+  keyboard_working varchar(10)
+  keyboard_colour_fade varchar(10)
+  keyboard_key_missing varchar(10)
+  keyboard_hard_press varchar(10)
+  speaker_status varchar(50)
+  touchpad_working varchar(10)
+  touchpad_click_working varchar(10)
+  touchpad_scratch varchar(20)
+  touchpad_colour_fade varchar(10)
+  touchpad_missing varchar(10)
+  port_hdmi varchar(10)
+  port_usb_working varchar(10)
+  port_audio_jack varchar(10)
+  wifi_status varchar(20)
+  webcam_status varchar(20)
+  hdd_connector varchar(10)
+  hdd_casing varchar(10)
+  battery_present varchar(10)
+  battery_cable varchar(10)
+  dvd_drive varchar(10)
+  r2v3_grade_category varchar(10)
+  remarks text
+  stress_report text
+}
+
+// ── stock_transfers ──────────────────────────────────────────
+Table stock_transfers {
+  id uuid [pk, not null]
+  device_id uuid [not null, note: 'indexed']
+  transfer_type varchar(30) [not null]
+  from_warehouse varchar(100) [not null]
+  to_warehouse varchar(100) [not null]
+  transferred_by varchar(100)
+  received_by varchar(100)
+  department varchar(100)
+  barcode varchar(50)
+  serial_no varchar(100)
+  make varchar(50)
+  model varchar(100)
+  cpu varchar(50)
+  generation varchar(20)
+  ram varchar(20)
+  hdd varchar(20)
+  category varchar(50)
+  lot_number varchar(20)
+  product_stage varchar(50)
+  transfer_date datetime [not null, default: `now()`]
+  notes text
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+}
+
+// ── crm_contacts ─────────────────────────────────────────────
+Table crm_contacts {
+  id uuid [pk, not null]
+  contact_code varchar(20) [not null, unique, note: 'indexed']
+  contact_type varchar(20) [default: 'supplier']
+  company_name varchar(200) [not null, note: 'indexed']
+  contact_person varchar(100)
+  phone varchar(20) [note: 'indexed']
+  whatsapp varchar(20)
+  email varchar(100)
+  gstin varchar(20)
+  pan varchar(20)
+  address text
+  city varchar(100)
+  state varchar(100)
+  pincode varchar(10)
+  source_type varchar(30)
+  buyer_type varchar(30)
+  credit_limit decimal(14,2) [default: 0]
+  outstanding decimal(14,2) [default: 0]
+  tags varchar(300)
+  notes text
+  status varchar(20) [default: 'active']
+  assigned_to varchar(50)
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+}
+
+// ── crm_sourcing_deals ───────────────────────────────────────
+Table crm_sourcing_deals {
+  id uuid [pk, not null]
+  deal_number varchar(30) [not null, unique, note: 'indexed']
+  contact_id uuid [note: 'indexed']
+  title varchar(300) [not null]
+  source_type varchar(30)
+  device_type varchar(50)
+  est_quantity int
+  material_type varchar(30)
+  asking_price_unit decimal(10,2)
+  asking_price_total decimal(14,2)
+  our_offer_unit decimal(10,2)
+  our_offer_total decimal(14,2)
+  final_price_unit decimal(10,2)
+  final_price_total decimal(14,2)
+  stage varchar(30) [default: 'lead', note: 'indexed']
+  inspection_date date
+  inspection_result varchar(20)
+  inspection_notes text
+  expected_pickup_date date
+  payment_advance_pct int [default: 0]
+  payment_terms text
+  linked_lot_id uuid
+  win_loss_reason text
+  assigned_to varchar(50)
+  priority varchar(10) [default: 'medium']
+  notes text
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+}
+
+// ── crm_sales_opportunities ──────────────────────────────────
+Table crm_sales_opportunities {
+  id uuid [pk, not null]
+  opp_number varchar(30) [not null, unique, note: 'indexed']
+  contact_id uuid [note: 'indexed']
+  title varchar(300) [not null]
+  buyer_type varchar(30)
+  device_type varchar(50)
+  required_qty int
+  material_type varchar(30)
+  grade_required varchar(10)
+  budget_per_unit decimal(10,2)
+  stage varchar(30) [default: 'lead', note: 'indexed']
+  quote_id uuid
+  linked_sale_ids text
+  expected_close_date date
+  estimated_value decimal(14,2)
+  win_loss_reason text
+  assigned_to varchar(50)
+  priority varchar(10) [default: 'medium']
+  notes text
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+}
+
+// ── crm_quotes ───────────────────────────────────────────────
+Table crm_quotes {
+  id uuid [pk, not null]
+  quote_number varchar(30) [not null, unique, note: 'indexed']
+  contact_id uuid [note: 'indexed']
+  quote_date date [default: `now()`]
+  valid_until date
+  payment_terms varchar(200)
+  special_conditions text
+  total_amount decimal(14,2) [default: 0]
+  status varchar(20) [default: 'draft']
+  sent_at datetime
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+}
+
+// ── crm_quote_items ──────────────────────────────────────────
+Table crm_quote_items {
+  id uuid [pk, not null]
+  quote_id uuid [not null, note: 'indexed']
+  line_number int [not null, default: 1]
+  device_type varchar(100) [not null]
+  material_type varchar(30)
+  grade varchar(10)
+  quantity int [not null, default: 1]
+  unit_price decimal(10,2) [not null]
+  total_price decimal(14,2) [not null]
+  specs_note text
+  sort_order int [default: 0]
+}
+
+// ── crm_activities ───────────────────────────────────────────
+Table crm_activities {
+  id uuid [pk, not null]
+  contact_id uuid [note: 'indexed']
+  deal_id uuid [note: 'indexed']
+  deal_type varchar(20)
+  activity_type varchar(20) [default: 'call']
+  direction varchar(10)
+  summary text [not null]
+  outcome varchar(30)
+  performed_by varchar(50) [not null]
+  activity_date datetime [default: `now()`]
+  next_followup datetime [note: 'indexed']
+  followup_assigned_to varchar(50)
+  followup_done bool [default: false, note: 'indexed']
+  created_at datetime [default: `now()`]
+}
+
+// ── crm_grade_price_matrix ───────────────────────────────────
+Table crm_grade_price_matrix {
+  id uuid [pk, not null]
+  device_type varchar(100) [not null, note: 'indexed']
+  grade varchar(10) [not null]
+  material_type varchar(30)
+  brand varchar(50)
+  min_buy_price decimal(10,2)
+  max_buy_price decimal(10,2)
+  target_sell decimal(10,2)
+  min_margin_pct decimal(5,2) [default: 15.0]
+  notes text
+  updated_by varchar(50)
+  updated_at datetime [default: `now()`]
+  created_at datetime [default: `now()`]
+}
+
+// ── crm_purchase_orders ──────────────────────────────────────
+Table crm_purchase_orders {
+  id uuid [pk, not null]
+  po_number varchar(30) [not null, unique, note: 'indexed']
+  deal_id uuid
+  contact_id uuid [note: 'indexed']
+  po_date date [not null, default: `now()`]
+  expected_delivery_date date
+  delivery_address text
+  payment_terms text
+  advance_amount decimal(14,2)
+  total_amount decimal(14,2) [default: 0]
+  status varchar(20) [default: 'draft']
+  issued_by varchar(50)
+  issued_at datetime
+  notes text
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+}
+
+// ── crm_po_line_items ────────────────────────────────────────
+Table crm_po_line_items {
+  id uuid [pk, not null]
+  po_id uuid [not null]
+  description varchar(300) [not null]
+  device_type varchar(100)
+  grade varchar(10)
+  quantity int [not null, default: 1]
+  unit_price decimal(10,2) [not null]
+  total_price decimal(14,2) [not null]
+  sort_order int [default: 0]
+}
+
+// ── supplier_payments ────────────────────────────────────────
+Table supplier_payments {
+  id uuid [pk, not null]
+  contact_id uuid
+  lot_id uuid
+  po_id uuid
+  payment_date date [not null, default: `now()`]
+  amount decimal(14,2) [not null]
+  payment_mode varchar(20)
+  reference_no varchar(100)
+  is_advance bool [default: false]
+  notes text
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+}
+
+// ── customer_receipts ────────────────────────────────────────
+Table customer_receipts {
+  id uuid [pk, not null]
+  contact_id uuid
+  dealer_id uuid
+  sale_id uuid
+  dealer_order_id uuid
+  receipt_date date [not null, default: `now()`]
+  amount decimal(14,2) [not null]
+  payment_mode varchar(20)
+  reference_no varchar(100)
+  notes text
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+}
+
+// ── qa_requirements ──────────────────────────────────────────
+Table qa_requirements {
+  id uuid [pk, not null]
+  req_code varchar(30)
+  title varchar(200) [not null]
+  description text
+  source varchar(30) [not null, default: 'PRD']
+  priority varchar(20) [not null, default: 'Medium']
+  status varchar(20) [not null, default: 'Open']
+  module varchar(100)
+  created_by varchar(100)
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+}
+
+// ── qa_test_cases ────────────────────────────────────────────
+Table qa_test_cases {
+  id uuid [pk, not null]
+  tc_code varchar(30)
+  requirement_id uuid
+  title varchar(200) [not null]
+  scenario text
+  preconditions text
+  steps text
+  expected_result text
+  type varchar(20) [not null, default: 'Functional']
+  status varchar(10) [not null, default: 'Active']
+  is_automated bool [default: false]
+  module varchar(100)
+  created_by varchar(100)
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+}
+
+// ── qa_test_executions ───────────────────────────────────────
+Table qa_test_executions {
+  id uuid [pk, not null]
+  test_case_id uuid [not null]
+  status varchar(10) [not null, default: 'Pass']
+  actual_result text
+  notes text
+  build_version varchar(50)
+  environment varchar(50) [default: 'QA']
+  executed_by varchar(100)
+  executed_at datetime [default: `now()`]
+}
+
+// ── qa_defects ───────────────────────────────────────────────
+Table qa_defects {
+  id uuid [pk, not null]
+  defect_code varchar(30)
+  test_case_id uuid
+  title varchar(200) [not null]
+  description text
+  steps_to_reproduce text
+  expected_result text
+  actual_result text
+  severity varchar(10) [not null, default: 'Medium']
+  priority varchar(20) [not null, default: 'P3 - Medium']
+  status varchar(15) [not null, default: 'New']
+  module varchar(100)
+  environment varchar(50) [default: 'QA']
+  build_version varchar(50)
+  assigned_to varchar(100)
+  root_cause text
+  resolution text
+  reported_by varchar(100)
+  reported_at datetime [default: `now()`]
+  resolved_at datetime
+  closed_at datetime
+}
+
+// ── qa_uat_scenarios ─────────────────────────────────────────
+Table qa_uat_scenarios {
+  id uuid [pk, not null]
+  uat_code varchar(30)
+  requirement_id uuid
+  title varchar(200) [not null]
+  scenario text
+  acceptance_criteria text
+  business_owner varchar(100)
+  status varchar(20) [not null, default: 'Pending Execution']
+  executed_by varchar(100)
+  executed_at datetime
+  result_notes text
+  feedback text
+  sign_off_by varchar(100)
+  sign_off_at datetime
+  created_by varchar(100)
+  created_at datetime [default: `now()`]
+}
+
+// ── qa_releases ──────────────────────────────────────────────
+Table qa_releases {
+  id uuid [pk, not null]
+  version varchar(50) [not null]
+  title varchar(200)
+  description text
+  status varchar(15) [not null, default: 'Planned']
+  planned_date datetime
+  release_date datetime
+  qa_sign_off_by varchar(100)
+  qa_sign_off_at datetime
+  uat_sign_off_by varchar(100)
+  uat_sign_off_at datetime
+  deployed_by varchar(100)
+  notes text
+  rollback_plan text
+  created_by varchar(100)
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+}
+
+
+// ============================================================
+// FOREIGN KEY REFERENCES
+// ============================================================
+
+// users pool
+Ref: login_logs.user_id > users.id
+Ref: user_permissions.user_id > users.id
+Ref: audit_logs.user_id > users.id
+Ref: attendance.user_id > users.id
+Ref: device_location_logs.actor_id > users.id
+Ref: inventory_audits.initiated_by > users.id
+Ref: audit_scan_items.scanned_by > users.id
+Ref: repair_jobs.engineer_id > users.id
+Ref: qc_checks.inspector_id > users.id
+
+// lots pool
+Ref: devices.lot_id > lots.id
+Ref: lot_line_items.lot_id > lots.id
+Ref: spare_parts_consumption.lot_id > lots.id
+Ref: crm_sourcing_deals.linked_lot_id > lots.id
+Ref: supplier_payments.lot_id > lots.id
+
+// lot_line_items
+Ref: devices.lot_line_item_id > lot_line_items.id
+
+// devices pool
+Ref: stage_movements.device_id > devices.id
+Ref: repair_jobs.device_id > devices.id
+Ref: qc_checks.device_id > devices.id
+Ref: sales.device_id > devices.id
+Ref: returns.device_id > devices.id
+Ref: spare_parts_consumption.device_id > devices.id
+Ref: ram_tracking.device_id > devices.id
+Ref: ram_tracking.destination_device_id > devices.id
+Ref: repair_attempts.device_id > devices.id
+Ref: device_costing.device_id > devices.id
+Ref: spare_parts_ledger.device_id > devices.id
+Ref: device_aging.device_id > devices.id
+Ref: iqc_inspections.device_id > devices.id
+Ref: stock_transfers.device_id > devices.id
+Ref: device_location_logs.device_id > devices.id
+Ref: audit_scan_items.device_id > devices.id
+
+// repair pool
+Ref: repair_attempts.repair_job_id > repair_jobs.id
+
+// spare_parts pool
+Ref: spare_parts_purchases.part_id > spare_parts.id
+Ref: spare_parts_consumption.part_id > spare_parts.id
+Ref: spare_parts_ledger.part_id > spare_parts.id
+
+// dealers pool
+Ref: dealer_assignments.dealer_id > dealers.id
+Ref: dealer_calls.dealer_id > dealers.id
+Ref: dealer_orders.dealer_id > dealers.id
+Ref: dealer_credit_notes.dealer_id > dealers.id
+Ref: dealer_credit_notes.order_id > dealer_orders.id
+Ref: dealer_credit_notes.applied_to_order_id > dealer_orders.id
+Ref: telecalling_records.dealer_id > dealers.id
+Ref: whatsapp_messages.dealer_id > dealers.id
+Ref: whatsapp_groups.linked_dealer_id > dealers.id
+Ref: market_availability.dealer_id > dealers.id
+Ref: customer_receipts.dealer_id > dealers.id
+
+// location pool
+Ref: device_location_logs.location_id > storage_locations.id
+Ref: audit_scan_items.location_id > storage_locations.id
+Ref: audit_scan_items.audit_id > inventory_audits.id
+
+// stage pool
+Ref: allowed_transitions.from_stage > stage_master.name
+Ref: allowed_transitions.to_stage > stage_master.name
+
+// sales pool
+Ref: returns.sale_id > sales.id
+Ref: customer_receipts.sale_id > sales.id
+
+// CRM pool
+Ref: crm_sourcing_deals.contact_id > crm_contacts.id
+Ref: crm_sales_opportunities.contact_id > crm_contacts.id
+Ref: crm_quotes.contact_id > crm_contacts.id
+Ref: crm_activities.contact_id > crm_contacts.id
+Ref: crm_purchase_orders.contact_id > crm_contacts.id
+Ref: supplier_payments.contact_id > crm_contacts.id
+Ref: customer_receipts.contact_id > crm_contacts.id
+Ref: crm_quote_items.quote_id > crm_quotes.id
+Ref: crm_sales_opportunities.quote_id > crm_quotes.id
+Ref: crm_purchase_orders.deal_id > crm_sourcing_deals.id
+Ref: crm_po_line_items.po_id > crm_purchase_orders.id
+Ref: supplier_payments.po_id > crm_purchase_orders.id
+Ref: customer_receipts.dealer_order_id > dealer_orders.id
+
+// WhatsApp pool
+Ref: market_availability.source_message_id > whatsapp_messages.id
+
+// QA pool
+Ref: qa_test_cases.requirement_id > qa_requirements.id
+Ref: qa_uat_scenarios.requirement_id > qa_requirements.id
+Ref: qa_test_executions.test_case_id > qa_test_cases.id
+Ref: qa_defects.test_case_id > qa_test_cases.id

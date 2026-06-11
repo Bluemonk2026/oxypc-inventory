@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+{% block title %}Dealers — OxyPC{% endblock %}
+{% block page_title %}Dealer Management{% endblock %}
+{% block content %}
+
+<div class="d-flex flex-wrap gap-2 align-items-start mb-3">
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-end flex-grow-1">
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">Search</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="Name, city, phone..."
+             class="form-control form-control-sm" style="width:220px">
+    </div>
+
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">Status</label>
+      <select name="status" class="form-select form-select-sm" style="width:130px">
+        <option value="">All Status</option>
+        <option value="active" {% if status=='active' %}selected{% endif %}>Active</option>
+        <option value="inactive" {% if status=='inactive' %}selected{% endif %}>Inactive</option>
+        <option value="blacklisted" {% if status=='blacklisted' %}selected{% endif %}>Blacklisted</option>
+      </select>
+    </div>
+
+    {# Admin sees full user dropdown; sales_manager sees Mine Only; sales/telecaller get no dropdown (auto-scoped) #}
+    {% if current_user.role.value == 'admin' %}
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">Assigned To</label>
+      <select name="assigned" class="form-select form-select-sm" style="width:165px">
+        <option value="">All Executives</option>
+        {% for u in sales_users %}
+        <option value="{{ u.username }}" {% if assigned == u.username %}selected{% endif %}>
+          {{ u.full_name }} ({{ u.role.value }})
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    {% elif current_user.role.value == 'sales_manager' %}
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">Assigned To</label>
+      <select name="assigned" class="form-select form-select-sm" style="width:150px">
+        <option value="">All My Team</option>
+        <option value="{{ current_user.username }}" {% if assigned==current_user.username %}selected{% endif %}>Mine Only</option>
+      </select>
+    </div>
+    {% endif %}
+
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">City</label>
+      <input type="text" name="city" class="form-control form-control-sm"
+             placeholder="City" value="{{ city }}" style="width:120px">
+    </div>
+
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">Last Order From</label>
+      <input type="date" name="last_order_from" class="form-control form-control-sm"
+             value="{{ last_order_from }}" style="width:145px">
+    </div>
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">Last Order To</label>
+      <input type="date" name="last_order_to" class="form-control form-control-sm"
+             value="{{ last_order_to }}" style="width:145px">
+    </div>
+
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">Follow-up From</label>
+      <input type="date" name="followup_from" class="form-control form-control-sm"
+             value="{{ followup_from }}" style="width:145px">
+    </div>
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">Follow-up To</label>
+      <input type="date" name="followup_to" class="form-control form-control-sm"
+             value="{{ followup_to }}" style="width:145px">
+    </div>
+
+    <button class="btn btn-sm btn-outline-primary">Filter</button>
+    <a href="/dealers" class="btn btn-sm btn-outline-secondary">Clear</a>
+  </form>
+
+  <div class="d-flex gap-2 ms-auto">
+    <a href="/dealers/followups-due" class="btn btn-sm btn-warning">
+      <i class="bi bi-bell me-1"></i>Follow-ups Due
+      <span class="badge bg-white text-warning">{{ followup_count }}</span>
+    </a>
+    <a href="/dealers/overdue" class="btn btn-sm btn-danger">
+      <i class="bi bi-exclamation-triangle me-1"></i>Overdue Orders
+    </a>
+    <a href="/dealers/bulk-upload" class="btn btn-sm btn-outline-success">
+      <i class="bi bi-cloud-upload me-1"></i>Bulk Upload
+    </a>
+    <a href="/dealers/new" class="btn btn-sm btn-primary">
+      <i class="bi bi-plus-circle me-1"></i>Add Dealer
+    </a>
+  </div>
+</div>
+
+<!-- Summary cards — top 4 -->
+<div class="row g-3 mb-2">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-primary">{{ total_count }}</div>
+      <div class="small text-muted">Total Dealers</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-success">{{ active_count }}</div>
+      <div class="small text-muted">Active</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="/dealers/followups-due" class="text-decoration-none">
+      <div class="card border-0 shadow-sm text-center py-3 card-hover"
+           title="Dealers whose latest call status is Follow-up and follow-up date is today or past">
+        <div class="fs-4 fw-bold text-warning">{{ followup_count }}</div>
+        <div class="small text-muted">
+          Follow-ups Due
+          <i class="bi bi-info-circle ms-1" style="font-size:0.7rem"></i>
+        </div>
+        <div class="text-muted" style="font-size:0.65rem">(latest status + overdue)</div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-danger">₹{{ outstanding }}</div>
+      <div class="small text-muted">Outstanding</div>
+    </div>
+  </div>
+</div>
+
+<!-- Call outcome cards — based on each dealer's LATEST call log status (matches table below) -->
+<div class="row g-2 mb-4">
+  {% set base_qs = '?' ~ request.query_string.decode() %}
+  {% for outcome_key, label, color, icon in [
+    ('interested',     'Interested',        'success',   'bi-hand-thumbs-up-fill'),
+    ('not_interested', 'Not Interested',    'danger',    'bi-hand-thumbs-down-fill'),
+    ('callback',       'Callback Request',  'warning',   'bi-arrow-repeat'),
+    ('followup',       'Follow-Ups',        'info',      'bi-calendar-check-fill'),
+    ('no_answer',      'No Answer',         'secondary', 'bi-telephone-x-fill'),
+    ('order_placed',   'Order Placed',      'primary',   'bi-bag-check-fill')
+  ] %}
+  <div class="col-6 col-sm-4 col-lg-2">
+    <div class="card border-0 shadow-sm text-center py-2 px-1 h-100"
+         title="Dealers whose latest call log outcome is: {{ label }}">
+      <div class="fs-4 fw-bold text-{{ color }}">{{ outcome_stats.get(outcome_key, 0) }}</div>
+      <div class="small text-muted" style="font-size:0.72rem">
+        <i class="bi {{ icon }} me-1"></i>{{ label }}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="dealersTable">
+        <thead class="table-light">
+          <tr>
+            <th>Code</th>
+            <th>Business Name</th>
+            <th>Contact</th>
+            <th>City</th>
+            <th>Type</th>
+            <th>Last Call</th>
+            <th>Last Sale</th>
+            <th>Outstanding</th>
+            <th>Assigned To</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set oc_colors = {
+            'interested': 'success',
+            'order_placed': 'primary',
+            'callback': 'warning',
+            'not_interested': 'danger',
+            'no_answer': 'secondary',
+            'do_not_call': 'dark',
+            'followup': 'info'
+          } %}
+          {% set sc = {'active':'success','inactive':'secondary','blacklisted':'danger'} %}
+          {% for d in dealers %}
+          {% set rc = recent_call_map.get(d.id|string, {}) %}
+          {% set lc = last_call_map.get(d.id|string) %}
+          <tr>
+            <td><code>{{ d.dealer_code }}</code></td>
+            <td>
+              <a href="/dealers/{{ d.id }}" class="fw-semibold text-decoration-none">{{ d.business_name }}</a>
+              {# Call log pills — only shown when a call record exists #}
+              {% if rc %}
+              <div class="mt-1 d-flex flex-wrap gap-1">
+                {% if rc.outcome %}
+                <span class="badge bg-{{ oc_colors.get(rc.outcome, 'secondary') }} bg-opacity-75">
+                  {{ rc.outcome | replace('_', ' ') | title }}
+                </span>
+                {% endif %}
+                {% if rc.items_text %}
+                <span class="badge bg-light text-dark border small fw-normal" style="font-size:0.7rem">
+                  {{ rc.items_text[:40] }}{% if rc.items_text|length > 40 %}…{% endif %}
+                </span>
+                {% endif %}
+              </div>
+              {% endif %}
+            </td>
+            <td>
+              <div class="small">{{ d.contact_person or '' }}</div>
+              <div class="small text-muted">{{ d.phone or '' }}</div>
+            </td>
+            <td class="small">{{ d.city or '—' }}</td>
+            <td><span class="badge bg-secondary">{{ d.dealer_type | title }}</span></td>
+            <td class="small">
+              {% if lc %}
+                <span class="text-muted">{{ lc.strftime('%d-%m-%Y') }}</span>
+              {% else %}
+                <span class="text-muted">No calls</span>
+              {% endif %}
+            </td>
+            <td class="small">
+              {% if d.last_sale_date %}{{ d.last_sale_date.strftime('%d-%m-%Y') }}
+              {% else %}<span class="text-muted">Never</span>{% endif %}
+            </td>
+            {% set d_out = outstanding_map.get(d.id|string, 0) %}
+            <td class="small {% if d_out > 0 %}text-danger fw-semibold{% endif %}">
+              ₹{{ "{:,.0f}".format(d_out) }}
+            </td>
+            <td class="small">{{ d.assigned_to or '—' }}</td>
+            <td>
+              <span class="badge bg-{{ sc.get(d.status,'secondary') }}">{{ d.status | title }}</span>
+            </td>
+            <td>
+              <div class="btn-group btn-group-sm">
+                <a href="/dealers/{{ d.id }}" class="btn btn-outline-primary" title="View">
+                  <i class="bi bi-eye"></i>
+                </a>
+                <a href="/dealers/{{ d.id }}/call" class="btn btn-outline-success" title="Log Call">
+                  <i class="bi bi-telephone-plus"></i>
+                </a>
+                <a href="/whatsapp/compose?dealer_id={{ d.id }}" class="btn btn-outline-dark" title="WhatsApp">
+                  <i class="bi bi-whatsapp"></i>
+                </a>
+                <a href="/dealers/{{ d.id }}/edit" class="btn btn-outline-secondary" title="Edit">
+                  <i class="bi bi-pencil"></i>
+                </a>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="11" class="text-center text-muted py-4">
+              No dealers found. <a href="/dealers/new">Add your first dealer</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if total_pages > 1 %}
+<nav class="mt-3 d-flex justify-content-between align-items-center">
+  <small class="text-muted">
+    Showing {{ ((page-1)*per_page)+1 }}–{{ page*per_page if page*per_page < total_count else total_count }}
+    of {{ total_count }} dealers
+  </small>
+  <ul class="pagination pagination-sm mb-0">
+    {% if page > 1 %}
+    <li class="page-item">
+      <a class="page-link" href="?q={{ q }}&status={{ status }}&assigned={{ assigned }}&city={{ city }}&last_order_from={{ last_order_from }}&last_order_to={{ last_order_to }}&followup_from={{ followup_from }}&followup_to={{ followup_to }}&page={{ page - 1 }}">&#8249; Prev</a>
+    </li>
+    {% endif %}
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page %}
+      <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+      {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+      <li class="page-item">
+        <a class="page-link" href="?q={{ q }}&status={{ status }}&assigned={{ assigned }}&city={{ city }}&last_order_from={{ last_order_from }}&last_order_to={{ last_order_to }}&followup_from={{ followup_from }}&followup_to={{ followup_to }}&page={{ p }}">{{ p }}</a>
+      </li>
+      {% elif p == page - 3 or p == page + 3 %}
+      <li class="page-item disabled"><span class="page-link">…</span></li>
+      {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+    <li class="page-item">
+      <a class="page-link" href="?q={{ q }}&status={{ status }}&assigned={{ assigned }}&city={{ city }}&last_order_from={{ last_order_from }}&last_order_to={{ last_order_to }}&followup_from={{ followup_from }}&followup_to={{ followup_to }}&page={{ page + 1 }}">Next &#8250;</a>
+    </li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}
+{% endblock %}
+{% block scripts %}{% endblock %}

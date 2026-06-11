@@ -1,0 +1,331 @@
+{% extends "base.html" %}
+{% block title %}{{ dealer.business_name }} — OxyPC{% endblock %}
+{% block page_title %}{{ dealer.business_name }}{% endblock %}
+{% block content %}
+
+<div class="row g-4">
+  <!-- Left: Dealer Info -->
+  <div class="col-xl-4">
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div>
+            <h5 class="fw-bold mb-1">{{ dealer.business_name }}</h5>
+            <code class="text-muted">{{ dealer.dealer_code }}</code>
+          </div>
+          {% set sc = {'active':'success','inactive':'secondary','blacklisted':'danger'} %}
+          <span class="badge bg-{{ sc.get(dealer.status,'secondary') }} fs-6">{{ dealer.status | title }}</span>
+        </div>
+        <div class="mb-2"><i class="bi bi-person me-2 text-muted"></i>{{ dealer.contact_person or '—' }}</div>
+        <div class="mb-2"><i class="bi bi-telephone me-2 text-muted"></i>{{ dealer.phone or '—' }}</div>
+        <div class="mb-2"><i class="bi bi-whatsapp me-2 text-success"></i>{{ dealer.whatsapp_number or '—' }}</div>
+        <div class="mb-2"><i class="bi bi-envelope me-2 text-muted"></i>{{ dealer.email or '—' }}</div>
+        <div class="mb-2"><i class="bi bi-geo-alt me-2 text-muted"></i>{{ dealer.city or '' }}{% if dealer.state %}, {{ dealer.state }}{% endif %}</div>
+        <div class="mb-2"><i class="bi bi-tag me-2 text-muted"></i>{{ dealer.dealer_type | title }}</div>
+        {% if dealer.gstin %}<div class="mb-2"><i class="bi bi-file-text me-2 text-muted"></i>GST: {{ dealer.gstin }}</div>{% endif %}
+        {% if dealer.preferred_categories %}<div class="mb-2"><i class="bi bi-star me-2 text-muted"></i>Prefers: {{ dealer.preferred_categories }}</div>{% endif %}
+        <div class="mb-2"><i class="bi bi-person-badge me-2 text-muted"></i>Assigned: <strong>{{ dealer.assigned_to or 'Unassigned' }}</strong></div>
+        <hr>
+        <div class="row g-2 text-center">
+          <div class="col-6"><div class="small text-muted">Last Sale</div><div class="fw-semibold small">{% if dealer.last_sale_date %}{{ dealer.last_sale_date.strftime('%d-%m-%Y') }}{% else %}Never{% endif %}</div></div>
+          <div class="col-6"><div class="small text-muted">Last Amt</div><div class="fw-semibold small">{% if dealer.last_sale_amount %}₹{{ "{:,.0f}".format(dealer.last_sale_amount) }}{% else %}—{% endif %}</div></div>
+          <div class="col-6"><div class="small text-muted">Total Purchases</div><div class="fw-semibold small">₹{{ "{:,.0f}".format(dealer.total_purchases or 0) }}</div></div>
+          <div class="col-6"><div class="small text-muted">Outstanding</div><div class="fw-semibold small {% if outstanding_live > 0 %}text-danger{% endif %}">₹{{ "{:,.0f}".format(outstanding_live) }}</div></div>
+          <div class="col-6"><div class="small text-muted">Credit Limit</div><div class="fw-semibold small">₹{{ "{:,.0f}".format(dealer.credit_limit or 0) }}</div></div>
+        </div>
+        <div class="mt-3 d-flex gap-2 flex-wrap">
+          <a href="/dealers/{{ dealer.id }}/edit" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil me-1"></i>Edit</a>
+          <a href="/dealers/{{ dealer.id }}/call" class="btn btn-sm btn-success"><i class="bi bi-telephone-plus me-1"></i>Log Call</a>
+          <a href="/dealers/{{ dealer.id }}/ledger" class="btn btn-sm btn-outline-info"><i class="bi bi-journal-text me-1"></i>Ledger</a>
+          <a href="/whatsapp/compose?dealer_id={{ dealer.id }}" class="btn btn-sm btn-outline-dark"><i class="bi bi-whatsapp me-1"></i>WhatsApp</a>
+          <a href="/dealers/{{ dealer.id }}/statement.csv" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-spreadsheet me-1"></i>Statement</a>
+        </div>
+      </div>
+    </div>
+
+    {% if dealer.notes %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body"><div class="small text-muted fw-semibold mb-1">Notes</div><p class="mb-0 small">{{ dealer.notes }}</p></div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Right: Call History + Orders -->
+  <div class="col-xl-8">
+    <!-- Upsell Suggestions -->
+    {% if upsell_suggestions %}
+    <div class="alert alert-success border-0 shadow-sm mb-3">
+      <div class="fw-semibold"><i class="bi bi-lightning-charge me-2"></i>Upsell Opportunities</div>
+      {% for s in upsell_suggestions %}
+      <div class="small mt-1">• {{ s }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Call History -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-telephone-inbound me-2"></i>Call History</span>
+        <a href="/dealers/{{ dealer.id }}/call" class="btn btn-sm btn-success"><i class="bi bi-plus me-1"></i>Log Call</a>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0 small">
+            <thead class="table-light"><tr><th>Date</th><th>By</th><th>Mode</th><th>Outcome</th><th>Products</th><th>Next Follow-up</th><th>Notes</th><th></th></tr></thead>
+            <tbody>
+              {% for call in calls %}
+              {% set oc = {'interested':'success','order_placed':'primary','callback':'warning','not_interested':'danger','no_answer':'secondary','followup':'info'} %}
+              <tr>
+                <td>{{ call.call_date.strftime('%d-%m-%Y %H:%M') }}</td>
+                <td>{{ call.called_by }}</td>
+                <td><span class="badge bg-secondary">{{ call.call_mode }}</span></td>
+                <td>
+                  <span class="badge bg-{{ oc.get(call.call_outcome,'secondary') }}">{{ call.call_outcome | replace('_',' ') | title if call.call_outcome else '—' }}</span>
+                </td>
+                <td>{{ call.items_discussed or '—' }}</td>
+                <td>{% if call.next_followup_date %}<span class="{% if call.next_followup_date.date() <= today %}text-danger fw-semibold{% endif %}">{{ call.next_followup_date.strftime('%d-%m-%Y') }}</span>{% else %}—{% endif %}</td>
+                <td class="text-muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ call.notes or '' }}">{{ call.notes or '' }}</td>
+                <td>
+                  <a href="/dealers/{{ dealer.id }}/calls/{{ call.id }}/edit"
+                     class="btn btn-sm btn-outline-warning" title="Edit this call log">
+                    <i class="bi bi-pencil"></i>
+                  </a>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="8" class="text-center text-muted py-3">No calls logged yet</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Orders -->
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-receipt me-2"></i>Orders &amp; Invoices</span>
+        <a href="/dealers/{{ dealer.id }}/orders/new" class="btn btn-sm btn-success">
+          <i class="bi bi-plus me-1"></i>New Order
+        </a>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0 small">
+            <thead class="table-light"><tr><th>Order#</th><th>Date</th><th>Amount</th><th>Paid</th><th>Due</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              {% for order in orders %}
+              <tr>
+                <td><code>{{ order.order_number }}</code></td>
+                <td>{{ order.order_date.strftime('%d-%m-%Y') }}</td>
+                <td>₹{{ "{:,.0f}".format(order.total_amount or 0) }}</td>
+                <td class="text-success">₹{{ "{:,.0f}".format(order.paid_amount or 0) }}</td>
+                <td class="{% if order.due_amount > 0 %}text-danger fw-semibold{% endif %}">₹{{ "{:,.0f}".format(order.due_amount or 0) }}</td>
+                <td><span class="badge bg-{% if order.status=='paid' %}success{% elif order.status=='pending' %}warning{% else %}secondary{% endif %}">{{ order.status | title }}</span></td>
+                <td>
+                  {% if order.due_amount > 0 %}
+                  <button class="btn btn-sm btn-outline-success me-1" data-bs-toggle="modal"
+                          data-bs-target="#payModal{{ loop.index }}" title="Record Payment">
+                    <i class="bi bi-cash"></i>
+                  </button>
+                  <div class="modal fade" id="payModal{{ loop.index }}" tabindex="-1">
+                    <div class="modal-dialog modal-sm">
+                      <div class="modal-content">
+                        <div class="modal-header py-2">
+                          <h6 class="modal-title">Pay — {{ order.order_number }}</h6>
+                          <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+                        </div>
+                        <form method="post" action="/dealers/{{ dealer.id }}/orders/{{ order.id }}/pay">
+                          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                          <div class="modal-body">
+                            <label class="form-label small fw-semibold">Amount (₹) — Due: ₹{{ "{:,.0f}".format(order.due_amount) }}</label>
+                            <input type="number" name="amount" class="form-control form-control-sm mb-2"
+                                   value="{{ order.due_amount }}" min="0.01" step="0.01" required>
+                            <select name="payment_mode" class="form-select form-select-sm">
+                              <option value="">— Mode —</option>
+                              <option value="cash">Cash</option>
+                              <option value="upi">UPI</option>
+                              <option value="neft">NEFT</option>
+                              <option value="rtgs">RTGS</option>
+                              <option value="cheque">Cheque</option>
+                            </select>
+                          </div>
+                          <div class="modal-footer py-2">
+                            <button type="submit" class="btn btn-success btn-sm">Record</button>
+                          </div>
+                        </form>
+                      </div>
+                    </div>
+                  </div>
+                  <a href="/whatsapp/compose?dealer_id={{ dealer.id }}&type=payment_reminder&order_id={{ order.id }}" class="btn btn-sm btn-outline-warning me-1" title="Send reminder"><i class="bi bi-bell"></i></a>
+                  {% endif %}
+                  {% if order.status != 'cancelled' %}
+                  <button class="btn btn-sm btn-outline-secondary me-1" data-bs-toggle="modal"
+                          data-bs-target="#cnModal{{ loop.index }}" title="Issue Credit Note / Return">
+                    <i class="bi bi-arrow-return-left"></i>
+                  </button>
+                  <div class="modal fade" id="cnModal{{ loop.index }}" tabindex="-1">
+                    <div class="modal-dialog modal-sm">
+                      <div class="modal-content">
+                        <div class="modal-header py-2">
+                          <h6 class="modal-title">Credit Note — {{ order.order_number }}</h6>
+                          <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+                        </div>
+                        <form method="post" action="/dealers/{{ dealer.id }}/orders/{{ order.id }}/credit-note">
+                          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                          <div class="modal-body">
+                            <label class="form-label small fw-semibold">
+                              Credit Amount (₹) — Order Total: ₹{{ "{:,.0f}".format(order.total_amount) }}
+                            </label>
+                            <input type="number" name="amount" class="form-control form-control-sm mb-2"
+                                   value="{{ order.due_amount }}" min="0.01"
+                                   max="{{ order.total_amount }}" step="0.01" required>
+                            <select name="reason" class="form-select form-select-sm mb-2">
+                              <option value="">— Reason —</option>
+                              <option value="goods_returned">Goods Returned</option>
+                              <option value="damaged_goods">Damaged Goods</option>
+                              <option value="wrong_item">Wrong Item Delivered</option>
+                              <option value="short_delivery">Short Delivery</option>
+                              <option value="price_adjustment">Price Adjustment</option>
+                              <option value="other">Other</option>
+                            </select>
+                            <input type="text" name="items_description" class="form-control form-control-sm mb-2"
+                                   placeholder="Items returned (optional)">
+                            <input type="text" name="notes" class="form-control form-control-sm"
+                                   placeholder="Notes (optional)">
+                          </div>
+                          <div class="modal-footer py-2">
+                            <button type="submit" class="btn btn-warning btn-sm">Issue Credit Note</button>
+                          </div>
+                        </form>
+                      </div>
+                    </div>
+                  </div>
+                  {% endif %}
+                  <a href="/dealers/{{ dealer.id }}/orders/{{ order.id }}/invoice"
+                     class="btn btn-sm btn-outline-secondary me-1" title="Print Invoice" target="_blank">
+                    <i class="bi bi-receipt"></i>
+                  </a>
+                  <a href="/whatsapp/compose?dealer_id={{ dealer.id }}&type=invoice&order_id={{ order.id }}" class="btn btn-sm btn-outline-dark" title="Send invoice"><i class="bi bi-whatsapp"></i></a>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="7" class="text-center text-muted py-3">No orders yet</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <!-- WhatsApp Message History -->
+    <div class="card border-0 shadow-sm mt-3">
+      <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-whatsapp me-2 text-success"></i>WhatsApp History</span>
+        <a href="/whatsapp?tab=compose" class="btn btn-sm btn-outline-success">
+          <i class="bi bi-send me-1"></i>Send Message
+        </a>
+      </div>
+      <div class="card-body p-0" id="waHistoryBody">
+        <div class="text-center py-3 text-muted small">
+          <div class="spinner-border spinner-border-sm me-2" role="status"></div>Loading…
+        </div>
+      </div>
+    </div>
+
+    <!-- Credit Notes -->
+    {% if credit_notes %}
+    <div class="card border-0 shadow-sm mt-3">
+      <div class="card-header bg-transparent">
+        <span class="fw-semibold"><i class="bi bi-arrow-return-left me-2 text-warning"></i>Credit Notes Issued</span>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0 small">
+            <thead class="table-light">
+              <tr><th>Credit #</th><th>Date</th><th>Order</th><th>Amount</th><th>Reason</th><th>By</th><th>Status</th><th>Apply</th></tr>
+            </thead>
+            <tbody>
+              {% for cn in credit_notes %}
+              <tr>
+                <td><code>{{ cn.credit_number }}</code></td>
+                <td>{{ cn.credit_date.strftime('%d-%m-%Y') }}</td>
+                <td>{% if cn.order %}<code>{{ cn.order.order_number }}</code>{% else %}—{% endif %}</td>
+                <td class="text-warning fw-semibold">₹{{ "{:,.0f}".format(cn.amount) }}</td>
+                <td>{{ (cn.reason or '—') | replace('_', ' ') | title }}</td>
+                <td class="text-muted">{{ cn.created_by or '—' }}</td>
+                <td>
+                  {% if cn.is_applied %}
+                    <span class="badge bg-success">Applied</span>
+                    {% if cn.applied_to_order %}
+                      <br><small class="text-muted">→ {{ cn.applied_to_order.order_number }}</small>
+                    {% endif %}
+                  {% else %}
+                    <span class="badge bg-secondary">Pending</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if not cn.is_applied and open_orders %}
+                  <form method="POST" action="/dealers/{{ dealer.id }}/credit-notes/{{ cn.id }}/apply"
+                        class="d-flex gap-1 align-items-center">
+                    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                    <select name="order_id" class="form-select form-select-sm" style="min-width:130px" required>
+                      <option value="">— Select Order —</option>
+                      {% for ord in open_orders %}
+                      <option value="{{ ord.id }}">{{ ord.order_number }} (₹{{ "{:,.0f}".format(ord.due_amount) }})</option>
+                      {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-sm btn-outline-success"
+                            onclick="return confirm('Apply ₹{{ "{:,.0f}".format(cn.amount) }} from {{ cn.credit_number }} to selected order?')">
+                      Apply
+                    </button>
+                  </form>
+                  {% elif cn.is_applied %}
+                    <span class="text-muted small">—</span>
+                  {% else %}
+                    <span class="text-muted small">No open orders</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// Load WA message history for this dealer
+fetch('/whatsapp/dealer/{{ dealer.id }}/history')
+  .then(r => r.json())
+  .then(msgs => {
+    const body = document.getElementById('waHistoryBody');
+    if (!msgs.length) {
+      body.innerHTML = '<p class="text-center text-muted small py-3 mb-0">No WhatsApp messages yet.</p>';
+      return;
+    }
+    let html = '<div class="table-responsive"><table class="table table-hover mb-0 small"><thead class="table-light"><tr><th>Date</th><th>Type</th><th>Message</th><th>By</th><th>Status</th></tr></thead><tbody>';
+    msgs.forEach(m => {
+      const statusCls = m.status === 'sent' || m.status === 'delivered' ? 'success' : m.status === 'failed' ? 'danger' : 'secondary';
+      const preview   = m.message_text ? m.message_text.replace(/\n/g,' ').substring(0,60) + (m.message_text.length > 60 ? '…' : '') : '—';
+      const tag       = m.reference_type === 'broadcast' ? '<span class="badge bg-primary ms-1" style="font-size:.6rem">Broadcast</span>' :
+                        m.reference_type === 'group'     ? '<span class="badge bg-info text-dark ms-1" style="font-size:.6rem">Group</span>' : '';
+      html += `<tr>
+        <td class="text-muted">${m.sent_at || m.created_at}</td>
+        <td>${m.message_type.charAt(0).toUpperCase()+m.message_type.slice(1)}${tag}</td>
+        <td class="text-truncate" style="max-width:220px" title="${m.message_text || ''}">${preview}</td>
+        <td>${m.sent_by}</td>
+        <td><span class="badge bg-${statusCls}">${m.status}</span></td>
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+    body.innerHTML = html;
+  })
+  .catch(() => {
+    document.getElementById('waHistoryBody').innerHTML = '<p class="text-center text-muted small py-3 mb-0">Could not load history.</p>';
+  });
+</script>
+{% endblock %}

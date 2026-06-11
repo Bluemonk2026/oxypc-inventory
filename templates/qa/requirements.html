@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Requirements — QA{% endblock %}
+{% block page_title %}QA Dashboard{% endblock %}
+{% block content %}
+{% include 'qa/_tabs.html' %}
+
+<!-- Toolbar -->
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div class="d-flex gap-2 flex-wrap">
+    <form method="get" class="d-flex gap-2 flex-wrap">
+      <input name="module" value="{{ f_module }}" class="form-control form-control-sm" placeholder="Module…" style="width:140px">
+      <select name="priority" class="form-select form-select-sm" style="width:140px">
+        <option value="">All Priorities</option>
+        {% for p in priorities %}
+        <option value="{{ p.value }}" {{ 'selected' if f_priority == p.value }}>{{ p.value }}</option>
+        {% endfor %}
+      </select>
+      <select name="status" class="form-select form-select-sm" style="width:140px">
+        <option value="">All Statuses</option>
+        {% for s in statuses %}
+        <option value="{{ s.value }}" {{ 'selected' if f_status == s.value }}>{{ s.value }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-sm btn-outline-secondary">Filter</button>
+    </form>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="/qa/rtm" class="btn btn-sm btn-outline-dark"><i class="bi bi-table me-1"></i>RTM View</a>
+    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newReqModal">
+      <i class="bi bi-plus-circle me-1"></i>New Requirement
+    </button>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-hover table-sm mb-0">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3">Code</th>
+          <th>Title</th>
+          <th>Module</th>
+          <th>Source</th>
+          <th>Priority</th>
+          <th>Status</th>
+          <th>Test Cases</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reqs %}
+        <tr>
+          <td class="ps-3 font-monospace small fw-semibold">{{ r.req_code or '—' }}</td>
+          <td class="small">{{ r.title }}</td>
+          <td class="small text-muted">{{ r.module or '—' }}</td>
+          <td><span class="badge bg-secondary small">{{ r.source.value }}</span></td>
+          <td>
+            {% set pc = r.priority.value %}
+            <span class="badge bg-{{ 'danger' if pc == 'Critical' else 'warning text-dark' if pc == 'High' else 'info text-dark' if pc == 'Medium' else 'secondary' }}">{{ pc }}</span>
+          </td>
+          <td>
+            {% set sc = r.status.value %}
+            <span class="badge bg-{{ 'success' if sc == 'Done' else 'primary' if sc == 'In Progress' else 'secondary' if sc == 'Deferred' else 'warning text-dark' }}">{{ sc }}</span>
+          </td>
+          <td class="small text-center">
+            <a href="/qa/test-cases" class="text-decoration-none">—</a>
+          </td>
+          <td class="small text-muted">{{ r.created_at.strftime('%d-%m-%Y') if r.created_at else '—' }}</td>
+          <td>
+            <form method="post" action="/qa/requirements/{{ r.id }}/status" class="d-inline">
+              <select name="status" class="form-select form-select-sm d-inline-block" style="width:110px"
+                      onchange="this.form.submit()">
+                {% for s in statuses %}
+                <option value="{{ s.value }}" {{ 'selected' if r.status == s }}>{{ s.value }}</option>
+                {% endfor %}
+              </select>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center text-muted py-4 small">No requirements found. Add one above.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- New Requirement Modal -->
+<div class="modal fade" id="newReqModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="/qa/requirements/new">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>New Requirement</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Req Code</label>
+              <input name="req_code" class="form-control form-control-sm" placeholder="REQ-001">
+            </div>
+            <div class="col-md-9">
+              <label class="form-label small fw-semibold">Title <span class="text-danger">*</span></label>
+              <input name="title" class="form-control form-control-sm" required placeholder="e.g. Device barcode must be unique">
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Description</label>
+              <textarea name="description" class="form-control form-control-sm" rows="3"
+                        placeholder="Detailed requirement description…"></textarea>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Source</label>
+              <select name="source" class="form-select form-select-sm">
+                {% for s in sources %}
+                <option value="{{ s.value }}">{{ s.value }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Priority</label>
+              <select name="priority" class="form-select form-select-sm">
+                {% for p in priorities %}
+                <option value="{{ p.value }}" {{ 'selected' if p.value == 'Medium' }}>{{ p.value }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Module</label>
+              <input name="module" class="form-control form-control-sm" placeholder="e.g. IQC, Sales, Repair">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-plus-circle me-1"></i>Add Requirement
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

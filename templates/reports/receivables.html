@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Receivables Ageing{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+
+  <div class="d-flex align-items-center gap-3 mb-4 flex-wrap">
+    <h4 class="fw-bold mb-0"><i class="bi bi-hourglass-split me-2 text-warning"></i>Receivables Ageing</h4>
+    <span class="text-muted small">As of {{ as_of.strftime('%d %b %Y %H:%M') }}</span>
+    <a href="?export=csv" class="btn btn-sm btn-outline-success ms-auto">
+      <i class="bi bi-download me-1"></i> Export CSV
+    </a>
+  </div>
+
+  <!-- Summary cards -->
+  <div class="row g-3 mb-4">
+    {% for label, key, color in [
+        ('Current (not overdue)', 'current', 'success'),
+        ('1-30 days', 'd30', 'info'),
+        ('31-60 days', 'd60', 'warning'),
+        ('61-90 days', 'd90', 'danger'),
+        ('90+ days', 'd90plus', 'danger'),
+        ('Grand Total', 'grand', 'dark'),
+    ] %}
+    <div class="col-6 col-md-4 col-xl-2">
+      <div class="border rounded-3 p-3 text-center h-100">
+        <div class="small text-muted mb-1">{{ label }}</div>
+        <div class="fs-6 fw-bold text-{{ color }}">&#8377;{{ "{:,.0f}".format(totals[key]) }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Detail table -->
+  {% if ageing %}
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover table-sm mb-0 small">
+          <thead class="table-dark">
+            <tr>
+              <th>Dealer</th>
+              <th>Order #</th>
+              <th>Order Date</th>
+              <th>Due Date</th>
+              <th>0-30</th>
+              <th>31-60</th>
+              <th>61-90</th>
+              <th>90+</th>
+              <th>Current</th>
+              <th class="text-end">Total Due</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in ageing %}
+            <tr>
+              <td>
+                <a href="/dealers/{{ r.dealer.id }}" class="text-decoration-none fw-semibold">
+                  {{ r.dealer.business_name or ((r.dealer.first_name or '') ~ ' ' ~ (r.dealer.last_name or '')) }}
+                </a>
+              </td>
+              <td>
+                <a href="/dealers/{{ r.dealer.id }}/orders/{{ r.order.id }}/invoice"
+                   class="font-monospace text-decoration-none small" target="_blank">
+                  <code>{{ r.order.order_number }}</code>
+                </a>
+              </td>
+              <td>{{ r.order.order_date.strftime('%d-%m-%Y') }}</td>
+              <td>{% if r.order.payment_due_date %}{{ r.order.payment_due_date.strftime('%d-%m-%Y') }}{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+              <td>{% if r.bucket == 'd30' %}<span class="text-info fw-semibold">&#8377;{{ "{:,.0f}".format(r.due) }}</span>{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+              <td>{% if r.bucket == 'd60' %}<span class="text-warning fw-semibold">&#8377;{{ "{:,.0f}".format(r.due) }}</span>{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+              <td>{% if r.bucket == 'd90' %}<span class="text-danger fw-semibold">&#8377;{{ "{:,.0f}".format(r.due) }}</span>{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+              <td>{% if r.bucket == 'd90plus' %}<span class="text-danger fw-bold">&#8377;{{ "{:,.0f}".format(r.due) }}</span>{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+              <td>{% if r.bucket == 'current' %}<span class="text-success fw-semibold">&#8377;{{ "{:,.0f}".format(r.due) }}</span>{% else %}<span class="text-muted">&mdash;</span>{% endif %}</td>
+              <td class="text-end fw-semibold">&#8377;{{ "{:,.0f}".format(r.due) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot class="table-dark fw-bold">
+            <tr>
+              <td colspan="4" class="text-end">Totals</td>
+              <td>&#8377;{{ "{:,.0f}".format(totals.d30) }}</td>
+              <td>&#8377;{{ "{:,.0f}".format(totals.d60) }}</td>
+              <td>&#8377;{{ "{:,.0f}".format(totals.d90) }}</td>
+              <td>&#8377;{{ "{:,.0f}".format(totals.d90plus) }}</td>
+              <td>&#8377;{{ "{:,.0f}".format(totals.current) }}</td>
+              <td class="text-end">&#8377;{{ "{:,.0f}".format(totals.grand) }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="alert alert-success border-0 shadow-sm">
+    <i class="bi bi-check-circle me-2"></i>No outstanding receivables &mdash; all dealer orders are settled.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

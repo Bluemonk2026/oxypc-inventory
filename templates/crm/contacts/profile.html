@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}{{ contact.company_name }} — CRM{% endblock %}
+{% block page_title %}{{ contact.company_name }}{% endblock %}
+{% block content %}
+
+<div class="row g-4">
+  <!-- Left: Contact Info -->
+  <div class="col-xl-4">
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div>
+            <h5 class="fw-bold mb-0">{{ contact.company_name }}</h5>
+            <code class="text-muted small">{{ contact.contact_code }}</code>
+          </div>
+          {% set sc = {'active':'success','inactive':'secondary','blacklisted':'danger'} %}
+          <span class="badge bg-{{ sc.get(contact.status,'secondary') }}">{{ contact.status | title }}</span>
+        </div>
+
+        {% if contact.contact_type == 'supplier' %}
+          <div class="mb-2"><span class="badge bg-primary">Supplier</span>
+          {% if contact.source_type %}<span class="badge bg-light text-dark border ms-1">{{ contact.source_type | title }}</span>{% endif %}
+          </div>
+        {% elif contact.contact_type == 'buyer' %}
+          <div class="mb-2"><span class="badge bg-info">Buyer</span>
+          {% if contact.buyer_type %}<span class="badge bg-light text-dark border ms-1">{{ contact.buyer_type | replace('_',' ') | title }}</span>{% endif %}
+          </div>
+        {% else %}
+          <div class="mb-2"><span class="badge bg-success">Supplier + Buyer</span></div>
+        {% endif %}
+
+        <hr class="my-2">
+        {% if contact.contact_person %}<div class="mb-1 small"><i class="bi bi-person me-2 text-muted"></i>{{ contact.contact_person }}</div>{% endif %}
+        {% if contact.phone %}<div class="mb-1 small"><i class="bi bi-telephone me-2 text-muted"></i>{{ contact.phone }}</div>{% endif %}
+        {% if contact.whatsapp %}<div class="mb-1 small"><i class="bi bi-whatsapp me-2 text-success"></i>{{ contact.whatsapp }}</div>{% endif %}
+        {% if contact.email %}<div class="mb-1 small"><i class="bi bi-envelope me-2 text-muted"></i>{{ contact.email }}</div>{% endif %}
+        {% if contact.city or contact.state %}<div class="mb-1 small"><i class="bi bi-geo-alt me-2 text-muted"></i>{{ contact.city or '' }}{% if contact.state %}, {{ contact.state }}{% endif %}</div>{% endif %}
+        {% if contact.gstin %}<div class="mb-1 small"><i class="bi bi-file-text me-2 text-muted"></i>GST: {{ contact.gstin }}</div>{% endif %}
+        {% if contact.tags %}<div class="mb-1 small"><i class="bi bi-tags me-2 text-muted"></i>{{ contact.tags }}</div>{% endif %}
+        <hr class="my-2">
+        <div class="row g-2 text-center">
+          <div class="col-6"><div class="small text-muted">Credit Limit</div><div class="fw-semibold small">₹{{ "{:,.0f}".format(contact.credit_limit or 0) }}</div></div>
+          <div class="col-6"><div class="small text-muted">Outstanding</div><div class="fw-semibold small {% if contact.outstanding > 0 %}text-danger{% endif %}">₹{{ "{:,.0f}".format(contact.outstanding or 0) }}</div></div>
+        </div>
+        <div class="mt-3 d-flex gap-2 flex-wrap">
+          <a href="/crm/contacts/{{ contact.id }}/edit" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil me-1"></i>Edit</a>
+          <a href="/crm/sourcing/new?contact_id={{ contact.id }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-box-arrow-in-down me-1"></i>New Deal</a>
+          <a href="/crm/sales/new?contact_id={{ contact.id }}" class="btn btn-sm btn-outline-info"><i class="bi bi-graph-up me-1"></i>New Opp</a>
+        </div>
+      </div>
+    </div>
+    {% if contact.notes %}
+    <div class="card border-0 shadow-sm mb-3"><div class="card-body"><div class="small text-muted fw-semibold mb-1">Notes</div><p class="mb-0 small">{{ contact.notes }}</p></div></div>
+    {% endif %}
+
+    <!-- Scorecard -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-bar-chart me-1 text-primary"></i>Scorecard</div>
+      <div class="card-body p-2">
+        {% if contact.contact_type in ['supplier','both'] %}
+        <div class="small fw-semibold text-muted mb-1">Sourcing</div>
+        <div class="row g-1 text-center mb-2">
+          <div class="col-3"><div class="bg-light rounded p-1"><div class="fw-bold small text-primary">{{ scorecard.total_deals }}</div><div class="small" style="font-size:.65rem">Total</div></div></div>
+          <div class="col-3"><div class="bg-light rounded p-1"><div class="fw-bold small text-warning">{{ scorecard.open_deals }}</div><div class="small" style="font-size:.65rem">Open</div></div></div>
+          <div class="col-3"><div class="bg-light rounded p-1"><div class="fw-bold small text-success">{{ scorecard.won_deals }}</div><div class="small" style="font-size:.65rem">Won</div></div></div>
+          <div class="col-3"><div class="bg-light rounded p-1"><div class="fw-bold small text-danger">{{ scorecard.lost_deals }}</div><div class="small" style="font-size:.65rem">Lost</div></div></div>
+        </div>
+        {% if scorecard.win_rate is not none %}
+        <div class="mb-1">
+          <div class="d-flex justify-content-between small mb-1"><span class="text-muted">Win Rate</span><strong>{{ scorecard.win_rate }}%</strong></div>
+          <div class="progress" style="height:6px"><div class="progress-bar bg-success" style="width:{{ scorecard.win_rate }}%"></div></div>
+        </div>
+        {% endif %}
+        <div class="small text-muted mt-1">Pipeline: <strong class="text-primary">₹{{ "{:,.0f}".format(scorecard.pipeline_value) }}</strong> &nbsp;|&nbsp; Won: <strong class="text-success">₹{{ "{:,.0f}".format(scorecard.won_value) }}</strong></div>
+        <hr class="my-2">
+        {% endif %}
+        {% if contact.contact_type in ['buyer','both'] %}
+        <div class="small fw-semibold text-muted mb-1">Sales Opps</div>
+        <div class="row g-1 text-center mb-2">
+          <div class="col-4"><div class="bg-light rounded p-1"><div class="fw-bold small text-info">{{ scorecard.total_opps }}</div><div class="small" style="font-size:.65rem">Total</div></div></div>
+          <div class="col-4"><div class="bg-light rounded p-1"><div class="fw-bold small text-warning">{{ scorecard.open_opps }}</div><div class="small" style="font-size:.65rem">Open</div></div></div>
+          <div class="col-4"><div class="bg-light rounded p-1"><div class="fw-bold small text-success">{{ scorecard.won_opps }}</div><div class="small" style="font-size:.65rem">Won</div></div></div>
+        </div>
+        <hr class="my-2">
+        {% endif %}
+        <div class="small fw-semibold text-muted mb-1">Activity</div>
+        <div class="row g-1 text-center">
+          <div class="col-3"><div class="bg-light rounded p-1"><div class="fw-bold small">{{ scorecard.total_activities }}</div><div class="small" style="font-size:.65rem">Total</div></div></div>
+          <div class="col-3"><div class="bg-light rounded p-1"><div class="fw-bold small">{{ scorecard.call_count }}</div><div class="small" style="font-size:.65rem">📞 Calls</div></div></div>
+          <div class="col-3"><div class="bg-light rounded p-1"><div class="fw-bold small">{{ scorecard.whatsapp_count }}</div><div class="small" style="font-size:.65rem">💬 WA</div></div></div>
+          <div class="col-3"><div class="bg-light rounded p-1"><div class="fw-bold small">{{ scorecard.visit_count }}</div><div class="small" style="font-size:.65rem">🤝 Visits</div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Activity + Deals -->
+  <div class="col-xl-8">
+
+    <!-- Log Activity -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-plus-circle me-1 text-success"></i>Log Activity</div>
+      <div class="card-body">
+        <form method="post" action="/crm/activities/log" class="row g-2">
+          <input type="hidden" name="contact_id" value="{{ contact.id }}">
+          <input type="hidden" name="redirect_to" value="/crm/contacts/{{ contact.id }}">
+          <div class="col-md-3">
+            <select name="activity_type" class="form-select form-select-sm">
+              <option value="call">📞 Call</option>
+              <option value="whatsapp">💬 WhatsApp</option>
+              <option value="visit">🤝 Visit</option>
+              <option value="email">📧 Email</option>
+              <option value="meeting">👥 Meeting</option>
+              <option value="note">📝 Note</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <select name="outcome" class="form-select form-select-sm">
+              <option value="">Outcome…</option>
+              <option value="interested">Interested</option>
+              <option value="not_interested">Not Interested</option>
+              <option value="callback">Callback</option>
+              <option value="order_placed">Order Placed</option>
+              <option value="no_answer">No Answer</option>
+              <option value="followup">Follow-up</option>
+              <option value="done">Done</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <input type="text" name="summary" class="form-control form-control-sm" placeholder="What was discussed? *" required>
+          </div>
+          <div class="col-md-4">
+            <input type="datetime-local" name="next_followup" class="form-control form-control-sm" title="Next follow-up date/time">
+          </div>
+          <div class="col-md-4">
+            <input type="text" name="followup_assigned_to" class="form-control form-control-sm" placeholder="Follow-up assigned to" value="{{ current_user.username }}">
+          </div>
+          <div class="col-md-4">
+            <button class="btn btn-sm btn-success w-100"><i class="bi bi-check me-1"></i>Log Activity</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Sourcing Deals -->
+    {% if sourcing_deals %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 d-flex justify-content-between">
+        <span class="fw-semibold"><i class="bi bi-box-arrow-in-down me-1 text-primary"></i>Sourcing Deals ({{ sourcing_deals|length }})</span>
+        <a href="/crm/sourcing/new?contact_id={{ contact.id }}" class="btn btn-xs btn-outline-primary btn-sm">+ New Deal</a>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead class="table-light"><tr><th>Deal</th><th>Stage</th><th>Qty</th><th>Value</th><th>Priority</th></tr></thead>
+            <tbody>
+              {% for d in sourcing_deals %}
+              <tr>
+                <td><a href="/crm/sourcing/{{ d.id }}" class="text-decoration-none fw-semibold small">{{ d.title[:50] }}{% if d.title|length > 50 %}…{% endif %}</a></td>
+                <td><span class="badge bg-secondary">{{ d.stage | replace('_',' ') | title }}</span></td>
+                <td class="small">{{ d.est_quantity or '—' }}</td>
+                <td class="small">{% if d.our_offer_total %}₹{{ "{:,.0f}".format(d.our_offer_total) }}{% elif d.asking_price_total %}₹{{ "{:,.0f}".format(d.asking_price_total) }}{% else %}—{% endif %}</td>
+                <td><span class="badge bg-{{ {'low':'secondary','medium':'info','high':'warning','urgent':'danger'}.get(d.priority,'secondary') }}">{{ d.priority | title }}</span></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Sales Opportunities -->
+    {% if sales_opps %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 d-flex justify-content-between">
+        <span class="fw-semibold"><i class="bi bi-graph-up me-1 text-info"></i>Sales Opportunities ({{ sales_opps|length }})</span>
+        <a href="/crm/sales/new?contact_id={{ contact.id }}" class="btn btn-xs btn-outline-info btn-sm">+ New Opp</a>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead class="table-light"><tr><th>Opportunity</th><th>Stage</th><th>Qty</th><th>Value</th></tr></thead>
+            <tbody>
+              {% for o in sales_opps %}
+              <tr>
+                <td><a href="/crm/sales/{{ o.id }}" class="text-decoration-none fw-semibold small">{{ o.title[:50] }}{% if o.title|length > 50 %}…{% endif %}</a></td>
+                <td><span class="badge bg-info text-white">{{ o.stage | replace('_',' ') | title }}</span></td>
+                <td class="small">{{ o.required_qty or '—' }}</td>
+                <td class="small">{% if o.estimated_value %}₹{{ "{:,.0f}".format(o.estimated_value) }}{% else %}—{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Activity Timeline -->
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-clock-history me-1 text-muted"></i>Activity Timeline</div>
+      <div class="card-body p-0">
+        {% if activities %}
+        <div class="list-group list-group-flush">
+          {% for act in activities %}
+          <div class="list-group-item border-0 border-bottom px-3 py-2">
+            <div class="d-flex justify-content-between align-items-start">
+              <span class="badge bg-light text-dark border me-2">
+                {% if act.activity_type == 'call' %}📞{% elif act.activity_type == 'whatsapp' %}💬{% elif act.activity_type == 'visit' %}🤝{% elif act.activity_type == 'email' %}📧{% elif act.activity_type == 'meeting' %}👥{% else %}📝{% endif %}
+                {{ act.activity_type | title }}
+              </span>
+              <small class="text-muted">{{ act.activity_date.strftime('%d %b %Y %H:%M') }}</small>
+            </div>
+            <div class="small mt-1">{{ act.summary }}</div>
+            {% if act.outcome %}<span class="badge bg-light text-dark border mt-1 small">{{ act.outcome | replace('_',' ') | title }}</span>{% endif %}
+            <div class="small text-muted mt-1">by {{ act.performed_by }}</div>
+            {% if act.next_followup and not act.followup_done %}
+            <div class="small text-warning mt-1"><i class="bi bi-alarm me-1"></i>Follow-up: {{ act.next_followup.strftime('%d %b %Y %H:%M') }} → {{ act.followup_assigned_to or '—' }}</div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-4">No activities logged yet.</div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

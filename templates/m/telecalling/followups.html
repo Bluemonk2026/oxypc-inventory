@@ -1,0 +1,44 @@
+{% extends "m/telecalling/base_m.html" %}
+{% block title %}OxyTC · Follow-ups{% endblock %}
+{% block heading %}Follow-ups{% endblock %}
+{% block tab_fu %}active{% endblock %}
+
+{% block content %}
+<section class="tc-card" style="padding:0">
+  <div style="padding:14px 14px 0"><h2>Due today &amp; overdue</h2></div>
+  <div id="fu-list"><div class="tc-empty">Loading…</div></div>
+</section>
+{% endblock %}
+
+{% block page_script %}
+<script>
+(async function(){
+  try {
+    const fu = await OxyTC.api('/followups/today');
+    const el = document.getElementById('fu-list');
+    if (!fu.length) { el.innerHTML = '<div class="tc-empty">Nothing scheduled. Nice.</div>'; return; }
+    const now = Date.now();
+    el.innerHTML = fu.map(f => {
+      const overdue = new Date(f.due_at).getTime() < now;
+      return `
+        <div class="tc-lead">
+          <div class="av" style="${overdue ? 'background:var(--red)' : ''}">
+            ${(f.subject||'?').slice(0,2).toUpperCase()}
+          </div>
+          <div style="flex:1; min-width:0">
+            <div class="nm">${f.subject||'Lead'}
+              <span class="tc-pill ${overdue ? 'high' : 'normal'}">
+                ${overdue ? 'OVERDUE' : new Date(f.due_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}
+              </span>
+            </div>
+            <div class="sub">${f.phone||''} · ${f.type||''}</div>
+          </div>
+          <a class="tc-call-btn" href="/m/telecalling/call/${encodeURIComponent(f.phone)}">
+            <i class="bi bi-telephone-fill"></i>
+          </a>
+        </div>`;
+    }).join('');
+  } catch (e) { OxyTC.toast('Failed to load follow-ups', 'err'); }
+})();
+</script>
+{% endblock %}

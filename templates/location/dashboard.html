@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Location Dashboard — OxyPC{% endblock %}
+{% block page_title %}Live Location Dashboard{% endblock %}
+
+{% block content %}
+<!-- Header bar -->
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div class="d-flex gap-2 align-items-center">
+    {% for z in zone_types %}
+    <a href="/locations/dashboard?zone={{ z.value }}"
+       class="btn btn-sm {% if selected_zone == z.value %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+      {{ zone_labels[z] }}
+    </a>
+    {% endfor %}
+    {% if selected_zone %}
+    <a href="/locations/dashboard" class="btn btn-sm btn-outline-danger">Clear</a>
+    {% endif %}
+  </div>
+  <div class="d-flex gap-2">
+    <a href="/locations/gaps" class="btn btn-sm btn-outline-danger">
+      <i class="bi bi-exclamation-triangle me-1"></i>
+      Gaps
+      {% if gap_count > 0 %}
+      <span class="badge bg-danger ms-1">{{ gap_count }}</span>
+      {% endif %}
+    </a>
+    <a href="/locations/master" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-gear me-1"></i> Manage Locations
+    </a>
+  </div>
+</div>
+
+<!-- In-hand summary banner -->
+{% if in_hand_detail %}
+<div class="alert alert-warning d-flex align-items-center gap-3 py-2 mb-3">
+  <i class="bi bi-hand-index fs-5"></i>
+  <span>
+    <strong>{{ in_hand_detail | length }} device(s) currently in-hand</strong> (picked up, not yet placed back):
+    {% for item in in_hand_detail[:5] %}
+    <a href="/locations/device/{{ item.device.id }}" class="badge bg-warning text-dark text-decoration-none ms-1">
+      {{ item.device.barcode }}
+    </a>
+    {% endfor %}
+    {% if in_hand_detail | length > 5 %}
+    <span class="text-muted ms-1">+{{ in_hand_detail | length - 5 }} more</span>
+    {% endif %}
+  </span>
+</div>
+{% endif %}
+
+<!-- Location cards grid -->
+{% if locations %}
+<div class="row g-3">
+  {% for loc in locations %}
+  {% set devices = loc_map[loc.id | string] %}
+  <div class="col-md-4 col-lg-3">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center
+                  {% if devices | length == 0 %}bg-light{% else %}bg-primary bg-opacity-10{% endif %}">
+        <div>
+          <span class="badge bg-dark me-1">{{ loc.unit_id }}</span>
+          <small class="text-muted">{{ zone_labels[loc.zone] }}</small>
+        </div>
+        <span class="badge {% if devices | length > 0 %}bg-success{% else %}bg-secondary{% endif %}">
+          {{ devices | length }}{% if loc.capacity %}/{{ loc.capacity }}{% endif %}
+        </span>
+      </div>
+      <div class="card-body p-2" style="max-height:220px; overflow-y:auto;">
+        {% if devices %}
+        <table class="table table-sm table-borderless mb-0" style="font-size:0.78rem;">
+          <tbody>
+            {% for d in devices %}
+            <tr>
+              <td class="py-0">
+                <a href="/devices/{{ d.device_id }}" class="text-decoration-none fw-semibold">
+                  {{ d.barcode }}
+                </a>
+              </td>
+              <td class="py-0 text-muted">{{ d.brand }} {{ d.model }}</td>
+              <td class="py-0">
+                <span class="badge bg-secondary" style="font-size:0.65rem;">{{ d.stage }}</span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted text-center small py-2 mb-0">Empty</p>
+        {% endif %}
+      </div>
+      {% if loc.description %}
+      <div class="card-footer py-1 px-2 text-muted" style="font-size:0.72rem;">
+        {{ loc.description }}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-center text-muted py-5">
+  <i class="bi bi-boxes fs-1 d-block mb-2 opacity-25"></i>
+  No storage locations found.
+  <a href="/locations/master">Add locations</a> to start tracking.
+</div>
+{% endif %}
+
+<!-- Quick barcode lookup -->
+<div class="card shadow-sm border-0 mt-4">
+  <div class="card-header py-2"><strong><i class="bi bi-upc-scan me-2"></i>Quick Device Lookup</strong></div>
+  <div class="card-body">
+    <div class="input-group" style="max-width:400px;">
+      <input type="text" id="quickBarcode" class="form-control" placeholder="Scan or type barcode…" autofocus>
+      <button class="btn btn-primary" onclick="lookupDevice()">
+        <i class="bi bi-search"></i> Find
+      </button>
+    </div>
+    <div id="lookupResult" class="mt-2"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function lookupDevice() {
+  const bc = document.getElementById('quickBarcode').value.trim();
+  if (!bc) return;
+  const res = await fetch(`/locations/api/device-location/${encodeURIComponent(bc)}`);
+  const div = document.getElementById('lookupResult');
+  if (res.ok) {
+    const d = await res.json();
+    const loc = d.current_location || '<span class="text-danger">No location recorded</span>';
+    const action = d.last_action ? `<span class="badge bg-warning text-dark">${d.last_action}</span>` : '';
+    div.innerHTML = `
+      <div class="alert alert-info py-2 mb-0">
+        <strong>${d.barcode}</strong> — ${d.brand} ${d.model}
+        <span class="badge bg-secondary ms-2">${d.stage}</span>
+        <br>
+        <i class="bi bi-geo-alt me-1"></i> ${loc} ${action}
+        ${d.last_actor ? `<span class="text-muted ms-2">by ${d.last_actor}</span>` : ''}
+        <a href="/locations/device/${d.device_id}" class="btn btn-sm btn-outline-primary ms-3">
+          Manage Location
+        </a>
+      </div>`;
+  } else {
+    div.innerHTML = `<div class="alert alert-danger py-2 mb-0">Device not found: ${bc}</div>`;
+  }
+}
+document.getElementById('quickBarcode').addEventListener('keydown', e => {
+  if (e.key === 'Enter') lookupDevice();
+});
+</script>
+{% endblock %}

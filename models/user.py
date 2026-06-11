@@ -1,0 +1,96 @@
+import uuid
+from datetime import datetime
+from utils.timezone import app_now
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Enum as SAEnum
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+import enum
+from database import Base
+
+
+
+class UserRole(str, enum.Enum):
+    admin = "admin"
+    inventory_manager = "inventory_manager"
+    iqc_inspector = "iqc_inspector"
+    l1_engineer = "l1_engineer"
+    l2_engineer = "l2_engineer"
+    l3_engineer = "l3_engineer"
+    qc_inspector = "qc_inspector"
+    sales = "sales"
+    spare_parts_manager = "spare_parts_manager"
+    telecaller = "telecaller"
+    sales_manager = "sales_manager"
+
+
+ROLE_LABELS = {
+    UserRole.admin: "Admin",
+    UserRole.inventory_manager: "Inventory Manager",
+    UserRole.iqc_inspector: "IQC Inspector",
+    UserRole.l1_engineer: "L1 Engineer",
+    UserRole.l2_engineer: "L2 Engineer",
+    UserRole.l3_engineer: "L3 Engineer",
+    UserRole.qc_inspector: "QC Inspector",
+    UserRole.sales: "Sales",
+    UserRole.spare_parts_manager: "Spare Parts Manager",
+    UserRole.telecaller: "Telecaller",
+    UserRole.sales_manager: "Sales Manager",
+}
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    username = Column(String(50), unique=True, nullable=False, index=True)
+    full_name = Column(String(100), nullable=False)
+    password_hash = Column(String(200), nullable=False)
+    role = Column(SAEnum(UserRole), nullable=False, default=UserRole.sales)
+    status = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=app_now)
+    created_by = Column(String(50), nullable=True)
+    last_login = Column(DateTime, nullable=True)
+
+    # SaaS tenant identifier — "oxypc_internal" for all current users.
+    # When multi-tenancy is added, each customer gets their own value
+    # (e.g. "customer_a") so their users are isolated at the data layer.
+    tenant = Column(String(50), nullable=True, default="oxypc_internal", index=True)
+
+    # Reporting hierarchy for sales_manager team rollups (used by mobile telecalling).
+    manager_username = Column(String(50), ForeignKey("users.username"), nullable=True, index=True)
+
+    login_logs = relationship("LoginLog", back_populates="user", lazy="select")
+
+    @property
+    def role_label(self):
+        return ROLE_LABELS.get(self.role, self.role)
+
+    @property
+    def is_active(self):
+        return self.status
+
+
+class LoginLog(Base):
+    __tablename__ = "login_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    action = Column(String(50), nullable=False)
+    ip_address = Column(String(50), nullable=True)
+    timestamp = Column(DateTime, default=app_now)
+    notes = Column(String(200), nullable=True)
+
+    user = relationship("User", back_populates="login_logs")
+
+
+class UserPermission(Base):
+    __tablename__ = "user_permissions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    permission = Column(String(100), nullable=False)  # e.g. "can_approve_sales", "can_view_reports"
+    granted = Column(Boolean, default=True)
+    granted_by = Column(String(50), nullable=True)
+    granted_at = Column(DateTime, default=app_now)
+
+    user = relationship("User", foreign_keys=[user_id])

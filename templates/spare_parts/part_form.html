@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Add Part — OxyPC{% endblock %}
+{% block page_title %}Add Spare Part{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+        <form action="/spare-parts/new" method="post">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Part Code</label>
+              <input type="text" name="part_code" class="form-control font-monospace" value="{{ next_code }}" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Category</label>
+              <select name="category" class="form-select" required>
+                {% for cat in categories %}<option>{{ cat }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Part Name</label>
+              <input type="text" name="name" class="form-control" placeholder="e.g. DDR4 8GB RAM" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Unit Price (₹)</label>
+              <div class="input-group">
+                <span class="input-group-text">₹</span>
+                <input type="number" name="unit_price" class="form-control" placeholder="0" min="0" step="0.01">
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Low Stock Alert (qty)</label>
+              <input type="number" name="min_stock_alert" class="form-control" value="5" min="0">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Supplier</label>
+              <input type="text" name="supplier" class="form-control" placeholder="Supplier name">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notes</label>
+              <textarea name="notes" class="form-control" rows="2"></textarea>
+            </div>
+          </div>
+          <div class="mt-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary px-4"><i class="bi bi-save me-2"></i>Add Part</button>
+            <a href="/spare-parts" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

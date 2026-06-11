@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Edit Market Entry — OxyPC{% endblock %}
+{% block page_title %}Edit Market Entry{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-xl-9">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-pencil me-2"></i>Edit: {{ entry.brand or '' }} {{ entry.model or 'Entry' }}
+      </div>
+      <div class="card-body">
+        <form method="post" action="/market/{{ entry.id }}/edit">
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Trade Type</label>
+              <select name="trade_type" class="form-select">
+                <option value="sell" {% if entry.trade_type=='sell' %}selected{% endif %}>🟢 Selling</option>
+                <option value="buy"  {% if entry.trade_type=='buy'  %}selected{% endif %}>🔵 Buying</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Category</label>
+              <select name="category" class="form-select">
+                <option value="">—</option>
+                {% for c in ['Laptop','Desktop','Monitor / TFT','Printer','Server','Tablet','Projector','Spare Parts','Other'] %}
+                <option {% if entry.category==c %}selected{% endif %}>{{ c }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Brand</label>
+              <input type="text" name="brand" class="form-control" value="{{ entry.brand or '' }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Model</label>
+              <input type="text" name="model" class="form-control" value="{{ entry.model or '' }}" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Processor</label>
+              <input type="text" name="processor" class="form-control" value="{{ entry.processor or '' }}">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label fw-semibold">Generation</label>
+              <input type="text" name="generation" class="form-control" value="{{ entry.generation or '' }}">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label fw-semibold">RAM</label>
+              <input type="text" name="ram" class="form-control" value="{{ entry.ram or '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Storage</label>
+              <input type="text" name="storage" class="form-control" value="{{ entry.storage or '' }}">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label fw-semibold">Condition</label>
+              <select name="condition" class="form-select">
+                {% for c in ['refurb','new','used','as-is'] %}
+                <option value="{{ c }}" {% if entry.condition==c %}selected{% endif %}>{{ c | title }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label fw-semibold">Grade</label>
+              <select name="grade" class="form-select">
+                <option value="">—</option>
+                {% for g in ['A+','A','B','C'] %}
+                <option {% if entry.grade==g %}selected{% endif %}>{{ g }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label fw-semibold">Qty</label>
+              <input type="number" name="qty" class="form-control" value="{{ entry.qty or '' }}" min="0">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Price / Unit (₹)</label>
+              <input type="number" name="price_per_unit" class="form-control" step="100" value="{{ entry.price_per_unit or '' }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Warranty (months)</label>
+              <input type="number" name="warranty_months" class="form-control" min="0" value="{{ entry.warranty_months or '' }}">
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="is_negotiable" value="1" id="negChk" {% if entry.is_negotiable %}checked{% endif %}>
+                <label class="form-check-label" for="negChk">Negotiable</label>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Dealer</label>
+              <select name="dealer_id" class="form-select">
+                <option value="">— None —</option>
+                {% for d in dealers %}
+                <option value="{{ d.id }}" {% if entry.dealer_id | string == d.id | string %}selected{% endif %}>
+                  {{ d.business_name }}{% if d.first_name %} ({{ d.first_name }}){% endif %}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">WhatsApp Group</label>
+              <select name="group_wa_id" class="form-select">
+                <option value="">— None —</option>
+                {% for g in wa_groups %}
+                <option value="{{ g.group_wa_id }}" {% if entry.group_wa_id == g.group_wa_id %}selected{% endif %}>{{ g.group_name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Notes</label>
+              <textarea name="notes" class="form-control" rows="3">{{ entry.notes or '' }}</textarea>
+            </div>
+          </div>
+          <div class="mt-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle me-1"></i>Save Changes</button>
+            <a href="/market" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

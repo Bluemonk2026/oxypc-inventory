@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}{% if edit_call %}Edit Call{% else %}Log Call{% endif %} — {{ dealer.business_name }}{% endblock %}
+{% block page_title %}{% if edit_call %}Edit Call{% else %}Log Call{% endif %} — {{ dealer.business_name }}{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-xl-7">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">
+          {% if edit_call %}
+          <i class="bi bi-pencil-square me-2 text-warning"></i>Edit Call Log
+          {% else %}
+          <i class="bi bi-telephone-plus me-2 text-success"></i>Log New Call
+          {% endif %}
+        </span>
+        <a href="/dealers/{{ dealer.id }}" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-arrow-left me-1"></i>Back to {{ dealer.business_name }}
+        </a>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{% if edit_call %}/dealers/{{ dealer.id }}/calls/{{ edit_call.id }}/edit{% else %}/dealers/{{ dealer.id }}/call{% endif %}">
+          <div class="row g-3">
+
+            {% if edit_call %}
+            <!-- Call Date (editable only in edit mode) -->
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Call Date &amp; Time</label>
+              <input type="datetime-local" name="call_date" class="form-control"
+                     value="{{ edit_call.call_date.strftime('%Y-%m-%dT%H:%M') if edit_call.call_date else '' }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Called By</label>
+              <input type="text" class="form-control" value="{{ edit_call.called_by }}" disabled>
+              <div class="form-text text-muted">Logged by field cannot be changed.</div>
+            </div>
+            {% endif %}
+
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Call Mode</label>
+              <select name="call_mode" class="form-select">
+                {% for val, lbl in [('phone','Phone'),('whatsapp','WhatsApp'),('in_person','In Person')] %}
+                <option value="{{ val }}" {% if (edit_call and edit_call.call_mode == val) or (not edit_call and val == 'phone') %}selected{% endif %}>{{ lbl }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Call Type</label>
+              <select name="call_type" class="form-select">
+                {% for val, lbl in [('outbound','Outbound'),('inbound','Inbound')] %}
+                <option value="{{ val }}" {% if (edit_call and edit_call.call_type == val) or (not edit_call and val == 'outbound') %}selected{% endif %}>{{ lbl }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Duration (mins)</label>
+              <input type="number" name="duration_mins" class="form-control" min="0"
+                     value="{{ edit_call.duration_mins if edit_call and edit_call.duration_mins is not none else '5' }}">
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Outcome <span class="text-danger">*</span></label>
+              <select name="call_outcome" class="form-select" required>
+                <option value="">Select outcome...</option>
+                {% for val, lbl in [
+                  ('interested','Interested'),
+                  ('order_placed','Order Placed'),
+                  ('callback','Callback Requested'),
+                  ('not_interested','Not Interested'),
+                  ('no_answer','No Answer'),
+                  ('followup','Follow-up Needed')
+                ] %}
+                <option value="{{ val }}" {% if edit_call and edit_call.call_outcome == val %}selected{% endif %}>{{ lbl }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Next Follow-up Date</label>
+              <input type="date" name="next_followup_date" class="form-control"
+                     value="{{ edit_call.next_followup_date.strftime('%Y-%m-%d') if edit_call and edit_call.next_followup_date else '' }}">
+            </div>
+
+            <div class="col-12">
+              <label class="form-label fw-semibold">Products Discussed</label>
+              <input type="text" name="items_discussed" class="form-control"
+                     placeholder="e.g. Laptop i5, Desktop i7, TFT 22 inch"
+                     value="{{ edit_call.items_discussed or '' if edit_call else '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Quote Given (₹)</label>
+              <input type="number" name="quote_given" class="form-control" step="0.01" min="0"
+                     value="{{ edit_call.quote_given or '' if edit_call else '' }}">
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" name="whatsapp_sent" value="1" id="waSent"
+                       {% if edit_call and edit_call.whatsapp_sent %}checked{% endif %}>
+                <label class="form-check-label" for="waSent">WhatsApp sent during this call</label>
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Notes</label>
+              <textarea name="notes" class="form-control" rows="3"
+                        placeholder="What was discussed, any special requirements...">{{ edit_call.notes or '' if edit_call else '' }}</textarea>
+            </div>
+          </div>
+
+          <div class="mt-4 d-flex gap-2">
+            {% if edit_call %}
+            <button type="submit" class="btn btn-warning"><i class="bi bi-save me-1"></i>Save Changes</button>
+            {% else %}
+            <button type="submit" class="btn btn-success"><i class="bi bi-check-circle me-1"></i>Save Call</button>
+            {% endif %}
+            <a href="/dealers/{{ dealer.id }}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

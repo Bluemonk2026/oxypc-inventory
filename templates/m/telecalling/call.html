@@ -1,0 +1,144 @@
+{% extends "m/telecalling/base_m.html" %}
+{% block title %}OxyTC · Active Call{% endblock %}
+{% block heading %}Active Call{% endblock %}
+{% block topbar %}
+  <a href="javascript:history.back()" class="ic" style="color:#fff"><i class="bi bi-arrow-left"></i></a>
+  <h1>Active Call</h1>
+  <a href="#" id="save-top" class="ic" style="color:#fff"><i class="bi bi-floppy"></i></a>
+{% endblock %}
+
+{% block content %}
+<div class="tc-dial-hero">
+  <div id="lead-name" style="font-size:22px; font-weight:700;">…</div>
+  <div id="lead-phone" style="font-size:18px; margin-top:6px; letter-spacing:.5px;">{{ phone }}</div>
+  <div id="timer" class="timer">00:00</div>
+  <div id="lead-ctx" style="font-size:12px; opacity:.85; margin-top:8px;"></div>
+  <div style="margin-top:14px;">
+    <a id="dial-link" href="tel:{{ phone }}" class="tc-btn" style="background:rgba(255,255,255,.15);">
+      <i class="bi bi-telephone-fill"></i>  Dial
+    </a>
+  </div>
+</div>
+
+<section class="tc-card">
+  <h2>Outcome</h2>
+  <div class="tc-outcome-grid" id="outcomes">
+    <div class="tc-oc interested" data-oc="interested"><i class="bi bi-hand-thumbs-up"></i> Interested</div>
+    <div class="tc-oc order"      data-oc="order_placed"><i class="bi bi-cart-check"></i> Order Placed</div>
+    <div class="tc-oc callback"   data-oc="callback"><i class="bi bi-clock"></i> Callback</div>
+    <div class="tc-oc notint"     data-oc="not_interested"><i class="bi bi-hand-thumbs-down"></i> Not Interested</div>
+    <div class="tc-oc noans"      data-oc="no_answer"><i class="bi bi-mic-mute"></i> No Answer</div>
+    <div class="tc-oc dnc"        data-oc="do_not_call"><i class="bi bi-slash-circle"></i> Do Not Call</div>
+  </div>
+</section>
+
+<section class="tc-card">
+  <h2>Quick Capture</h2>
+  <div style="display:flex; gap:8px; margin-bottom:10px;">
+    <input class="tc-inp" id="f-qty"     placeholder="Qty" type="number" inputmode="numeric">
+    <input class="tc-inp" id="f-budget"  placeholder="Budget ₹" type="number" inputmode="numeric">
+  </div>
+  <div style="display:flex; gap:8px; margin-bottom:10px;">
+    <input class="tc-inp" id="f-followup" type="datetime-local">
+    <select class="tc-inp" id="f-grade"><option value="">Grade…</option><option>A+</option><option>A</option><option>B</option><option>C</option></select>
+  </div>
+  <textarea class="tc-inp" id="f-notes" rows="2" placeholder="Remarks…"></textarea>
+
+  <button id="btn-wa"   class="tc-btn wa"><i class="bi bi-whatsapp"></i>  Send WhatsApp Quote</button>
+  <button id="btn-save" class="tc-btn">Save Call</button>
+  <button id="btn-next" class="tc-btn ghost">Save &amp; Next Lead →</button>
+</section>
+{% endblock %}
+
+{% block page_script %}
+<script>
+const PHONE = {{ phone | tojson }};
+const START = Date.now();
+let OUTCOME = null;
+let GEO = null;
+
+// Timer
+setInterval(() => {
+  const s = Math.floor((Date.now() - START) / 1000);
+  const mm = String(Math.floor(s/60)).padStart(2,'0');
+  const ss = String(s%60).padStart(2,'0');
+  document.getElementById('timer').textContent = mm + ':' + ss;
+}, 500);
+
+// Geo (best-effort, no block)
+if (navigator.geolocation) {
+  navigator.geolocation.getCurrentPosition(
+    p => { GEO = { lat: p.coords.latitude, lng: p.coords.longitude }; },
+    () => {}, { timeout: 4000, maximumAge: 60000 });
+}
+
+// Outcome selection
+document.querySelectorAll('#outcomes .tc-oc').forEach(el => {
+  el.addEventListener('click', () => {
+    document.querySelectorAll('#outcomes .tc-oc').forEach(x => x.classList.remove('selected'));
+    el.classList.add('selected');
+    OUTCOME = el.dataset.oc;
+  });
+});
+
+// Hydrate lead context (best-effort)
+(async function(){
+  try {
+    const calls = await OxyTC.api('/calls?limit=1&date_from=2020-01-01');
+    // last call info is loaded via /calls/{id}/timeline once we have a record;
+    // for first contact, show phone only.
+    document.getElementById('lead-name').textContent = 'Lead ' + PHONE.slice(-4);
+  } catch (e) {}
+})();
+
+async function saveCall(andAdvance){
+  if (!OUTCOME) { OxyTC.toast('Pick an outcome', 'warn'); return; }
+  const dur = Math.floor((Date.now() - START) / 1000);
+  const idem = 'idem-' + OxyTC.deviceId + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  const payload = {
+    phone: PHONE,
+    call_source: 'prospect',
+    call_outcome: OUTCOME,
+    call_duration_secs: dur,
+    quantity_required: Number(document.getElementById('f-qty').value) || null,
+    budget: Number(document.getElementById('f-budget').value) || null,
+    next_followup: document.getElementById('f-followup').value || null,
+    grade: document.getElementById('f-grade').value || null,
+    notes: document.getElementById('f-notes').value || null,
+    device_id: OxyTC.deviceId,
+    latitude: GEO && GEO.lat, longitude: GEO && GEO.lng,
+    create_draft_order: (OUTCOME === 'order_placed'),
+  };
+
+  if (!navigator.onLine) {
+    await OxyTCQueue.enqueue({ idempotency_key: idem, device_id: OxyTC.deviceId, payload });
+    OxyTC.toast('Saved offline — will sync', 'warn');
+    if (andAdvance) { setTimeout(() => history.back(), 700); }
+    return;
+  }
+
+  try {
+    await OxyTC.api('/calls', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idem },
+      body: JSON.stringify(payload),
+    });
+    OxyTC.toast('Saved ✓', 'ok');
+    if (andAdvance) { setTimeout(() => location.href = '/m/telecalling/queue', 600); }
+  } catch (e) {
+    // Network blip — queue and retry
+    await OxyTCQueue.enqueue({ idempotency_key: idem, device_id: OxyTC.deviceId, payload });
+    OxyTC.toast('Network error · queued', 'warn');
+  }
+}
+
+document.getElementById('btn-save').addEventListener('click', () => saveCall(false));
+document.getElementById('save-top').addEventListener('click', e => { e.preventDefault(); saveCall(false); });
+document.getElementById('btn-next').addEventListener('click', () => saveCall(true));
+
+document.getElementById('btn-wa').addEventListener('click', () => {
+  // Open wa.me intent; backend wiring of CRMQuote + send_message comes in D5
+  window.open('https://wa.me/' + PHONE.replace(/\D/g, ''), '_blank');
+});
+</script>
+{% endblock %}

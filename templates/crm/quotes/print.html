@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quotation {{ quote.quote_number }} — OxyPC Inventory</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 12pt;
+      color: #222;
+      background: #fff;
+      padding: 30px 40px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 3px solid #1a56db;
+      padding-bottom: 16px;
+      margin-bottom: 20px;
+    }
+    .company-name {
+      font-size: 22pt;
+      font-weight: bold;
+      color: #1a56db;
+    }
+    .company-sub {
+      font-size: 10pt;
+      color: #555;
+      margin-top: 2px;
+    }
+    .quotation-title {
+      text-align: right;
+    }
+    .quotation-title h2 {
+      font-size: 18pt;
+      color: #1a56db;
+      font-weight: bold;
+    }
+    .quotation-title .quote-num {
+      font-size: 12pt;
+      color: #555;
+    }
+
+    .meta-section {
+      display: flex;
+      gap: 40px;
+      margin-bottom: 24px;
+    }
+    .meta-block { flex: 1; }
+    .meta-block h4 {
+      font-size: 9pt;
+      text-transform: uppercase;
+      color: #888;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 4px;
+    }
+    .meta-block p { font-size: 11pt; margin-bottom: 2px; }
+    .meta-block .company { font-weight: bold; font-size: 12pt; }
+
+    .detail-row {
+      display: flex;
+      gap: 30px;
+      margin-bottom: 20px;
+    }
+    .detail-item { }
+    .detail-item .label { font-size: 9pt; color: #888; text-transform: uppercase; }
+    .detail-item .value { font-size: 11pt; font-weight: bold; }
+
+    table.items {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+    }
+    table.items thead tr {
+      background: #1a56db;
+      color: #fff;
+    }
+    table.items th {
+      padding: 8px 10px;
+      font-size: 10pt;
+      text-align: left;
+      border: 1px solid #1a56db;
+    }
+    table.items td {
+      padding: 8px 10px;
+      font-size: 11pt;
+      border: 1px solid #ddd;
+    }
+    table.items tbody tr:nth-child(even) { background: #f9f9f9; }
+    table.items .num { text-align: center; }
+    table.items .right { text-align: right; }
+    table.items .center { text-align: center; }
+    .total-row td {
+      background: #f0f4ff !important;
+      font-weight: bold;
+      font-size: 12pt;
+      border-top: 2px solid #1a56db !important;
+    }
+    .total-row .grand { color: #1a56db; font-size: 14pt; }
+
+    .conditions-section {
+      margin-bottom: 20px;
+      padding: 12px 16px;
+      background: #f8f9fa;
+      border-left: 4px solid #1a56db;
+      font-size: 10pt;
+    }
+    .conditions-section h4 {
+      font-size: 10pt;
+      font-weight: bold;
+      margin-bottom: 6px;
+      color: #1a56db;
+    }
+
+    .signature-section {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid #ddd;
+    }
+    .sig-block { text-align: center; }
+    .sig-line {
+      width: 200px;
+      border-bottom: 1px solid #333;
+      margin: 40px auto 4px;
+    }
+    .sig-label { font-size: 10pt; color: #555; }
+    .sig-title { font-size: 9pt; color: #888; }
+
+    .footer-note {
+      margin-top: 20px;
+      font-size: 9pt;
+      color: #888;
+      text-align: center;
+      border-top: 1px solid #eee;
+      padding-top: 12px;
+    }
+
+    @media print {
+      body { font-size: 11pt; padding: 15px 20px; }
+      @page { margin: 15mm; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Print Button (hidden on print) -->
+<div class="no-print" style="text-align:right;margin-bottom:16px">
+  <button onclick="window.print()" style="padding:6px 16px;background:#1a56db;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11pt">
+    &#128438; Print / Save PDF
+  </button>
+  <button onclick="window.close()" style="padding:6px 16px;background:#eee;color:#333;border:none;border-radius:4px;cursor:pointer;font-size:11pt;margin-left:8px">
+    Close
+  </button>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <div>
+    <div class="company-name">OxyPC Inventory</div>
+    <div class="company-sub">Refurbished IT Asset Specialists</div>
+  </div>
+  <div class="quotation-title">
+    <h2>QUOTATION</h2>
+    <div class="quote-num">{{ quote.quote_number }}</div>
+  </div>
+</div>
+
+<!-- To / Meta -->
+<div class="meta-section">
+  <div class="meta-block">
+    <h4>To</h4>
+    {% if contact %}
+    <p class="company">{{ contact.company_name }}</p>
+    {% if contact.contact_person %}<p>Attn: {{ contact.contact_person }}</p>{% endif %}
+    {% if contact.phone %}<p>Ph: {{ contact.phone }}</p>{% endif %}
+    {% if contact.email %}<p>{{ contact.email }}</p>{% endif %}
+    {% if contact.city %}<p>{{ contact.city }}{% if contact.state %}, {{ contact.state }}{% endif %}</p>{% endif %}
+    {% if contact.gstin %}<p>GSTIN: {{ contact.gstin }}</p>{% endif %}
+    {% endif %}
+  </div>
+  <div class="meta-block" style="max-width:240px">
+    <h4>Quote Details</h4>
+    <div class="detail-row" style="flex-direction:column;gap:8px">
+      <div class="detail-item">
+        <div class="label">Quote Number</div>
+        <div class="value">{{ quote.quote_number }}</div>
+      </div>
+      <div class="detail-item">
+        <div class="label">Quote Date</div>
+        <div class="value">{{ quote.quote_date.strftime('%d %B %Y') if quote.quote_date else '—' }}</div>
+      </div>
+      <div class="detail-item">
+        <div class="label">Valid Until</div>
+        <div class="value">{{ quote.valid_until.strftime('%d %B %Y') if quote.valid_until else '—' }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Line Items -->
+<table class="items">
+  <thead>
+    <tr>
+      <th class="num" style="width:40px">#</th>
+      <th>Description / Device Type</th>
+      <th>Material</th>
+      <th class="center">Grade</th>
+      <th class="center" style="width:60px">Qty</th>
+      <th class="right" style="width:110px">Unit Price</th>
+      <th class="right" style="width:120px">Total</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in quote.items %}
+    <tr>
+      <td class="num">{{ loop.index }}</td>
+      <td>{{ item.device_type or '—' }}{% if item.specs_note %}<br><span style="font-size:9pt;color:#666">{{ item.specs_note }}</span>{% endif %}</td>
+      <td>{{ item.material_type | replace('_',' ') | title if item.material_type else '—' }}</td>
+      <td class="center">{{ item.grade or '—' }}</td>
+      <td class="center">{{ item.quantity }}</td>
+      <td class="right">₹{{ "{:,.0f}".format(item.unit_price) }}</td>
+      <td class="right">₹{{ "{:,.0f}".format(item.total_price) }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" style="text-align:center;color:#888;padding:20px">No items</td></tr>
+    {% endfor %}
+  </tbody>
+  {% if quote.grand_total %}
+  <tfoot>
+    <tr class="total-row">
+      <td colspan="5" class="right">Grand Total</td>
+      <td></td>
+      <td class="right grand">₹{{ "{:,.0f}".format(quote.grand_total) }}</td>
+    </tr>
+  </tfoot>
+  {% endif %}
+</table>
+
+<!-- Payment Terms -->
+{% if quote.payment_terms %}
+<div class="conditions-section" style="margin-bottom:12px">
+  <h4>Payment Terms</h4>
+  <p>{{ quote.payment_terms }}</p>
+</div>
+{% endif %}
+
+<!-- Special Conditions -->
+{% if quote.special_conditions %}
+<div class="conditions-section">
+  <h4>Special Conditions &amp; Terms</h4>
+  <p style="white-space:pre-line">{{ quote.special_conditions }}</p>
+</div>
+{% endif %}
+
+<!-- Signature -->
+<div class="signature-section">
+  <div class="sig-block">
+    <div class="sig-line"></div>
+    <div class="sig-label">Customer Acceptance</div>
+    <div class="sig-title">Name / Designation / Date</div>
+  </div>
+  <div class="sig-block">
+    <div class="sig-line"></div>
+    <div class="sig-label">For OxyPC Inventory</div>
+    <div class="sig-title">Authorised Signatory</div>
+  </div>
+</div>
+
+<div class="footer-note">
+  This is a computer-generated quotation. Valid until {{ quote.valid_until.strftime('%d %B %Y') if quote.valid_until else 'date stated above' }}.
+  For queries, please contact us with quotation number {{ quote.quote_number }}.
+</div>
+
+<script>
+  window.addEventListener('load', function() { window.print(); });
+</script>
+</body>
+</html>

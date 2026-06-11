@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Invoice {{ invoice_no }}</title>
+<style>
+  @media print { .no-print { display: none !important; } body { margin: 0; } }
+  body { font-family: Arial, sans-serif; font-size: 13px; color: #111; }
+  .page { max-width: 800px; margin: 20px auto; padding: 24px; border: 2px solid #1565C0; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1565C0; padding-bottom: 12px; margin-bottom: 16px; }
+  .company-name { font-size: 24px; font-weight: bold; color: #1565C0; }
+  .invoice-title { font-size: 20px; font-weight: bold; text-align: right; }
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #1565C0; color: #fff; padding: 8px; text-align: left; }
+  td { padding: 7px 8px; border-bottom: 1px solid #e0e0e0; }
+  .total-row td { font-weight: bold; background: #E3F2FD; }
+  .grand-total td { font-weight: bold; font-size: 15px; background: #1565C0; color: #fff; }
+  .section-title { font-weight: bold; color: #1565C0; margin: 14px 0 6px 0; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  .two-col { display: flex; gap: 24px; }
+  .two-col > div { flex: 1; }
+  .badge { background: #E3F2FD; color: #1565C0; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="company-name">{{ company.name }}</div>
+      <div>{{ company.address }}</div>
+      <div>GSTIN: <strong>{{ company.gstin }}</strong> | State: {{ company.state }} ({{ company.state_code }})</div>
+      <div>{{ company.phone }} | {{ company.email }}</div>
+    </div>
+    <div style="text-align:right">
+      <div class="invoice-title">TAX INVOICE</div>
+      <div><strong>Invoice No:</strong> {{ invoice_no }}</div>
+      <div><strong>Date:</strong> {{ sale.sold_at.strftime('%d %B %Y') }}</div>
+      <div><span class="badge">{{ sale.payment_mode | upper if sale.payment_mode else 'CASH' }}</span></div>
+    </div>
+  </div>
+
+  <div class="two-col" style="margin-bottom:16px">
+    <div>
+      <div class="section-title">Bill To</div>
+      <div><strong>{{ sale.customer_name or 'Walk-in Customer' }}</strong></div>
+      {% if sale.customer_phone %}<div>{{ sale.customer_phone }}</div>{% endif %}
+      <div>State: {{ sale.customer_state or 'Delhi' }}</div>
+    </div>
+    <div>
+      <div class="section-title">Device Details</div>
+      <div><strong>{{ device.brand }} {{ device.model }}</strong></div>
+      <div>Barcode: {{ device.barcode }}</div>
+      {% if device.serial_no %}<div>S/N: {{ device.serial_no }}</div>{% endif %}
+      <div>Grade: <strong>{{ device.grade | upper if device.grade else '—' }}</strong></div>
+    </div>
+  </div>
+
+  <div class="section-title">Item Details</div>
+  <table>
+    <thead>
+      <tr><th>#</th><th>Description</th><th>HSN</th><th>Qty</th><th style="text-align:right">Rate (&#8377;)</th><th style="text-align:right">Taxable (&#8377;)</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>
+          {{ device.brand }} {{ device.model }}
+          {% if device.cpu %} | {{ device.cpu }}{% endif %}
+          {% if device.ram_gb %} | {{ device.ram_gb }}GB RAM{% endif %}
+          {% if device.storage_gb %} | {{ device.storage_gb }}GB {{ device.storage_type }}{% endif %}
+          <br><small style="color:#666">Barcode: {{ device.barcode }}{% if device.serial_no %} | SN: {{ device.serial_no }}{% endif %}</small>
+        </td>
+        <td>8471</td><td>1</td>
+        <td style="text-align:right">{{ "{:,.2f}".format(gst.taxable) }}</td>
+        <td style="text-align:right">{{ "{:,.2f}".format(gst.taxable) }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table style="margin-top:12px">
+    <tbody>
+      <tr><td style="width:60%">Taxable Amount</td><td style="text-align:right">&#8377; {{ "{:,.2f}".format(gst.taxable) }}</td></tr>
+      {% if gst.intra_state %}
+      <tr><td>CGST @ {{ gst.cgst_rate }}%</td><td style="text-align:right">&#8377; {{ "{:,.2f}".format(gst.cgst) }}</td></tr>
+      <tr><td>SGST @ {{ gst.sgst_rate }}%</td><td style="text-align:right">&#8377; {{ "{:,.2f}".format(gst.sgst) }}</td></tr>
+      {% else %}
+      <tr><td>IGST @ {{ gst.igst_rate }}%</td><td style="text-align:right">&#8377; {{ "{:,.2f}".format(gst.igst) }}</td></tr>
+      {% endif %}
+      <tr class="grand-total"><td>Grand Total</td><td style="text-align:right">&#8377; {{ "{:,.2f}".format(gst.grand_total) }}</td></tr>
+    </tbody>
+  </table>
+
+  <div class="two-col" style="margin-top:32px">
+    <div>
+      <div class="section-title">Declaration</div>
+      <div style="font-size:11px;color:#555">We declare that this invoice shows the actual price of the goods described and all particulars are true and correct.</div>
+    </div>
+    <div style="text-align:center">
+      <div style="margin-top:40px; border-top:1px solid #999; padding-top:6px; font-size:11px">Authorised Signatory</div>
+      <div style="font-size:11px;color:#555">{{ company.name }}</div>
+    </div>
+  </div>
+
+  <div class="no-print" style="margin-top:20px; text-align:center">
+    <button onclick="window.print()" style="padding:8px 20px;background:#1565C0;color:#fff;border:none;border-radius:4px;cursor:pointer;margin-right:8px">Print Invoice</button>
+    <a href="/sales" style="padding:8px 20px;border:1px solid #666;border-radius:4px;text-decoration:none;color:#333">Back to Sales</a>
+  </div>
+</div>
+</body>
+</html>

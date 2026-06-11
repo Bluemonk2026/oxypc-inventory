@@ -1,0 +1,18 @@
+{
+  "name": "oxypc-wa-service",
+  "version": "1.0.0",
+  "description": "WhatsApp Web bridge for OxyPC Inventory — exposes REST endpoints for QR scan, status, and message sending",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "install-deps": "npm install"
+  },
+  "dependencies": {
+    "whatsapp-web.js": "^1.23.0",
+    "qrcode": "^1.5.3",
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

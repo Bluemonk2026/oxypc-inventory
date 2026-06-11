@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Overdue Devices — OxyPC{% endblock %}
+{% block page_title %}Overdue Devices{% endblock %}
+{% block content %}
+
+<form method="get" action="/reports/overdue" class="row g-2 mb-3 align-items-end">
+  <div class="col-md-3">
+    <label class="form-label small fw-semibold">Filter by Stage</label>
+    <select name="stage" class="form-select form-select-sm">
+      <option value="">All Active Stages</option>
+      {% for s in all_stages %}
+      <option value="{{ s.value }}" {% if stage == s.value %}selected{% endif %}>
+        {{ s.value.replace('_',' ').title() }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-2">
+    <label class="form-label small fw-semibold">Min Days in Stage</label>
+    <input type="number" name="min_days" class="form-control form-control-sm"
+           value="{{ min_days }}" min="0">
+  </div>
+  <div class="col-auto">
+    <button type="submit" class="btn btn-sm btn-primary">
+      <i class="bi bi-funnel me-1"></i>Filter
+    </button>
+    <a href="/reports/overdue" class="btn btn-sm btn-outline-secondary ms-1">Clear</a>
+    <a href="/reports/overdue/csv?stage={{ stage }}&min_days={{ min_days }}"
+       class="btn btn-sm btn-outline-success ms-1">
+      <i class="bi bi-download me-1"></i>Export CSV
+    </a>
+  </div>
+</form>
+
+{% if rows %}
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent small text-muted">
+    Showing {{ rows|length }} device(s) waiting &ge; {{ min_days }} day(s)
+    {% if stage %} in stage <strong>{{ stage.replace('_',' ').title() }}</strong>{% endif %}
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>#</th>
+            <th>Barcode</th>
+            <th>Brand / Model</th>
+            <th>Stage</th>
+            <th>Days Waiting</th>
+            <th>Lot</th>
+            <th>Last Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td class="text-muted small">{{ loop.index }}</td>
+            <td>
+              <a href="/devices/{{ row.barcode }}" class="font-monospace small text-decoration-none">
+                {{ row.barcode }}
+              </a>
+            </td>
+            <td class="small">{{ row.brand }} {{ row.model }}</td>
+            <td>
+              <span class="badge bg-secondary">{{ row.stage.replace('_',' ').title() }}</span>
+            </td>
+            <td class="fw-bold {% if row.days > 14 %}text-danger{% elif row.days > 7 %}text-warning{% endif %}">
+              {{ row.days }}d
+            </td>
+            <td class="text-muted small">{{ row.lot_number }}</td>
+            <td class="text-muted small">
+              {{ row.updated_at.strftime('%d %b %Y') if row.updated_at else '—' }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-success">
+  <i class="bi bi-check-circle me-2"></i>No overdue devices found with current filters.
+</div>
+{% endif %}
+
+{% endblock %}

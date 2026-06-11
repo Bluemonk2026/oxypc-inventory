@@ -1,0 +1,217 @@
+from templates_config import templates
+from datetime import datetime
+from fastapi import APIRouter, Depends, Form, Request, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from database import get_db
+from models.user import User, UserRole
+from models.device import Device, DeviceStage, StageMovement
+from models.lot import Lot
+from models.repair import RepairJob, RepairStatus
+from auth.dependencies import get_current_user, require_roles
+
+router = APIRouter(prefix="/repair", tags=["repair"])
+
+STAGE_MAP = {
+    "l1": DeviceStage.l1,
+    "l2": DeviceStage.l2,
+    "l3": DeviceStage.l3,
+}
+
+NEXT_STAGE = {
+    DeviceStage.l1: DeviceStage.l2,
+    DeviceStage.l2: DeviceStage.l3,
+    DeviceStage.l3: DeviceStage.qc_check,
+}
+
+
+def stage_allowed(stage: str):
+    role_map = {
+        "l1": require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.l1_engineer),
+        "l2": require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.l2_engineer),
+        "l3": require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.l3_engineer),
+    }
+    return role_map.get(stage, require_roles(UserRole.admin))
+
+
+@router.get("/{stage}", response_class=HTMLResponse)
+async def repair_list(stage: str, request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if stage not in STAGE_MAP:
+        raise HTTPException(404)
+    device_stage = STAGE_MAP[stage]
+    result = await db.execute(
+        select(Device, Lot.lot_number)
+        .join(Lot, Device.lot_id == Lot.id)
+        .where(Device.current_stage == device_stage)
+        .order_by(Device.updated_at.desc())
+    )
+    devices = result.all()
+
+    jobs_result = await db.execute(
+        select(RepairJob, Device.barcode, Device.brand, Device.model)
+        .join(Device, RepairJob.device_id == Device.id)
+        .where(RepairJob.stage == stage.upper(), RepairJob.status != RepairStatus.completed)
+        .order_by(RepairJob.started_at.desc())
+    )
+    open_jobs = jobs_result.all()
+
+    return templates.TemplateResponse(f"repair/{stage}.html", {
+        "request": request, "devices": devices, "open_jobs": open_jobs,
+        "stage": stage.upper(), "current_user": current_user
+    })
+
+
+@router.post("/start")
+async def start_repair(
+    barcode: str = Form(...),
+    stage: str = Form(...),
+    issue_description: str = Form(""),
+    problem_reported: str = Form(""),
+    team_name: str = Form(""),
+    assigned_engineer: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(select(Device).where(Device.barcode == barcode))
+    device = result.scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+
+    prev_stage = device.current_stage
+    device_stage = STAGE_MAP.get(stage.lower())
+    if device_stage:
+        device.current_stage = device_stage
+        device.updated_at = datetime.utcnow()
+        movement = StageMovement(
+            device_id=device.id, from_stage=prev_stage, to_stage=device_stage,
+            moved_by=current_user.username, notes=f"Started {stage} repair"
+        )
+        db.add(movement)
+
+    job = RepairJob(
+        device_id=device.id, stage=stage.upper(),
+        engineer_id=current_user.id, engineer_name=current_user.full_name,
+        issue_description=issue_description or None,
+        problem_reported=problem_reported or None,
+        team_name=team_name or None,
+        assigned_engineer=assigned_engineer or None,
+        status=RepairStatus.in_progress,
+    )
+    db.add(job)
+    await db.commit()
+    return RedirectResponse(url=f"/repair/{stage.lower()}?success=Repair+started", status_code=302)
+
+
+@router.post("/complete")
+async def complete_repair(
+    job_id: str = Form(...),
+    resolution: str = Form(""),
+    move_to_next: str = Form("no"),
+    final_status: str = Form(""),
+    dust_cleaning: str = Form(""),
+    cmos_battery_change: str = Form(""),
+    thermal_paste: str = Form(""),
+    ram_status: str = Form(""),
+    ram_removed_gb: str = Form(""),
+    ram_added_gb: str = Form(""),
+    hdd_updated: str = Form(""),
+    hdd_removed: str = Form(""),
+    hdd_added: str = Form(""),
+    # L3-specific
+    action_taken: str = Form(""),
+    problem_reported: str = Form(""),
+    problem_observed: str = Form(""),
+    scrap_reason: str = Form(""),
+    received_from: str = Form(""),
+    customer_internal: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(select(RepairJob).where(RepairJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(404)
+    job.status = RepairStatus.completed
+    job.completed_at = datetime.utcnow()
+    job.resolution = resolution or None
+    job.final_status = final_status or None
+    job.dust_cleaning = dust_cleaning or None
+    job.cmos_battery_change = cmos_battery_change or None
+    job.thermal_paste = thermal_paste or None
+    job.ram_status = ram_status or None
+    job.ram_removed_gb = ram_removed_gb or None
+    job.ram_added_gb = ram_added_gb or None
+    job.hdd_updated = hdd_updated or None
+    job.hdd_removed = hdd_removed or None
+    job.hdd_added = hdd_added or None
+    job.action_taken = action_taken or None
+    job.problem_reported = problem_reported or None
+    job.problem_observed = problem_observed or None
+    job.scrap_reason = scrap_reason or None
+    job.received_from = received_from or None
+    job.customer_internal = customer_internal or None
+
+    stage = job.stage.lower()
+    dev_result = await db.execute(select(Device).where(Device.id == job.device_id))
+    device = dev_result.scalar_one_or_none()
+
+    # Determine next stage — handle final_status overrides
+    if final_status in ("Scrap",):
+        from models.device import DeviceStage as DS
+        if device:
+            movement = StageMovement(
+                device_id=device.id, from_stage=device.current_stage,
+                to_stage=DS.scrapped, moved_by=current_user.username,
+                notes=f"{job.stage} — Scrapped: {scrap_reason}"
+            )
+            device.current_stage = DS.scrapped
+            device.updated_at = datetime.utcnow()
+            db.add(movement)
+    elif move_to_next == "yes" and device:
+        current = device.current_stage
+        next_s = NEXT_STAGE.get(current)
+        if next_s:
+            movement = StageMovement(
+                device_id=device.id, from_stage=current, to_stage=next_s,
+                moved_by=current_user.username,
+                notes=f"{job.stage} repair completed — {final_status or 'OK'}"
+            )
+            device.current_stage = next_s
+            device.updated_at = datetime.utcnow()
+            db.add(movement)
+
+    await db.commit()
+    return RedirectResponse(url=f"/repair/{stage}?success=Repair+completed", status_code=302)
+
+
+@router.get("/move/form", response_class=HTMLResponse)
+async def move_form(request: Request, current_user: User = Depends(get_current_user)):
+    return templates.TemplateResponse("repair/move.html", {
+        "request": request, "current_user": current_user,
+        "stages": [s for s in DeviceStage]
+    })
+
+
+@router.post("/move")
+async def move_device(
+    barcode: str = Form(...),
+    to_stage: str = Form(...),
+    notes: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(select(Device).where(Device.barcode == barcode))
+    device = result.scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    prev = device.current_stage
+    device.current_stage = DeviceStage(to_stage)
+    device.updated_at = datetime.utcnow()
+    movement = StageMovement(
+        device_id=device.id, from_stage=prev, to_stage=DeviceStage(to_stage),
+        moved_by=current_user.username, notes=notes or "Manual move"
+    )
+    db.add(movement)
+    await db.commit()
+    return RedirectResponse(url=f"/repair/move/form?success=Device+moved", status_code=302)

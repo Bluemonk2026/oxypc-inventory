@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Log Call — OxyPC{% endblock %}
+{% block page_title %}Log Telecalling Record{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-xl-7">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <form method="post" action="/telecalling/add">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Dealer (optional)</label>
+              <select name="dealer_id" class="form-select">
+                <option value="">— Walk-in / New Prospect —</option>
+                {% for d in dealers %}<option value="{{ d.id }}" data-phone="{{ d.phone or '' }}" data-name="{{ d.business_name }}" {% if d.id|string == prefill_dealer_id %}selected{% endif %}>{{ d.business_name }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Phone Number <span class="text-danger">*</span></label>
+              <input type="text" name="phone" class="form-control" value="{{ prefill_phone }}" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Dealer / Contact Name</label>
+              <input type="text" name="dealer_name" class="form-control" placeholder="If not a registered dealer">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Outcome <span class="text-danger">*</span></label>
+              <select name="call_outcome" class="form-select" required>
+                <option value="">Select...</option>
+                <option value="interested">Interested</option>
+                <option value="order_placed">Order Placed</option>
+                <option value="callback">Callback Requested</option>
+                <option value="not_interested">Not Interested</option>
+                <option value="no_answer">No Answer</option>
+                <option value="do_not_call">Do Not Call</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Product Interest</label>
+              <input type="text" name="product_interest" class="form-control" placeholder="Laptop i5, Desktop, TFT...">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Qty Required</label>
+              <input type="number" name="quantity_required" class="form-control" min="0">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Budget (₹)</label>
+              <input type="number" name="budget" class="form-control" step="0.01" min="0">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Next Follow-up</label>
+              <input type="date" name="next_followup" class="form-control">
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="whatsapp_sent" value="1" id="waSent">
+                <label class="form-check-label" for="waSent">Sent WhatsApp message</label>
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notes</label>
+              <textarea name="notes" class="form-control" rows="3" placeholder="Call summary, requirements discussed..."></textarea>
+            </div>
+          </div>
+          <div class="mt-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle me-1"></i>Save Record</button>
+            <a href="/telecalling" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelector('select[name="dealer_id"]').addEventListener('change', function() {
+  const opt = this.options[this.selectedIndex];
+  const phone = opt.dataset.phone || '';
+  const name  = opt.dataset.name  || '';
+  const phoneField = document.querySelector('input[name="phone"]');
+  const nameField  = document.querySelector('input[name="dealer_name"]');
+  if (phone) phoneField.value = phone;
+  if (name)  nameField.value  = name;
+});
+</script>
+{% endblock %}

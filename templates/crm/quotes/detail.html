@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}{{ quote.quote_number }} — Quote — OxyPC{% endblock %}
+{% block page_title %}Quote {{ quote.quote_number }}{% endblock %}
+{% block content %}
+
+{% set status_colors = {
+  'draft': 'secondary', 'sent': 'info', 'negotiating': 'warning',
+  'accepted': 'success', 'rejected': 'danger', 'expired': 'secondary'
+} %}
+
+<!-- Quote Header -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <div class="row align-items-start">
+      <div class="col-md-8">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <h5 class="mb-0 fw-bold">{{ quote.quote_number }}</h5>
+          <span class="badge bg-{{ status_colors.get(quote.status,'secondary') }} fs-6">{{ quote.status | title }}</span>
+        </div>
+        {% if contact %}
+        <div class="mb-1"><i class="bi bi-building me-2 text-muted"></i>
+          <a href="/crm/contacts/{{ contact.id }}" class="fw-semibold text-decoration-none">{{ contact.company_name }}</a>
+          {% if contact.contact_person %}<span class="text-muted small ms-1">· {{ contact.contact_person }}</span>{% endif %}
+        </div>
+        {% if contact.phone %}<div class="small text-muted mb-1"><i class="bi bi-telephone me-2"></i>{{ contact.phone }}</div>{% endif %}
+        {% if contact.email %}<div class="small text-muted mb-1"><i class="bi bi-envelope me-2"></i>{{ contact.email }}</div>{% endif %}
+        {% endif %}
+      </div>
+      <div class="col-md-4 text-md-end">
+        <div class="small text-muted mb-1">Quote Date</div>
+        <div class="fw-semibold mb-2">{{ quote.quote_date.strftime('%d %b %Y') if quote.quote_date else '—' }}</div>
+        <div class="small text-muted mb-1">Valid Until</div>
+        <div class="fw-semibold {% if quote.valid_until and quote.valid_until < now.date() and quote.status not in ['accepted','rejected'] %}text-danger{% endif %}">
+          {{ quote.valid_until.strftime('%d %b %Y') if quote.valid_until else '—' }}
+        </div>
+        {% if quote.payment_terms %}
+        <div class="small text-muted mt-2">Payment: {{ quote.payment_terms }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Line Items -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-list-ul me-1 text-primary"></i>Line Items</div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-bordered mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:50px">#</th>
+            <th>Device Type</th>
+            <th>Material</th>
+            <th>Grade</th>
+            <th class="text-center">Qty</th>
+            <th class="text-end">Unit Price</th>
+            <th class="text-end">Total</th>
+            {% if quote.items | selectattr('specs_note') | list %}
+            <th>Specs / Notes</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in quote.items %}
+          {% set grade_colors = {'A':'success','B':'info','C':'warning','D':'secondary','Scrap':'danger','As-Is':'secondary','Mix':'primary'} %}
+          <tr>
+            <td class="text-muted">{{ loop.index }}</td>
+            <td>{{ item.device_type or '—' }}</td>
+            <td>{{ item.material_type | replace('_',' ') | title if item.material_type else '—' }}</td>
+            <td>{% if item.grade %}<span class="badge bg-{{ grade_colors.get(item.grade,'secondary') }}">{{ item.grade }}</span>{% else %}—{% endif %}</td>
+            <td class="text-center">{{ item.quantity }}</td>
+            <td class="text-end">₹{{ "{:,.0f}".format(item.unit_price) }}</td>
+            <td class="text-end fw-semibold">₹{{ "{:,.0f}".format(item.total_price) }}</td>
+            {% if quote.items | selectattr('specs_note') | list %}
+            <td class="small text-muted">{{ item.specs_note or '' }}</td>
+            {% endif %}
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="text-center text-muted py-3">No line items.</td></tr>
+          {% endfor %}
+        </tbody>
+        {% if quote.total_amount %}
+        <tfoot>
+          <tr class="table-light">
+            <td colspan="5" class="text-end fw-bold">Grand Total</td>
+            <td></td>
+            <td class="text-end fw-bold fs-5 text-success">₹{{ "{:,.0f}".format(quote.total_amount) }}</td>
+            {% if quote.items | selectattr('specs_note') | list %}<td></td>{% endif %}
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Special Conditions -->
+{% if quote.special_conditions %}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-file-text me-1 text-muted"></i>Special Conditions</div>
+  <div class="card-body">
+    <p class="mb-0 small">{{ quote.special_conditions }}</p>
+  </div>
+</div>
+{% endif %}
+
+<!-- Status Change + Actions -->
+<div class="row g-3">
+  <div class="col-md-5">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-arrow-repeat me-1 text-warning"></i>Update Status</div>
+      <div class="card-body">
+        <form method="post" action="/crm/quotes/{{ quote.id }}/status" class="d-flex gap-2">
+          <select name="new_status" class="form-select form-select-sm">
+            {% for val in ['draft','sent','negotiating','accepted','rejected','expired'] %}
+            <option value="{{ val }}" {% if quote.status==val %}selected{% endif %}>{{ val | title }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-sm btn-warning text-dark flex-shrink-0"><i class="bi bi-check me-1"></i>Update</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-7">
+    <div class="d-flex gap-2 flex-wrap align-items-center h-100">
+      <button class="btn btn-sm btn-outline-secondary" disabled title="Edit not yet implemented">
+        <i class="bi bi-pencil me-1"></i>Edit Quote
+      </button>
+      <a href="/crm/quotes/{{ quote.id }}/print" class="btn btn-sm btn-outline-primary" target="_blank">
+        <i class="bi bi-printer me-1"></i>Print Quote
+      </a>
+      <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#waShareModal">
+        <i class="bi bi-whatsapp me-1"></i>Share via WhatsApp
+      </button>
+      {% if opp %}
+      <a href="/crm/sales/{{ opp.id }}" class="btn btn-sm btn-outline-info">
+        <i class="bi bi-arrow-left me-1"></i>Back to Opportunity
+      </a>
+      {% else %}
+      <a href="/crm/quotes" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i>All Quotes
+      </a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- WA Share Modal -->
+<div class="modal fade" id="waShareModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-whatsapp me-2 text-success"></i>Share Quote via WhatsApp</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="/whatsapp/send">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Recipient Phone</label>
+            <input type="tel" name="recipient_phone" class="form-control"
+                   value="{{ quote.contact.whatsapp or quote.contact.phone if quote.contact else '' }}"
+                   placeholder="+91XXXXXXXXXX" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Message</label>
+            <textarea name="message_text" class="form-control" rows="10" required>Dear {% if quote.contact %}{{ quote.contact.company_name }}{% endif %},
+
+Please find our quotation details:
+
+Quote No: {{ quote.quote_number }}
+Date: {{ quote.quote_date.strftime('%d %b %Y') if quote.quote_date else '' }}
+Valid Until: {{ quote.valid_until.strftime('%d %b %Y') if quote.valid_until else 'On Request' }}
+
+Items:
+{% for item in quote.items %}{{ loop.index }}. {{ item.device_type }}{% if item.grade %} (Grade {{ item.grade }}){% endif %} — Qty: {{ item.quantity }} x Rs.{{ "{:,.0f}".format(item.unit_price) }} = Rs.{{ "{:,.0f}".format(item.total_price) }}
+{% endfor %}
+Total: Rs.{{ "{:,.0f}".format(quote.total_amount) }}
+{% if quote.payment_terms %}
+Payment Terms: {{ quote.payment_terms }}{% endif %}
+
+Regards,
+OxyPC Team</textarea>
+          </div>
+          <input type="hidden" name="message_type" value="text">
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-success"><i class="bi bi-send me-1"></i>Send Message</button>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

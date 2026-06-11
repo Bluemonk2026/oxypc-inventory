@@ -1,0 +1,61 @@
+{% extends "m/telecalling/base_m.html" %}
+{% block title %}OxyTC · Queue{% endblock %}
+{% block heading %}Today's Queue{% endblock %}
+{% block tab_queue %}active{% endblock %}
+
+{% block content %}
+<div style="overflow-x:auto; padding:10px 12px;">
+  <div id="filter-chips" style="display:flex; gap:6px;">
+    <button class="tc-inp" data-f="all"     style="white-space:nowrap; font-weight:600; background:var(--navy); color:#fff; border:0;">All</button>
+    <button class="tc-inp" data-f="high"    style="white-space:nowrap;">High</button>
+    <button class="tc-inp" data-f="pending" style="white-space:nowrap;">Pending</button>
+  </div>
+</div>
+
+<section class="tc-card" style="padding:0">
+  <div id="queue-list"><div class="tc-empty">Loading…</div></div>
+</section>
+{% endblock %}
+
+{% block page_script %}
+<script>
+let LEADS = [], FILTER = 'all';
+
+function render() {
+  const list = LEADS.filter(l => {
+    if (FILTER === 'high')    return l.priority === 'high';
+    if (FILTER === 'pending') return l.status !== 'done';
+    return true;
+  });
+  const el = document.getElementById('queue-list');
+  if (!list.length) { el.innerHTML = '<div class="tc-empty">No leads match</div>'; return; }
+  el.innerHTML = list.map(l => `
+    <div class="tc-lead">
+      <div class="av">${(l.display_name||'?').slice(0,2).toUpperCase()}</div>
+      <div style="flex:1; min-width:0">
+        <div class="nm">${l.display_name||'Unknown'} <span class="tc-pill ${l.priority}">${l.priority}</span></div>
+        <div class="sub">${l.lead_phone||''} · ${l.city||''} · ${l.category||''}</div>
+        ${l.last_outcome ? `<div class="sub" style="margin-top:4px"><i class="bi bi-chat-text"></i> Last: ${l.last_outcome} — ${(l.last_note||'').slice(0,40)}</div>` : ''}
+      </div>
+      <a class="tc-call-btn" href="/m/telecalling/call/${encodeURIComponent(l.lead_phone)}"><i class="bi bi-telephone-fill"></i></a>
+    </div>`).join('');
+}
+
+document.querySelectorAll('#filter-chips button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#filter-chips button').forEach(x => {
+      x.style.background = '#fff'; x.style.color = ''; x.style.border = '1px solid var(--line)';
+    });
+    b.style.background = 'var(--navy)'; b.style.color = '#fff'; b.style.border = '0';
+    FILTER = b.dataset.f; render();
+  });
+});
+
+(async function(){
+  try {
+    LEADS = await OxyTC.api('/assigned-leads');
+    render();
+  } catch (e) { OxyTC.toast('Failed to load queue', 'err'); }
+})();
+</script>
+{% endblock %}

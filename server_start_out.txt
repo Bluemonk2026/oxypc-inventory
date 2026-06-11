@@ -1,0 +1,13 @@
+
+==================================================
+  OxyPC Inventory starting...
+==================================================
+  [Schema] OK  DB schema matches ORM models - no issues
+  [Events] Webhook dispatcher subscribed to all event types
+
+  OxyPC Inventory started successfully
+  URL: http://localhost:8000
+  LAN: http://<your-server-ip>:8000
+  Default login: see config.ini or ask your administrator
+==================================================
+

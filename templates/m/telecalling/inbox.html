@@ -1,0 +1,40 @@
+{% extends "m/telecalling/base_m.html" %}
+{% block title %}OxyTC · Inbox{% endblock %}
+{% block heading %}Notifications{% endblock %}
+{% block tab_inbox %}active{% endblock %}
+
+{% block content %}
+<section class="tc-card" style="padding:0">
+  <div id="inbox-list"><div class="tc-empty">Loading…</div></div>
+</section>
+{% endblock %}
+
+{% block page_script %}
+<script>
+const ICONS = {
+  followup_due:    'bi-alarm',
+  new_assignment:  'bi-person-plus',
+  missed_callback: 'bi-exclamation-triangle',
+  target_alert:    'bi-bullseye',
+  order_confirmed: 'bi-cart-check',
+};
+
+(async function(){
+  let items = [];
+  try { items = await OxyTC.api('/followups/today'); } catch (e) {}
+  const el = document.getElementById('inbox-list');
+  if (!items.length) { el.innerHTML = '<div class="tc-empty">Inbox zero ✓</div>'; return; }
+  el.innerHTML = items.map(n => `
+    <div class="tc-lead" style="padding:14px 16px;">
+      <div class="av" style="background:#eef2fb; color:var(--navy)">
+        <i class="bi ${ICONS[n.type] || 'bi-bell'}"></i>
+      </div>
+      <div style="flex:1; min-width:0">
+        <div class="nm">${n.subject || n.type}</div>
+        <div class="sub">${n.phone || ''} · ${new Date(n.due_at).toLocaleString('en-IN')}</div>
+      </div>
+      ${n.phone ? `<a class="tc-call-btn" href="/m/telecalling/call/${encodeURIComponent(n.phone)}"><i class="bi bi-telephone-fill"></i></a>` : ''}
+    </div>`).join('');
+})();
+</script>
+{% endblock %}

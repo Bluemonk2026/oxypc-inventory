@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+{% block title %}L1 Repair — OxyPC{% endblock %}
+{% block page_title %}L1 Repair Stage{% endblock %}
+{% block content %}
+<div class="row g-3 mb-3">
+
+  <!-- Start / Assign Repair -->
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-warning-subtle fw-semibold"><i class="bi bi-tools me-2"></i>Start L1 Repair</div>
+      <div class="card-body">
+        <form action="/repair/start" method="post" class="d-flex flex-column gap-2">
+          <input type="hidden" name="stage" value="L1">
+          <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan device barcode" autofocus>
+          <input type="text" name="problem_reported" class="form-control" placeholder="Problem as reported">
+          <input type="text" name="issue_description" class="form-control" placeholder="Faults / issues observed">
+          <div class="row g-2">
+            <div class="col-6">
+              <select name="team_name" class="form-select form-select-sm">
+                <option value="">Team (optional)</option>
+                <option>Team A</option><option>Team B</option><option>Team C</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <input type="text" name="assigned_engineer" class="form-control form-control-sm" placeholder="Engineer name">
+            </div>
+          </div>
+          <button class="btn btn-warning"><i class="bi bi-play-circle me-1"></i>Start Repair</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Complete Repair Job -->
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-success-subtle fw-semibold"><i class="bi bi-check-circle me-2"></i>Complete L1 Repair Job</div>
+      <div class="card-body">
+        <form action="/repair/complete" method="post">
+          <div class="row g-2">
+            <div class="col-md-8">
+              <select name="job_id" class="form-select" required>
+                <option value="">-- Select open job --</option>
+                {% for job, barcode, brand, model in open_jobs %}
+                <option value="{{ job.id }}">{{ barcode }} — {{ brand or '' }} {{ model or '' }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <select name="final_status" class="form-select">
+                <option value="">Final Status</option>
+                <option>Completed</option>
+                <option>PNA</option>
+                <option>Escalate to L2</option>
+                <option>Escalate to L3</option>
+                <option>Scrap</option>
+                <option>Lot</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <input type="text" name="resolution" class="form-control" placeholder="Resolution / work done">
+            </div>
+            <!-- Operational checks -->
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Dust Cleaning</label>
+              <select name="dust_cleaning" class="form-select form-select-sm">
+                <option value="">— Select —</option><option>Done</option><option>Not Done</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">C-MOS Battery Change</label>
+              <select name="cmos_battery_change" class="form-select form-select-sm">
+                <option value="">— Select —</option><option>Done</option><option>Not Done</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">CPU Thermal Paste</label>
+              <select name="thermal_paste" class="form-select form-select-sm">
+                <option value="">— Select —</option><option>Done</option><option>Not Done</option>
+              </select>
+            </div>
+            <!-- RAM tracking -->
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">RAM Status</label>
+              <select name="ram_status" class="form-select form-select-sm" id="ramStatus">
+                <option value="No Change">No Change</option>
+                <option value="Upgraded">Upgraded</option>
+                <option value="Downgraded">Downgraded</option>
+              </select>
+            </div>
+            <div class="col-md-4" id="ramRemovedGroup" style="display:none">
+              <label class="form-label small">RAM Removed</label>
+              <select name="ram_removed_gb" class="form-select form-select-sm">
+                <option value="">—</option>
+                <option>4GB</option><option>8GB</option><option>16GB</option><option>32GB</option>
+              </select>
+            </div>
+            <div class="col-md-4" id="ramAddedGroup" style="display:none">
+              <label class="form-label small">RAM Added</label>
+              <select name="ram_added_gb" class="form-select form-select-sm">
+                <option value="">—</option>
+                <option>4GB</option><option>8GB</option><option>16GB</option><option>32GB</option>
+              </select>
+            </div>
+            <!-- HDD tracking -->
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">HDD Updated?</label>
+              <select name="hdd_updated" class="form-select form-select-sm" id="hddUpdated">
+                <option value="No">No</option><option value="Yes">Yes</option>
+              </select>
+            </div>
+            <div class="col-md-4" id="hddRemovedGroup" style="display:none">
+              <label class="form-label small">HDD Removed</label>
+              <select name="hdd_removed" class="form-select form-select-sm">
+                <option value="">—</option>
+                <option>250 GB</option><option>320 GB</option><option>500 GB</option>
+                <option>512 GB</option><option>1 TB</option><option>2 TB</option>
+              </select>
+            </div>
+            <div class="col-md-4" id="hddAddedGroup" style="display:none">
+              <label class="form-label small">HDD Added</label>
+              <select name="hdd_added" class="form-select form-select-sm">
+                <option value="">—</option>
+                <option>128 GB SSD</option><option>256 GB SSD</option><option>500 GB</option>
+                <option>512 GB SSD</option><option>1 TB</option><option>WITHOUT HARDDISK</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <div class="form-check mt-2">
+                <input class="form-check-input" type="checkbox" name="move_to_next" value="yes" id="mn1" checked>
+                <label class="form-check-label" for="mn1">Move to L2 after completing</label>
+              </div>
+            </div>
+          </div>
+          <!-- Parts Used (optional) -->
+          <div class="col-12 mt-1">
+            <label class="form-label small fw-semibold">Parts Used</label>
+            <div id="parts-list">
+              <div class="row g-2 mb-1 part-entry">
+                <div class="col-md-8">
+                  <select name="part_ids" class="form-select form-select-sm">
+                    <option value="">— No part —</option>
+                    {% for p in available_parts %}
+                    <option value="{{ p.id }}">{{ p.part_code }} — {{ p.name }} ({{ p.qty_in_stock }} in stock)</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <input type="number" name="part_qtys" class="form-control form-control-sm"
+                         min="1" placeholder="Qty" value="">
+                </div>
+              </div>
+            </div>
+            <button type="button" class="btn btn-outline-secondary btn-sm mt-1" id="add-part"
+                    onclick="(function(){var c=document.getElementById('parts-list'),t=c.querySelector('.part-entry').cloneNode(true);t.querySelectorAll('select,input').forEach(function(e){e.value='';});c.appendChild(t);})()">
+              <i class="bi bi-plus me-1"></i>Add Part
+            </button>
+          </div>
+          <button class="btn btn-success mt-2 w-100"><i class="bi bi-check-lg me-1"></i>Mark Complete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Scrap warning / Suggest QC banners -->
+{% if scrap_warning_map %}
+<div class="alert alert-danger alert-dismissible fade show mb-3" role="alert">
+  <strong><i class="bi bi-exclamation-triangle-fill me-1"></i>Scrap Risk Detected</strong> — {{ scrap_warning_map|length }} device(s) may be uneconomical to repair:
+  <ul class="mb-0 mt-1 small">
+    {% for device, lot_number in devices %}{% if device.id|string in scrap_warning_map %}
+    <li><code>{{ device.barcode }}</code> – {{ scrap_warning_map[device.id|string] }}</li>
+    {% endif %}{% endfor %}
+  </ul>
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
+{% if suggest_qc_ids %}
+<div class="alert alert-info alert-dismissible fade show mb-3" role="alert">
+  <strong><i class="bi bi-arrow-right-circle-fill me-1"></i>Ready for QC</strong> — {{ suggest_qc_ids|length }} device(s) have no open repair jobs and may be moved to QC:
+  <ul class="mb-0 mt-1 small">
+    {% for device, lot_number in devices %}{% if device.id|string in suggest_qc_ids %}
+    <li><code>{{ device.barcode }}</code> – {{ device.brand or '' }} {{ device.model or '' }}</li>
+    {% endif %}{% endfor %}
+  </ul>
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
+
+<!-- Devices in L1 -->
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold">Devices in L1 ({{ devices|length }})</div>
+  <div class="card-body p-0">
+    <table id="l1Table" class="table table-hover mb-0 small">
+      <thead class="table-dark">
+        <tr><th>Barcode</th><th>Lot</th><th>Brand</th><th>Model</th><th>CPU</th><th>Gen</th><th>RAM</th><th>Storage</th><th>Screen</th><th>Grade</th><th>Location</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        {% for device, lot_number in devices %}
+        <tr>
+          <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a></td>
+          <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
+          <td>{{ device.brand or '—' }}</td>
+          <td>{{ device.model or '—' }}</td>
+          <td class="text-muted">{{ device.cpu or '—' }}</td>
+          <td class="text-muted">{{ device.generation or '—' }}</td>
+          <td>{{ (device.ram_gb|string ~ 'GB') if device.ram_gb else '—' }}</td>
+          <td>{{ (device.storage_gb|string ~ 'GB') if device.storage_gb else '—' }}</td>
+          <td class="text-muted">{{ device.screen_size or '—' }}</td>
+          <td>{{ device.grade or '—' }}</td>
+          <td>
+            {% set loc = location_map.get(device.id | string) %}
+            {% if loc and loc.unit_id %}
+              {% if loc.action == 'picked_up' %}
+                <span class="badge bg-warning text-dark"><i class="bi bi-hand-index me-1"></i>{{ loc.unit_id }}</span>
+              {% else %}
+                <span class="badge bg-success">{{ loc.unit_id }}</span>
+              {% endif %}
+            {% elif loc and loc.action == 'picked_up' %}
+              <span class="badge bg-warning text-dark"><i class="bi bi-hand-index me-1"></i>In Hand</span>
+            {% else %}
+              <a href="/locations/device/{{ device.id }}" class="text-danger small" title="Assign location"><i class="bi bi-geo-alt"></i> —</a>
+            {% endif %}
+          </td>
+          <td class="text-muted">{{ device.notes or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Pagination ────────────────────────────────────────────────────────── #}
+{% if total_pages and total_pages > 1 %}
+<nav class="mt-3" aria-label="Device list pagination">
+  <ul class="pagination pagination-sm justify-content-center mb-0">
+    <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+      <a class="page-link" href="?page={{ page - 1 }}&page_size={{ page_size }}">‹ Prev</a>
+    </li>
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page %}
+        <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+      {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+        <li class="page-item"><a class="page-link" href="?page={{ p }}&page_size={{ page_size }}">{{ p }}</a></li>
+      {% elif p == page - 3 or p == page + 3 %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+      {% endif %}
+    {% endfor %}
+    <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+      <a class="page-link" href="?page={{ page + 1 }}&page_size={{ page_size }}">Next ›</a>
+    </li>
+  </ul>
+  <p class="text-center text-muted small mt-1">{{ total }} device(s) in stage &bull; Page {{ page }} of {{ total_pages }}</p>
+</nav>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){ $('#l1Table').DataTable({paging:false}); });
+
+// Show/hide RAM tracking fields
+document.getElementById('ramStatus').addEventListener('change', function() {
+  const changed = this.value !== 'No Change';
+  document.getElementById('ramRemovedGroup').style.display = changed ? '' : 'none';
+  document.getElementById('ramAddedGroup').style.display = changed ? '' : 'none';
+});
+// Show/hide HDD tracking fields
+document.getElementById('hddUpdated').addEventListener('change', function() {
+  const updated = this.value === 'Yes';
+  document.getElementById('hddRemovedGroup').style.display = updated ? '' : 'none';
+  document.getElementById('hddAddedGroup').style.display = updated ? '' : 'none';
+});
+</script>
+{% endblock %}

@@ -1,0 +1,1148 @@
+{% extends "base.html" %}
+{% block title %}WhatsApp — OxyPC{% endblock %}
+{% block page_title %}WhatsApp Integration{% endblock %}
+{% block content %}
+
+{% if request.query_params.get('success') %}
+<div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+{% if request.query_params.get('error') %}
+<div class="alert alert-danger alert-dismissible fade show"><i class="bi bi-x-circle me-2"></i>{{ request.query_params.get('error') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+{% if not service_online and (not session or session.status == 'disconnected') %}
+<div class="alert alert-warning d-flex gap-2 align-items-center">
+  <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+  <div><strong>WA Service Offline.</strong> Start it first:
+    <code class="ms-2">cd wa-service &amp;&amp; node index.js</code>
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-4">
+
+  {# ── Left: Session card + Recent messages ────────────────────────── #}
+  <div class="col-xl-4">
+
+    {# Session card #}
+    <div class="card border-0 shadow-sm">
+      <div class="card-header fw-semibold" style="background:#075E54;color:#fff">
+        <i class="bi bi-whatsapp me-2"></i>My WhatsApp Session
+      </div>
+      <div class="card-body text-center py-4">
+        {% if session and session.status == 'connected' %}
+        <i class="bi bi-check-circle-fill text-success mb-2" style="font-size:3rem"></i>
+        <div class="fw-bold text-success fs-5 mb-1">Connected</div>
+        <div class="text-muted small mb-1"><i class="bi bi-phone me-1"></i>{{ session.phone_number or 'Unknown' }}</div>
+        <div class="text-muted small mb-3">Since: {{ session.connected_at | ist if session.connected_at else '—' }} IST</div>
+        <form method="post" action="/whatsapp/disconnect">
+          <button class="btn btn-outline-danger btn-sm px-4"><i class="bi bi-power me-1"></i>Disconnect</button>
+        </form>
+
+        {% elif session and session.status == 'scanning' %}
+        <i class="bi bi-qr-code mb-2" style="font-size:3rem;color:#25D366"></i>
+        <div class="fw-bold mb-2">Scan QR Code with WhatsApp</div>
+        <div id="qrBox" class="mb-3 d-flex justify-content-center align-items-center"
+             style="min-height:220px;background:#f8f9fa;border:2px dashed #25D366;border-radius:8px;padding:12px">
+          <div id="qrInner">
+            <div class="spinner-border text-success mb-2" role="status" style="width:2.5rem;height:2.5rem"></div>
+            <div class="small text-muted">Generating QR…</div>
+          </div>
+        </div>
+        <div class="small text-muted mb-3">Open WhatsApp → <strong>Linked Devices</strong> → <strong>Link a Device</strong></div>
+        <div id="qrStatus" class="badge bg-warning text-dark mb-2">Waiting for scan…</div>
+
+        {% else %}
+        <i class="bi bi-whatsapp mb-3" style="font-size:3.5rem;color:#25D366"></i>
+        <div class="fw-bold fs-5 mb-2">Connect WhatsApp</div>
+        <p class="small text-muted mb-3">Link your WhatsApp Business number to send messages, invoices and reminders directly from OxyPC.</p>
+        <form method="post" action="/whatsapp/connect">
+          <button class="btn btn-success w-100 py-2" {% if not service_online %}disabled{% endif %}>
+            <i class="bi bi-qr-code-scan me-2"></i>Connect via QR Code
+          </button>
+        </form>
+        {% if not service_online %}<div class="small text-danger mt-2">Start wa-service first</div>{% endif %}
+        {% endif %}
+      </div>
+    </div>
+
+    {# Recent messages #}
+    <div class="card border-0 shadow-sm mt-3">
+      <div class="card-header bg-transparent fw-semibold small d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-clock-history me-2"></i>Recent Messages</span>
+        <span class="badge bg-secondary">{{ recent_messages|length }}</span>
+      </div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush" id="recentMsgList">
+          {% for msg in recent_messages %}
+          <li class="list-group-item py-2 px-3">
+            <div class="d-flex justify-content-between align-items-start">
+              <div class="small fw-semibold text-truncate" style="max-width:160px">
+                {{ msg.recipient_name or msg.recipient_phone }}
+              </div>
+              <span class="badge bg-{% if msg.status in ('sent','delivered') %}success{% elif msg.status=='failed' %}danger{% else %}secondary{% endif %} ms-1">{{ msg.status }}</span>
+            </div>
+            <div class="small text-muted d-flex justify-content-between">
+              <span>
+                {{ msg.message_type | title }}
+                {% if msg.reference_type == 'group' %}<span class="badge bg-info text-dark ms-1" style="font-size:0.65rem">Group</span>{% endif %}
+                {% if msg.reference_type == 'broadcast' %}<span class="badge bg-primary ms-1" style="font-size:0.65rem">Broadcast</span>{% endif %}
+                &bull; {{ msg.sent_at | ist if msg.sent_at else 'Pending' }} IST
+              </span>
+              <button type="button" class="btn btn-link btn-sm p-0 ms-1 text-muted" style="font-size:0.7rem"
+                      onclick="toggleMsgBody(this)" title="Show message">
+                <i class="bi bi-eye"></i>
+              </button>
+            </div>
+            <div class="msg-body small text-secondary bg-light rounded p-2 mt-1 d-none" style="white-space:pre-wrap;font-size:0.78rem;max-height:120px;overflow-y:auto">{{ msg.message_text or '—' }}</div>
+          </li>
+          {% else %}
+          <li class="list-group-item text-muted text-center small py-3">No messages yet</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+
+  </div>{# end left col #}
+
+  {# ── Right: Tabbed content ─────────────────────────────────────────── #}
+  <div class="col-xl-8">
+
+    {# Tab nav #}
+    <ul class="nav nav-tabs mb-3" id="waTabs">
+      <li class="nav-item">
+        <a class="nav-link {% if not request.query_params.get('tab') or request.query_params.get('tab')=='compose' %}active{% endif %}"
+           data-bs-toggle="tab" href="#tab-compose"><i class="bi bi-send me-1"></i>Compose</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {% if request.query_params.get('tab')=='groups' %}active{% endif %}"
+           data-bs-toggle="tab" href="#tab-groups"><i class="bi bi-people me-1"></i>Groups
+          {% if wa_groups %}<span class="badge bg-secondary ms-1">{{ wa_groups|length }}</span>{% endif %}
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {% if request.query_params.get('tab')=='broadcast' %}active{% endif %}"
+           data-bs-toggle="tab" href="#tab-broadcast"><i class="bi bi-megaphone me-1"></i>Broadcast</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {% if request.query_params.get('tab')=='reminders' %}active{% endif %}"
+           data-bs-toggle="tab" href="#tab-reminders">
+          <i class="bi bi-bell me-1"></i>Reminders
+          {% if payment_reminders %}<span class="badge bg-warning text-dark ms-1">{{ payment_reminders|length }}</span>{% endif %}
+        </a>
+      </li>
+    </ul>
+
+    <div class="tab-content">
+
+      {# ── TAB: Compose ───────────────────────────────────────────────── #}
+      <div class="tab-pane fade {% if not request.query_params.get('tab') or request.query_params.get('tab')=='compose' %}show active{% endif %}" id="tab-compose">
+        <div class="card border-0 shadow-sm">
+          <div class="card-header bg-transparent fw-semibold"><i class="bi bi-send me-2"></i>Compose &amp; Send</div>
+          <div class="card-body">
+            <form method="post" action="/whatsapp/send">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">Dealer</label>
+                  <select name="dealer_id" class="form-select" onchange="fillPhone(this)">
+                    <option value="">— Select Dealer (optional) —</option>
+                    {% for d in dealers %}
+                    <option value="{{ d.id }}"
+                            data-phone="{{ d.whatsapp_number or d.phone or '' }}"
+                            data-name="{{ d.first_name or d.business_name }}">
+                      {{ d.business_name }}{% if d.first_name %} ({{ d.first_name }}){% endif %}
+                    </option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Phone <span class="text-muted small">(with country code)</span></label>
+                  <input type="text" name="recipient_phone" id="recipientPhone" class="form-control font-monospace" placeholder="91XXXXXXXXXX" required>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Message Type</label>
+                  <select name="message_type" class="form-select" onchange="applyTemplate(this)">
+                    <option value="text">Text</option>
+                    <option value="catalog">Product Catalog</option>
+                    <option value="invoice">Invoice</option>
+                    <option value="reminder">Payment Reminder</option>
+                  </select>
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Message</label>
+                  <textarea name="message_text" id="msgText" class="form-control" rows="5" placeholder="Type your message…" required></textarea>
+                </div>
+              </div>
+              <div class="mt-3 d-flex align-items-center gap-2">
+                <button type="submit" class="btn btn-success px-4" {% if not session or session.status != 'connected' %}disabled{% endif %}>
+                  <i class="bi bi-send me-2"></i>Send WhatsApp
+                </button>
+                {% if not session or session.status != 'connected' %}<span class="text-muted small">Connect WhatsApp first</span>{% endif %}
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      {# ── TAB: Groups ────────────────────────────────────────────────── #}
+      <div class="tab-pane fade {% if request.query_params.get('tab')=='groups' %}show active{% endif %}" id="tab-groups">
+        <div class="card border-0 shadow-sm">
+          <div class="card-header bg-transparent">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+              <span class="fw-semibold"><i class="bi bi-people me-2"></i>WhatsApp Groups</span>
+              <div class="d-flex gap-2 flex-wrap align-items-center">
+                {# Search #}
+                <input type="text" id="groupSearch" class="form-control form-control-sm" style="width:180px" placeholder="Search groups…" oninput="filterGroups(this.value)">
+                {# Tag filter #}
+                <select id="tagFilter" class="form-select form-select-sm" style="width:160px" onchange="filterGroups()">
+                  <option value="">All tags</option>
+                  {% set all_tags = [] %}
+                  {% for g in wa_groups %}{% if g.tags %}{% for t in g.tags.split(',') %}{% if t.strip() not in all_tags %}{% set _ = all_tags.append(t.strip()) %}{% endif %}{% endfor %}{% endif %}{% endfor %}
+                  {% for t in all_tags | sort %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+                </select>
+                {# Export #}
+                <a href="/whatsapp/groups/export-csv" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download me-1"></i>Export CSV</a>
+                {# Sync Groups #}
+                <form method="post" action="/whatsapp/groups/sync" class="d-inline">
+                  <button class="btn btn-sm btn-outline-success" {% if not session or session.status != 'connected' %}disabled{% endif %}>
+                    <i class="bi bi-arrow-clockwise me-1"></i>Sync Groups
+                  </button>
+                </form>
+                {# Sync Messages #}
+                <form method="post" action="/whatsapp/groups/sync-messages" class="d-inline">
+                  <input type="hidden" name="limit" value="100">
+                  <button class="btn btn-sm btn-success" {% if not session or session.status != 'connected' %}disabled{% endif %}
+                          onclick="return confirm('This will fetch recent messages from ALL synced groups. May take a few minutes. Continue?')">
+                    <i class="bi bi-cloud-download me-1"></i>Sync Messages
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            {% if wa_groups %}
+            <div class="table-responsive">
+              <table class="table table-hover mb-0 small" id="groupsTable">
+                <thead class="table-light">
+                  <tr>
+                    <th style="width:36px"><input type="checkbox" id="selectAllGroups" onchange="toggleAllGroups(this)"></th>
+                    <th>Group Name</th>
+                    <th class="text-center">Members</th>
+                    <th>Category</th>
+                    <th>Tags / Linked Dealer</th>
+                    <th>Last Synced</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for g in wa_groups %}
+                  <tr data-gname="{{ g.group_name | lower }}" data-gtags="{{ g.tags or '' | lower }}">
+                    <td><input type="checkbox" class="group-chk" value="{{ g.group_wa_id }}" data-gname="{{ g.group_name }}"></td>
+                    <td class="fw-semibold"><i class="bi bi-people-fill text-success me-2"></i>{{ g.group_name }}</td>
+                    <td class="text-center">{{ g.participant_count }}</td>
+                    <td>
+                      <span class="badge bg-{% if g.group_category=='dealer' %}success{% elif g.group_category=='personal' %}primary{% else %}secondary{% endif %}" style="font-size:0.7rem">
+                        {{ g.group_category | title }}
+                      </span>
+                    </td>
+                    <td>
+                      {% if g.tags %}
+                        {% for t in g.tags.split(',') %}
+                        <span class="badge bg-light text-dark border me-1" style="font-size:0.7rem">{{ t.strip() }}</span>
+                        {% endfor %}
+                      {% endif %}
+                      {% if g.linked_dealer_id %}
+                        {% for d in dealers %}{% if d.id | string == g.linked_dealer_id | string %}
+                        <span class="badge bg-info text-dark me-1" style="font-size:0.7rem"><i class="bi bi-person-check me-1"></i>{{ d.first_name or d.business_name }}</span>
+                        {% endif %}{% endfor %}
+                      {% endif %}
+                      {% if not g.tags and not g.linked_dealer_id %}<span class="text-muted small">—</span>{% endif %}
+                      <button class="btn btn-link btn-sm p-0 ms-1" onclick="openTagModal('{{ g.group_wa_id }}','{{ g.group_name }}','{{ g.tags or '' }}')" title="Edit tags"><i class="bi bi-tag" style="font-size:0.7rem"></i></button>
+                      <a href="/market" class="btn btn-link btn-sm p-0 ms-1 text-success" title="Link to Dealer / Category" onclick="return openGroupLinkModal(event,'{{ g.group_wa_id }}','{{ g.group_name }}','{{ g.group_category }}','{{ g.linked_dealer_id or '' }}')"><i class="bi bi-link-45deg" style="font-size:0.75rem"></i></a>
+                    </td>
+                    <td class="text-muted">{{ g.last_synced | ist }}</td>
+                    <td>
+                      <button class="btn btn-sm btn-outline-success"
+                              onclick="openSingleGroupModal('{{ g.group_wa_id }}','{{ g.group_name }}')"
+                              {% if not session or session.status != 'connected' %}disabled{% endif %}>
+                        <i class="bi bi-send me-1"></i>Send
+                      </button>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+
+            {# Multi-group send bar — appears when groups are selected #}
+            <div id="multiSendBar" class="d-none border-top p-3 bg-light">
+              <form method="post" action="/whatsapp/send-multi-group" id="multiGroupForm">
+                <div class="row g-2 align-items-end">
+                  <div class="col-md-3">
+                    <label class="form-label small fw-semibold mb-1">Message Type</label>
+                    <select name="message_type" class="form-select form-select-sm" onchange="applyGroupTemplate(this)">
+                      <option value="text">Text</option>
+                      <option value="catalog">Product Catalog</option>
+                      <option value="announcement">Announcement</option>
+                    </select>
+                  </div>
+                  <div class="col-md-7">
+                    <label class="form-label small fw-semibold mb-1">Message <span class="text-muted" id="multiGroupCountLabel">(0 groups selected)</span></label>
+                    <textarea name="message_text" id="multiGroupMsgText" class="form-control form-control-sm" rows="2" placeholder="Type message for all selected groups…" required></textarea>
+                  </div>
+                  <div class="col-md-2">
+                    <button type="submit" class="btn btn-success btn-sm w-100" {% if not session or session.status != 'connected' %}disabled{% endif %}>
+                      <i class="bi bi-send me-1"></i>Send to Groups
+                    </button>
+                  </div>
+                </div>
+                {# Hidden inputs for selected group IDs injected by JS #}
+                <div id="multiGroupIdInputs"></div>
+              </form>
+            </div>
+
+            {% else %}
+            <div class="text-center py-4 text-muted">
+              <i class="bi bi-people fs-2 d-block mb-2"></i>
+              No groups synced yet. Click <strong>Sync</strong> to import your WhatsApp groups.
+            </div>
+            {% endif %}
+          </div>
+        </div>
+
+        {# ── Group Message History ─────────────────────────────────── #}
+        <div class="card border-0 shadow-sm mt-3">
+          <div class="card-header bg-transparent">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+              <span class="fw-semibold small">
+                <i class="bi bi-chat-left-text me-2"></i>Group Message History
+                <span id="gmTotalBadge" class="badge bg-secondary ms-1" style="font-size:0.7rem">—</span>
+              </span>
+              <div class="d-flex gap-2 flex-wrap align-items-center">
+                <div class="input-group input-group-sm" style="width:260px">
+                  <input type="text" id="gmSearch" class="form-control" placeholder="Search T14, HP 840, requirement…"
+                         oninput="debounceGMSearch()" onkeydown="if(event.key==='Enter'){loadGroupMessages();}">
+                  <button class="btn btn-primary" onclick="loadGroupMessages()" title="Search"><i class="bi bi-search"></i></button>
+                </div>
+                <select id="gmGroupFilter" class="form-select form-select-sm" style="width:200px" onchange="loadGroupMessages()">
+                  <option value="">All groups</option>
+                  {% for g in wa_groups %}
+                  <option value="{{ g.group_wa_id }}">{{ g.group_name }}</option>
+                  {% endfor %}
+                </select>
+                <button id="gmExportBtn" class="btn btn-sm btn-success" onclick="exportGroupMsgs()" disabled>
+                  <i class="bi bi-file-earmark-excel me-1"></i>Export Selected
+                </button>
+                <a id="gmExportAllBtn" href="/whatsapp/groups/export-xlsx" class="btn btn-sm btn-outline-secondary">
+                  <i class="bi bi-download me-1"></i>Export All
+                </a>
+              </div>
+            </div>
+          </div>
+          {# ── Sync progress banner ── #}
+          <div id="syncProgressBanner" class="d-none alert alert-info alert-dismissible mb-0 rounded-0 border-0 border-bottom py-2 px-3 small">
+            <span class="spinner-border spinner-border-sm me-2"></span>
+            <strong>Sync running in background</strong> — <span id="syncProgressMsg">please wait…</span>
+            <span id="syncDoneNote" class="d-none ms-2">✅ <a href="/whatsapp?tab=groups" class="alert-link">Refresh page</a> to see results.</span>
+          </div>
+          <div class="card-body p-0">
+            <div id="gmEmptyState" class="d-none text-center py-4">
+              <i class="bi bi-cloud-download fs-2 text-muted d-block mb-2"></i>
+              <div class="fw-semibold">No messages synced yet</div>
+              <div class="text-muted small mb-3">Click <strong>Sync Messages</strong> (green button above) to import messages from all your WhatsApp groups into this search index.</div>
+              <form method="post" action="/whatsapp/groups/sync-messages" class="d-inline">
+                <input type="hidden" name="limit" value="100">
+                <button class="btn btn-success btn-sm" {% if not session or session.status != 'connected' %}disabled{% endif %}
+                        onclick="return confirm('Fetch last 100 messages from all groups? May take a few minutes.')">
+                  <i class="bi bi-cloud-download me-1"></i>Sync Messages Now
+                </button>
+              </form>
+            </div>
+            <div class="table-responsive" id="gmTableWrap">
+              <table class="table table-hover mb-0 small" id="gmTable">
+                <thead class="table-light">
+                  <tr>
+                    <th style="width:36px"><input type="checkbox" id="gmSelectAll" onchange="gmToggleAll(this)"></th>
+                    <th>Group</th>
+                    <th>Message</th>
+                    <th>Dir</th>
+                    <th>Sender / Phone</th>
+                    <th>Date</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="gmTbody">
+                  <tr><td colspan="7" class="text-center text-muted py-3 small"><span class="spinner-border spinner-border-sm me-2"></span>Loading…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div id="gmPager" class="d-flex justify-content-between align-items-center px-3 py-2 border-top small text-muted d-none">
+              <span id="gmInfo">—</span>
+              <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-secondary" id="gmPrevBtn" onclick="gmChangePage(-1)">‹ Prev</button>
+                <button class="btn btn-sm btn-outline-secondary" id="gmNextBtn" onclick="gmChangePage(1)">Next ›</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      {# ── TAB: Broadcast ─────────────────────────────────────────────── #}
+      <div class="tab-pane fade {% if request.query_params.get('tab')=='broadcast' %}show active{% endif %}" id="tab-broadcast">
+        <div class="card border-0 shadow-sm mb-3">
+          <div class="card-header bg-transparent fw-semibold"><i class="bi bi-megaphone me-2"></i>Broadcast Message</div>
+          <div class="card-body">
+            <form method="post" action="/whatsapp/broadcast" id="broadcastForm">
+              <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                  <label class="form-label">Broadcast Name <span class="text-muted small">(optional)</span></label>
+                  <input type="text" name="broadcast_name" class="form-control" placeholder="e.g. March Catalog">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Message Type</label>
+                  <select name="message_type" class="form-select" onchange="applyBcTemplate(this)">
+                    <option value="text">Text</option>
+                    <option value="catalog">Product Catalog</option>
+                    <option value="reminder">Payment Reminder</option>
+                    <option value="invoice">Invoice</option>
+                  </select>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="selectAll" onchange="toggleAll(this)">
+                    <label class="form-check-label fw-semibold" for="selectAll">Select All</label>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Message <span class="text-muted small">— use {name} for contact first name (falls back to company name)</span></label>
+                  <textarea name="message_text" id="bcMsgText" class="form-control" rows="4" placeholder="Hello {name}, We have refurbished laptops available…" required></textarea>
+                </div>
+              </div>
+
+              {# Dealer multi-select grid #}
+              <label class="form-label fw-semibold">Select Recipients</label>
+              <div class="border rounded p-2 mb-3" style="max-height:240px;overflow-y:auto">
+                <div class="row g-1">
+                  {% for d in dealers %}
+                  <div class="col-md-4 col-6">
+                    <div class="form-check">
+                      <input class="form-check-input dealer-chk" type="checkbox" name="dealer_ids" value="{{ d.id }}" id="bc_{{ d.id }}">
+                      <label class="form-check-label small" for="bc_{{ d.id }}">
+                        {% if d.first_name %}
+                          <span class="text-success fw-semibold">{{ d.first_name }}</span>
+                          <span class="text-muted"> / {{ d.business_name }}</span>
+                        {% else %}
+                          {{ d.business_name }}
+                        {% endif %}
+                        {% if not (d.whatsapp_number or d.phone) %}<span class="text-danger" title="No phone">!</span>{% endif %}
+                      </label>
+                    </div>
+                  </div>
+                  {% endfor %}
+                </div>
+              </div>
+
+              <div class="d-flex align-items-center gap-2">
+                <button type="submit" class="btn btn-success px-4" {% if not session or session.status != 'connected' %}disabled{% endif %}>
+                  <i class="bi bi-megaphone me-2"></i>Send Broadcast
+                </button>
+                <span class="text-muted small" id="bcCount">0 dealers selected</span>
+                {% if not session or session.status != 'connected' %}<span class="text-danger small">Connect WhatsApp first</span>{% endif %}
+              </div>
+            </form>
+          </div>
+        </div>
+
+        {# Broadcast history #}
+        {% if broadcasts %}
+        <div class="card border-0 shadow-sm">
+          <div class="card-header bg-transparent fw-semibold small"><i class="bi bi-list-ul me-2"></i>Broadcast History</div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0 small">
+                <thead class="table-light"><tr><th>Name</th><th>Type</th><th>Sent</th><th>Failed</th><th>Status</th><th>Message</th><th>Date</th></tr></thead>
+                <tbody>
+                  {% for bc in broadcasts %}
+                  <tr>
+                    <td>{{ bc.broadcast_name or '—' }}</td>
+                    <td>{{ bc.message_type | title }}</td>
+                    <td class="text-success fw-semibold">{{ bc.sent_count }}/{{ bc.total_recipients }}</td>
+                    <td class="{% if bc.failed_count > 0 %}text-danger{% endif %}">{{ bc.failed_count }}</td>
+                    <td>
+                      <span class="badge bg-{% if bc.status=='done' %}success{% elif bc.status=='partial' %}warning text-dark{% else %}danger{% endif %}">
+                        {{ bc.status | title }}
+                      </span>
+                    </td>
+                    <td style="max-width:200px">
+                      <div class="text-truncate" style="max-width:180px" title="{{ bc.message_text }}">{{ bc.message_text | truncate(50) }}</div>
+                      <button type="button" class="btn btn-link btn-sm p-0 text-muted" onclick="toggleMsgExpand(this)" style="font-size:0.7rem"><i class="bi bi-eye"></i> full</button>
+                      <div class="expanded-msg d-none small bg-light p-2 rounded mt-1" style="white-space:pre-wrap;max-height:100px;overflow-y:auto">{{ bc.message_text }}</div>
+                    </td>
+                    <td class="text-muted">{{ bc.created_at | ist }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+
+      {# ── TAB: Reminders ─────────────────────────────────────────────── #}
+      <div class="tab-pane fade {% if request.query_params.get('tab')=='reminders' %}show active{% endif %}" id="tab-reminders">
+        {% if payment_reminders %}
+        <div class="card border-0 shadow-sm">
+          <div class="card-header fw-semibold" style="background:#fff8e1">
+            <i class="bi bi-bell me-2 text-warning"></i>Payment Reminders Due ({{ payment_reminders|length }})
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0 small">
+                <thead class="table-light">
+                  <tr><th>Dealer</th><th>Invoice</th><th>Due Amount</th><th>Due Date</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {% for order in payment_reminders %}
+                  <tr>
+                    <td class="fw-semibold">{{ order.dealer_name }}</td>
+                    <td><code>{{ order.invoice_number or order.order_number }}</code></td>
+                    <td class="text-danger fw-semibold">₹{{ "{:,.0f}".format(order.due_amount) }}</td>
+                    <td class="{% if order.payment_due_date and order.payment_due_date.date() < today %}text-danger fw-semibold{% endif %}">
+                      {{ order.payment_due_date.strftime('%d-%m-%Y') if order.payment_due_date else '—' }}
+                    </td>
+                    <td>
+                      <form method="post" action="/whatsapp/send-reminder/{{ order.id }}" class="d-inline">
+                        <button class="btn btn-sm btn-warning" {% if not session or session.status != 'connected' %}disabled{% endif %}>
+                          <i class="bi bi-bell me-1"></i>Send
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm">
+          <div class="card-body text-center text-muted py-4">
+            <i class="bi bi-check-circle fs-2 text-success d-block mb-2"></i>No payment reminders due.
+          </div>
+        </div>
+        {% endif %}
+      </div>
+
+    </div>{# end tab-content #}
+  </div>{# end right col #}
+</div>
+
+{# ── Single Group Message Modal ──────────────────────────────────────────── #}
+<div class="modal fade" id="groupMsgModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#075E54;color:#fff">
+        <h5 class="modal-title"><i class="bi bi-people me-2"></i>Send to: <span id="modalGroupName"></span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="/whatsapp/send-group">
+        <input type="hidden" name="group_wa_id" id="modalGroupId">
+        <input type="hidden" name="group_name"  id="modalGroupNameHidden">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Message Type</label>
+            <select name="message_type" class="form-select" onchange="applyGroupTemplateSingle(this)">
+              <option value="text">Text</option>
+              <option value="catalog">Product Catalog</option>
+              <option value="announcement">Announcement</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Message</label>
+            <textarea name="message_text" id="groupMsgText" class="form-control" rows="5" required
+                      placeholder="Type your message to the group…"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success"><i class="bi bi-send me-1"></i>Send to Group</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# ── Tag Edit Modal ──────────────────────────────────────────────────────── #}
+<div class="modal fade" id="tagModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title"><i class="bi bi-tag me-2"></i>Edit Tags: <span id="tagModalGroupName"></span></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" id="tagForm">
+        <input type="hidden" name="group_wa_id" id="tagGroupId">
+        <div class="modal-body">
+          <label class="form-label small">Tags <span class="text-muted">(comma-separated)</span></label>
+          <input type="text" name="tags" id="tagInput" class="form-control form-control-sm" placeholder="Laptop Dealers, Corporate, Delhi">
+          <div class="mt-2 small text-muted">Suggested: Laptop Dealers, Desktop, Corporate, Reseller, Delhi, Mumbai</div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-check me-1"></i>Save Tags</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+        {# ── Analytics: Top Senders ──────────────────────────────── #}
+        <div class="card border-0 shadow-sm mt-3" id="analyticsCard">
+          <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+            <span class="fw-semibold small"><i class="bi bi-bar-chart-fill me-2 text-warning"></i>Top Senders — Potential Dealers</span>
+            <button class="btn btn-sm btn-outline-secondary" onclick="loadAnalytics()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+          </div>
+          <div class="card-body p-0">
+            <div id="analyticsBody" class="text-center py-3 text-muted small">Click Refresh to load sender analytics</div>
+          </div>
+        </div>
+
+    {# ── Add Sender as Dealer Modal ──────────────────────── #}
+    <div class="modal fade" id="addDealerModal" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title fw-semibold"><i class="bi bi-person-plus me-2 text-success"></i>Add as Dealer</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">WhatsApp Phone</label>
+              <input type="text" id="adPhone" class="form-control" readonly>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Contact Name</label>
+              <input type="text" id="adName" class="form-control" placeholder="Contact name">
+            </div>
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Business / Company Name</label>
+              <input type="text" id="adBusiness" class="form-control" placeholder="Company name">
+            </div>
+            <input type="hidden" id="adGroup">
+            <div class="alert alert-info small py-2"><i class="bi bi-info-circle me-1"></i>Source will be set to <strong>WhatsApp Group</strong>. You can add more details in the Dealer profile.</div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" id="adSubmitBtn" class="btn btn-success btn-sm" onclick="submitAddDealer()">
+              <i class="bi bi-person-plus me-1"></i>Add as Dealer
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+{# ── Group Link Modal (Category + Dealer) ────────────────────────────────── #}
+<div class="modal fade" id="groupLinkModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title"><i class="bi bi-link-45deg me-2"></i>Group: <span id="glGroupName"></span></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="/market/link-dealer">
+        <input type="hidden" name="group_wa_id" id="glGroupId">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Category</label>
+            <select name="group_category" id="glGroupCat" class="form-select">
+              <option value="dealer">Dealer Group</option>
+              <option value="personal">Personal Group</option>
+              <option value="other" selected>Other</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Link to Dealer <span class="text-muted">(optional)</span></label>
+            <select name="dealer_id" id="glDealerId" class="form-select">
+              <option value="">— Unlinked —</option>
+              {% for d in dealers %}
+              <option value="{{ d.id }}">{{ d.business_name }}{% if d.first_name %} ({{ d.first_name }}){% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check me-1"></i>Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+// ── Active tab persistence via URL param ─────────────────────────
+const urlTab = new URLSearchParams(location.search).get('tab');
+if (urlTab) {
+  const tabEl = document.querySelector(`[href="#tab-${urlTab}"]`);
+  if (tabEl) { new bootstrap.Tab(tabEl).show(); }
+}
+
+// ── Message body expand/collapse ─────────────────────────────────
+function toggleMsgBody(btn) {
+  const body = btn.closest('li').querySelector('.msg-body');
+  if (body) body.classList.toggle('d-none');
+}
+function toggleMsgExpand(btn) {
+  const body = btn.nextElementSibling;
+  if (body) body.classList.toggle('d-none');
+}
+
+// ── Dealer phone auto-fill ───────────────────────────────────────
+function fillPhone(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  if (opt.dataset.phone) document.getElementById('recipientPhone').value = opt.dataset.phone;
+  const typeEl = document.querySelector('#tab-compose select[name="message_type"]');
+  if (typeEl) applyTemplate(typeEl);
+}
+
+// ── Compose message templates ────────────────────────────────────
+const msgTemplates = {
+  text:     '',
+  catalog:  'Hello {name},\n\nWe have refurbished laptops & desktops available at great prices. Please share your requirements.\n\nRegards,\nOxyPC Team',
+  invoice:  'Hello {name},\n\nPlease find your invoice for the recent purchase. Kindly confirm receipt.\n\nRegards,\nOxyPC Team',
+  reminder: 'Hello {name},\n\nFriendly reminder: your payment is due. Please arrange at your earliest convenience.\n\nRegards,\nOxyPC Team',
+};
+function applyTemplate(sel) {
+  const dealerSel  = document.querySelector('#tab-compose select[name="dealer_id"]');
+  const dealerOpt  = dealerSel ? dealerSel.options[dealerSel.selectedIndex] : null;
+  const dealerName = (dealerOpt && dealerOpt.dataset.name) ? dealerOpt.dataset.name : 'Customer';
+  const tpl = msgTemplates[sel.value] || '';
+  document.getElementById('msgText').value = tpl.replace(/\{name\}/g, dealerName);
+}
+
+// ── Broadcast templates ──────────────────────────────────────────
+function applyBcTemplate(sel) {
+  document.getElementById('bcMsgText').value = msgTemplates[sel.value] || '';
+}
+
+// ── Broadcast select-all + counter ──────────────────────────────
+function toggleAll(cb) {
+  document.querySelectorAll('.dealer-chk').forEach(c => c.checked = cb.checked);
+  updateBcCount();
+}
+document.querySelectorAll('.dealer-chk').forEach(c => c.addEventListener('change', updateBcCount));
+function updateBcCount() {
+  const n = document.querySelectorAll('.dealer-chk:checked').length;
+  document.getElementById('bcCount').textContent = `${n} dealer${n !== 1 ? 's' : ''} selected`;
+}
+
+// ── Group search + tag filter ────────────────────────────────────
+function filterGroups(val) {
+  const q     = (document.getElementById('groupSearch')?.value || '').toLowerCase();
+  const tag   = (document.getElementById('tagFilter')?.value || '').toLowerCase();
+  document.querySelectorAll('#groupsTable tbody tr').forEach(row => {
+    const name = (row.dataset.gname || '').toLowerCase();
+    const tags = (row.dataset.gtags || '').toLowerCase();
+    const matchQ   = !q   || name.includes(q);
+    const matchTag = !tag || tags.includes(tag);
+    row.style.display = (matchQ && matchTag) ? '' : 'none';
+  });
+}
+
+// ── Group multi-select ───────────────────────────────────────────
+function toggleAllGroups(cb) {
+  document.querySelectorAll('.group-chk').forEach(c => c.checked = cb.checked);
+  updateGroupSelection();
+}
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.group-chk').forEach(c => c.addEventListener('change', updateGroupSelection));
+});
+function updateGroupSelection() {
+  const checked = [...document.querySelectorAll('.group-chk:checked')];
+  const bar     = document.getElementById('multiSendBar');
+  const label   = document.getElementById('multiGroupCountLabel');
+  if (!bar) return;
+  if (checked.length > 0) {
+    bar.classList.remove('d-none');
+    label.textContent = `(${checked.length} group${checked.length !== 1 ? 's' : ''} selected)`;
+    // Inject hidden inputs
+    const cont = document.getElementById('multiGroupIdInputs');
+    cont.innerHTML = '';
+    checked.forEach(c => {
+      const inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = 'group_ids'; inp.value = c.value;
+      cont.appendChild(inp);
+    });
+  } else {
+    bar.classList.add('d-none');
+  }
+}
+
+// ── Group message template (multi-send bar) ──────────────────────
+function applyGroupTemplate(sel) {
+  const tpls = {
+    catalog:      'We have refurbished laptops & desktops available at great prices!\nPlease share your requirements.\n\nRegards,\nOxyPC Team',
+    announcement: 'Dear Group Members,\n\n[Your announcement here]\n\nRegards,\nOxyPC Team',
+  };
+  document.getElementById('multiGroupMsgText').value = tpls[sel.value] || '';
+}
+
+// ── Single group modal ───────────────────────────────────────────
+function openSingleGroupModal(gid, gname) {
+  document.getElementById('modalGroupId').value         = gid;
+  document.getElementById('modalGroupNameHidden').value = gname;
+  document.getElementById('modalGroupName').textContent = gname;
+  document.getElementById('groupMsgText').value         = '';
+  new bootstrap.Modal(document.getElementById('groupMsgModal')).show();
+}
+function applyGroupTemplateSingle(sel) {
+  const tpls = {
+    catalog:      'We have refurbished laptops & desktops available at great prices!\nPlease share your requirements.\n\nRegards,\nOxyPC Team',
+    announcement: 'Dear Group Members,\n\n[Your announcement here]\n\nRegards,\nOxyPC Team',
+  };
+  document.getElementById('groupMsgText').value = tpls[sel.value] || '';
+}
+
+// ── Tag modal ────────────────────────────────────────────────────
+function openTagModal(gid, gname, existingTags) {
+  document.getElementById('tagGroupId').value         = gid;
+  document.getElementById('tagModalGroupName').textContent = gname;
+  document.getElementById('tagInput').value           = existingTags;
+  document.getElementById('tagForm').action           = `/whatsapp/groups/${encodeURIComponent(gid)}/tag`;
+  new bootstrap.Modal(document.getElementById('tagModal')).show();
+}
+
+// ── Group Message History ─────────────────────────────────────────
+let gmPage = 1, gmTotal = 0, gmPages = 1;
+let gmDebounceTimer = null;
+const gmSelectedIds = new Set();
+
+function debounceGMSearch() {
+  clearTimeout(gmDebounceTimer);
+  gmDebounceTimer = setTimeout(() => { gmPage = 1; loadGroupMessages(); }, 400);
+}
+
+async function loadGroupMessages() {
+  const q       = (document.getElementById('gmSearch')?.value || '').trim();
+  const groupId = document.getElementById('gmGroupFilter')?.value || '';
+  const params  = new URLSearchParams({ q, group_id: groupId, page: gmPage });
+  const allBtn  = document.getElementById('gmExportAllBtn');
+  if (allBtn) allBtn.href = `/whatsapp/groups/export-xlsx?q=${encodeURIComponent(q)}&group_id=${encodeURIComponent(groupId)}`;
+
+  try {
+    const resp = await fetch(`/whatsapp/groups/messages?${params}`);
+    const data = await resp.json();
+    gmTotal = data.total; gmPages = data.pages;
+
+    const empty = document.getElementById('gmEmptyState');
+    const wrap  = document.getElementById('gmTableWrap');
+    const badge = document.getElementById('gmTotalBadge');
+    if (badge) badge.textContent = data.total;
+
+    if (data.total === 0 && !q && !groupId) {
+      if (empty) empty.classList.remove('d-none');
+      if (wrap)  wrap.classList.add('d-none');
+    } else {
+      if (empty) empty.classList.add('d-none');
+      if (wrap)  wrap.classList.remove('d-none');
+      renderGMTable(data.messages, q);
+    }
+
+    const info = document.getElementById('gmInfo');
+    if (info) info.textContent = `${data.total} message${data.total !== 1 ? 's' : ''}`;
+    const pager = document.getElementById('gmPager');
+    if (pager) pager.classList.toggle('d-none', data.pages <= 1);
+    if (document.getElementById('gmPrevBtn')) document.getElementById('gmPrevBtn').disabled = gmPage <= 1;
+    if (document.getElementById('gmNextBtn')) document.getElementById('gmNextBtn').disabled = gmPage >= gmPages;
+  } catch(e) {
+    const tbody = document.getElementById('gmTbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-2 small">Failed to load — check server</td></tr>';
+  }
+}
+
+function renderGMTable(msgs, q) {
+  const tbody = document.getElementById('gmTbody');
+  if (!msgs.length) {
+    const hint = q ? `No messages matching "<strong>${escHtml(q)}</strong>"` : 'No messages found';
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-3 small">${hint}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = msgs.map(m => {
+    const checked  = gmSelectedIds.has(m.id) ? 'checked' : '';
+    const fullText = escHtml(m.message_text || '');
+    const hilite   = q ? fullText.replace(new RegExp(escHtml(q).replace(/[.*+?^${}()|[\]\]/g,'\$&'),'gi'), s=>`<mark>${s}</mark>`) : fullText;
+    const sender   = m.direction === 'incoming'
+      ? `<span class="fw-semibold">${escHtml(m.sender_name || '')}</span>${m.sender_name ? '<br>' : ''}<span class="text-primary small">${escHtml(m.sender_phone || '\u2014')}</span>`
+      : `<span class="text-muted small">${escHtml(m.sent_by || '')}</span>`;
+    const addBtn   = m.direction === 'incoming' && m.sender_phone
+      ? `<button class="btn btn-link btn-sm p-0 text-success" style="font-size:0.7rem" title="Add to Dealers"
+           onclick="openAddDealerModal('${escHtml(m.sender_phone)}','${escHtml(m.sender_name||'')}','${escHtml(m.group_name||'')}')">
+           <i class="bi bi-person-plus"></i>
+         </button>`
+      : '';
+    return `<tr>
+      <td><input type="checkbox" class="gm-chk" value="${m.id}" ${checked} onchange="gmCheckChange(this)"></td>
+      <td class="fw-semibold small text-truncate" style="max-width:120px" title="${escHtml(m.group_name)}">${escHtml(m.group_name)}</td>
+      <td style="max-width:300px">
+        <div class="small" style="white-space:pre-wrap;max-height:60px;overflow:hidden">${hilite}</div>
+        <button type="button" class="btn btn-link btn-sm p-0 text-muted" style="font-size:0.7rem"
+                onclick="this.nextElementSibling.classList.toggle('d-none');this.innerHTML=this.nextElementSibling.classList.contains('d-none')?'<i class=\'bi bi-eye\'></i> show full':'<i class=\'bi bi-eye-slash\'></i> hide'">
+          <i class="bi bi-eye"></i> show full</button>
+        <div class="d-none bg-light rounded p-2 mt-1 small" style="white-space:pre-wrap;max-height:200px;overflow-y:auto">${hilite}</div>
+      </td>
+      <td><span class="badge bg-${m.direction==='incoming'?'info text-dark':'primary'}" style="font-size:0.65rem">${m.direction==='incoming'?'\u2199 In':'\u2197 Out'}</span></td>
+      <td class="small">${sender}</td>
+      <td class="text-muted text-nowrap small">${m.sent_at || m.created_at || '\u2014'}</td>
+      <td>${addBtn}
+        <a href="#" class="btn btn-link btn-sm p-0 text-secondary ms-1" style="font-size:0.7rem" title="Save to Market Intel"
+           onclick="saveToMarket('${m.id}',event)"><i class="bi bi-graph-up-arrow"></i></a>
+      </td>
+    </tr>`;
+  }).join('');
+}
+// ── Add Sender as Dealer ──────────────────────────────────────
+function openAddDealerModal(phone, name, groupName) {
+  document.getElementById('adPhone').value       = phone;
+  document.getElementById('adName').value        = name;
+  document.getElementById('adBusiness').value    = name;
+  document.getElementById('adGroup').value       = groupName;
+  new bootstrap.Modal(document.getElementById('addDealerModal')).show();
+}
+
+async function submitAddDealer() {
+  const phone    = document.getElementById('adPhone').value;
+  const name     = document.getElementById('adName').value;
+  const business = document.getElementById('adBusiness').value;
+  const group    = document.getElementById('adGroup').value;
+  const btn      = document.getElementById('adSubmitBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const fd = new FormData();
+    fd.append('phone', phone); fd.append('name', name);
+    fd.append('business_name', business); fd.append('source_group', group);
+    const r = await fetch('/whatsapp/groups/add-sender-dealer', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.ok) {
+      alert(`✅ Dealer "${d.business_name}" added successfully!`);
+      bootstrap.Modal.getInstance(document.getElementById('addDealerModal'))?.hide();
+    } else {
+      alert('⚠️ ' + (d.error || 'Could not add dealer'));
+    }
+  } catch(e) { alert('Network error: ' + e); }
+  finally { btn.disabled = false; btn.textContent = 'Add as Dealer'; }
+}
+
+// ── Analytics loader ──────────────────────────────────────────
+async function loadAnalytics() {
+  const body = document.getElementById('analyticsBody');
+  if (!body) return;
+  body.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Loading…';
+  try {
+    const r = await fetch('/whatsapp/groups/analytics');
+    const rows = await r.json();
+    if (!rows.length) { body.innerHTML = '<div class="py-3 text-muted small">No incoming messages synced yet</div>'; return; }
+    body.innerHTML = `<div class="table-responsive"><table class="table table-hover table-sm mb-0 small">
+      <thead class="table-light"><tr>
+        <th>#</th><th>Phone</th><th>Name</th><th class="text-center">Messages</th><th class="text-center">Groups</th><th></th>
+      </tr></thead>
+      <tbody>${rows.map((r,i)=>`<tr>
+        <td class="text-muted">${i+1}</td>
+        <td class="fw-semibold text-primary">${escHtml(r.phone)}</td>
+        <td>${escHtml(r.name||'—')}</td>
+        <td class="text-center"><span class="badge bg-secondary">${r.msg_count}</span></td>
+        <td class="text-center"><span class="badge bg-info text-dark">${r.group_count}</span></td>
+        <td>
+          <button class="btn btn-sm btn-outline-success" style="font-size:0.7rem"
+            onclick="openAddDealerModal('${escHtml(r.phone)}','${escHtml(r.name||'')}','')">
+            <i class="bi bi-person-plus me-1"></i>Add Dealer
+          </button>
+        </td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+  } catch(e) { body.innerHTML = '<div class="text-danger small py-2">Failed to load analytics</div>'; }
+}
+
+function escHtml(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function toggleGMExpand(btn) {
+  btn.nextElementSibling?.classList.toggle('d-none');
+}
+function gmCheckChange(cb) {
+  if (cb.checked) gmSelectedIds.add(cb.value);
+  else gmSelectedIds.delete(cb.value);
+  updateGMExportBtn();
+}
+function gmToggleAll(cb) {
+  document.querySelectorAll('.gm-chk').forEach(c => {
+    c.checked = cb.checked;
+    if (cb.checked) gmSelectedIds.add(c.value);
+    else gmSelectedIds.delete(c.value);
+  });
+  updateGMExportBtn();
+}
+function updateGMExportBtn() {
+  const btn = document.getElementById('gmExportBtn');
+  if (!btn) return;
+  btn.disabled = gmSelectedIds.size === 0;
+  btn.textContent = `Export Excel (${gmSelectedIds.size})`;
+}
+function exportGroupMsgs() {
+  if (!gmSelectedIds.size) return;
+  const ids = [...gmSelectedIds].join(',');
+  window.location.href = `/whatsapp/groups/export-xlsx?ids=${encodeURIComponent(ids)}`;
+}
+function gmChangePage(delta) {
+  gmPage = Math.max(1, Math.min(gmPages, gmPage + delta));
+  loadGroupMessages();
+}
+
+// ── Group Link Modal (Category + Dealer) ─────────────────────────
+function openGroupLinkModal(evt, gid, gname, cat, dealerId) {
+  evt.preventDefault();
+  document.getElementById('glGroupId').value           = gid;
+  document.getElementById('glGroupName').textContent   = gname;
+  const catSel = document.getElementById('glGroupCat');
+  if (catSel) catSel.value = cat || 'other';
+  const dSel = document.getElementById('glDealerId');
+  if (dSel) dSel.value = dealerId || '';
+  new bootstrap.Modal(document.getElementById('groupLinkModal')).show();
+  return false;
+}
+
+// ── Save group message to Market Intelligence ─────────────────────
+async function saveToMarket(msgId, evt) {
+  evt.preventDefault();
+  try {
+    const fd = new FormData();
+    fd.append('message_id', msgId);
+    const resp = await fetch('/market/from-message', { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (data.success) {
+      const parsed = data.parsed;
+      const parts = [];
+      if (parsed.brand) parts.push(parsed.brand);
+      if (parsed.model) parts.push(parsed.model);
+      if (parsed.qty)   parts.push(`Qty: ${parsed.qty}`);
+      if (parsed.price) parts.push(`₹${parsed.price}`);
+      alert(`✅ Saved to Market Intel!\n${parts.join(' · ') || 'Entry created'}\n\nVisit Market Intel to edit details.`);
+    } else {
+      alert('Failed: ' + (data.error || 'unknown error'));
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+// Load group messages on tab show OR if already active
+(function initGroupMsgLoad() {
+  const attach = () => {
+    const groupsTab = document.querySelector('[href="#tab-groups"]');
+    if (!groupsTab) return;
+    // Fire on tab click
+    groupsTab.addEventListener('shown.bs.tab', () => { gmPage = 1; loadGroupMessages(); });
+    // Fire immediately if already active
+    if (groupsTab.classList.contains('active') ||
+        document.getElementById('tab-groups')?.classList.contains('show')) {
+      loadGroupMessages();
+    }
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attach);
+  } else {
+    attach();
+  }
+})();
+
+// ── Sync progress polling ─────────────────────────────────────────
+let syncPollTimer = null;
+async function pollSyncStatus() {
+  try {
+    const r = await fetch('/whatsapp/groups/sync-status');
+    if (!r.ok) return;
+    const d = await r.json();
+    const banner = document.getElementById('syncProgressBanner');
+    const msgEl  = document.getElementById('syncProgressMsg');
+    const doneEl = document.getElementById('syncDoneNote');
+    if (d.running || (d.done && d.saved > 0)) {
+      banner?.classList.remove('d-none');
+      if (msgEl) msgEl.textContent = d.message || '…';
+      if (d.done) {
+        // Stop spinner, show refresh link
+        banner?.querySelector('.spinner-border')?.classList.add('d-none');
+        doneEl?.classList.remove('d-none');
+        clearInterval(syncPollTimer); syncPollTimer = null;
+        loadGroupMessages();  // auto-reload messages
+      }
+    } else {
+      banner?.classList.add('d-none');
+    }
+  } catch (_) {}
+}
+// Start polling immediately (in case a sync is running)
+pollSyncStatus();
+syncPollTimer = setInterval(pollSyncStatus, 3000);
+
+// ── Live QR / Status polling ──────────────────────────────────────
+const IS_SCANNING = {{ 'true' if session and session.status == 'scanning' else 'false' }};
+(function startPolling() {
+  if (!IS_SCANNING) return;
+  let pollTimer = null;
+  let noQrSeconds = 0;
+
+  async function pollQR() {
+    // 1. Check status first — catches silent reconnect (saved session, no QR needed)
+    try {
+      const stResp = await fetch('/whatsapp/status-poll');
+      if (stResp.ok) {
+        const stData = await stResp.json();
+        if (stData.status === 'connected') {
+          const s = document.getElementById('qrStatus');
+          if (s) { s.textContent = 'Connected! Reloading…'; s.className = 'badge bg-success mb-2'; }
+          clearInterval(pollTimer);
+          window.location.reload();
+          return;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Fetch QR image if available
+    try {
+      const qrResp = await fetch('/whatsapp/qr-poll');
+      if (qrResp.ok) {
+        const qrData = await qrResp.json();
+        if (qrData.qr_base64) {
+          noQrSeconds = 0;
+          document.getElementById('qrInner').innerHTML =
+            `<img src="${qrData.qr_base64}" alt="WhatsApp QR" style="width:200px;height:200px;border-radius:8px">`;
+          const s = document.getElementById('qrStatus');
+          if (s) { s.textContent = 'Scan with WhatsApp app'; s.className = 'badge bg-success mb-2'; }
+          return;
+        }
+      }
+    } catch (_) {}
+
+    // 3. No QR after 25s → auto-retry connect (saved session may have expired)
+    noQrSeconds += 3;
+    if (noQrSeconds >= 25) {
+      noQrSeconds = 0;
+      const inner = document.getElementById('qrInner');
+      if (inner && !inner.querySelector('img')) {
+        // Still no QR image shown — trigger reconnect
+        inner.innerHTML = '<div class="small text-warning">Retrying connection…</div>';
+        try {
+          const form = new FormData();
+          await fetch('/whatsapp/connect', { method: 'POST', body: form });
+        } catch (_) {}
+      }
+    }
+  }
+
+  pollQR();
+  pollTimer = setInterval(pollQR, 3000);
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Company Settings — OxyPC{% endblock %}
+{% block page_title %}Company Settings{% endblock %}
+{% block content %}
+{% if request.query_params.get('success') %}
+<div class="alert alert-success alert-dismissible fade show">
+  <i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success') }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+<div class="row justify-content-center">
+  <div class="col-xl-7">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-gear me-2"></i>Company / Invoice Settings
+      </div>
+      <div class="card-body">
+        <form method="post" action="/settings">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          {% for key, label, default in setting_defs %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">{{ label }}</label>
+            {% if key == 'app_timezone' %}
+            <select name="{{ key }}" class="form-select form-select-sm">
+              {% set tz_options = [
+                ('Asia/Kolkata',   'Asia/Kolkata — IST (UTC+5:30)'),
+                ('Asia/Colombo',   'Asia/Colombo — Sri Lanka (UTC+5:30)'),
+                ('Asia/Kathmandu', 'Asia/Kathmandu — Nepal (UTC+5:45)'),
+                ('Asia/Dubai',     'Asia/Dubai — GST (UTC+4:00)'),
+                ('Asia/Singapore', 'Asia/Singapore — SGT (UTC+8:00)'),
+                ('Asia/Bangkok',   'Asia/Bangkok — ICT (UTC+7:00)'),
+                ('UTC',            'UTC — Coordinated Universal Time'),
+                ('US/Eastern',     'US/Eastern — EST/EDT'),
+                ('Europe/London',  'Europe/London — GMT/BST'),
+              ] %}
+              {% for tz_val, tz_label in tz_options %}
+              <option value="{{ tz_val }}" {% if (stored.get(key) or default) == tz_val %}selected{% endif %}>{{ tz_label }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text text-muted">All new timestamps will be recorded in this timezone.</div>
+            {% else %}
+            <input type="text" name="{{ key }}" class="form-control form-control-sm"
+                   value="{{ stored.get(key, '') or '' }}" placeholder="{{ default }}">
+            {% endif %}
+          </div>
+          {% endfor %}
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary btn-sm px-4">
+              <i class="bi bi-save me-1"></i>Save Settings
+            </button>
+            <a href="/" class="btn btn-outline-secondary btn-sm">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

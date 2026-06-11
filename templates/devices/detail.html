@@ -1,0 +1,401 @@
+{% extends "base.html" %}
+{% block title %}{{ device.barcode }} — OxyPC{% endblock %}
+{% block page_title %}Device Profile{% endblock %}
+{% block content %}
+
+<!-- Header row -->
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h4 class="mb-0 font-monospace fw-bold">{{ device.barcode }}</h4>
+    <small class="text-muted">
+      {{ device.brand or '' }} {{ device.model or '' }}
+      {% if device.serial_no %} &bull; S/N: {{ device.serial_no }}{% endif %}
+    </small>
+  </div>
+  <div class="d-flex gap-2">
+    {% if current_user.role.value in ['admin','inventory_manager'] %}
+    <a href="/devices/{{ device.barcode }}/edit" class="btn btn-sm btn-outline-warning">
+      <i class="bi bi-pencil me-1"></i>Edit
+    </a>
+    {% endif %}
+    <a href="/devices" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Back to Inventory
+    </a>
+  </div>
+</div>
+
+<div class="row g-3">
+
+  <!-- ── Left column: Specs + P&L ── -->
+  <div class="col-lg-5">
+
+    <!-- Current Stage badge -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body py-2 d-flex align-items-center gap-3">
+        <div>
+          <div class="small text-muted">Current Stage</div>
+          <span class="badge fs-6 bg-primary">{{ stage_labels.get(device.current_stage, device.current_stage.value) }}</span>
+        </div>
+        {% if device.grade %}
+        <div>
+          <div class="small text-muted">Grade</div>
+          <span class="badge fs-6 bg-{{ 'success' if device.grade == 'A' else 'warning text-dark' if device.grade == 'B' else 'secondary' }}">{{ device.grade }}</span>
+        </div>
+        {% endif %}
+        {% if device.lot_id and lot %}
+        <div>
+          <div class="small text-muted">Lot</div>
+          <a href="/lots/{{ lot.id }}" class="badge bg-info text-dark text-decoration-none fs-6">{{ lot.lot_number }}</a>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Device Specs -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-laptop me-2"></i>Hardware Specifications
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr><th class="ps-3 text-muted small w-40">Sub-Category</th><td>{{ device.sub_category or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Device Type</th><td>{{ device.device_type or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Brand</th><td>{{ device.brand or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Model</th><td>{{ device.model or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Color</th><td>{{ device.color or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">CPU</th><td>{{ device.cpu or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Generation</th><td>{{ device.generation or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">RAM</th><td>{{ device.ram_gb ~ ' GB' if device.ram_gb else '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">SSD</th>
+              <td>{{ (device.storage_gb|string ~ ' GB ' ~ (device.storage_type or '')) if device.storage_gb else '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">HDD</th><td>{{ device.hdd_capacity_gb ~ ' GB' if device.hdd_capacity_gb else '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Screen</th><td>{{ device.screen_size or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Battery Health</th>
+              <td>
+                {% if device.battery_health_pct is not none %}
+                <span class="badge bg-{{ 'success' if device.battery_health_pct >= 80 else 'warning' if device.battery_health_pct >= 50 else 'danger' }}">
+                  {{ device.battery_health_pct }}%
+                </span>
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+            <tr><th class="ps-3 text-muted small">BIOS Password</th>
+              <td>
+                {% if device.bios_password %}
+                <span class="badge bg-danger">Yes</span>
+                {% else %}
+                <span class="badge bg-success">No</span>
+                {% endif %}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Identity & Location -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-geo-alt me-2"></i>Identity &amp; Location</span>
+        <a href="/locations/device/{{ device.id }}" class="btn btn-xs btn-outline-primary py-0 px-2" style="font-size:.75rem;">
+          <i class="bi bi-geo-alt-fill me-1"></i>Manage Location
+        </a>
+      </div>
+      <div class="card-body p-0">
+        <!-- Current tracked location -->
+        {% if current_location %}
+          {% if current_location.action == 'picked_up' %}
+          <div class="alert alert-warning rounded-0 border-0 py-2 px-3 mb-0 small">
+            <i class="bi bi-hand-index me-1"></i>
+            <strong>In Hand</strong> — picked up by {{ current_location.actor_name or 'unknown' }}
+          </div>
+          {% elif current_location.unit_id %}
+          <div class="alert alert-success rounded-0 border-0 py-2 px-3 mb-0 small">
+            <i class="bi bi-geo-alt-fill me-1"></i>
+            <strong>{{ current_location.unit_id }}</strong>
+          </div>
+          {% endif %}
+        {% else %}
+          <div class="alert alert-secondary rounded-0 border-0 py-2 px-3 mb-0 small">
+            <i class="bi bi-question-circle me-1"></i>No location recorded —
+            <a href="/locations/device/{{ device.id }}">assign one</a>
+          </div>
+        {% endif %}
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr><th class="ps-3 text-muted small w-40">GRN Number</th><td>{{ device.grn_number or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Serial No.</th><td class="font-monospace small">{{ device.serial_no or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Floor</th><td>{{ device.floor or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Warehouse</th><td>{{ device.warehouse or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Registered</th>
+              <td>{{ device.created_at.strftime('%d %b %Y %H:%M') if device.created_at else '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Last Updated</th>
+              <td>{{ device.updated_at.strftime('%d %b %Y %H:%M') if device.updated_at else '—' }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% if device.notes %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-card-text me-2"></i>Notes
+      </div>
+      <div class="card-body">
+        <p class="mb-0 small">{{ device.notes }}</p>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Device P&L -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-currency-rupee me-2"></i>Device P&amp;L Estimate
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr>
+              <th class="ps-3 text-muted small">Quantity</th>
+              <td class="text-end pe-3">{{ device.qty or 1 }} unit{{ 's' if (device.qty or 1) > 1 else '' }}</td>
+            </tr>
+            {% if device.device_price %}
+            <tr>
+              <th class="ps-3 text-muted small">Unit Price</th>
+              <td class="text-end pe-3">₹{{ "%.2f"|format(device.device_price) }}</td>
+            </tr>
+            <tr>
+              <th class="ps-3 text-muted small">Buying Cost (price × qty)</th>
+              <td class="text-end pe-3">₹{{ "%.2f"|format(device.device_price * (device.qty or 1)) }}</td>
+            </tr>
+            {% else %}
+            <tr>
+              <th class="ps-3 text-muted small">Avg Lot Cost</th>
+              <td class="text-end pe-3">₹{{ "%.2f"|format(lot_cost_per_device) }}</td>
+            </tr>
+            {% endif %}
+            <tr>
+              <th class="ps-3 text-muted small">Parts Consumed</th>
+              <td class="text-end pe-3 text-danger">₹{{ "%.2f"|format(total_parts_cost) }}</td>
+            </tr>
+            <tr class="table-light">
+              <th class="ps-3 fw-bold small">Total Cost</th>
+              {% if device.device_price %}
+              <td class="text-end pe-3 fw-bold">₹{{ "%.2f"|format(device.device_price * (device.qty or 1) + total_parts_cost) }}</td>
+              {% else %}
+              <td class="text-end pe-3 fw-bold">₹{{ "%.2f"|format(lot_cost_per_device + total_parts_cost) }}</td>
+              {% endif %}
+            </tr>
+          </tbody>
+        </table>
+        <div class="px-3 pb-2 pt-1">
+          <small class="text-muted">* Unit price used when set; otherwise avg lot cost (lot buying price ÷ lot qty). Sale price shown after device is sold.</small>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Right column: Timeline, Repairs, QC, Parts ── -->
+  <div class="col-lg-7">
+
+    <!-- Stage Timeline -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-arrow-left-right me-2"></i>Stage Timeline
+      </div>
+      <div class="card-body p-0">
+        {% if movements %}
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">From</th><th>To</th><th>By</th><th>When</th><th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for mv in movements %}
+            <tr>
+              <td class="ps-3 small text-muted">
+                {{ stage_labels.get(mv.from_stage, mv.from_stage.value) if mv.from_stage else '—' }}
+              </td>
+              <td class="small fw-semibold">
+                {{ stage_labels.get(mv.to_stage, mv.to_stage.value) if mv.to_stage else '—' }}
+              </td>
+              <td class="small">{{ mv.moved_by or '—' }}</td>
+              <td class="small text-muted">{{ mv.moved_at.strftime('%d-%m-%Y %H:%M') if mv.moved_at else '—' }}</td>
+              <td class="small text-muted">{{ mv.notes or '' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center text-muted py-3 small">No stage movements recorded</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Repair Jobs -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-tools me-2"></i>Repair History
+      </div>
+      <div class="card-body p-0">
+        {% if repairs %}
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">Level</th><th>Engineer</th><th>Status</th><th>Started</th><th>Issue</th><th>Resolution</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for rep in repairs %}
+            <tr>
+              <td class="ps-3">
+                <span class="badge bg-{{ 'warning text-dark' if rep.stage.value == 'l1' else 'orange' if rep.stage.value == 'l2' else 'danger' }}"
+                      style="{% if rep.stage.value == 'l2' %}background:#fd7e14{% endif %}">
+                  {{ rep.stage.value | upper }}
+                </span>
+              </td>
+              <td class="small">{{ rep.engineer_name or '—' }}</td>
+              <td>
+                {% if rep.completed_at %}
+                <span class="badge bg-success">Done</span>
+                {% else %}
+                <span class="badge bg-warning text-dark">In Progress</span>
+                {% endif %}
+              </td>
+              <td class="small text-muted">{{ rep.started_at.strftime('%d-%m-%Y') if rep.started_at else '—' }}</td>
+              <td class="small">{{ rep.issue_description or '—' }}</td>
+              <td class="small">{{ rep.resolution or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center text-muted py-3 small">No repair jobs recorded</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- QC Checks -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-patch-check me-2"></i>QC Checks
+      </div>
+      <div class="card-body p-0">
+        {% if qc_checks %}
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">Result</th><th>Grade</th><th>Inspector</th><th>Date</th><th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for qc in qc_checks %}
+            <tr>
+              <td class="ps-3">
+                <span class="badge bg-{{ 'success' if qc.result == 'pass' else 'danger' }}">
+                  {{ qc.result | upper }}
+                </span>
+              </td>
+              <td>
+                {% if qc.grade %}
+                <span class="badge bg-{{ 'success' if qc.grade == 'A' else 'warning text-dark' if qc.grade == 'B' else 'secondary' }}">{{ qc.grade }}</span>
+                {% else %}—{% endif %}
+              </td>
+              <td class="small">{{ qc.inspector_name or '—' }}</td>
+              <td class="small text-muted">{{ qc.checked_at.strftime('%d-%m-%Y %H:%M') if qc.checked_at else '—' }}</td>
+              <td class="small">{{ qc.notes or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center text-muted py-3 small">No QC checks recorded</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Stress Test Report (Final QC) -->
+    {% if stress_data %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-cpu me-2"></i>Stress Test Report</span>
+        {% set ov = stress_data.get('overall_status', 'NOT_RUN') %}
+        <span class="badge bg-{{ 'success' if ov == 'PASS' else 'warning text-dark' if 'WARN' in ov else 'danger' if 'FAIL' in ov else 'secondary' }}">
+          {{ ov }}
+        </span>
+      </div>
+      <div class="card-body p-0">
+        {% if stress_data.get('captured_at') %}
+        <div class="px-3 pt-2 pb-1">
+          <small class="text-muted">Captured: {{ stress_data.captured_at }}</small>
+        </div>
+        {% endif %}
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">Test</th>
+              <th>Result</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for key, res in stress_data.get('results', {}).items() %}
+            <tr>
+              <td class="ps-3 small fw-semibold text-uppercase">{{ key }}</td>
+              <td>
+                {% set s = res.get('status', 'PENDING') %}
+                <span class="badge bg-{{ 'success' if s == 'PASS' else 'warning text-dark' if s == 'WARN' else 'danger' if s == 'FAIL' else 'secondary' }}">{{ s }}</span>
+              </td>
+              <td class="small text-muted">{{ res.get('summary', '') }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Spare Parts Consumed -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase d-flex justify-content-between">
+        <span><i class="bi bi-gear me-2"></i>Spare Parts Consumed</span>
+        {% if total_parts_cost > 0 %}
+        <span class="badge bg-danger">Total: ₹{{ "%.2f"|format(total_parts_cost) }}</span>
+        {% endif %}
+      </div>
+      <div class="card-body p-0">
+        {% if parts_consumed %}
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">Part</th><th>Category</th><th>Qty</th><th>Unit Cost</th><th>Total</th><th>Stage</th><th>Used By</th><th>Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in parts_consumed %}
+            <tr>
+              <td class="ps-3 small">{{ row.name }}</td>
+              <td class="small text-muted">{{ row.category }}</td>
+              <td class="small">{{ row.SparePartConsumption.qty_used }}</td>
+              <td class="small">₹{{ "%.2f"|format(row.SparePartConsumption.unit_cost or 0) }}</td>
+              <td class="small fw-semibold">₹{{ "%.2f"|format(row.SparePartConsumption.total_cost or 0) }}</td>
+              <td><span class="badge bg-secondary small">{{ row.SparePartConsumption.stage or '—' }}</span></td>
+              <td class="small">{{ row.SparePartConsumption.used_by or '—' }}</td>
+              <td class="small text-muted">
+                {{ row.SparePartConsumption.used_at.strftime('%d-%m-%Y') if row.SparePartConsumption.used_at else '—' }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center text-muted py-3 small">No spare parts consumed on this device</div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div><!-- /col-lg-7 -->
+</div><!-- /row -->
+{% endblock %}

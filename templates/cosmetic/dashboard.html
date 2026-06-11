@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Cosmetic Refurb Pipeline — OxyPC{% endblock %}
+{% block page_title %}Cosmetic Refurbishment{% endblock %}
+{% block content %}
+
+<!-- Pipeline Progress Bar -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body py-3">
+    <div class="d-flex align-items-center justify-content-between gap-1 flex-wrap">
+      {% for stage in pipeline %}
+      {% set data = stage_data[stage] %}
+      <div class="text-center">
+        <a href="/cosmetic/{{ stage.value }}" class="btn btn-sm {{ 'btn-teal' if data.count > 0 else 'btn-outline-secondary' }} position-relative px-3">
+          {{ data.label }}
+          {% if data.count > 0 %}
+          <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">{{ data.count }}</span>
+          {% endif %}
+        </a>
+      </div>
+      {% if not loop.last %}<i class="bi bi-arrow-right text-muted"></i>{% endif %}
+      {% endfor %}
+      <i class="bi bi-arrow-right text-muted"></i>
+      <div class="text-center">
+        <span class="btn btn-sm btn-outline-success px-3">Ready to Sale</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Stage Cards -->
+<div class="row g-3">
+  {% for stage in pipeline %}
+  {% set data = stage_data[stage] %}
+  <div class="col-md-6 col-xl-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-brush me-2"></i>{{ data.label }}</span>
+        <span class="badge bg-{{ 'success' if data.count == 0 else 'warning text-dark' }}">{{ data.count }} devices</span>
+      </div>
+      <div class="card-body p-0">
+        {% if data.devices %}
+        <table class="table table-sm mb-0 small">
+          <thead class="table-light"><tr><th>Barcode</th><th>Device</th><th>Lot</th><th></th></tr></thead>
+          <tbody>
+            {% for device, lot_number in data.devices[:5] %}
+            <tr>
+              <td><code class="small">{{ device.barcode }}</code></td>
+              <td>{{ device.brand or '' }} {{ device.model or '—' }}</td>
+              <td><span class="badge bg-secondary small">{{ lot_number }}</span></td>
+              <td>
+                <form action="/cosmetic/advance" method="post" class="d-inline">
+                  <input type="hidden" name="barcode" value="{{ device.barcode }}">
+                  <button type="submit" class="btn btn-xs btn-sm btn-outline-success py-0 px-1">▶ Next</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+            {% if data.devices|length > 5 %}
+            <tr><td colspan="4" class="text-center text-muted small">+{{ data.devices|length - 5 }} more</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted small text-center py-3 mb-0"><i class="bi bi-check-circle me-1"></i>All clear</p>
+        {% endif %}
+      </div>
+      {% if data.count > 0 %}
+      <div class="card-footer bg-transparent border-0 pt-0">
+        <a href="/cosmetic/{{ stage.value }}" class="btn btn-sm btn-outline-primary w-100">View All →</a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

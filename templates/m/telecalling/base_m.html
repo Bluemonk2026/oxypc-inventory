@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#1F3864">
+  <title>{% block title %}OxyPC Telecalling{% endblock %}</title>
+  <link rel="manifest" href="/m/telecalling/manifest.json">
+  <link rel="icon" type="image/png" href="/static/m/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/static/m/icons/icon-192.png">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="/static/m/telecalling/mobile.css" rel="stylesheet">
+</head>
+<body class="tc-mobile">
+
+  <header class="tc-topbar">
+    {% block topbar %}
+      <a href="/m/telecalling" class="ic" style="color:#fff"><i class="bi bi-list"></i></a>
+      <h1>{% block heading %}Telecalling{% endblock %}</h1>
+      <a href="/m/telecalling/inbox" class="ic" style="color:#fff"><i class="bi bi-bell"></i></a>
+    {% endblock %}
+  </header>
+
+  <div id="tc-offline-banner" class="tc-offline" style="display:none"></div>
+
+  <main>{% block content %}{% endblock %}</main>
+
+  <nav class="tc-tabs">
+    <a href="/m/telecalling"           class="tc-tab {% block tab_home %}{% endblock %}"><i class="gi bi bi-speedometer2"></i>Home</a>
+    <a href="/m/telecalling/queue"     class="tc-tab {% block tab_queue %}{% endblock %}"><i class="gi bi bi-list-task"></i>Queue</a>
+    <a href="/m/telecalling/followups" class="tc-tab {% block tab_fu %}{% endblock %}"><i class="gi bi bi-alarm"></i>Follow-ups</a>
+    <a href="/telecalling/records"     class="tc-tab"><i class="gi bi bi-clock-history"></i>History</a>
+    <a href="/m/telecalling/inbox"     class="tc-tab {% block tab_inbox %}{% endblock %}"><i class="gi bi bi-bell"></i>Inbox</a>
+  </nav>
+
+  <script src="/static/m/telecalling/offline-queue.js"></script>
+  <script src="/static/m/telecalling/app.js"></script>
+  {% block page_script %}{% endblock %}
+</body>
+</html>

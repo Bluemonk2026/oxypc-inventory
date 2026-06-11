@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Submit GRN{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-box-seam me-2"></i>Submit GRN — Goods Receipt Note</h5>
+      </div>
+      <div class="card-body">
+        {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+        <form method="POST" action="/grn/submit">
+          <div class="mb-3">
+            <label class="form-label fw-bold">Lot <span class="text-danger">*</span></label>
+            <select name="lot_id" class="form-select" required>
+              <option value="">— Select Lot —</option>
+              {% for lot in lots %}
+              <option value="{{ lot.id }}"
+                {% if preselect_lot_id and preselect_lot_id == lot.id|string %}selected
+                {% elif request.query_params.get('lot_id') == lot.id|string %}selected{% endif %}>
+                {{ lot.lot_number }} — {{ lot.supplier_name or 'Unknown Supplier' }}
+              </option>
+              {% endfor %}
+            </select>
+            <div id="lot-preview" class="alert alert-info mt-2 d-none small">
+              <strong>Lot Details:</strong> <span id="lot-preview-text"></span>
+            </div>
+          </div>
+
+<script>
+const _lotData = {
+  {% for lot in lots %}
+  "{{ lot.id }}": {
+    supplier: {{ lot.supplier_name | tojson }},
+    qty: {{ lot.qty or 0 }},
+    price: "{{ lot.buying_price or '' }}",
+    date: "{{ lot.purchase_date.strftime('%d %b %Y') if lot.purchase_date else '' }}"
+  }{% if not loop.last %},{% endif %}
+  {% endfor %}
+};
+document.querySelector('select[name="lot_id"]').addEventListener('change', function() {
+  const preview = document.getElementById('lot-preview');
+  const text = document.getElementById('lot-preview-text');
+  const d = _lotData[this.value];
+  if (d) {
+    text.textContent = d.supplier + ' | Qty: ' + d.qty + ' | Buying: ₹' + d.price + ' | Date: ' + d.date;
+    preview.classList.remove('d-none');
+  } else {
+    preview.classList.add('d-none');
+  }
+});
+</script>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Expected Quantity <span class="text-danger">*</span></label>
+              <input type="number" name="expected_qty" class="form-control" min="1" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Received Quantity <span class="text-danger">*</span></label>
+              <input type="number" name="received_qty" class="form-control" min="0" required>
+              <div class="form-text text-warning"><i class="bi bi-exclamation-triangle me-1"></i>Mismatch will raise a flag automatically.</div>
+            </div>
+          </div>
+          <div class="mb-3 mt-3">
+            <label class="form-label fw-bold">GRN Reference Number</label>
+            <input type="text" name="grn_number" class="form-control font-monospace"
+                   value="{{ next_grn if next_grn else '' }}"
+                   placeholder="Auto-generated if left blank">
+            <div class="form-text text-muted">
+              <i class="bi bi-info-circle me-1"></i>Pre-filled with next auto-generated number.
+              Leave as-is or enter a custom value. <em>(auto-generated if left blank)</em>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold">Notes</label>
+            <textarea name="notes" class="form-control" rows="2"></textarea>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-check-lg me-1"></i>Submit GRN
+            </button>
+            <a href="/grn" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

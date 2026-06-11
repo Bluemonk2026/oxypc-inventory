@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Stage Movement Log — OxyPC{% endblock %}
+{% block page_title %}Stage Movement Log{% endblock %}
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table id="smTable" class="table table-hover mb-0 small">
+      <thead class="table-dark"><tr><th>Date/Time</th><th>Barcode</th><th>Device</th><th>From</th><th>To</th><th>By</th><th>Notes</th></tr></thead>
+      <tbody>
+        {% for mv, barcode, brand, model in movements %}
+        <tr>
+          <td>{{ mv.moved_at.strftime('%d-%m-%Y %H:%M') }}</td>
+          <td><code>{{ barcode }}</code></td>
+          <td>{{ brand }} {{ model }}</td>
+          <td><span class="badge bg-secondary">{{ mv.from_stage.value if mv.from_stage else 'New' }}</span></td>
+          <td><span class="badge bg-primary">{{ mv.to_stage.value if mv.to_stage else '—' }}</span></td>
+          <td class="text-muted">{{ mv.moved_by or '—' }}</td>
+          <td class="text-muted">{{ mv.notes or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>$(document).ready(function(){ $('#smTable').DataTable({pageLength:50, order:[[0,'desc']]}); });</script>
+{% endblock %}

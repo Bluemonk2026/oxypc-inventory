@@ -1,0 +1,507 @@
+{% extends "base.html" %}
+{% block title %}Master Data Configuration — OxyPC{% endblock %}
+{% block page_title %}Master Data Configuration{% endblock %}
+{% block content %}
+
+{% set success_msg = request.query_params.get('success', '') %}
+{% set error_msg   = request.query_params.get('error', '') %}
+{% set main_tab    = request.query_params.get('main_tab', 'dropdowns') %}
+{% set sel_role    = request.query_params.get('role', '') or selected_role|default('') %}
+
+{% if success_msg %}
+<div class="alert alert-success alert-dismissible fade show py-2">
+  <i class="bi bi-check-circle me-2"></i>{{ success_msg | replace('+', ' ') }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+{% if error_msg %}
+<div class="alert alert-danger alert-dismissible fade show py-2">
+  <i class="bi bi-exclamation-circle me-2"></i>{{ error_msg | replace('+', ' ') }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+{# ── Main Tab Navigation ─────────────────────────────────────────────────── #}
+<ul class="nav nav-tabs mb-4" id="mainTabs">
+  <li class="nav-item">
+    <a class="nav-link {{ 'active' if main_tab != 'permissions' else '' }}"
+       href="/admin/master?main_tab=dropdowns">
+      <i class="bi bi-menu-button-wide me-1"></i>Dropdown Configuration
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {{ 'active' if main_tab == 'permissions' else '' }}"
+       href="/admin/master?main_tab=permissions">
+      <i class="bi bi-shield-lock me-1"></i>Module Permissions
+    </a>
+  </li>
+</ul>
+
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+{# TAB 1 — DROPDOWN CONFIGURATION                                             #}
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+{% if main_tab != 'permissions' %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <input type="text" id="globalSearch" class="form-control form-control-sm"
+         placeholder="Search across all dropdowns…" style="max-width:300px"
+         oninput="globalFilter(this.value)">
+  <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addModal">
+    <i class="bi bi-plus-circle me-1"></i>Add Value
+  </button>
+</div>
+
+<div class="accordion" id="dropdownAccordion">
+  {% for section in accordion_data %}
+  <div class="accordion-item border-0 shadow-sm mb-3 rounded" id="section-{{ section.id }}">
+    <h2 class="accordion-header">
+      <button class="accordion-button fw-semibold" type="button"
+              data-bs-toggle="collapse" data-bs-target="#collapse-{{ section.id }}"
+              aria-expanded="true">
+        <i class="bi {{ section.icon }} me-2 text-primary"></i>
+        {{ section.label }}
+        <span class="badge bg-secondary ms-2">{{ section.categories|length }} dropdowns</span>
+      </button>
+    </h2>
+    <div id="collapse-{{ section.id }}" class="accordion-collapse collapse show"
+         data-bs-parent="">
+      <div class="accordion-body">
+        <div class="row g-3">
+          {% for cat in section.categories %}
+          <div class="col-lg-6 col-xl-4 cat-card" data-cat="{{ cat.key }}" data-label="{{ cat.label|lower }}">
+            <div class="card border-0 border shadow-sm h-100">
+              <div class="card-header bg-transparent d-flex justify-content-between align-items-center py-2">
+                <span class="fw-semibold small"><i class="bi bi-tag me-1 text-primary"></i>{{ cat.label }}</span>
+                <div class="d-flex align-items-center gap-1">
+                  <span class="badge bg-secondary">{{ cat['items']|length }}</span>
+                  <a href="/admin/master/export/{{ cat.key }}"
+                     class="btn btn-xs btn-sm py-0 px-1 btn-outline-secondary" title="Export CSV">
+                    <i class="bi bi-download"></i>
+                  </a>
+                  <button class="btn btn-xs btn-sm py-0 px-1 btn-outline-primary"
+                          onclick="openBulkUpload('{{ cat.key }}','{{ cat.label }}')" title="Bulk Import">
+                    <i class="bi bi-upload"></i>
+                  </button>
+                  <button class="btn btn-xs btn-sm py-0 px-1 btn-outline-success"
+                          onclick="openAddInline('{{ cat.key }}','{{ cat.label }}')" title="Add Value">
+                    <i class="bi bi-plus"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="card-body p-0">
+                <div class="list-group list-group-flush" id="list-{{ cat.key }}"
+                     style="max-height:280px;overflow-y:auto;">
+                  {% if cat['items'] %}
+                  {% for item in cat['items'] %}
+                  <div class="list-group-item list-group-item-action px-3 py-1 d-flex align-items-center value-row
+                              {{ 'text-muted bg-light' if not item.is_active else '' }}"
+                       data-value="{{ item.value|lower }}">
+                    <div class="flex-grow-1">
+                      <span class="{{ 'text-decoration-line-through text-muted' if not item.is_active else '' }} small">
+                        {{ item.value }}
+                      </span>
+                      {% if item.description %}
+                      <small class="text-muted d-block" style="font-size:.72rem">{{ item.description }}</small>
+                      {% endif %}
+                    </div>
+                    <div class="d-flex gap-1 ms-2 flex-shrink-0">
+                      <button class="btn btn-xs py-0 px-1 btn-outline-secondary"
+                              onclick="openEdit('{{ item.id }}',{{ item.value|tojson }},{{ (item.description or '')|tojson }})"
+                              title="Edit">
+                        <i class="bi bi-pencil" style="font-size:.7rem"></i>
+                      </button>
+                      <form action="/admin/master/{{ item.id }}/toggle" method="post" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                        <button type="submit"
+                                class="btn btn-xs py-0 px-1 {{ 'btn-warning' if item.is_active else 'btn-success' }}"
+                                title="{{ 'Disable' if item.is_active else 'Enable' }}">
+                          <i class="bi {{ 'bi-eye-slash' if item.is_active else 'bi-eye' }}" style="font-size:.7rem"></i>
+                        </button>
+                      </form>
+                      <form action="/admin/master/{{ item.id }}/delete" method="post" class="d-inline"
+                            onsubmit="return confirm('Delete {{ item.value }}?')">
+                        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                        <button type="submit" class="btn btn-xs py-0 px-1 btn-outline-danger" title="Delete">
+                          <i class="bi bi-trash" style="font-size:.7rem"></i>
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                  {% endfor %}
+                  {% else %}
+                  <div class="list-group-item text-muted small py-2 px-3">
+                    No values yet.
+                    <a href="#" onclick="openAddInline('{{ cat.key }}','{{ cat.label }}');return false;">Add one</a>
+                  </div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% endif %}{# end tab 1 #}
+
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+{# TAB 2 — MODULE PERMISSIONS MATRIX                                          #}
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+{% if main_tab == 'permissions' %}
+
+{% set perm_modules = perm_modules|default([]) %}
+{% set perm_actions = perm_actions|default([]) %}
+{% set all_roles    = all_roles|default([]) %}
+
+<div class="row g-4">
+
+  {# ── Left panel: role selector + add role ─────────────────────────── #}
+  <div class="col-lg-3">
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-person-badge me-1"></i>Select Role
+      </div>
+      <div class="card-body">
+        <select id="roleSelector" class="form-select form-select-sm mb-2"
+                onchange="location.href='/admin/master?main_tab=permissions&role='+this.value">
+          {% for rval, rlabel in all_roles %}
+          <option value="{{ rval }}" {{ 'selected' if rval == sel_role else '' }}>{{ rlabel }}</option>
+          {% endfor %}
+        </select>
+        <div class="small text-muted">
+          Editing permissions for:
+          <strong>{{ sel_role or '—' }}</strong>
+        </div>
+      </div>
+    </div>
+
+    {# Add new custom role #}
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-plus-circle me-1 text-success"></i>Add New Role
+      </div>
+      <div class="card-body">
+        <form method="post" action="/admin/master/permissions/add-role">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+          <div class="mb-2">
+            <label class="form-label form-label-sm fw-semibold">Role Name <small class="text-muted">(slug)</small></label>
+            <input type="text" name="role_name" class="form-control form-control-sm"
+                   placeholder="e.g. warehouse_manager" pattern="[a-zA-Z0-9_]+" required>
+            <div class="form-text">Lowercase, underscores only</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label form-label-sm fw-semibold">Display Name</label>
+            <input type="text" name="display_name" class="form-control form-control-sm"
+                   placeholder="e.g. Warehouse Manager" required>
+          </div>
+          <button type="submit" class="btn btn-sm btn-success w-100">
+            <i class="bi bi-plus me-1"></i>Create Role
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {# ── Right panel: permission matrix ───────────────────────────────── #}
+  <div class="col-lg-9">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">
+          <i class="bi bi-grid-3x3 me-2"></i>Permission Matrix
+          {% if sel_role %}
+          — <span class="text-primary">{{ sel_role }}</span>
+          {% endif %}
+        </span>
+        {% if sel_role and sel_role != 'admin' %}
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-outline-success" onclick="toggleAll(true)">
+            <i class="bi bi-check2-all me-1"></i>Grant All
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-danger" onclick="toggleAll(false)">
+            <i class="bi bi-x-circle me-1"></i>Revoke All
+          </button>
+        </div>
+        {% endif %}
+      </div>
+      <div class="card-body p-0">
+
+        {% if sel_role == 'admin' %}
+        <div class="alert alert-info m-3 mb-0">
+          <i class="bi bi-shield-fill-check me-2"></i>
+          <strong>Admin</strong> role always has full access to all modules. The permission matrix does not apply.
+        </div>
+        {% elif not sel_role %}
+        <div class="text-center text-muted py-5">
+          <i class="bi bi-arrow-left-circle fs-3 d-block mb-2"></i>
+          Select a role from the left panel to configure permissions.
+        </div>
+        {% else %}
+
+        <form method="post" action="/admin/master/permissions/save" id="permForm">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+          <input type="hidden" name="role_name" value="{{ sel_role }}">
+
+          <div class="table-responsive">
+            <table class="table table-bordered table-sm mb-0" id="permMatrix">
+              <thead class="table-dark">
+                <tr>
+                  <th style="min-width:160px">Module</th>
+                  {% for action_key, action_label in perm_actions %}
+                  <th class="text-center" style="width:90px">{{ action_label }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for mod_key, mod_label in perm_modules %}
+                {% set row = perm_rows.get(mod_key) if perm_rows is defined else none %}
+                <tr>
+                  <td class="fw-semibold small">{{ mod_label }}</td>
+                  {% for action_key, action_label in perm_actions %}
+                  {% if row %}
+                    {% if action_key == 'can_enable' %}{% set checked = row.can_enable %}
+                    {% elif action_key == 'can_add' %}{% set checked = row.can_add %}
+                    {% elif action_key == 'can_edit' %}{% set checked = row.can_edit %}
+                    {% else %}{% set checked = row.can_upload %}{% endif %}
+                  {% else %}
+                    {% set checked = (action_key == 'can_enable') %}
+                  {% endif %}
+                  <td class="text-center">
+                    <div class="form-check d-flex justify-content-center">
+                      <input class="form-check-input perm-cb" type="checkbox"
+                             name="perm_{{ mod_key }}_{{ action_key }}"
+                             id="cb_{{ mod_key }}_{{ action_key }}"
+                             {% if checked %}checked{% endif %}>
+                    </div>
+                  </td>
+                  {% endfor %}
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="px-3 py-3 border-top d-flex gap-2">
+            <button type="submit" class="btn btn-primary px-4">
+              <i class="bi bi-save me-1"></i>Save Permissions for {{ sel_role }}
+            </button>
+            <a href="/admin/master?main_tab=permissions" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+
+        {% endif %}
+      </div>
+    </div>
+
+    {# Legend #}
+    {% if sel_role and sel_role != 'admin' %}
+    <div class="card border-0 shadow-sm mt-3">
+      <div class="card-body py-2">
+        <div class="d-flex flex-wrap gap-4 small text-muted">
+          <span><strong>Enable</strong> — Module is visible and accessible to this role</span>
+          <span><strong>Add</strong> — Can create new records</span>
+          <span><strong>Edit</strong> — Can modify existing records</span>
+          <span><strong>Upload</strong> — Can use bulk CSV import</span>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+{% endif %}{# end tab 2 #}
+
+{# ─────────────────────── SHARED MODALS (Tab 1) ───────────────────────────── #}
+{% if main_tab != 'permissions' %}
+
+<!-- Add Value Modal -->
+<div class="modal fade" id="addModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title fw-semibold"><i class="bi bi-plus-circle me-2"></i>Add Master Value</h6>
+        <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+      </div>
+      <form action="/admin/master/add" method="post">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Category</label>
+            <select name="category" id="addCategory" class="form-select" required>
+              <option value="">-- Select category --</option>
+              {% for key, label, tab in categories %}
+              <option value="{{ key }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Value</label>
+            <input type="text" name="value" id="addValue" class="form-control"
+                   placeholder="e.g. HP, DDR4, Core i7" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Description <small class="text-muted">(optional)</small></label>
+            <input type="text" name="description" class="form-control" placeholder="Short description">
+          </div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-save me-1"></i>Add Value</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title fw-semibold"><i class="bi bi-pencil me-2"></i>Edit Value</h6>
+        <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="editForm" method="post">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Value</label>
+            <input type="text" name="value" id="editValue" class="form-control" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Description <small class="text-muted">(optional)</small></label>
+            <input type="text" name="description" id="editDesc" class="form-control">
+          </div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-save me-1"></i>Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Upload Modal -->
+<div class="modal fade" id="bulkModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title fw-semibold" id="bulkModalTitle">
+          <i class="bi bi-upload me-2"></i>Bulk Import
+        </h6>
+        <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="bulkForm" method="post" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+        <div class="modal-body">
+          <div class="alert alert-info py-2 small mb-3">
+            <i class="bi bi-info-circle me-1"></i>
+            CSV must have a <strong>value</strong> column (optional: <strong>description</strong>).
+            Duplicates are skipped.
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">CSV File</label>
+            <input type="file" name="file" class="form-control" accept=".csv" required>
+          </div>
+          <a id="bulkTemplateLink" href="#" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-download me-1"></i>Download Template
+          </a>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-upload me-1"></i>Import</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endif %}
+
+{% endblock %}
+{% block scripts %}
+<script>
+{% if main_tab != 'permissions' %}
+// ── Dropdown Config Tab ────────────────────────────────────────────────────
+
+function openEdit(id, value, desc) {
+  document.getElementById('editForm').action = `/admin/master/${id}/edit`;
+  document.getElementById('editValue').value = value;
+  document.getElementById('editDesc').value = desc;
+  new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+
+function openAddInline(catKey, catLabel) {
+  const sel = document.getElementById('addCategory');
+  for (let opt of sel.options) {
+    if (opt.value === catKey) { opt.selected = true; break; }
+  }
+  new bootstrap.Modal(document.getElementById('addModal')).show();
+  setTimeout(() => document.getElementById('addValue').focus(), 300);
+}
+
+function openBulkUpload(catKey, catLabel) {
+  document.getElementById('bulkModalTitle').innerHTML =
+    `<i class="bi bi-upload me-2"></i>Bulk Import — ${catLabel}`;
+  document.getElementById('bulkForm').action = `/admin/master/bulk-upload/${catKey}`;
+  document.getElementById('bulkTemplateLink').href = `/admin/master/template/${catKey}`;
+  new bootstrap.Modal(document.getElementById('bulkModal')).show();
+}
+
+function globalFilter(q) {
+  const query = q.toLowerCase().trim();
+  document.querySelectorAll('.cat-card').forEach(card => {
+    if (!query) { card.style.display = ''; return; }
+    const label = card.dataset.label || '';
+    const rows = card.querySelectorAll('.value-row');
+    let hit = label.includes(query);
+    rows.forEach(row => {
+      const val = row.dataset.value || '';
+      const show = val.includes(query) || label.includes(query);
+      row.style.display = show ? '' : 'none';
+      if (show) hit = true;
+    });
+    card.style.display = hit ? '' : 'none';
+  });
+}
+
+// Auto-open add modal if ?add= in URL
+const urlAdd = new URLSearchParams(location.search).get('add');
+if (urlAdd) openAddInline(urlAdd, urlAdd);
+
+{% else %}
+// ── Permission Matrix Tab ──────────────────────────────────────────────────
+
+function toggleAll(state) {
+  document.querySelectorAll('.perm-cb').forEach(cb => cb.checked = state);
+}
+
+// When Enable is unchecked, uncheck Add/Edit/Upload too
+document.addEventListener('change', function(e) {
+  if (!e.target.classList.contains('perm-cb')) return;
+  const name = e.target.name; // perm_{module}_can_enable
+  if (name.endsWith('_can_enable') && !e.target.checked) {
+    const mod = name.replace('perm_', '').replace('_can_enable', '');
+    ['can_add','can_edit','can_upload'].forEach(a => {
+      const cb = document.querySelector(`[name="perm_${mod}_${a}"]`);
+      if (cb) cb.checked = false;
+    });
+  }
+  // If Add/Edit/Upload checked, auto-check Enable
+  if ((name.endsWith('_can_add') || name.endsWith('_can_edit') || name.endsWith('_can_upload'))
+      && e.target.checked) {
+    const parts = name.split('_');
+    const mod = name.replace('perm_', '').replace('_can_add','').replace('_can_edit','').replace('_can_upload','');
+    const enCb = document.querySelector(`[name="perm_${mod}_can_enable"]`);
+    if (enCb) enCb.checked = true;
+  }
+});
+
+{% endif %}
+</script>
+{% endblock %}

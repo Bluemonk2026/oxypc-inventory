@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Telecalling Records — OxyPC{% endblock %}
+{% block page_title %}Telecalling Records{% endblock %}
+{% block content %}
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-2"><label class="form-label small">From</label><input type="date" name="date_from" value="{{ date_from }}" class="form-control form-control-sm"></div>
+      <div class="col-md-2"><label class="form-label small">To</label><input type="date" name="date_to" value="{{ date_to }}" class="form-control form-control-sm"></div>
+      <div class="col-md-2">
+        <label class="form-label small">Outcome</label>
+        <select name="outcome" class="form-select form-select-sm">
+          <option value="">All</option>
+          {% for o in ['interested','order_placed','callback','not_interested','no_answer','do_not_call'] %}
+          <option value="{{ o }}" {% if o==outcome %}selected{% endif %}>{{ o | replace('_',' ') | title }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2 d-flex gap-1 align-items-end">
+        <button class="btn btn-primary btn-sm">Filter</button>
+        <a href="/telecalling/add" class="btn btn-success btn-sm"><i class="bi bi-plus"></i> Log Call</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small" id="tcTable">
+        <thead class="table-light">
+          <tr><th>Date/Time</th><th>Dealer / Customer</th><th>Phone</th><th>Agent</th><th>Outcome</th><th>Products</th><th>Qty</th><th>Budget</th><th>Follow-up</th><th>WA</th></tr>
+        </thead>
+        <tbody>
+          {% for rec in records %}
+          <tr>
+            <td class="text-muted">{{ rec.call_date.strftime('%d-%m-%Y %H:%M') }}</td>
+            <td>
+              {{ rec.dealer_name or rec.customer_name or '—' }}
+              {% if rec.dealer_name and rec.customer_name %}
+              <br><small class="text-muted">{{ rec.customer_name }}</small>
+              {% endif %}
+            </td>
+            <td>{{ rec.phone }}</td>
+            <td>{{ rec.called_by }}</td>
+            <td>
+              {% set oc = {'interested':'success','order_placed':'primary','callback':'warning','not_interested':'danger','no_answer':'secondary','do_not_call':'dark'} %}
+              <span class="badge bg-{{ oc.get(rec.call_outcome,'secondary') }}">{{ rec.call_outcome or '—' }}</span>
+            </td>
+            <td>{{ rec.product_interest or '—' }}</td>
+            <td>{{ rec.quantity_required or '—' }}</td>
+            <td>{% if rec.budget %}₹{{ "{:,.0f}".format(rec.budget) }}{% else %}—{% endif %}</td>
+            <td>{% if rec.next_followup %}<span class="{% if rec.next_followup.date() <= today %}text-danger fw-semibold{% endif %}">{{ rec.next_followup.strftime('%d-%m-%Y') }}</span>{% else %}—{% endif %}</td>
+            <td>{% if rec.whatsapp_sent %}<i class="bi bi-check-circle-fill text-success"></i>{% else %}—{% endif %}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="text-center text-muted py-4">No records found</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>$(document).ready(function(){ if($('#tcTable tbody tr').length>1)$('#tcTable').DataTable({order:[[0,'desc']],pageLength:50,searching:false}); });</script>
+{% endblock %}

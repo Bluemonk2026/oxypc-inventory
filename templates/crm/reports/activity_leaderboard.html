@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Activity Leaderboard — OxyPC{% endblock %}
+{% block page_title %}Activity Leaderboard{% endblock %}
+{% block content %}
+<div class="d-flex gap-2 mb-3 align-items-center">
+  <span class="text-muted small">Last:</span>
+  {% for d in [7, 14, 30, 60, 90] %}
+  <a href="?days={{ d }}" class="btn btn-sm {% if days == d %}btn-primary{% else %}btn-outline-secondary{% endif %}">{{ d }}d</a>
+  {% endfor %}
+</div>
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-trophy me-2 text-warning"></i>Activity Leaderboard — Last {{ days }} Days</div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0 small">
+      <thead class="table-dark">
+        <tr><th>#</th><th>User</th><th>Calls</th><th>WhatsApp</th><th>Visits</th><th>Emails</th><th>Meetings</th><th>Notes</th><th class="fw-bold">Total</th></tr>
+      </thead>
+      <tbody>
+        {% for user, data in leaderboard %}
+        <tr>
+          <td class="text-muted">{{ loop.index }}</td>
+          <td class="fw-semibold">{{ user }}</td>
+          <td>{{ data.call or '—' }}</td>
+          <td>{{ data.whatsapp or '—' }}</td>
+          <td>{{ data.visit or '—' }}</td>
+          <td>{{ data.email or '—' }}</td>
+          <td>{{ data.meeting or '—' }}</td>
+          <td>{{ data.note or '—' }}</td>
+          <td class="fw-bold text-primary">{{ data.total }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center text-muted py-4">No activities in the last {{ days }} days.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

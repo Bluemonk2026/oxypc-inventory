@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Delivery Challan {{ invoice_no }}</title>
+<style>
+  @media print { .no-print { display: none !important; } body { margin: 0; } }
+  body { font-family: Arial, sans-serif; font-size: 12px; color: #111; }
+  .page { max-width: 760px; margin: 16px auto; padding: 20px; border: 1px solid #333; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 12px; }
+  .company-name { font-size: 18px; font-weight: bold; }
+  .title { font-size: 16px; font-weight: bold; text-align: right; letter-spacing: 1px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th { background: #333; color: #fff; padding: 6px 8px; text-align: left; font-size: 11px; }
+  td { padding: 6px 8px; border-bottom: 1px solid #ddd; font-size: 11px; }
+  .section-title { font-weight: bold; margin: 12px 0 4px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #999; padding-bottom: 2px; }
+  .two-col { display: flex; gap: 20px; }
+  .two-col > div { flex: 1; }
+  .sig-box { border: 1px solid #999; min-height: 50px; margin-top: 24px; padding: 6px; text-align: center; font-size: 10px; color: #666; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="company-name">{{ company.name }}</div>
+      <div style="font-size:11px">{{ company.address }}</div>
+      <div style="font-size:11px">GSTIN: {{ company.gstin }} | {{ company.phone }}</div>
+    </div>
+    <div>
+      <div class="title">DELIVERY CHALLAN</div>
+      <div style="font-size:11px;text-align:right"><strong>Challan No:</strong> DC-{{ invoice_no }}</div>
+      <div style="font-size:11px;text-align:right"><strong>Date:</strong> {{ sale.sold_at.strftime('%d %B %Y') }}</div>
+    </div>
+  </div>
+
+  <div class="two-col" style="margin-bottom:12px">
+    <div>
+      <div class="section-title">Consignee (Ship To)</div>
+      <div><strong>{{ sale.customer_name or 'Walk-in Customer' }}</strong></div>
+      {% if sale.customer_phone %}<div>Phone: {{ sale.customer_phone }}</div>{% endif %}
+      <div>State: {{ sale.customer_state or 'Delhi' }}</div>
+    </div>
+    <div>
+      <div class="section-title">Transport Details</div>
+      <div>Mode: ____________________________</div>
+      <div style="margin-top:4px">Tracking No: ____________________</div>
+      <div style="margin-top:4px">Vehicle / Courier: _______________</div>
+    </div>
+  </div>
+
+  <div class="section-title">Items Dispatched</div>
+  <table>
+    <thead>
+      <tr><th>#</th><th>Description</th><th>Barcode / S/N</th><th>Qty</th><th>Remarks</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>{{ device.brand }} {{ device.model }}{% if device.ram_gb %} | {{ device.ram_gb }}GB{% endif %}{% if device.storage_gb %} | {{ device.storage_gb }}GB {{ device.storage_type }}{% endif %}</td>
+        <td>{{ device.barcode }}{% if device.serial_no %} / {{ device.serial_no }}{% endif %}</td>
+        <td>1</td>
+        <td>Grade: {{ device.grade | upper if device.grade else '—' }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="two-col" style="margin-top:24px">
+    <div>
+      <div class="sig-box">
+        <div style="margin-top:30px">Dispatcher Signature &amp; Stamp</div>
+      </div>
+    </div>
+    <div>
+      <div class="sig-box">
+        <div style="margin-top:30px">Receiver Signature &amp; Date</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="no-print" style="margin-top:16px; text-align:center">
+    <button onclick="window.print()" style="padding:8px 20px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer;margin-right:8px">Print Challan</button>
+    <a href="/invoices/print/{{ sale.id }}" style="padding:8px 20px;border:1px solid #666;border-radius:4px;text-decoration:none;color:#333">Print Invoice</a>
+    <a href="/sales" style="padding:8px 20px;border:1px solid #666;border-radius:4px;text-decoration:none;color:#333;margin-left:8px">Back to Sales</a>
+  </div>
+</div>
+</body>
+</html>

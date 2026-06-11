@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}IQC List — OxyPC{% endblock %}
+{% block page_title %}IQC Inspection{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <span class="text-muted">{{ devices|length }} device(s) in IQC</span>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="/iqc/export-csv" class="btn btn-outline-info btn-sm">
+      <i class="bi bi-file-earmark-arrow-down me-1"></i>Export CSV
+    </a>
+    <a href="/bulk-upload/template/devices" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-download me-1"></i>CSV Template
+    </a>
+    <a href="/bulk-upload?type=devices" class="btn btn-outline-success btn-sm">
+      <i class="bi bi-cloud-upload me-1"></i>Bulk Inward
+    </a>
+    <a href="/iqc/new" class="btn btn-primary btn-sm">
+      <i class="bi bi-plus-circle me-1"></i>Add Device
+    </a>
+  </div>
+</div>
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="iqcTable" class="table table-hover mb-0">
+        <thead class="table-dark">
+          <tr>
+            <th>Barcode</th><th>Lot</th><th>Brand</th><th>Model</th><th>CPU</th><th>RAM</th><th>Storage</th><th>Battery</th><th>Grade</th><th>Floor</th><th>Added</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for device, lot_number in devices %}
+          <tr>
+            <td><a href="/devices/{{ device.barcode }}" class="text-decoration-none"><code>{{ device.barcode }}</code></a></td>
+            <td><a href="/devices?lot={{ lot_number }}" class="text-decoration-none"><span class="badge bg-info text-dark">{{ lot_number }}</span></a></td>
+            <td>{{ device.brand or '—' }}</td>
+            <td>{{ device.model or '—' }}</td>
+            <td class="text-muted small">{{ device.cpu or '—' }}</td>
+            <td>{{ device.ram_gb ~ 'GB' if device.ram_gb else '—' }}</td>
+            <td>{{ (device.storage_gb|string ~ 'GB ' ~ (device.storage_type or '')) if device.storage_gb else '—' }}</td>
+            <td>
+              {% if device.battery_health_pct is not none %}
+              <span class="badge bg-{{ 'success' if device.battery_health_pct >= 80 else 'warning' if device.battery_health_pct >= 50 else 'danger' }}">{{ device.battery_health_pct }}%</span>
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if device.grade %}
+              <span class="badge bg-{{ 'success' if device.grade == 'A' else 'warning' if device.grade == 'B' else 'danger' }}">{{ device.grade }}</span>
+              {% else %}—{% endif %}
+            </td>
+            <td>{{ device.floor or '—' }}</td>
+            <td class="text-muted small">{{ device.created_at.strftime('%d-%m-%Y') }}</td>
+            <td class="text-nowrap">
+              <form action="/stock/move-to-stock" method="post" class="d-inline">
+                <input type="hidden" name="barcode" value="{{ device.barcode }}">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+                <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2">
+                  <i class="bi bi-box-arrow-in-right me-1"></i>Move to Stock
+                </button>
+              </form>
+              <button class="btn btn-sm btn-outline-danger py-0 px-1 ms-1"
+                      onclick="if(confirm('Move {{ device.barcode }} to Trash?')) { document.getElementById('trashIQC_{{ loop.index }}').submit(); }"
+                      title="Move to Trash">
+                <i class="bi bi-trash3"></i>
+              </button>
+              <form id="trashIQC_{{ loop.index }}" method="post" action="/trash/devices/{{ device.barcode }}" style="display:none">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>$(document).ready(function(){ $('#iqcTable').DataTable({pageLength:25}); });</script>
+{% endblock %}

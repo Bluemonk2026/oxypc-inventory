@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Overdue Orders — OxyPC{% endblock %}
+{% block page_title %}Overdue Payment Orders{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <span class="text-muted small">{{ overdue|length }} overdue order(s) — Total outstanding: <strong class="text-danger">₹{{ "{:,.0f}".format(total_due) }}</strong></span>
+  </div>
+  <a href="/dealers" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Back to Dealers</a>
+</div>
+
+{% if not overdue %}
+<div class="alert alert-success border-0 shadow-sm">
+  <i class="bi bi-check-circle me-2"></i>No overdue orders — all payments are current.
+</div>
+{% else %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small">
+        <thead class="table-light">
+          <tr>
+            <th>Dealer</th>
+            <th>Order#</th>
+            <th>Order Date</th>
+            <th>Due Date</th>
+            <th>Days Overdue</th>
+            <th>Amount Due</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in overdue %}
+          {% set order = item.order %}
+          {% set dealer = item.dealer %}
+          {% set days = item.days_overdue %}
+          <tr>
+            <td>
+              <a href="/dealers/{{ dealer.id }}" class="fw-semibold text-decoration-none">{{ dealer.business_name }}</a>
+              <div class="text-muted" style="font-size:.75rem">{{ dealer.phone or '' }}</div>
+            </td>
+            <td><code>{{ order.order_number }}</code></td>
+            <td>{{ order.order_date.strftime('%d-%m-%Y') }}</td>
+            <td class="text-danger">{{ order.payment_due_date.strftime('%d-%m-%Y') }}</td>
+            <td>
+              <span class="badge {% if days > 30 %}bg-danger{% elif days > 7 %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                {{ days }}d overdue
+              </span>
+            </td>
+            <td class="fw-semibold text-danger">₹{{ "{:,.0f}".format(order.due_amount) }}</td>
+            <td>
+              <div class="d-flex gap-1">
+                <a href="/dealers/{{ dealer.id }}" class="btn btn-sm btn-outline-primary" title="View dealer"><i class="bi bi-eye"></i></a>
+                <a href="/whatsapp/compose?dealer_id={{ dealer.id }}&type=payment_reminder&order_id={{ order.id }}"
+                   class="btn btn-sm btn-outline-warning" title="Send WhatsApp reminder"><i class="bi bi-whatsapp"></i></a>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

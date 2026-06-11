@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Win/Loss Analysis — OxyPC{% endblock %}
+{% block page_title %}Win / Loss Analysis{% endblock %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">Sourcing by Source Type</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead class="table-light"><tr><th>Source</th><th>Won</th><th>Lost</th></tr></thead>
+          <tbody>
+            {% set by_source = {} %}
+            {% for r in sourcing_rows %}
+              {% if r.source_type not in by_source %}{% set _ = by_source.update({r.source_type: {'won':0,'lost':0}}) %}{% endif %}
+              {% if r.stage == 'won' %}{% set _ = by_source[r.source_type].update({'won': r.cnt}) %}{% endif %}
+              {% if r.stage == 'lost' %}{% set _ = by_source[r.source_type].update({'lost': r.cnt}) %}{% endif %}
+            {% endfor %}
+            {% for src, d in by_source.items() %}
+            <tr>
+              <td>{{ src or '—' }}</td>
+              <td class="text-success fw-semibold">{{ d.won }}</td>
+              <td class="text-danger">{{ d.lost }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-muted text-center py-3">No data yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">Sales by Buyer Type</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead class="table-light"><tr><th>Buyer Type</th><th>Won</th><th>Lost</th></tr></thead>
+          <tbody>
+            {% set by_buyer = {} %}
+            {% for r in sales_rows %}
+              {% if r.buyer_type not in by_buyer %}{% set _ = by_buyer.update({r.buyer_type: {'won':0,'lost':0}}) %}{% endif %}
+              {% if r.stage == 'won' %}{% set _ = by_buyer[r.buyer_type].update({'won': r.cnt}) %}{% endif %}
+              {% if r.stage == 'lost' %}{% set _ = by_buyer[r.buyer_type].update({'lost': r.cnt}) %}{% endif %}
+            {% endfor %}
+            {% for bt, d in by_buyer.items() %}
+            <tr>
+              <td>{{ bt or '—' }}</td>
+              <td class="text-success fw-semibold">{{ d.won }}</td>
+              <td class="text-danger">{{ d.lost }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-muted text-center py-3">No data yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">Sourcing by User</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead class="table-light"><tr><th>User</th><th>Won</th><th>Lost</th></tr></thead>
+          <tbody>
+            {% set by_u = {} %}
+            {% for r in by_user %}
+              {% set u = r.assigned_to or 'Unassigned' %}
+              {% if u not in by_u %}{% set _ = by_u.update({u: {'won':0,'lost':0}}) %}{% endif %}
+              {% if r.stage == 'won' %}{% set _ = by_u[u].update({'won': r.cnt}) %}{% endif %}
+              {% if r.stage == 'lost' %}{% set _ = by_u[u].update({'lost': r.cnt}) %}{% endif %}
+            {% endfor %}
+            {% for u, d in by_u.items() %}
+            <tr>
+              <td>{{ u }}</td>
+              <td class="text-success fw-semibold">{{ d.won }}</td>
+              <td class="text-danger">{{ d.lost }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-muted text-center py-3">No data yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

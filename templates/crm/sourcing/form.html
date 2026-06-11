@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if deal else 'New' }} Sourcing Deal — OxyPC{% endblock %}
+{% block page_title %}{{ 'Edit Sourcing Deal' if deal else 'New Sourcing Deal' }}{% endblock %}
+{% block content %}
+
+<div class="row justify-content-center">
+<div class="col-xl-10">
+<form method="post" action="{{ '/crm/sourcing/'+deal.id|string+'/edit' if deal else '/crm/sourcing/new' }}" enctype="multipart/form-data">
+<input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-info-circle me-2 text-primary"></i>Deal Details</div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-12">
+        <label class="form-label fw-semibold">Title <span class="text-danger">*</span></label>
+        <input type="text" name="title" class="form-control" required value="{{ deal.title if deal else '' }}" placeholder="e.g. 50 Laptops from Sharma Traders, Delhi">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Contact (Supplier)</label>
+        <select name="contact_id" class="form-select">
+          <option value="">— Select Contact —</option>
+          {% for c in contacts %}
+          <option value="{{ c.id }}"
+            {% if deal and deal.contact_id == c.id %}selected
+            {% elif preselect and preselect|string == c.id|string %}selected
+            {% endif %}>
+            {{ c.company_name }}{% if c.contact_person %} ({{ c.contact_person }}){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Source Type</label>
+        <select name="source_type" class="form-select">
+          <option value="">— Select —</option>
+          {% for val, label in source_types %}
+          <option value="{{ val }}" {% if deal and deal.source_type==val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Device Type</label>
+        <input type="text" name="device_type" class="form-control" value="{{ deal.device_type or '' if deal else '' }}" placeholder="e.g. Laptop, Desktop, Mix">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Est. Quantity</label>
+        <input type="number" name="est_quantity" id="est_quantity" class="form-control" min="0" value="{{ deal.est_quantity or '' if deal else '' }}" placeholder="0">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Material Type</label>
+        <select name="material_type" class="form-select">
+          <option value="">— Select —</option>
+          {% for val, label in material_types %}
+          <option value="{{ val }}" {% if deal and deal.material_type==val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-currency-rupee me-2 text-success"></i>Pricing</div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Asking Price / Unit (₹)</label>
+        <input type="number" name="asking_price_unit" id="asking_unit" class="form-control" step="0.01" min="0"
+          value="{{ deal.asking_price_unit or '' if deal else '' }}" placeholder="0.00"
+          onblur="calcTotal('asking_unit','est_quantity','asking_total')">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Asking Price Total (₹)</label>
+        <input type="number" name="asking_price_total" id="asking_total" class="form-control" step="0.01" min="0"
+          value="{{ deal.asking_price_total or '' if deal else '' }}" placeholder="Auto-calculated" readonly>
+      </div>
+      <div class="col-md-4"><!-- spacer --></div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Our Offer / Unit (₹)</label>
+        <input type="number" name="our_offer_unit" id="offer_unit" class="form-control" step="0.01" min="0"
+          value="{{ deal.our_offer_unit or '' if deal else '' }}" placeholder="0.00"
+          onblur="calcTotal('offer_unit','est_quantity','offer_total')">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Our Offer Total (₹)</label>
+        <input type="number" name="our_offer_total" id="offer_total" class="form-control" step="0.01" min="0"
+          value="{{ deal.our_offer_total or '' if deal else '' }}" placeholder="Auto-calculated" readonly>
+      </div>
+      <div class="col-md-4"><!-- spacer --></div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Payment Advance %</label>
+        <input type="number" name="payment_advance_pct" class="form-control" min="0" max="100"
+          value="{{ deal.payment_advance_pct or 0 if deal else 0 }}">
+      </div>
+      <div class="col-md-8">
+        <label class="form-label fw-semibold">Payment Terms</label>
+        <textarea name="payment_terms" class="form-control" rows="2">{{ deal.payment_terms or '' if deal else '' }}</textarea>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-sliders me-2 text-primary"></i>Assignment &amp; Notes</div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Priority</label>
+        <select name="priority" class="form-select">
+          {% for p in priorities %}
+          <option value="{{ p }}" {% if deal and deal.priority==p %}selected{% elif not deal and p=='medium' %}selected{% endif %}>{{ p | title }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label fw-semibold">Assigned To</label>
+        <input type="text" name="assigned_to" class="form-control"
+          value="{{ deal.assigned_to if deal else current_user.username }}" placeholder="Username">
+      </div>
+      <div class="col-12">
+        <label class="form-label fw-semibold">Notes</label>
+        <textarea name="notes" class="form-control" rows="3" placeholder="Any additional details about this deal…">{{ deal.notes or '' if deal else '' }}</textarea>
+      </div>
+      <div class="col-12">
+        <label class="form-label fw-semibold">Product Records <span class="text-muted small">(XLS / XLSX / CSV)</span></label>
+        <input type="file" name="product_records" class="form-control" accept=".xls,.xlsx,.csv">
+        {% if deal and deal.product_records_file %}
+        <div class="mt-1 small text-muted">
+          <i class="bi bi-file-earmark-arrow-down me-1 text-success"></i>
+          Current file: <a href="/uploads/crm/{{ deal.product_records_file }}" target="_blank" class="text-success">Download</a>
+          — upload a new file to replace it
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="d-flex gap-2">
+  <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle me-1"></i>{{ 'Update Deal' if deal else 'Create Deal' }}</button>
+  <a href="{{ '/crm/sourcing/'+deal.id|string if deal else '/crm/sourcing' }}" class="btn btn-outline-secondary">Cancel</a>
+</div>
+
+</form>
+</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function calcTotal(unitId, qtyId, totalId) {
+  var unit = parseFloat(document.getElementById(unitId).value) || 0;
+  var qty  = parseFloat(document.getElementById(qtyId).value)  || 0;
+  if (unit > 0 && qty > 0) {
+    document.getElementById(totalId).value = (unit * qty).toFixed(2);
+  }
+}
+</script>
+{% endblock %}

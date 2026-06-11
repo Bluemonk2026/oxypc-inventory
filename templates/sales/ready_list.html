@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Ready to Sale — OxyPC{% endblock %}
+{% block page_title %}Ready to Sale{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <span class="text-muted">{{ devices|length }} device(s) ready</span>
+  <a href="/sales/new" class="btn btn-success"><i class="bi bi-cart-plus me-2"></i>New Sale</a>
+</div>
+
+{% if interested_dealers %}
+<div class="alert alert-warning alert-dismissible fade show mb-3" role="alert">
+  <strong><i class="bi bi-person-fill-exclamation me-1"></i>{{ interested_dealers|length }} Interested Buyer(s)</strong> — active CRM opportunities matching your ready inventory:
+  <div class="table-responsive mt-2">
+    <table class="table table-sm table-bordered mb-0 small bg-white">
+      <thead class="table-dark">
+        <tr><th>Opp#</th><th>Company</th><th>Phone</th><th>Device Type</th><th>Grade</th><th>Qty</th><th>Budget/Unit</th><th>Priority</th><th>Stage</th></tr>
+      </thead>
+      <tbody>
+        {% for d in interested_dealers %}
+        <tr>
+          <td><a href="/crm/sales/{{ d.opp_number }}" class="font-monospace text-decoration-none">{{ d.opp_number }}</a></td>
+          <td>{{ d.company }}</td>
+          <td>{{ d.phone or '—' }}</td>
+          <td>{{ d.device_type or '—' }}</td>
+          <td><span class="badge bg-secondary">{{ d.grade }}</span></td>
+          <td>{{ d.qty or '—' }}</td>
+          <td>{% if d.budget %}₹{{ '{:,.0f}'.format(d.budget) }}{% else %}—{% endif %}</td>
+          <td><span class="badge bg-{{ 'danger' if d.priority == 'urgent' else 'warning text-dark' if d.priority == 'high' else 'secondary' }}">{{ d.priority }}</span></td>
+          <td>{{ d.stage | replace('_', ' ') | title }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table id="readyTable" class="table table-hover mb-0 small">
+      <thead class="table-dark">
+        <tr>
+          <th>Barcode</th><th>Lot</th><th>Brand</th><th>Model</th>
+          <th>RAM</th><th>Storage</th><th>Grade</th>
+          <th title="Device-specific price if set, otherwise Lot Buying Price ÷ Lot Qty">Unit Cost</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for device, lot_number, buying_price, lot_qty in devices %}
+        {# Unit cost: device-level price from P&L (device_price) takes priority over avg lot cost #}
+        {% if device.device_price %}
+          {% set unit_cost = device.device_price %}
+          {% set cost_source = 'device' %}
+        {% elif lot_qty %}
+          {% set unit_cost = buying_price / lot_qty %}
+          {% set cost_source = 'lot' %}
+        {% else %}
+          {% set unit_cost = 0 %}
+          {% set cost_source = 'none' %}
+        {% endif %}
+        <tr>
+          <td><a href="/devices/{{ device.barcode }}" class="text-decoration-none"><code>{{ device.barcode }}</code></a></td>
+          <td><a href="/devices?lot={{ lot_number }}" class="text-decoration-none"><span class="badge bg-info text-dark">{{ lot_number }}</span></a></td>
+          <td>{{ device.brand or '—' }}</td>
+          <td>{{ device.model or '—' }}</td>
+          <td>{{ (device.ram_gb|string ~ 'GB') if device.ram_gb else '—' }}</td>
+          <td>{{ (device.storage_gb|string ~ 'GB') if device.storage_gb else '—' }}</td>
+          <td>
+            {% set gv = device.grade.value if device.grade else '' %}
+            <span class="badge bg-{{ 'success' if gv == 'A' else 'warning text-dark' if gv == 'B' else 'danger' if gv in ['C','D','scrap'] else 'secondary' }}">
+              {{ gv or '—' }}
+            </span>
+          </td>
+          <td class="fw-semibold">
+            {% if cost_source == 'none' %}
+            <span class="text-muted">—</span>
+            {% else %}
+            ₹{{ "{:,.0f}".format(unit_cost) }}
+            {% if cost_source == 'lot' %}
+            <span class="text-muted ms-1" style="font-size:.7rem" title="Avg lot cost (no device-specific price set)">avg</span>
+            {% endif %}
+            {% endif %}
+          </td>
+          <td><a href="/sales/new?barcode={{ device.barcode }}" class="btn btn-sm btn-success">Sell</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>$(document).ready(function(){ $('#readyTable').DataTable({pageLength:25}); });</script>
+{% endblock %}

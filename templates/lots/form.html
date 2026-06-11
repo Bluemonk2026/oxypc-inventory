@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}{% if lot %}Edit Lot{% else %}New Lot{% endif %} — OxyPC{% endblock %}
+{% block page_title %}{% if lot %}Edit Lot {{ lot.lot_number }}{% else %}Create New Lot / GRN{% endif %}{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-xl-10">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-box-seam me-2"></i>Lot & GRN Details
+      </div>
+      <div class="card-body">
+        {% if error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>{% endif %}
+        {% if prefill %}
+        <div class="alert alert-info border-0 mb-3 py-2">
+          <i class="bi bi-link-45deg me-1"></i>
+          Pre-filled from CRM sourcing deal — review and save to create the lot and mark the deal as <strong>WON</strong>.
+        </div>
+        {% endif %}
+        <form action="{% if lot %}/lots/{{ lot.id }}/edit{% else %}/lots/new{% endif %}" method="post">
+        {% if prefill %}
+        <input type="hidden" name="crm_deal_id" value="{{ prefill.from_deal }}">
+        {% endif %}
+
+          <!-- ════════════════ SECTION 1: Lot Identity ════════════════ -->
+          <div class="bg-light rounded p-3 mb-4">
+            <h6 class="fw-bold text-primary mb-3"><i class="bi bi-hash me-2"></i>Lot Identity</h6>
+            <div class="row g-3">
+              <div class="col-md-3">
+                <label class="form-label fw-semibold">Lot Number <span class="text-danger">*</span></label>
+                <input type="text" name="lot_number" class="form-control font-monospace"
+                       value="{{ lot.lot_number if lot else next_lot_number }}" required>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label fw-semibold">GRN System Number</label>
+                <input type="text" name="grn_system_number" class="form-control font-monospace"
+                       placeholder="e.g. GRN-178"
+                       value="{{ lot.grn_system_number or '' if lot else '' }}">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label fw-semibold">GRN Number (Numeric)</label>
+                <input type="number" name="grn_number_new" class="form-control"
+                       placeholder="e.g. 433" min="0"
+                       value="{{ lot.grn_number_new or '' if lot else '' }}">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label fw-semibold">Purchase / GRN Date <span class="text-danger">*</span></label>
+                <input type="date" name="purchase_date" class="form-control" required
+                       value="{{ lot.purchase_date.strftime('%Y-%m-%d') if lot and lot.purchase_date else '' }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">Date of Material Received</label>
+                <input type="date" name="grn_date" class="form-control"
+                       value="{{ lot.grn_date.strftime('%Y-%m-%d') if lot and lot.grn_date else '' }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">Supplier / Vendor Name <span class="text-danger">*</span></label>
+                <input type="text" name="supplier_name" class="form-control"
+                       placeholder="Supplier name" required
+                       value="{{ lot.supplier_name if lot else (prefill.supplier if prefill else '') }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">Vendor Name (PO)</label>
+                <input type="text" name="vendor_name" class="form-control"
+                       placeholder="Vendor from PO (if different)"
+                       value="{{ lot.vendor_name or '' if lot else '' }}">
+              </div>
+            </div>
+          </div>
+
+          <!-- ════════════════ SECTION 2: Invoice & Logistics ════════════════ -->
+          <div class="bg-light rounded p-3 mb-4">
+            <h6 class="fw-bold text-primary mb-3"><i class="bi bi-receipt me-2"></i>Invoice & Logistics</h6>
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">Invoice Number</label>
+                <input type="text" name="invoice_no" class="form-control"
+                       placeholder="Invoice / Bill number"
+                       value="{{ lot.invoice_no or '' if lot else '' }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">Invoice Date</label>
+                <input type="date" name="invoice_date" class="form-control"
+                       value="{{ lot.invoice_date.strftime('%Y-%m-%d') if lot and lot.invoice_date else '' }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">PO Number</label>
+                <input type="text" name="po_number" class="form-control"
+                       placeholder="Purchase Order number"
+                       value="{{ lot.po_number or '' if lot else (prefill.po if prefill else '') }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">Vehicle Number</label>
+                <input type="text" name="vehicle_number" class="form-control"
+                       placeholder="e.g. HR55AH9402"
+                       value="{{ lot.vehicle_number or '' if lot else '' }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">E-Way Bill Number</label>
+                <input type="text" name="e_way_bill" class="form-control"
+                       placeholder="E-way bill reference"
+                       value="{{ lot.e_way_bill or '' if lot else '' }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">Quantity <span class="text-danger">*</span></label>
+                <input type="number" name="qty" class="form-control"
+                       placeholder="Total units" min="1" required
+                       value="{{ lot.qty if lot else (prefill.qty if prefill else '') }}">
+              </div>
+            </div>
+          </div>
+
+          <!-- ════════════════ SECTION 3: Financial & GST ════════════════ -->
+          <div class="bg-light rounded p-3 mb-4">
+            <h6 class="fw-bold text-primary mb-3"><i class="bi bi-currency-rupee me-2"></i>Financial & GST</h6>
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">Total Buying Price (₹) <span class="text-danger">*</span></label>
+                <div class="input-group">
+                  <span class="input-group-text">₹</span>
+                  <input type="number" name="buying_price" class="form-control"
+                         placeholder="0.00" min="0" step="0.01" required
+                         value="{{ lot.buying_price if lot else (prefill.price if prefill else '') }}">
+                </div>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">Invoice Value (₹)</label>
+                <div class="input-group">
+                  <span class="input-group-text">₹</span>
+                  <input type="number" name="invoice_value" class="form-control"
+                         placeholder="Total invoice value" min="0" step="0.01"
+                         value="{{ lot.invoice_value or '' if lot else '' }}">
+                </div>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">Taxable Amount (₹)</label>
+                <div class="input-group">
+                  <span class="input-group-text">₹</span>
+                  <input type="number" name="taxable_amount" class="form-control"
+                         placeholder="Pre-tax amount" min="0" step="0.01"
+                         value="{{ lot.taxable_amount or '' if lot else '' }}">
+                </div>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">SGST (₹)</label>
+                <div class="input-group">
+                  <span class="input-group-text">₹</span>
+                  <input type="number" name="sgst" class="form-control"
+                         placeholder="State GST amount" min="0" step="0.01"
+                         value="{{ lot.sgst or '' if lot else '' }}">
+                </div>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">CGST (₹)</label>
+                <div class="input-group">
+                  <span class="input-group-text">₹</span>
+                  <input type="number" name="cgst" class="form-control"
+                         placeholder="Central GST amount" min="0" step="0.01"
+                         value="{{ lot.cgst or '' if lot else '' }}">
+                </div>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">IGST (₹)</label>
+                <div class="input-group">
+                  <span class="input-group-text">₹</span>
+                  <input type="number" name="igst" class="form-control"
+                         placeholder="Integrated GST amount" min="0" step="0.01"
+                         value="{{ lot.igst or '' if lot else '' }}">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ════════════════ SECTION 4: Notes ════════════════ -->
+          <div class="row g-3 mb-4">
+            <div class="col-12">
+              <label class="form-label fw-semibold">Notes / Remarks</label>
+              <textarea name="notes" class="form-control" rows="2"
+                        placeholder="Any notes about this lot">{{ lot.notes or '' if lot else (prefill.notes if prefill else '') }}</textarea>
+            </div>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary px-4">
+              <i class="bi bi-save me-2"></i>{% if lot %}Update Lot{% else %}Create Lot{% endif %}
+            </button>
+            <a href="{% if lot %}/lots/{{ lot.id }}{% else %}/lots{% endif %}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

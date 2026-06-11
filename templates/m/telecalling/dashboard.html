@@ -1,0 +1,87 @@
+{% extends "m/telecalling/base_m.html" %}
+{% block title %}OxyTC · Dashboard{% endblock %}
+{% block heading %}Telecalling{% endblock %}
+{% block tab_home %}active{% endblock %}
+
+{% block content %}
+<section class="tc-card">
+  <h2>Today · <span id="tc-date"></span></h2>
+  <div class="tc-kpi-grid">
+    <div class="tc-kpi"><div class="v" id="kpi-calls">–</div><div class="l">Calls Made</div>
+      <div class="tc-progress"><i id="kpi-bar" style="width:0%"></i></div></div>
+    <div class="tc-kpi"><div class="v" id="kpi-connected" style="color:var(--green)">–</div><div class="l">Connected</div></div>
+    <div class="tc-kpi"><div class="v" id="kpi-interested" style="color:var(--amber)">–</div><div class="l">Interested</div></div>
+    <div class="tc-kpi"><div class="v" id="kpi-orders">–</div><div class="l">Orders</div></div>
+  </div>
+  <div style="font-size:11px; color:var(--muted); margin-top:10px">
+    Target <span id="kpi-target">50</span> · <strong id="kpi-pct">–</strong>
+  </div>
+</section>
+
+<section class="tc-card" style="padding:0">
+  <div style="padding:14px 14px 8px"><h2 style="margin:0">Next In Queue · <span id="q-count">–</span></h2></div>
+  <div id="queue-preview"><div class="tc-empty">Loading…</div></div>
+  <div style="padding:10px 14px; text-align:center"><a href="/m/telecalling/queue" style="font-size:12px; color:var(--navy); font-weight:600; text-decoration:none">View full queue →</a></div>
+</section>
+
+<section class="tc-card">
+  <h2>Follow-ups Today · <span id="fu-count">–</span></h2>
+  <div id="followups"><div class="tc-empty">Loading…</div></div>
+</section>
+{% endblock %}
+
+{% block page_script %}
+<script>
+(async function(){
+  document.getElementById('tc-date').textContent =
+    new Date().toLocaleDateString('en-IN', { weekday:'short', day:'2-digit', month:'short' });
+
+  try {
+    const s = await OxyTC.api('/session/today');
+    document.getElementById('kpi-calls').textContent      = s.calls_made;
+    document.getElementById('kpi-connected').textContent  = s.connected;
+    document.getElementById('kpi-interested').textContent = s.interested;
+    document.getElementById('kpi-orders').textContent     = s.orders_placed;
+    document.getElementById('kpi-target').textContent     = s.target_calls;
+    document.getElementById('kpi-pct').textContent        = s.attainment_pct + '% done';
+    document.getElementById('kpi-bar').style.width        = Math.min(s.attainment_pct, 100) + '%';
+    document.getElementById('q-count').textContent        = s.pending_assignments;
+    document.getElementById('fu-count').textContent       = s.overdue_followups;
+  } catch (e) { OxyTC.toast('Could not load KPIs', 'err'); }
+
+  try {
+    const q = await OxyTC.api('/assigned-leads');
+    const el = document.getElementById('queue-preview');
+    if (!q.length) { el.innerHTML = '<div class="tc-empty">No leads in queue today</div>'; }
+    else {
+      el.innerHTML = q.slice(0, 3).map(l => `
+        <div class="tc-lead">
+          <div class="av">${(l.display_name||'?').slice(0,2).toUpperCase()}</div>
+          <div style="flex:1; min-width:0">
+            <div class="nm">${l.display_name||'Unknown'} <span class="tc-pill ${l.priority}">${l.priority}</span></div>
+            <div class="sub">${l.lead_phone||''} · ${l.city||''} · ${l.category||''}</div>
+          </div>
+          <a class="tc-call-btn" href="/m/telecalling/call/${encodeURIComponent(l.lead_phone)}"><i class="bi bi-telephone-fill"></i></a>
+        </div>`).join('');
+    }
+  } catch (e) {}
+
+  try {
+    const fu = await OxyTC.api('/followups/today');
+    const el = document.getElementById('followups');
+    if (!fu.length) { el.innerHTML = '<div class="tc-empty">No follow-ups scheduled</div>'; }
+    else {
+      el.innerHTML = fu.slice(0, 5).map(f => `
+        <div class="tc-lead" style="padding-left:0;padding-right:0">
+          <div class="av">${(f.subject||'?').slice(0,2).toUpperCase()}</div>
+          <div style="flex:1; min-width:0">
+            <div class="nm">${f.subject||'Lead'}</div>
+            <div class="sub">${new Date(f.due_at).toLocaleString('en-IN')}</div>
+          </div>
+          <a class="tc-call-btn" href="/m/telecalling/call/${encodeURIComponent(f.phone)}"><i class="bi bi-telephone-fill"></i></a>
+        </div>`).join('');
+    }
+  } catch (e) {}
+})();
+</script>
+{% endblock %}

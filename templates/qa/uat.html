@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block title %}UAT Board — QA{% endblock %}
+{% block page_title %}QA Dashboard{% endblock %}
+{% block content %}
+{% include 'qa/_tabs.html' %}
+
+<!-- Toolbar -->
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <form method="get" class="d-flex gap-2">
+    <select name="status" class="form-select form-select-sm" style="width:180px">
+      <option value="">All Statuses</option>
+      {% for s in uat_statuses %}
+      <option value="{{ s.value }}" {{ 'selected' if f_status == s.value }}>{{ s.value }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-sm btn-outline-secondary">Filter</button>
+  </form>
+  <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#newUATModal">
+    <i class="bi bi-plus-circle me-1"></i>New UAT Scenario
+  </button>
+</div>
+
+<!-- UAT Entry Criteria reminder -->
+<div class="alert alert-info alert-sm border py-2 mb-3 small">
+  <strong>UAT Entry Criteria:</strong> QA sign-off completed &bull; 0 open critical defects &bull; Stable build deployed to UAT environment
+</div>
+
+<!-- Kanban-style status columns -->
+<div class="row g-3">
+  {% set col_map = [
+    ('Pending Execution', 'warning', 'bi-hourglass'),
+    ('Pass',             'success', 'bi-check-circle'),
+    ('Fail',             'danger',  'bi-x-circle'),
+    ('Blocked',          'secondary','bi-slash-circle'),
+  ] %}
+  {% for col_status, col_color, col_icon in col_map %}
+  <div class="col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-{{ col_color }} bg-opacity-{{ '25' if col_color not in ('success') else '15' }} border-bottom">
+        <div class="d-flex align-items-center justify-content-between">
+          <span class="fw-semibold small"><i class="bi {{ col_icon }} me-2"></i>{{ col_status }}</span>
+          <span class="badge bg-{{ col_color }} {{ 'text-dark' if col_color in ('warning') }}">
+            {{ scenarios | selectattr('status.value', 'equalto', col_status) | list | length }}
+          </span>
+        </div>
+      </div>
+      <div class="card-body p-2">
+        {% for s in scenarios if s.status.value == col_status %}
+        <div class="card border mb-2">
+          <div class="card-body p-2">
+            <div class="fw-semibold small">{{ s.uat_code or '' }} {{ s.title }}</div>
+            {% if s.scenario %}
+            <div class="text-muted" style="font-size:.72rem; margin-top:2px">{{ s.scenario|truncate(80) }}</div>
+            {% endif %}
+            {% if s.business_owner %}
+            <div class="mt-1" style="font-size:.7rem"><i class="bi bi-person me-1"></i>{{ s.business_owner }}</div>
+            {% endif %}
+            {% if s.sign_off_by %}
+            <div class="mt-1 text-success" style="font-size:.7rem">
+              <i class="bi bi-check-circle me-1"></i>Signed off by {{ s.sign_off_by }}
+            </div>
+            {% endif %}
+            <button class="btn btn-xs btn-outline-primary mt-2 py-0 px-2"
+                    data-bs-toggle="modal" data-bs-target="#execUAT{{ loop.index }}_{{ col_status|replace(' ','') }}"
+                    style="font-size:.7rem">
+              Record Result
+            </button>
+          </div>
+        </div>
+
+        <!-- Execute UAT Modal -->
+        <div class="modal fade" id="execUAT{{ loop.index }}_{{ col_status|replace(' ','') }}" tabindex="-1">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <form method="post" action="/qa/uat/{{ s.id }}/execute">
+                <div class="modal-header">
+                  <h6 class="modal-title">UAT: {{ s.title|truncate(40) }}</h6>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  {% if s.acceptance_criteria %}
+                  <div class="alert alert-info py-2 px-3 small mb-3">
+                    <strong>Acceptance Criteria:</strong><br>{{ s.acceptance_criteria }}
+                  </div>
+                  {% endif %}
+                  <div class="mb-3">
+                    <label class="form-label small fw-semibold">Result</label>
+                    <div class="d-flex gap-3">
+                      {% for st in uat_statuses if st.value not in ('Draft',) %}
+                      <div class="form-check">
+                        <input class="form-check-input" type="radio" name="status" value="{{ st.value }}"
+                               id="us{{ loop.index }}_{{ st.value|replace(' ','') }}"
+                               {{ 'checked' if st.value == 'Pass' }}>
+                        <label class="form-check-label small"
+                               for="us{{ loop.index }}_{{ st.value|replace(' ','') }}">{{ st.value }}</label>
+                      </div>
+                      {% endfor %}
+                    </div>
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label small fw-semibold">Result Notes</label>
+                    <textarea name="result_notes" class="form-control form-control-sm" rows="3"></textarea>
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label small fw-semibold">Business Feedback</label>
+                    <textarea name="feedback" class="form-control form-control-sm" rows="2"></textarea>
+                  </div>
+                  <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" name="sign_off" value="true" id="signOff{{ loop.index }}">
+                    <label class="form-check-label small fw-semibold text-success" for="signOff{{ loop.index }}">
+                      <i class="bi bi-check-circle me-1"></i>Sign off this scenario (business approval)
+                    </label>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                  <button type="submit" class="btn btn-sm btn-success">Save UAT Result</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+        {% else %}
+        <div class="text-center text-muted small py-3">—</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- UAT Exit Criteria reminder -->
+<div class="alert alert-success border py-2 mt-3 small">
+  <strong>UAT Exit Criteria:</strong> All scenarios executed &bull; Business approval received &bull; 0 open critical defects &bull; Sign-off completed
+</div>
+
+<!-- New UAT Modal -->
+<div class="modal fade" id="newUATModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="/qa/uat/new">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-person-check me-2"></i>New UAT Scenario</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">UAT Code</label>
+              <input name="uat_code" class="form-control form-control-sm" placeholder="UAT-001">
+            </div>
+            <div class="col-md-9">
+              <label class="form-label small fw-semibold">Title <span class="text-danger">*</span></label>
+              <input name="title" class="form-control form-control-sm" required
+                     placeholder="e.g. Dealer can complete end-to-end purchase journey">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Linked Requirement</label>
+              <select name="requirement_id" class="form-select form-select-sm">
+                <option value="">— None —</option>
+                {% for r in reqs %}
+                <option value="{{ r.id }}">{{ r.req_code or '' }} {{ r.title|truncate(45) }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Business Owner</label>
+              <input name="business_owner" class="form-control form-control-sm" placeholder="Name / role">
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Scenario</label>
+              <textarea name="scenario" class="form-control form-control-sm" rows="3"
+                        placeholder="Describe the real-world user journey being validated…"></textarea>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Acceptance Criteria</label>
+              <textarea name="acceptance_criteria" class="form-control form-control-sm" rows="3"
+                        placeholder="What must be true for this scenario to PASS?"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success btn-sm">
+            <i class="bi bi-plus-circle me-1"></i>Create UAT Scenario
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

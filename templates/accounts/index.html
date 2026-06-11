@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Accounts Overview — OxyPC{% endblock %}
+{% block page_title %}Accounts Overview{% endblock %}
+{% block content %}
+{% if request.query_params.get('success') %}
+<div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body text-center">
+        <div class="fs-6 text-muted mb-1">Total Paid to Suppliers</div>
+        <div class="fs-2 fw-bold text-danger">&#8377;{{ "{:,.0f}".format(sp_total) }}</div>
+        <a href="/accounts/supplier-payments" class="btn btn-sm btn-outline-danger mt-2">View All</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body text-center">
+        <div class="fs-6 text-muted mb-1">Total Received from Customers</div>
+        <div class="fs-2 fw-bold text-success">&#8377;{{ "{:,.0f}".format(cr_total) }}</div>
+        <a href="/accounts/customer-receipts" class="btn btn-sm btn-outline-success mt-2">View All</a>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold"><i class="bi bi-arrow-up-circle-fill text-danger me-2"></i>Recent Supplier Payments</div>
+      <div class="card-body p-0">
+        <table class="table table-hover mb-0 small">
+          <thead class="table-light"><tr><th>Date</th><th>Supplier</th><th>Mode</th><th>Amount</th></tr></thead>
+          <tbody>
+            {% for p in recent_payments %}
+            <tr>
+              <td>{{ p.payment_date.strftime('%d-%m-%Y') if p.payment_date else '&mdash;' }}</td>
+              <td>{{ p.contact.company_name if p.contact else '&mdash;' }}</td>
+              <td><span class="badge bg-secondary">{{ p.payment_mode or '&mdash;' }}</span></td>
+              <td class="fw-semibold text-danger">&#8377;{{ "{:,.0f}".format(p.amount) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="text-center text-muted py-3">No payments yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold"><i class="bi bi-arrow-down-circle-fill text-success me-2"></i>Recent Customer Receipts</div>
+      <div class="card-body p-0">
+        <table class="table table-hover mb-0 small">
+          <thead class="table-light"><tr><th>Date</th><th>Contact</th><th>Mode</th><th>Amount</th></tr></thead>
+          <tbody>
+            {% for r in recent_receipts %}
+            <tr>
+              <td>{{ r.receipt_date.strftime('%d-%m-%Y') if r.receipt_date else '&mdash;' }}</td>
+              <td>{{ r.contact.company_name if r.contact else '&mdash;' }}</td>
+              <td><span class="badge bg-secondary">{{ r.payment_mode or '&mdash;' }}</span></td>
+              <td class="fw-semibold text-success">&#8377;{{ "{:,.0f}".format(r.amount) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="text-center text-muted py-3">No receipts yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

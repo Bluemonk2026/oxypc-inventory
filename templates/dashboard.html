@@ -1,0 +1,698 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — OxyPC{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block content %}
+
+<!-- Dashboard Filters -->
+<form method="get" action="/" class="row g-2 mb-3 align-items-end">
+  <div class="col-md-3">
+    <label class="form-label small fw-semibold">Filter by Stage</label>
+    <select name="stage_filter" class="form-select form-select-sm">
+      <option value="">All Stages</option>
+      {% for stage in all_stages %}
+      <option value="{{ stage.value }}" {% if stage_filter == stage.value %}selected{% endif %}>
+        {{ stage.value.replace('_',' ').title() }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label small fw-semibold">P&amp;L From Date</label>
+    <input type="date" name="pl_from" class="form-control form-control-sm" value="{{ pl_from }}">
+  </div>
+  <div class="col-md-3">
+    <label class="form-label small fw-semibold">P&amp;L To Date</label>
+    <input type="date" name="pl_to" class="form-control form-control-sm" value="{{ pl_to }}">
+  </div>
+  <div class="col-auto">
+    <button type="submit" class="btn btn-sm btn-primary">
+      <i class="bi bi-funnel me-1"></i>Apply
+    </button>
+    <a href="/" class="btn btn-sm btn-outline-secondary ms-1">Clear</a>
+  </div>
+</form>
+
+<!-- ═══════════════════════════════════════════════════════════
+     MY WORK QUEUE  (role-specific banner at top)
+     ═══════════════════════════════════════════════════════════ -->
+{% set role = current_user.role.value %}
+
+{% if role == 'iqc_inspector' %}
+<div class="alert alert-secondary border-0 shadow-sm mb-4 py-3">
+  <div class="d-flex align-items-center gap-3">
+    <i class="bi bi-clipboard2-pulse fs-2 text-secondary"></i>
+    <div>
+      <div class="fw-semibold fs-5">My Work Queue — IQC Inspector</div>
+      <span class="fs-4 fw-bold text-secondary">{{ user_queue.get('iqc_pending', 0) }}</span>
+      <span class="ms-1 text-muted">devices awaiting IQC</span>
+      <a href="/iqc" class="btn btn-sm btn-secondary ms-3"><i class="bi bi-arrow-right-circle me-1"></i>Go to IQC</a>
+    </div>
+  </div>
+</div>
+
+{% elif role == 'l1_engineer' %}
+<div class="alert alert-warning border-0 shadow-sm mb-4 py-3">
+  <div class="d-flex align-items-center gap-3">
+    <i class="bi bi-tools fs-2 text-warning"></i>
+    <div>
+      <div class="fw-semibold fs-5">My Work Queue — L1 Engineer</div>
+      <span class="fs-4 fw-bold text-warning">{{ user_queue.get('l1_count', 0) }}</span>
+      <span class="ms-1 text-muted">devices in L1 repair queue</span>
+      <a href="/repair/l1" class="btn btn-sm btn-warning ms-3"><i class="bi bi-arrow-right-circle me-1"></i>Go to L1 Queue</a>
+    </div>
+  </div>
+</div>
+
+{% elif role == 'l2_engineer' %}
+<div class="alert alert-warning border-0 shadow-sm mb-4 py-3">
+  <div class="d-flex align-items-center gap-3">
+    <i class="bi bi-tools fs-2 text-warning"></i>
+    <div>
+      <div class="fw-semibold fs-5">My Work Queue — L2 Engineer</div>
+      <span class="fs-4 fw-bold text-warning">{{ user_queue.get('l2_count', 0) }}</span>
+      <span class="ms-1 text-muted">devices in L2 repair queue</span>
+      <a href="/repair/l2" class="btn btn-sm btn-warning ms-3"><i class="bi bi-arrow-right-circle me-1"></i>Go to L2 Queue</a>
+    </div>
+  </div>
+</div>
+
+{% elif role == 'l3_engineer' %}
+<div class="alert alert-danger border-0 shadow-sm mb-4 py-3">
+  <div class="d-flex align-items-center gap-3">
+    <i class="bi bi-cpu fs-2 text-danger"></i>
+    <div>
+      <div class="fw-semibold fs-5">My Work Queue — L3 Engineer</div>
+      <span class="fs-4 fw-bold text-danger">{{ user_queue.get('l3_count', 0) }}</span>
+      <span class="ms-1 text-muted">devices in L3 repair queue</span>
+      <a href="/repair/l3" class="btn btn-sm btn-danger ms-3"><i class="bi bi-arrow-right-circle me-1"></i>Go to L3 Queue</a>
+    </div>
+  </div>
+</div>
+
+{% elif role == 'qc_inspector' %}
+<div class="alert alert-primary border-0 shadow-sm mb-4 py-3">
+  <div class="d-flex align-items-center gap-3">
+    <i class="bi bi-patch-check fs-2 text-primary"></i>
+    <div>
+      <div class="fw-semibold fs-5">My Work Queue — QC Inspector</div>
+      <span class="fs-4 fw-bold text-primary">{{ user_queue.get('qc_pending', 0) }}</span>
+      <span class="ms-1 text-muted">devices pending QC check</span>
+      <a href="/qc" class="btn btn-sm btn-primary ms-3"><i class="bi bi-arrow-right-circle me-1"></i>Go to QC</a>
+    </div>
+  </div>
+</div>
+
+{% elif role in ('sales', 'sales_manager', 'telecaller') %}
+<div class="alert alert-success border-0 shadow-sm mb-4 py-3">
+  <div class="d-flex flex-wrap align-items-center gap-4">
+    <i class="bi bi-bag-check fs-2 text-success"></i>
+    <div>
+      <div class="fw-semibold fs-5 mb-1">My Work Queue — Sales</div>
+      <div class="d-flex flex-wrap gap-3 align-items-center">
+        <div><span class="fs-4 fw-bold text-success">{{ user_queue.get('ready_to_sale', 0) }}</span><span class="ms-1 text-muted small">ready to sell</span><a href="/devices?stage=ready_to_sale" class="btn btn-sm btn-outline-success ms-2">View</a></div>
+        <div><span class="fs-4 fw-bold text-dark">{{ user_queue.get('today_sales', 0) }}</span><span class="ms-1 text-muted small">sold today</span></div>
+        <div><span class="fs-4 fw-bold text-success">₹{{ "{:,.0f}".format(user_queue.get('month_revenue', 0)) }}</span><span class="ms-1 text-muted small">month revenue</span></div>
+        <div><span class="fs-5 fw-bold {% if user_queue.get('dealer_outstanding_total',0) > 0 %}text-danger{% else %}text-muted{% endif %}">₹{{ "{:,.0f}".format(user_queue.get('dealer_outstanding_total', 0)) }}</span><span class="ms-1 text-muted small">dealer outstanding</span></div>
+        <div><span class="fs-5 fw-bold {% if user_queue.get('dealer_overdue_count',0) > 0 %}text-danger{% else %}text-muted{% endif %}">{{ user_queue.get('dealer_overdue_count', 0) }}</span><span class="ms-1 text-muted small">overdue orders</span></div>
+        <a href="/dealers" class="btn btn-sm btn-success"><i class="bi bi-building me-1"></i>My Dealers</a>
+        <a href="/telecalling" class="btn btn-sm btn-outline-success"><i class="bi bi-telephone me-1"></i>Calling List</a>
+        <a href="/whatsapp" class="btn btn-sm btn-outline-dark"><i class="bi bi-whatsapp me-1"></i>WhatsApp</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% elif role == 'spare_parts_manager' %}
+<div class="alert alert-info border-0 shadow-sm mb-4 py-3">
+  <div class="d-flex flex-wrap align-items-center gap-4">
+    <i class="bi bi-boxes fs-2 text-info"></i>
+    <div>
+      <div class="fw-semibold fs-5 mb-1">My Work Queue — Spare Parts</div>
+      <div class="d-flex flex-wrap gap-4">
+        <div><span class="fs-4 fw-bold {% if user_queue.get('low_stock_count', 0) > 0 %}text-danger{% else %}text-success{% endif %}">{{ user_queue.get('low_stock_count', 0) }}</span><span class="ms-1 text-muted small">low stock alerts</span><a href="/spare-parts?filter=low" class="btn btn-sm btn-outline-danger ms-2">View</a></div>
+        <div><span class="fs-4 fw-bold text-info">{{ user_queue.get('today_consumption', 0) }}</span><span class="ms-1 text-muted small">parts used today</span></div>
+        <div><span class="fs-4 fw-bold text-dark">₹{{ "{:,.0f}".format(user_queue.get('total_parts_value', 0)) }}</span><span class="ms-1 text-muted small">stock value</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% elif role == 'inventory_manager' %}
+<div class="alert alert-info border-0 shadow-sm mb-4 py-3">
+  <div class="d-flex flex-wrap align-items-center gap-4">
+    <i class="bi bi-archive fs-2 text-info"></i>
+    <div>
+      <div class="fw-semibold fs-5 mb-1">My Work Queue — Inventory Manager</div>
+      <div class="d-flex flex-wrap gap-4">
+        <div><span class="fs-4 fw-bold text-info">{{ user_queue.get('stock_in_count', 0) }}</span><span class="ms-1 text-muted small">devices in Stock-In</span><a href="/devices?stage=stock_in" class="btn btn-sm btn-outline-info ms-2">View</a></div>
+        <div><span class="fs-4 fw-bold text-dark">{{ user_queue.get('lot_count', 0) }}</span><span class="ms-1 text-muted small">active lots</span><a href="/lots" class="btn btn-sm btn-outline-dark ms-2">View Lots</a></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% elif role == 'admin' %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-dark text-white fw-semibold"><i class="bi bi-shield-lock me-2"></i>Admin Overview — All Queues</div>
+  <div class="card-body">
+    <div class="row g-3">
+      {% for key, label, color, link, btn_text in [
+        ('iqc_pending','IQC Pending','secondary','/iqc','IQC'),
+        ('l1_count','L1 Queue','warning','/repair/l1','L1'),
+        ('l2_count','L2 Queue','warning','/repair/l2','L2'),
+        ('l3_count','L3 Queue','danger','/repair/l3','L3'),
+        ('qc_pending','QC Pending','primary','/qc','QC'),
+        ('ready_to_sale','Ready to Sell','success','/devices?stage=ready_to_sale','View'),
+        ('stock_in_count','Stock-In','info','/devices?stage=stock_in','View'),
+        ('lot_count','Active Lots','dark','/lots','Lots')] %}
+      <div class="col-6 col-md-3 col-xl-2">
+        <div class="border rounded-3 p-3 text-center h-100">
+          <div class="text-muted small mb-1">{{ label }}</div>
+          <div class="fs-3 fw-bold text-{{ color }}">{{ user_queue.get(key, 0) }}</div>
+          <a href="{{ link }}" class="btn btn-sm btn-outline-{{ color }} mt-1 w-100">{{ btn_text }}</a>
+        </div>
+      </div>
+      {% endfor %}
+      <div class="col-6 col-md-3 col-xl-2">
+        <div class="border rounded-3 p-3 text-center h-100">
+          <div class="text-muted small mb-1">Sold Today</div>
+          <div class="fs-3 fw-bold">{{ user_queue.get('today_sales', 0) }}</div>
+          <a href="/sales" class="btn btn-sm btn-outline-dark mt-1 w-100">Sales</a>
+        </div>
+      </div>
+      <div class="col-6 col-md-3 col-xl-2">
+        <div class="border rounded-3 p-3 text-center h-100">
+          <div class="text-muted small mb-1">Month Revenue</div>
+          <div class="fs-6 fw-bold text-success">₹{{ "{:,.0f}".format(user_queue.get('month_revenue', 0)) }}</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3 col-xl-2">
+        <div class="border rounded-3 p-3 text-center h-100">
+          <div class="text-muted small mb-1">Low Stock</div>
+          <div class="fs-3 fw-bold {% if user_queue.get('low_stock_count',0) > 0 %}text-danger{% else %}text-success{% endif %}">{{ user_queue.get('low_stock_count', 0) }}</div>
+          <a href="/spare-parts?filter=low" class="btn btn-sm btn-outline-danger mt-1 w-100">Parts</a>
+        </div>
+      </div>
+      <div class="col-6 col-md-3 col-xl-2">
+        <div class="border rounded-3 p-3 text-center h-100">
+          <div class="text-muted small mb-1">Dealer Outstanding</div>
+          <div class="fs-6 fw-bold {% if user_queue.get('dealer_outstanding_total',0) > 0 %}text-danger{% else %}text-success{% endif %}">₹{{ "{:,.0f}".format(user_queue.get('dealer_outstanding_total', 0)) }}</div>
+          <a href="/dealers/ageing" class="btn btn-sm btn-outline-danger mt-1 w-100">Ageing</a>
+        </div>
+      </div>
+      <div class="col-6 col-md-3 col-xl-2">
+        <div class="border rounded-3 p-3 text-center h-100">
+          <div class="text-muted small mb-1">Overdue Orders</div>
+          <div class="fs-3 fw-bold {% if user_queue.get('dealer_overdue_count',0) > 0 %}text-danger{% else %}text-success{% endif %}">{{ user_queue.get('dealer_overdue_count', 0) }}</div>
+          <a href="/dealers/overdue" class="btn btn-sm btn-outline-warning mt-1 w-100">View</a>
+        </div>
+      </div>
+      <div class="col-6 col-md-3 col-xl-2">
+        <div class="border rounded-3 p-3 text-center h-100">
+          <div class="text-muted small mb-1">Credit Notes (Month)</div>
+          <div class="fs-3 fw-bold text-warning">{{ user_queue.get('dealer_credit_notes_month', 0) }}</div>
+          <a href="/dealers" class="btn btn-sm btn-outline-secondary mt-1 w-100">View</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ═══════════════════════════════════════════════════════════
+     ROLE-BASED TAB NAVIGATION
+     ═══════════════════════════════════════════════════════════ -->
+<ul class="nav nav-tabs mb-4" id="dashboardTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="tab-ops-btn" data-bs-toggle="tab"
+            data-bs-target="#tab-operations" type="button" role="tab" aria-selected="true">
+      <i class="bi bi-speedometer2 me-1"></i>Operations
+      {% if today_followups > 0 %}<span class="badge bg-danger rounded-pill ms-1" style="font-size:.7rem">{{ today_followups }}</span>{% endif %}
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-finance-btn" data-bs-toggle="tab"
+            data-bs-target="#tab-finance" type="button" role="tab" aria-selected="false">
+      <i class="bi bi-graph-up-arrow me-1"></i>Finance
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-inventory-btn" data-bs-toggle="tab"
+            data-bs-target="#tab-inventory" type="button" role="tab" aria-selected="false">
+      <i class="bi bi-boxes me-1"></i>Inventory
+    </button>
+  </li>
+</ul>
+<div class="tab-content" id="dashboardTabContent">
+
+<!-- ═══ TAB 1: OPERATIONS (default active) ═══════════════════════ -->
+<div class="tab-pane fade show active" id="tab-operations" role="tabpanel">
+
+<!-- ═══════════════════════════════════════════════════════════
+     DEVICE STAGE PIPELINE WIDGET (admin + inventory_manager)
+     ═══════════════════════════════════════════════════════════ -->
+{% if role in ('admin', 'inventory_manager') %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent d-flex align-items-center gap-2">
+    <i class="bi bi-diagram-3 text-primary"></i>
+    <span class="fw-semibold">Device Stage Pipeline</span>
+    <span class="text-muted small ms-auto">Live counts — click to filter devices</span>
+  </div>
+  <div class="card-body py-3">
+    <div class="d-flex flex-wrap align-items-center gap-1">
+      {% for stage_key, stage_label, stage_color in [
+          ('grn',          'GRN',        'secondary'),
+          ('iqc',          'IQC',        'primary'),
+          ('stock_in',     'Stock',      'info'),
+          ('l1',           'L1 Repair',  'warning'),
+          ('l2',           'L2 Repair',  'warning'),
+          ('l3',           'L3 Repair',  'danger'),
+          ('qc_check',     'QC',         'primary'),
+          ('ready_to_sale','Ready',      'success'),
+          ('sold',         'Sold',       'dark'),
+      ] %}
+      <a href="/devices?stage={{ stage_key }}" class="text-decoration-none">
+        <div class="border rounded-3 px-3 py-2 text-center" style="min-width:90px">
+          <div class="small text-muted">{{ stage_label }}</div>
+          <div class="fs-5 fw-bold text-{{ stage_color }}">{{ stage_counts.get(stage_key, 0) }}</div>
+        </div>
+      </a>
+      {% if not loop.last %}
+      <i class="bi bi-chevron-right text-muted"></i>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% set repair_total = stage_counts.get('l1',0) + stage_counts.get('l2',0) + stage_counts.get('l3',0) %}
+    {% set cosmetic_total = stage_counts.get('cleaning',0) + stage_counts.get('dry_sanding',0) + stage_counts.get('masking',0) + stage_counts.get('painting',0) + stage_counts.get('water_sanding',0) + stage_counts.get('final_qc',0) %}
+    <div class="mt-2 small text-muted">
+      Total in Repair (L1+L2+L3): <strong>{{ repair_total }}</strong>
+      &nbsp;·&nbsp;
+      Cosmetic stages: <strong>{{ cosmetic_total }}</strong>
+      &nbsp;·&nbsp;
+      Returned: <strong>{{ stage_counts.get('returned', 0) }}</strong>
+      &nbsp;·&nbsp;
+      Scrapped: <strong>{{ stage_counts.get('scrapped', 0) }}</strong>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ═══════════════════════════════════════════════════════════
+     CATEGORY QUICK VIEW CARDS
+     ═══════════════════════════════════════════════════════════ -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-xl-3">
+    <a href="/devices" class="text-decoration-none">
+      <div class="card border-0 shadow-sm h-100 cat-card cat-all">
+        <div class="card-body text-center py-4">
+          <i class="bi bi-grid-3x3-gap fs-1 mb-2 d-block" style="color:#6f42c1"></i>
+          <div class="fw-bold mb-1">All Devices</div>
+          <div class="display-6 fw-bold" style="color:#6f42c1">{{ total_devices }}</div>
+          <div class="small text-muted mt-1">Available: <strong>{{ all_available }}</strong></div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-xl-3">
+    <a href="/devices?category=Laptop" class="text-decoration-none">
+      <div class="card border-0 shadow-sm h-100 cat-card cat-laptop">
+        <div class="card-body text-center py-4">
+          <i class="bi bi-laptop fs-1 mb-2 d-block text-primary"></i>
+          <div class="fw-bold mb-1">Laptops</div>
+          <div class="display-6 fw-bold text-primary">{{ category_counts.get('Laptop', {}).get('total', 0) }}</div>
+          <div class="small text-muted mt-1">Available: <strong>{{ laptops_available }}</strong></div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-xl-3">
+    <a href="/devices?category=Desktop" class="text-decoration-none">
+      <div class="card border-0 shadow-sm h-100 cat-card cat-desktop">
+        <div class="card-body text-center py-4">
+          <i class="bi bi-pc-display fs-1 mb-2 d-block text-success"></i>
+          <div class="fw-bold mb-1">Desktops</div>
+          <div class="display-6 fw-bold text-success">{{ category_counts.get('Desktop', {}).get('total', 0) }}</div>
+          <div class="small text-muted mt-1">Available: <strong>{{ desktops_available }}</strong></div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-xl-3">
+    <a href="/devices?category=TFT" class="text-decoration-none">
+      <div class="card border-0 shadow-sm h-100 cat-card cat-tft">
+        <div class="card-body text-center py-4">
+          <i class="bi bi-display fs-1 mb-2 d-block" style="color:#fd7e14"></i>
+          <div class="fw-bold mb-1">TFT / Monitors</div>
+          <div class="display-6 fw-bold" style="color:#fd7e14">{{ category_counts.get('TFT', {}).get('total', 0) }}</div>
+          <div class="small text-muted mt-1">Available: <strong>{{ tft_available }}</strong></div>
+        </div>
+      </div>
+    </a>
+  </div>
+</div>
+
+<!-- Summary Stat Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-xl-3">
+    <div class="card border-0 shadow-sm"><div class="card-body d-flex align-items-center gap-3">
+      <div class="rounded-3 p-3 bg-primary-subtle text-primary"><i class="bi bi-box-seam fs-3"></i></div>
+      <div><div class="text-muted small">Total Inventory</div><div class="fs-3 fw-bold">{{ total_devices }}</div></div>
+    </div></div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card border-0 shadow-sm"><div class="card-body d-flex align-items-center gap-3">
+      <div class="rounded-3 p-3 bg-warning-subtle text-warning"><i class="bi bi-tools fs-3"></i></div>
+      <div><div class="text-muted small">In Repair (L1+L2+L3)</div><div class="fs-3 fw-bold">{{ stage_counts.get('l1',0) + stage_counts.get('l2',0) + stage_counts.get('l3',0) }}</div></div>
+    </div></div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card border-0 shadow-sm"><div class="card-body d-flex align-items-center gap-3">
+      <div class="rounded-3 p-3 bg-success-subtle text-success"><i class="bi bi-currency-rupee fs-3"></i></div>
+      <div><div class="text-muted small">Revenue This Month</div><div class="fs-3 fw-bold">₹{{ "{:,.0f}".format(month_revenue) }}</div></div>
+    </div></div>
+  </div>
+  <div class="col-sm-6 col-xl-3">
+    <div class="card border-0 shadow-sm"><div class="card-body d-flex align-items-center gap-3">
+      <div class="rounded-3 p-3 {% if overall_profit >= 0 %}bg-success-subtle text-success{% else %}bg-danger-subtle text-danger{% endif %}"><i class="bi bi-graph-up-arrow fs-3"></i></div>
+      <div><div class="text-muted small">Overall Profit</div><div class="fs-3 fw-bold {% if overall_profit >= 0 %}text-success{% else %}text-danger{% endif %}">₹{{ "{:,.0f}".format(overall_profit) }}</div></div>
+    </div></div>
+  </div>
+</div>
+
+<!-- Chart: Inventory by Category -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-bar-chart-line me-2"></i>Inventory by Category &amp; Stage</div>
+  <div class="card-body"><canvas id="categoryChart" height="90"></canvas></div>
+</div>
+
+<!-- Stage Pipeline -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-diagram-3 me-2"></i>Stage Pipeline</div>
+  <div class="card-body">
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      {% for skey, slabel, scolor in [('iqc','IQC','secondary'),('stock_in','Stock In','info'),('l1','L1','warning'),('l2','L2','warning'),('l3','L3','danger'),('qc_check','QC','primary'),('ready_to_sale','Ready','success'),('sold','Sold','dark')] %}
+      <div class="text-center">
+        <div class="rounded-3 px-3 py-2 border border-{{ scolor }}-subtle bg-{{ scolor }}-subtle">
+          <div class="fw-bold fs-5">{{ stage_counts.get(skey, 0) }}</div>
+          <div class="small text-muted">{{ slabel }}</div>
+        </div>
+      </div>
+      {% if not loop.last %}<i class="bi bi-chevron-right text-muted"></i>{% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     LOCATION GAP ALERT WIDGET
+     ═══════════════════════════════════════════════════════════ -->
+{% if location_gap_count > 0 %}
+<div class="card border-0 shadow-sm mb-4 border-start border-danger border-4">
+  <div class="card-body py-3">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div class="d-flex align-items-center gap-3">
+        <i class="bi bi-exclamation-triangle-fill text-danger fs-2"></i>
+        <div>
+          <div class="fw-semibold fs-5 text-danger">
+            Location Gaps — {{ location_gap_count }} device(s) unaccounted
+          </div>
+          <div class="text-muted small mt-1">
+            <span class="badge bg-warning text-dark me-2">
+              <i class="bi bi-hand-index me-1"></i>{{ location_in_hand_count }} in-hand (not returned)
+            </span>
+            <span class="badge bg-secondary me-2">
+              <i class="bi bi-question-circle me-1"></i>{{ location_never_count }} never located
+            </span>
+          </div>
+        </div>
+      </div>
+      <div class="d-flex gap-2">
+        <a href="/locations/gaps" class="btn btn-danger btn-sm">
+          <i class="bi bi-exclamation-triangle me-1"></i> View All Gaps
+        </a>
+        <a href="/locations/dashboard" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-boxes me-1"></i> Location Map
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-success border-0 shadow-sm mb-4 py-2 d-flex align-items-center gap-2">
+  <i class="bi bi-geo-alt-fill text-success"></i>
+  <span class="small">
+    <strong>All Clear — Location Tracking:</strong> Every active device has a recorded location.
+    <a href="/locations/dashboard" class="ms-2 text-success fw-semibold">View Map</a>
+  </span>
+</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+  <div class="col-xl-8">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-graph-up me-2"></i>Lot P&amp;L</span>
+        <a href="/reports/lot-pl" class="btn btn-sm btn-outline-primary">Full Report</a>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0 small">
+            <thead class="table-light">
+              <tr><th>Lot#</th><th>Devices</th><th>Sold</th><th>Buying</th><th>Parts</th><th>Revenue</th><th>Profit</th><th>Margin</th></tr>
+            </thead>
+            <tbody>
+              {% for lp in lot_pl %}
+              <tr>
+                <td><a href="/lots/{{ lp.lot_id }}" class="fw-semibold text-decoration-none">{{ lp.lot_number }}</a></td>
+                <td>{{ lp.devices_count }}</td><td>{{ lp.devices_sold }}</td>
+                <td>₹{{ "{:,.0f}".format(lp.buying_price) }}</td>
+                <td>₹{{ "{:,.0f}".format(lp.parts_cost) }}</td>
+                <td>₹{{ "{:,.0f}".format(lp.revenue) }}</td>
+                <td class="{% if lp.profit > 0 %}text-success fw-semibold{% elif lp.profit < 0 %}text-danger fw-semibold{% endif %}">₹{{ "{:,.0f}".format(lp.profit) }}</td>
+                <td><span class="badge {% if lp.margin > 0 %}bg-success{% elif lp.margin < 0 %}bg-danger{% else %}bg-secondary{% endif %}">{{ lp.margin }}%</span></td>
+              </tr>
+              {% else %}
+              <tr><td colspan="8" class="text-center text-muted py-3">No lots yet</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-4">
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Low Stock Alerts</div>
+      <div class="card-body p-0">
+        {% if low_stock %}
+        <ul class="list-group list-group-flush">
+          {% for part in low_stock %}
+          <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+            <div><div class="small fw-semibold">{{ part.name }}</div><div class="text-muted" style="font-size:.75rem">{{ part.part_code }}</div></div>
+            <span class="badge bg-danger rounded-pill">{{ part.qty_in_stock }} left</span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-center text-muted py-3 mb-0 small">All parts adequately stocked ✓</p>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold"><i class="bi bi-wallet2 me-2"></i>Financial Summary</div>
+      <div class="card-body">
+        <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Total Investment</span><span class="fw-semibold">₹{{ "{:,.0f}".format(total_investment) }}</span></div>
+        <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Parts Spent</span><span class="fw-semibold">₹{{ "{:,.0f}".format(total_parts_cost) }}</span></div>
+        <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Total Revenue</span><span class="fw-semibold text-success">₹{{ "{:,.0f}".format(total_revenue) }}</span></div>
+        <hr>
+        <div class="d-flex justify-content-between">
+          <span class="fw-semibold">Net Profit</span>
+          <span class="fw-bold fs-5 {% if overall_profit >= 0 %}text-success{% else %}text-danger{% endif %}">₹{{ "{:,.0f}".format(overall_profit) }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-clock-history me-2"></i>Recent Stage Movements</div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small">
+        <thead class="table-light">
+          <tr><th>Time</th><th>Barcode</th><th>Device</th><th>From</th><th>To</th><th>By</th></tr>
+        </thead>
+        <tbody>
+          {% for mv, barcode, brand, model in recent_movements %}
+          <tr>
+            <td class="text-muted">{{ mv.moved_at.strftime('%d-%m %H:%M') }}</td>
+            <td><code>{{ barcode }}</code></td>
+            <td>{{ brand }} {{ model }}</td>
+            <td><span class="badge bg-secondary">{{ mv.from_stage.value if mv.from_stage else 'New' }}</span></td>
+            <td><span class="badge bg-primary">{{ mv.to_stage.value if mv.to_stage else '—' }}</span></td>
+            <td>{{ mv.moved_by }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-muted py-3">No activity yet</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</div><!-- /tab-operations -->
+
+<!-- ═══ TAB 2: FINANCE ════════════════════════════════════════════ -->
+<div class="tab-pane fade" id="tab-finance" role="tabpanel">
+  <div class="row g-3 mb-4">
+    <div class="col-sm-6 col-xl-3">
+      <div class="card border-0 shadow-sm"><div class="card-body d-flex align-items-center gap-3">
+        <div class="rounded-3 p-3 bg-success-subtle text-success"><i class="bi bi-currency-rupee fs-3"></i></div>
+        <div><div class="text-muted small">Revenue This Month</div><div class="fs-3 fw-bold">₹{{ "{:,.0f}".format(month_revenue) }}</div></div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="card border-0 shadow-sm"><div class="card-body d-flex align-items-center gap-3">
+        <div class="rounded-3 p-3 bg-info-subtle text-info"><i class="bi bi-cash-coin fs-3"></i></div>
+        <div><div class="text-muted small">Total Investment</div><div class="fs-3 fw-bold">₹{{ "{:,.0f}".format(total_investment) }}</div></div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="card border-0 shadow-sm"><div class="card-body d-flex align-items-center gap-3">
+        <div class="rounded-3 p-3 bg-warning-subtle text-warning"><i class="bi bi-tools fs-3"></i></div>
+        <div><div class="text-muted small">Parts Cost</div><div class="fs-3 fw-bold">₹{{ "{:,.0f}".format(total_parts_cost) }}</div></div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="card border-0 shadow-sm"><div class="card-body d-flex align-items-center gap-3">
+        <div class="rounded-3 p-3 {% if overall_profit >= 0 %}bg-success-subtle text-success{% else %}bg-danger-subtle text-danger{% endif %}"><i class="bi bi-graph-up-arrow fs-3"></i></div>
+        <div><div class="text-muted small">Net Profit</div><div class="fs-3 fw-bold {% if overall_profit >= 0 %}text-success{% else %}text-danger{% endif %}">₹{{ "{:,.0f}".format(overall_profit) }}</div></div>
+      </div></div>
+    </div>
+  </div>
+  <!-- Dealer KPI quick-links -->
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body py-2 d-flex justify-content-between align-items-center">
+          <span class="fw-semibold text-muted small">Dealer Outstanding</span>
+          <a href="/dealers/ageing" class="btn btn-sm btn-outline-danger">
+            <i class="bi bi-exclamation-circle me-1"></i>View Ageing
+          </a>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body py-2 d-flex justify-content-between align-items-center">
+          <span class="fw-semibold text-muted small">Overdue Orders</span>
+          <a href="/dealers/overdue" class="btn btn-sm btn-outline-warning">
+            <i class="bi bi-clock-history me-1"></i>View Overdue
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="d-flex gap-3 flex-wrap">
+    <a href="/reports/lot-pl" class="btn btn-outline-primary"><i class="bi bi-graph-up me-1"></i>Full Lot P&amp;L Report</a>
+    <a href="/reports/sales" class="btn btn-outline-success"><i class="bi bi-cart-check me-1"></i>Sales Report</a>
+    <a href="/reports" class="btn btn-outline-secondary"><i class="bi bi-file-bar-graph me-1"></i>All Reports</a>
+    <a href="/dealers/ageing" class="btn btn-outline-danger"><i class="bi bi-exclamation-circle me-1"></i>Dealer Ageing</a>
+  </div>
+</div><!-- /tab-finance -->
+
+<!-- ═══ TAB 3: INVENTORY ══════════════════════════════════════════ -->
+<div class="tab-pane fade" id="tab-inventory" role="tabpanel">
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-xl-3">
+      <a href="/devices" class="text-decoration-none">
+        <div class="card border-0 shadow-sm h-100 cat-card cat-all">
+          <div class="card-body text-center py-4">
+            <i class="bi bi-grid-3x3-gap fs-1 mb-2 d-block" style="color:#6f42c1"></i>
+            <div class="fw-bold mb-1">All Devices</div>
+            <div class="display-6 fw-bold" style="color:#6f42c1">{{ total_devices }}</div>
+            <div class="small text-muted mt-1">Available: <strong>{{ all_available }}</strong></div>
+          </div>
+        </div>
+      </a>
+    </div>
+    <div class="col-6 col-xl-3">
+      <a href="/devices?category=Laptop" class="text-decoration-none">
+        <div class="card border-0 shadow-sm h-100 cat-card cat-laptop">
+          <div class="card-body text-center py-4">
+            <i class="bi bi-laptop fs-1 mb-2 d-block text-primary"></i>
+            <div class="fw-bold mb-1">Laptops</div>
+            <div class="display-6 fw-bold text-primary">{{ category_counts.get('Laptop', {}).get('total', 0) }}</div>
+            <div class="small text-muted mt-1">Available: <strong>{{ laptops_available }}</strong></div>
+          </div>
+        </div>
+      </a>
+    </div>
+    <div class="col-6 col-xl-3">
+      <a href="/devices?category=Desktop" class="text-decoration-none">
+        <div class="card border-0 shadow-sm h-100 cat-card cat-desktop">
+          <div class="card-body text-center py-4">
+            <i class="bi bi-pc-display fs-1 mb-2 d-block text-success"></i>
+            <div class="fw-bold mb-1">Desktops</div>
+            <div class="display-6 fw-bold text-success">{{ category_counts.get('Desktop', {}).get('total', 0) }}</div>
+            <div class="small text-muted mt-1">Available: <strong>{{ desktops_available }}</strong></div>
+          </div>
+        </div>
+      </a>
+    </div>
+    <div class="col-6 col-xl-3">
+      <a href="/devices?category=TFT" class="text-decoration-none">
+        <div class="card border-0 shadow-sm h-100 cat-card cat-tft">
+          <div class="card-body text-center py-4">
+            <i class="bi bi-display fs-1 mb-2 d-block" style="color:#fd7e14"></i>
+            <div class="fw-bold mb-1">TFT / Monitors</div>
+            <div class="display-6 fw-bold" style="color:#fd7e14">{{ category_counts.get('TFT', {}).get('total', 0) }}</div>
+            <div class="small text-muted mt-1">Available: <strong>{{ tft_available }}</strong></div>
+          </div>
+        </div>
+      </a>
+    </div>
+  </div>
+  <div class="d-flex gap-3 flex-wrap">
+    <a href="/stock" class="btn btn-outline-info"><i class="bi bi-box-seam me-1"></i>Stock Room</a>
+    <a href="/devices" class="btn btn-outline-primary"><i class="bi bi-laptop me-1"></i>All Devices</a>
+    <a href="/locations/dashboard" class="btn btn-outline-secondary"><i class="bi bi-geo-alt me-1"></i>Location Map</a>
+    <a href="/spare-parts" class="btn btn-outline-warning"><i class="bi bi-tools me-1"></i>Spare Parts</a>
+  </div>
+</div><!-- /tab-inventory -->
+
+</div><!-- /dashboardTabContent -->
+
+<style>
+.cat-card { transition: transform .15s ease, box-shadow .15s ease; cursor: pointer; }
+.cat-card:hover { transform: translateY(-4px); box-shadow: 0 .5rem 1.5rem rgba(0,0,0,.15) !important; }
+.cat-all    { border-top: 4px solid #6f42c1 !important; }
+.cat-laptop { border-top: 4px solid #0d6efd !important; }
+.cat-desktop{ border-top: 4px solid #198754 !important; }
+.cat-tft    { border-top: 4px solid #fd7e14 !important; }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  const labels = ['IQC','L1 Repair','L2 Repair','L3 Repair','QC Check','Ready to Sale','Sold'];
+  new Chart(document.getElementById('categoryChart'), {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Laptops',  data: {{ chart_data.get('Laptop',  [0,0,0,0,0,0,0]) | tojson }}, backgroundColor: 'rgba(13,110,253,.75)',  borderColor: '#0d6efd', borderWidth:1, borderRadius:4 },
+        { label: 'Desktops', data: {{ chart_data.get('Desktop', [0,0,0,0,0,0,0]) | tojson }}, backgroundColor: 'rgba(25,135,84,.75)',   borderColor: '#198754', borderWidth:1, borderRadius:4 },
+        { label: 'TFT',      data: {{ chart_data.get('TFT',     [0,0,0,0,0,0,0]) | tojson }}, backgroundColor: 'rgba(253,126,20,.75)',  borderColor: '#fd7e14', borderWidth:1, borderRadius:4 },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'top' } },
+      scales: { x: { stacked: false, grid: { display: false } }, y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+    }
+  });
+})();
+</script>
+{% endblock %}

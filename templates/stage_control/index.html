@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Stage Control Admin{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4><i class="bi bi-diagram-3 me-2 text-primary"></i>Stage Control Engine — Admin</h4>
+  <div class="d-flex gap-2">
+    <a href="/stage-control/aging" class="btn btn-warning btn-sm"><i class="bi bi-clock-history me-1"></i>Aging Dashboard</a>
+    <a href="/stage-control/audit" class="btn btn-secondary btn-sm"><i class="bi bi-shield-check me-1"></i>Audit Log</a>
+  </div>
+</div>
+
+{% if request.query_params.get('success') %}
+<div class="alert alert-success alert-dismissible fade show">{{ request.query_params.get('success') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+{% if request.query_params.get('error') %}
+<div class="alert alert-danger alert-dismissible fade show">{{ request.query_params.get('error') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="card shadow-sm">
+      <div class="card-header bg-primary text-white"><h6 class="mb-0"><i class="bi bi-plus-circle me-2"></i>Add Allowed Transition</h6></div>
+      <div class="card-body">
+        <form method="POST" action="/stage-control/transition/add">
+          <div class="mb-3">
+            <label class="form-label fw-bold">From Stage</label>
+            <select name="from_stage" class="form-select" required>
+              {% for s in stages %}<option value="{{ s.name }}">{{ s.label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold">To Stage</label>
+            <select name="to_stage" class="form-select" required>
+              {% for s in stages %}<option value="{{ s.name }}">{{ s.label }}</option>{% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-check-lg me-1"></i>Add</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-header bg-light"><h6 class="mb-0">Allowed Transitions ({{ transitions|length }} rules)</h6></div>
+      <div class="card-body p-0" style="max-height:480px;overflow-y:auto">
+        <table class="table table-sm table-hover mb-0">
+          <thead class="table-primary sticky-top"><tr><th>From Stage</th><th>→</th><th>To Stage</th><th></th></tr></thead>
+          <tbody>
+            {% for t in transitions %}
+            <tr>
+              <td><span class="badge bg-secondary">{{ t.from_stage }}</span></td>
+              <td><i class="bi bi-arrow-right text-primary"></i></td>
+              <td><span class="badge bg-primary">{{ t.to_stage }}</span></td>
+              <td>
+                <form method="POST" action="/stage-control/transition/remove" class="d-inline">
+                  <input type="hidden" name="transition_id" value="{{ t.id }}">
+                  <button type="submit" class="btn btn-outline-danger btn-sm"
+                          onclick="return confirm('Remove this transition?')">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="text-center text-muted py-3">No transitions configured</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

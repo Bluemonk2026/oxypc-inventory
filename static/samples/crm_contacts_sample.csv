@@ -1,0 +1,6 @@
+company_name,contact_person,phone,whatsapp,email,contact_type,source_type,buyer_type,city,state,gstin,tags,notes
+Acme Computers,Rajesh Kumar,9876543210,9876543210,raj@acme.com,buyer,dealer,dealer,Delhi,Delhi,07AABCA1234B1ZP,laptop;desktop,Bulk buyer — prefers i5 configs
+TechBazaar Pvt Ltd,Sanjay Mehta,9123456789,,sanjay@techbazaar.com,supplier,trader,,Mumbai,Maharashtra,,refurb;wholesale,Monthly lot supplier
+Infosys Asset Recovery,,9988776655,9988776655,assets@infosys.com,both,corporate,,Pune,Maharashtra,27AAACI1681G1ZK,enterprise;ibm,Contact via WhatsApp only
+Global IT Solutions,Priya Sharma,9871234560,,priya@globalit.in,buyer,,online_seller,Bangalore,Karnataka,,online;export,Ships pan-India
+Eastern Tech Hub,Amit Singh,9012345678,9012345678,,supplier,refurb_vendor,,Kolkata,West Bengal,,refurb;monitors,Specialises in LCD panels

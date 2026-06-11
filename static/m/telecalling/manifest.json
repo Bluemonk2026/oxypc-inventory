@@ -1,0 +1,21 @@
+{
+  "name": "OxyPC Telecalling",
+  "short_name": "OxyTC",
+  "description": "OxyPC mobile telecalling agent app",
+  "start_url": "/m/telecalling",
+  "scope": "/m/telecalling",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1F3864",
+  "theme_color": "#1F3864",
+  "lang": "en-IN",
+  "icons": [
+    { "src": "/static/m/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/static/m/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "categories": ["business", "productivity"],
+  "shortcuts": [
+    { "name": "Today's queue",   "url": "/m/telecalling/queue",     "icons": [{ "src": "/static/m/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Follow-ups",      "url": "/m/telecalling/followups", "icons": [{ "src": "/static/m/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

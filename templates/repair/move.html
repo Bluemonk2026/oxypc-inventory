@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Move Device — OxyPC{% endblock %}
+{% block page_title %}Move Device Between Stages{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold"><i class="bi bi-arrow-left-right me-2"></i>Manual Stage Movement</div>
+      <div class="card-body">
+        <form action="/repair/move" method="post">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Device Barcode</label>
+            <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan or type barcode" autofocus required>
+            <div id="deviceInfo" class="mt-2 text-muted small"></div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Move To Stage</label>
+            <select name="to_stage" class="form-select" required>
+              <option value="">-- Select target stage --</option>
+              {% for stage in stages %}
+              <option value="{{ stage.value }}">{{ stage.value.replace('_',' ').title() }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Notes</label>
+            <input type="text" name="notes" class="form-control" placeholder="Reason for move">
+          </div>
+          <button type="submit" class="btn btn-primary w-100"><i class="bi bi-arrow-right-circle me-2"></i>Move Device</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelector('.barcode-field').addEventListener('change', function() {
+  const bc = this.value.trim();
+  if (!bc) return;
+  fetch('/iqc/lookup?barcode=' + encodeURIComponent(bc))
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('deviceInfo');
+      if (data.found) {
+        el.innerHTML = '<span class="badge bg-success me-2">Found</span>' + data.brand + ' ' + data.model + ' — Stage: <strong>' + data.current_stage + '</strong>';
+      } else {
+        el.innerHTML = '<span class="badge bg-danger">Device not found</span>';
+      }
+    });
+});
+</script>
+{% endblock %}

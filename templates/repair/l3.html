@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% block title %}L3 Repair — OxyPC{% endblock %}
+{% block page_title %}L3 Repair Stage{% endblock %}
+{% block content %}
+<div class="row g-3 mb-3">
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-danger-subtle fw-semibold"><i class="bi bi-cpu me-2"></i>Start L3 Repair</div>
+      <div class="card-body">
+        <form action="/repair/start" method="post" class="d-flex flex-column gap-2">
+          <input type="hidden" name="stage" value="L3">
+          <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan device barcode" autofocus>
+          <input type="text" name="issue_description" class="form-control" placeholder="Issue description">
+          <button class="btn btn-danger"><i class="bi bi-play-circle me-1"></i>Start L3 Repair</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-success-subtle fw-semibold"><i class="bi bi-check-circle me-2"></i>Complete L3 Job</div>
+      <div class="card-body">
+        <form action="/repair/complete" method="post">
+          <div class="row g-2">
+            <div class="col-md-8">
+              <select name="job_id" class="form-select" required>
+                <option value="">-- Select open job --</option>
+                {% for job, barcode, brand, model in open_jobs %}
+                <option value="{{ job.id }}">{{ barcode }} — {{ brand }} {{ model }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <select name="final_status" class="form-select">
+                <option value="">Final Status</option>
+                <option>Ok</option><option>Scrap</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Action Taken</label>
+              <select name="action_taken" class="form-select form-select-sm">
+                <option value="">— Select —</option>
+                <option>BIOS Programming</option>
+                <option>CPU Socket PIN alignment</option>
+                <option>Part Replaced</option>
+                <option>Re-soldering</option>
+                <option>Reflow</option>
+                <option>Resoldering</option>
+                <option>Shorting removed</option>
+                <option>Track Repair</option>
+                <option>Others</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Received From</label>
+              <select name="received_from" class="form-select form-select-sm">
+                <option value="">— Select —</option>
+                <option>L1/L2 Engineer</option><option>L4 Support</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Problem Reported</label>
+              <input type="text" name="problem_reported" class="form-control form-control-sm" placeholder="Problem as reported">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Problem Observed</label>
+              <input type="text" name="problem_observed" class="form-control form-control-sm" placeholder="Problem as observed by engineer">
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Resolution / Work Done</label>
+              <input type="text" name="resolution" class="form-control form-control-sm" placeholder="Resolution details">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">Scrap Reason <small class="text-muted">(if scrapped)</small></label>
+              <select name="scrap_reason" class="form-select form-select-sm">
+                <option value="">— N/A —</option>
+                <option>CPU SHORT</option><option>CPU Sorting</option>
+                <option>Component Burn</option><option>Component Damage</option>
+                <option>Component Missing</option><option>PCB Burn</option>
+                <option>PCB Damage</option><option>Internal PCB Short</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">Customer / Internal</label>
+              <select name="customer_internal" class="form-select form-select-sm">
+                <option value="">— Select —</option>
+                <option>Internal</option><option>Customer Service</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <div class="form-check mt-2">
+                <input class="form-check-input" type="checkbox" name="move_to_next" value="yes" id="mn3" checked>
+                <label class="form-check-label" for="mn3">Move to QC after completing</label>
+              </div>
+            </div>
+          </div>
+          <!-- Parts Used (optional) -->
+          <div class="col-12 mt-1">
+            <label class="form-label small fw-semibold">Parts Used</label>
+            <div id="parts-list">
+              <div class="row g-2 mb-1 part-entry">
+                <div class="col-md-8">
+                  <select name="part_ids" class="form-select form-select-sm">
+                    <option value="">— No part —</option>
+                    {% for p in available_parts %}
+                    <option value="{{ p.id }}">{{ p.part_code }} — {{ p.name }} ({{ p.qty_in_stock }} in stock)</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <input type="number" name="part_qtys" class="form-control form-control-sm"
+                         min="1" placeholder="Qty" value="">
+                </div>
+              </div>
+            </div>
+            <button type="button" class="btn btn-outline-secondary btn-sm mt-1" id="add-part"
+                    onclick="(function(){var c=document.getElementById('parts-list'),t=c.querySelector('.part-entry').cloneNode(true);t.querySelectorAll('select,input').forEach(function(e){e.value='';});c.appendChild(t);})()">
+              <i class="bi bi-plus me-1"></i>Add Part
+            </button>
+          </div>
+          <button class="btn btn-success mt-2 w-100"><i class="bi bi-check-lg me-1"></i>Mark L3 Complete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- Scrap warning / Suggest QC banners -->
+{% if scrap_warning_map %}
+<div class="alert alert-danger alert-dismissible fade show mb-3" role="alert">
+  <strong><i class="bi bi-exclamation-triangle-fill me-1"></i>Scrap Risk Detected</strong> — {{ scrap_warning_map|length }} device(s) may be uneconomical to repair:
+  <ul class="mb-0 mt-1 small">
+    {% for device, lot_number in devices %}{% if device.id|string in scrap_warning_map %}
+    <li><code>{{ device.barcode }}</code> – {{ scrap_warning_map[device.id|string] }}</li>
+    {% endif %}{% endfor %}
+  </ul>
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
+{% if suggest_qc_ids %}
+<div class="alert alert-info alert-dismissible fade show mb-3" role="alert">
+  <strong><i class="bi bi-arrow-right-circle-fill me-1"></i>Ready for QC</strong> — {{ suggest_qc_ids|length }} device(s) have no open repair jobs and may be moved to QC:
+  <ul class="mb-0 mt-1 small">
+    {% for device, lot_number in devices %}{% if device.id|string in suggest_qc_ids %}
+    <li><code>{{ device.barcode }}</code> – {{ device.brand or '' }} {{ device.model or '' }}</li>
+    {% endif %}{% endfor %}
+  </ul>
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold">Devices in L3 ({{ devices|length }})</div>
+  <div class="card-body p-0">
+    <table id="l3Table" class="table table-hover mb-0 small">
+      <thead class="table-dark"><tr><th>Barcode</th><th>Lot</th><th>Brand</th><th>Model</th><th>CPU</th><th>RAM</th><th>Storage</th><th>Screen</th><th>Grade</th><th>Location</th><th>Notes</th></tr></thead>
+      <tbody>
+        {% for device, lot_number in devices %}
+        <tr>
+          <td><code>{{ device.barcode }}</code></td>
+          <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
+          <td>{{ device.brand or '—' }}</td><td>{{ device.model or '—' }}</td>
+          <td class="text-muted small">{{ device.cpu or '—' }}</td>
+          <td>{{ (device.ram_gb|string ~ 'GB') if device.ram_gb else '—' }}</td>
+          <td>{{ (device.storage_gb|string ~ 'GB') if device.storage_gb else '—' }}</td>
+          <td class="text-muted small">{{ device.screen_size or '—' }}</td>
+          <td>{{ device.grade or '—' }}</td>
+          <td>
+            {% set loc = location_map.get(device.id | string) %}
+            {% if loc and loc.unit_id %}
+              {% if loc.action == 'picked_up' %}
+                <span class="badge bg-warning text-dark"><i class="bi bi-hand-index me-1"></i>{{ loc.unit_id }}</span>
+              {% else %}
+                <span class="badge bg-success">{{ loc.unit_id }}</span>
+              {% endif %}
+            {% elif loc and loc.action == 'picked_up' %}
+              <span class="badge bg-warning text-dark"><i class="bi bi-hand-index me-1"></i>In Hand</span>
+            {% else %}
+              <a href="/locations/device/{{ device.id }}" class="text-danger small" title="Assign location"><i class="bi bi-geo-alt"></i> —</a>
+            {% endif %}
+          </td>
+          <td class="text-muted small">{{ device.notes or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Pagination ────────────────────────────────────────────────────────── #}
+{% if total_pages and total_pages > 1 %}
+<nav class="mt-3" aria-label="Device list pagination">
+  <ul class="pagination pagination-sm justify-content-center mb-0">
+    <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+      <a class="page-link" href="?page={{ page - 1 }}&page_size={{ page_size }}">‹ Prev</a>
+    </li>
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page %}
+        <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+      {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+        <li class="page-item"><a class="page-link" href="?page={{ p }}&page_size={{ page_size }}">{{ p }}</a></li>
+      {% elif p == page - 3 or p == page + 3 %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+      {% endif %}
+    {% endfor %}
+    <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+      <a class="page-link" href="?page={{ page + 1 }}&page_size={{ page_size }}">Next ›</a>
+    </li>
+  </ul>
+  <p class="text-center text-muted small mt-1">{{ total }} device(s) in stage &bull; Page {{ page }} of {{ total_pages }}</p>
+</nav>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>$(document).ready(function(){ $('#l3Table').DataTable({paging:false}); });</script>
+{% endblock %}

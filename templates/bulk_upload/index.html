@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}Bulk Upload — OxyPC{% endblock %}
+{% block page_title %}Bulk Upload{% endblock %}
+{% block content %}
+
+{# ── Back links based on entry point ────────────────────────────── #}
+<div class="mb-3 d-flex gap-2 flex-wrap">
+  <a href="/lots" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Back to Lots</a>
+  <a href="/iqc" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Back to IQC</a>
+  <a href="/telecalling" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Back to Telecalling</a>
+</div>
+
+<div class="row g-4">
+  {# Auto-highlight the relevant section if ?type= passed #}
+  {% set pt = preselect_type or 'devices' %}
+
+  <!-- Lots Upload -->
+  <div class="col-lg-4" id="section-lots">
+    <div class="card border-0 shadow-sm h-100 {% if pt == 'lots' %}border-primary border-2{% endif %}">
+      <div class="card-header fw-semibold {% if pt == 'lots' %}bg-primary text-white{% else %}bg-transparent{% endif %}"><i class="bi bi-box-seam me-2"></i>Upload Lots / GRN</div>
+      <div class="card-body">
+        <p class="text-muted small">Upload multiple purchase lots/GRNs at once via CSV.</p>
+        <p class="small"><strong>Required:</strong> lot_number, supplier_name, buying_price, qty, purchase_date</p>
+        <p class="small"><strong>Optional GRN/Invoice:</strong> grn_system_number, grn_number_new, grn_date, invoice_no, invoice_date, invoice_value, taxable_amount, sgst, cgst, igst, po_number, vendor_name, vehicle_number, e_way_bill, notes</p>
+        <a href="/bulk-upload/template/lots" class="btn btn-sm btn-outline-secondary mb-3">
+          <i class="bi bi-download me-1"></i>Download Template
+        </a>
+        <form action="/bulk-upload/lots" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">CSV File</label>
+            <input type="file" name="file" class="form-control" accept=".csv" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100"><i class="bi bi-upload me-2"></i>Upload Lots</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Devices Upload -->
+  <div class="col-lg-4" id="section-devices">
+    <div class="card border-0 shadow-sm h-100 {% if pt == 'devices' %}border-primary border-2{% endif %}">
+      <div class="card-header fw-semibold {% if pt == 'devices' %}bg-primary text-white{% else %}bg-transparent{% endif %}"><i class="bi bi-laptop me-2"></i>Upload Devices (IQC)</div>
+      <div class="card-body">
+        <p class="text-muted small">Upload multiple devices directly into IQC stage.</p>
+        <p class="small"><strong>Required columns:</strong> barcode, lot_number (must exist), brand, model</p>
+        <a href="/bulk-upload/template/devices" class="btn btn-sm btn-outline-secondary mb-3">
+          <i class="bi bi-download me-1"></i>Download Template
+        </a>
+        <form action="/bulk-upload/devices" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">CSV File</label>
+            <input type="file" name="file" class="form-control" accept=".csv" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100"><i class="bi bi-upload me-2"></i>Upload Devices</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Telecalling Leads Upload -->
+  <div class="col-lg-4" id="section-leads">
+    <div class="card border-0 shadow-sm h-100 {% if pt == 'leads' %}border-primary border-2{% endif %}">
+      <div class="card-header fw-semibold {% if pt == 'leads' %}bg-primary text-white{% else %}bg-transparent{% endif %}">
+        <i class="bi bi-telephone me-2"></i>Upload Telecalling Leads
+      </div>
+      <div class="card-body">
+        <p class="text-muted small">Bulk import lead-gen data for telecalling with full product requirement details.</p>
+        <p class="small"><strong>Required:</strong> phone &nbsp;|&nbsp; <strong>Optional:</strong> customer_name, category, brand, model, generation, processor, RAM, HDD, grade, customer_type, city, state, budget, qty, outcome</p>
+        <a href="/bulk-upload/template/leads" class="btn btn-sm btn-outline-secondary mb-3">
+          <i class="bi bi-download me-1"></i>Download Template
+        </a>
+        <form action="/bulk-upload/leads" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">CSV File</label>
+            <input type="file" name="file" class="form-control" accept=".csv" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100"><i class="bi bi-upload me-2"></i>Upload Leads</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Spare Parts Upload -->
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold"><i class="bi bi-gear me-2"></i>Upload Spare Parts</div>
+      <div class="card-body">
+        <p class="text-muted small">Bulk add spare parts to the parts inventory.</p>
+        <p class="small"><strong>Required columns:</strong> part_code, name, category</p>
+        <a href="/bulk-upload/template/spare_parts" class="btn btn-sm btn-outline-secondary mb-3">
+          <i class="bi bi-download me-1"></i>Download Template
+        </a>
+        <form action="/bulk-upload/spare-parts" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">CSV File</label>
+            <input type="file" name="file" class="form-control" accept=".csv" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100"><i class="bi bi-upload me-2"></i>Upload Parts</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Master Data Bulk Upload -->
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-database-gear me-2"></i>Master Data — Bulk Import
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">Import values for any master data category (brands, grades, issues, parts categories, etc.) via CSV. Download the template for any category, fill it in, and upload.</p>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">Select Category</label>
+            <select id="masterBulkCat" class="form-select form-select-sm">
+              <option value="">-- Choose category --</option>
+              <optgroup label="Device / Laptop">
+                <option value="brand">Device Brands</option>
+                <option value="sub_category">Device Sub-Categories</option>
+                <option value="processor_series">Processor Series</option>
+                <option value="generation">CPU Generations</option>
+                <option value="storage_type">Storage Types</option>
+                <option value="ram_type">RAM Types</option>
+                <option value="screen_size">Screen Sizes</option>
+                <option value="grade">Device Grades</option>
+                <option value="os_version">OS Versions</option>
+                <option value="color">Colors</option>
+                <option value="cosmetic_issue">Cosmetic Issues</option>
+                <option value="cosmetic_grade">Cosmetic Grades</option>
+                <option value="battery_health">Battery Health</option>
+              </optgroup>
+              <optgroup label="Repair &amp; QC">
+                <option value="l1_issue">L1 Issues</option>
+                <option value="l2_issue">L2 Issues</option>
+                <option value="l3_issue">L3 Issues</option>
+                <option value="repair_issue">General Repair Issues</option>
+                <option value="repair_resolution">Repair Resolutions</option>
+                <option value="part_category">Spare Parts Categories</option>
+                <option value="qc_check_item">QC Check Items</option>
+              </optgroup>
+              <optgroup label="Inventory / Logistics">
+                <option value="floor">Floors / Locations</option>
+                <option value="warehouse">Warehouses</option>
+                <option value="supplier">Suppliers</option>
+                <option value="data_destruction_method">Data Destruction</option>
+              </optgroup>
+              <optgroup label="Sales &amp; Returns">
+                <option value="payment_mode">Payment Modes</option>
+                <option value="return_reason">Return Reasons</option>
+                <option value="condition_on_return">Condition on Return</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="col-md-3 d-flex align-items-end gap-2">
+            <button class="btn btn-sm btn-outline-secondary" onclick="downloadMasterTemplate()">
+              <i class="bi bi-download me-1"></i>Download Template
+            </button>
+            <a href="/admin/master" class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-gear me-1"></i>Manage Master Data
+            </a>
+          </div>
+          <div class="col-md-5">
+            <form id="masterBulkForm" method="post" enctype="multipart/form-data">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+              <label class="form-label fw-semibold">Upload CSV</label>
+              <div class="input-group input-group-sm">
+                <input type="file" name="file" class="form-control" accept=".csv" required id="masterBulkFile">
+                <button type="button" class="btn btn-primary" onclick="submitMasterBulk()">
+                  <i class="bi bi-upload me-1"></i>Import
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="mt-4">
+  <div class="card border-0 shadow-sm">
+    <div class="card-header bg-transparent fw-semibold"><i class="bi bi-info-circle me-2"></i>Upload Guidelines</div>
+    <div class="card-body small">
+      <ul class="mb-0">
+        <li>Use UTF-8 encoded CSV files. Download the template for the correct column order.</li>
+        <li>Date fields accept <strong>YYYY-MM-DD</strong>, DD-MM-YYYY, or DD/MM/YYYY formats (e.g., 2024-01-15 or 15-01-2024).</li>
+        <li>Duplicate barcodes / lot numbers / part codes will be skipped with an error note.</li>
+        <li>For Devices, the <strong>lot_number</strong> must already exist in the system.</li>
+        <li>Rows with errors are skipped; valid rows are still inserted.</li>
+        <li><strong>Lots:</strong> All GRN, invoice, GST (sgst/cgst/igst), PO, and logistics fields are optional. Numbers can include commas (e.g., 50,000).</li>
+        <li>For Leads: <strong>customer_type</strong> values: end_customer, corporate, individual, dealer, reseller. <strong>call_outcome</strong> values: interested, not_interested, callback, order_placed, no_answer, do_not_call.</li>
+        <li>Max recommended file size: 5,000 rows per upload.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const section = document.getElementById('section-{{ preselect_type or "devices" }}');
+if (section) setTimeout(() => section.scrollIntoView({ behavior:'smooth', block:'start' }), 200);
+
+function downloadMasterTemplate() {
+  const cat = document.getElementById('masterBulkCat').value;
+  if (!cat) { alert('Please select a category first'); return; }
+  window.location.href = `/admin/master/template/${cat}`;
+}
+function submitMasterBulk() {
+  const cat = document.getElementById('masterBulkCat').value;
+  if (!cat) { alert('Please select a category first'); return; }
+  const file = document.getElementById('masterBulkFile').files[0];
+  if (!file) { alert('Please select a CSV file'); return; }
+  const form = document.getElementById('masterBulkForm');
+  form.action = `/admin/master/bulk-upload/${cat}`;
+  form.submit();
+}
+</script>
+{% endblock %}

@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Follow-ups — OxyPC CRM{% endblock %}
+{% block page_title %}Follow-ups Due{% endblock %}
+{% block content %}
+
+<!-- Filter Tabs -->
+<ul class="nav nav-tabs mb-4">
+  <li class="nav-item">
+    <a class="nav-link {% if not filter_type or filter_type=='all' %}active{% endif %}" href="/crm/activities/followups?filter_type=all">
+      <i class="bi bi-bell me-1"></i>All
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if filter_type=='sourcing' %}active{% endif %}" href="/crm/activities/followups?filter_type=sourcing">
+      <i class="bi bi-box-arrow-in-down me-1"></i>Sourcing Only
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if filter_type=='sales' %}active{% endif %}" href="/crm/activities/followups?filter_type=sales">
+      <i class="bi bi-graph-up me-1"></i>Sales Only
+    </a>
+  </li>
+</ul>
+
+{% macro activity_row(act, show_done=true) %}
+{% set deal = None %}
+{% set deal_url = '#' %}
+{% set deal_title = '' %}
+{% if act.deal_type == 'sourcing' and act.deal_id %}
+  {% set deal = sourcing_map.get(act.deal_id|string) %}
+  {% set deal_url = '/crm/sourcing/' ~ act.deal_id %}
+{% elif act.deal_type == 'sales' and act.deal_id %}
+  {% set deal = sales_map.get(act.deal_id|string) %}
+  {% set deal_url = '/crm/sales/' ~ act.deal_id %}
+{% endif %}
+<div class="list-group-item border-0 border-bottom px-3 py-3">
+  <div class="d-flex justify-content-between align-items-start gap-2">
+    <div class="flex-grow-1">
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <span class="badge bg-light text-dark border">
+          {% if act.activity_type=='call' %}📞{% elif act.activity_type=='whatsapp' %}💬{% elif act.activity_type=='visit' %}🤝{% elif act.activity_type=='email' %}📧{% elif act.activity_type=='meeting' %}👥{% else %}📝{% endif %}
+          {{ act.activity_type | title }}
+        </span>
+        {% if act.deal_type %}
+        <span class="badge {% if act.deal_type=='sourcing' %}bg-primary{% else %}bg-info text-white{% endif %} bg-opacity-25 text-dark border">
+          {{ act.deal_type | title }}
+        </span>
+        {% endif %}
+        <span class="small text-muted">by {{ act.performed_by }}</span>
+      </div>
+
+      <div class="small mb-1">{{ act.summary }}</div>
+
+      {% if deal %}
+      <div class="small mb-1">
+        <i class="bi bi-link-45deg text-muted me-1"></i>
+        <a href="{{ deal_url }}" class="fw-semibold text-decoration-none">
+          {{ deal.title[:60] }}{% if deal.title|length > 60 %}…{% endif %}
+        </a>
+      </div>
+      {% elif act.deal_id %}
+      <div class="small text-muted mb-1"><i class="bi bi-link-45deg me-1"></i>Deal ID: {{ act.deal_id }}</div>
+      {% endif %}
+
+      {% if act.followup_assigned_to %}
+      <div class="small text-muted"><i class="bi bi-person me-1"></i>Assigned to: <strong>{{ act.followup_assigned_to }}</strong></div>
+      {% endif %}
+    </div>
+
+    <div class="text-end flex-shrink-0">
+      {% if act.next_followup %}
+      <div class="small fw-semibold {% if act.next_followup < now %}text-danger{% else %}text-warning{% endif %} mb-2">
+        <i class="bi bi-alarm me-1"></i>{{ act.next_followup.strftime('%d %b %Y') }}<br>
+        <span class="fw-normal">{{ act.next_followup.strftime('%H:%M') }}</span>
+      </div>
+      {% endif %}
+      {% if show_done %}
+      <form method="post" action="/crm/activities/{{ act.id }}/done">
+        <input type="hidden" name="redirect_to" value="/crm/activities/followups{% if filter_type %}?filter_type={{ filter_type }}{% endif %}">
+        <button class="btn btn-sm btn-success"><i class="bi bi-check me-1"></i>Mark Done</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+<!-- Overdue -->
+{% if overdue %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header border-0 bg-danger bg-opacity-10 d-flex justify-content-between align-items-center">
+    <span class="fw-semibold text-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i>Overdue ({{ overdue | length }})</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for act in overdue %}
+    {{ activity_row(act, show_done=true) }}
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="alert alert-success border-0 shadow-sm mb-4 d-flex align-items-center gap-2">
+  <i class="bi bi-check-circle-fill fs-5"></i>
+  <span>No overdue follow-ups — great work!</span>
+</div>
+{% endif %}
+
+<!-- Due Today -->
+{% if due_today %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header border-0 bg-warning bg-opacity-10 d-flex justify-content-between align-items-center">
+    <span class="fw-semibold text-warning"><i class="bi bi-clock-fill me-2"></i>Due Today ({{ due_today | length }})</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for act in due_today %}
+    {{ activity_row(act, show_done=true) }}
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header border-0 bg-warning bg-opacity-10">
+    <span class="fw-semibold text-warning"><i class="bi bi-clock-fill me-2"></i>Due Today</span>
+  </div>
+  <div class="card-body text-center text-muted py-4">No follow-ups due today.</div>
+</div>
+{% endif %}
+
+<!-- Upcoming -->
+{% if upcoming %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header border-0 bg-info bg-opacity-10 d-flex justify-content-between align-items-center">
+    <span class="fw-semibold text-info"><i class="bi bi-calendar-week me-2"></i>Upcoming ({{ upcoming | length }})</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for act in upcoming %}
+    {{ activity_row(act, show_done=false) }}
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header border-0 bg-info bg-opacity-10">
+    <span class="fw-semibold text-info"><i class="bi bi-calendar-week me-2"></i>Upcoming</span>
+  </div>
+  <div class="card-body text-center text-muted py-4">No upcoming follow-ups scheduled.</div>
+</div>
+{% endif %}
+
+{% if not overdue and not due_today and not upcoming %}
+<div class="text-center py-5">
+  <i class="bi bi-check2-all text-success" style="font-size:3rem"></i>
+  <div class="mt-3 fs-5 text-muted">All clear! No follow-ups pending.</div>
+  <div class="mt-2">
+    <a href="/crm/sourcing" class="btn btn-sm btn-outline-primary me-2">View Sourcing Deals</a>
+    <a href="/crm/sales" class="btn btn-sm btn-outline-info">View Sales Opportunities</a>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

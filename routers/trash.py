@@ -7,7 +7,7 @@ from templates_config import templates
 import uuid as _uuid
 from datetime import datetime
 from utils.timezone import app_now
-from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -116,6 +116,29 @@ async def trash_device(
     device.trashed_at = app_now()
     await db.commit()
     return RedirectResponse(url="/devices?success=Device+moved+to+trash", status_code=302)
+
+
+@router.post("/bulk/devices", response_class=HTMLResponse)
+async def trash_devices_bulk(
+    request: Request,
+    barcodes: list[str] = Form(default=[]),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Bulk soft-delete (move to Trash) the selected devices. Restorable from /trash."""
+    barcodes = [b for b in (barcodes or []) if b]
+    if not barcodes:
+        return RedirectResponse(url="/devices?error=No+devices+selected", status_code=302)
+    devices = (await db.execute(
+        select(Device).where(Device.barcode.in_(barcodes), Device.is_trashed == False)
+    )).scalars().all()
+    now = app_now()
+    for d in devices:
+        d.is_trashed = True
+        d.trashed_at = now
+    await db.commit()
+    return RedirectResponse(
+        url=f"/devices?success={len(devices)}+device(s)+moved+to+trash", status_code=302)
 
 
 @router.post("/devices/{barcode}/restore", response_class=HTMLResponse)

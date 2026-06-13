@@ -18,6 +18,9 @@ from .location import StorageLocation, DeviceLocationLog, InventoryAudit, AuditS
 # Previously missing from __init__ — Alembic needs ALL models imported to manage their tables
 from .iqc_inspection import IQCInspection
 from .stock_transfer import StockTransfer
+from .work_order import WorkOrder
+from .part_request import PartRequest, PartSourcingRequest
+from .dispatch_request import TelecallerDispatchRequest
 from .market import MarketAvailability
 # QA / UAT tracking module
 from .qa_uat import (

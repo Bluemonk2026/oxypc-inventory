@@ -61,6 +61,20 @@
       <span class="badge bg-secondary ms-1">{{ consumptions|length }}</span>
     </button>
   </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="requests-tab" data-bs-toggle="tab"
+            data-bs-target="#requestsTab" type="button" role="tab">
+      <i class="bi bi-bag-plus me-1"></i>Part Requests
+      <span class="badge bg-warning text-dark ms-1">{{ part_reqs|selectattr('status','equalto','requested')|list|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="sourcing-tab" data-bs-toggle="tab"
+            data-bs-target="#sourcingTab" type="button" role="tab">
+      <i class="bi bi-box-arrow-in-down me-1"></i>Sourcing Requests
+      <span class="badge bg-secondary ms-1">{{ sourcing|length }}</span>
+    </button>
+  </li>
 </ul>
 
 <div class="tab-content border border-top-0 rounded-bottom shadow-sm bg-white">
@@ -211,6 +225,105 @@
     </div>
   </div>
 
+  <!-- ── TAB 4: Part Requests (#11/#14) ── -->
+  <div class="tab-pane fade p-0" id="requestsTab" role="tabpanel">
+    <div class="p-3 border-bottom"><span class="text-muted small">{{ part_reqs|length }} part request(s) — Handover/Not-In-Stock enable based on Part Master stock vs requested qty</span></div>
+    <div class="table-responsive">
+      <table id="partReqTable" class="table table-hover mb-0 small align-middle">
+        <thead class="table-dark"><tr>
+          <th>WorkID</th><th>Barcode</th><th>Engineer</th><th>Part Name</th>
+          <th>Qty Requested</th><th>Qty Handover</th><th>Action</th>
+        </tr></thead>
+        <tbody>
+          {% for r in part_reqs %}
+          {% set stock = part_stock.get(r.part_id|string, 0) %}
+          {% set sufficient = r.part_id and stock >= r.qty_requested %}
+          <tr>
+            <td class="font-monospace">{{ r.work_id or '—' }}</td>
+            <td><a href="/devices/{{ r.barcode }}" class="font-monospace text-decoration-none">{{ r.barcode }}</a></td>
+            <td>{{ r.engineer_name or r.requested_by or '—' }}</td>
+            <td class="fw-semibold">{{ r.part_name }}</td>
+            <td>{{ r.qty_requested }}</td>
+            <td>{{ r.qty_handed_over or '—' }}</td>
+            <td>
+              {% if r.status == 'requested' %}
+              <div class="d-flex gap-1 flex-wrap">
+                <button class="btn btn-sm btn-success py-0 px-2" data-bs-toggle="modal" data-bs-target="#handoverModal"
+                        data-req="{{ r.id }}" data-part="{{ r.part_name }}" data-eng="{{ r.engineer_name or r.requested_by }}"
+                        {{ 'disabled' if not sufficient }}>Handover</button>
+                <form method="post" action="/part-requests/{{ r.id }}/not-in-stock" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                  <button class="btn btn-sm btn-outline-danger py-0 px-2" {{ 'disabled' if sufficient }}>Not In Stock</button>
+                </form>
+                <form method="post" action="/part-requests/{{ r.id }}/procure" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                  <button class="btn btn-sm btn-outline-info py-0 px-2">Procure</button>
+                </form>
+              </div>
+              {% elif r.status == 'handed_over' %}<span class="badge bg-success">Handed Over &times;{{ r.qty_handed_over }}</span>
+              {% elif r.status == 'not_in_stock' %}<span class="badge bg-danger">Not In Stock</span>
+              {% elif r.status == 'procure' %}<span class="badge bg-info text-dark">Sent for Sourcing</span>
+              {% else %}<span class="badge bg-secondary">{{ r.status }}</span>{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="text-center text-muted py-4">No part requests.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── TAB 5: Pending Requests For Part Sourcing (#15, synced read-only from CRM) ── -->
+  <div class="tab-pane fade p-0" id="sourcingTab" role="tabpanel">
+    <div class="p-3 border-bottom"><span class="text-muted small">Pending Requests For Part Sourcing — synced with CRM Dashboard (read-only here)</span></div>
+    <div class="table-responsive">
+      <table id="sourcingTable" class="table table-hover mb-0 small">
+        <thead class="table-dark"><tr>
+          <th>Status</th><th>Part Code</th><th>Part Name</th><th>Qty Requested</th><th>Qty Sourced</th><th>Raised By</th><th>Source Deal ID</th>
+        </tr></thead>
+        <tbody>
+          {% for s in sourcing %}
+          <tr>
+            <td>{% if s.status == 'closed' %}<span class="badge bg-success">Close</span>{% else %}<span class="badge bg-warning text-dark">Open</span>{% endif %}</td>
+            <td><code>{{ s.part_code or '—' }}</code></td>
+            <td class="fw-semibold">{{ s.part_name }}</td>
+            <td>{{ s.qty_requested }}</td>
+            <td>{{ s.qty_sourced }}</td>
+            <td>{{ s.raised_by or '—' }}</td>
+            <td>{{ s.source_deal_id or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="text-center text-muted py-4">No sourcing requests.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- Handover modal (#12) -->
+<div class="modal fade" id="handoverModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="handoverForm" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-box-arrow-up me-2"></i>Handover Part</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2"><span class="text-muted small">Part:</span> <strong id="ho_part">—</strong></div>
+        <div class="mb-3"><span class="text-muted small">Engineer:</span> <strong id="ho_eng">—</strong></div>
+        <label class="form-label fw-semibold">Quantity to Hand Over</label>
+        <input type="number" name="qty" class="form-control" min="1" value="1" required>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-success"><i class="bi bi-check-lg me-1"></i>Confirm Handover</button>
+      </div>
+    </form>
+  </div>
 </div>
 {% endblock %}
 
@@ -220,7 +333,20 @@ $(document).ready(function() {
   $('#partsTable').DataTable({ pageLength: 25, order: [[2, 'asc']] });
   $('#purchasesTable').DataTable({ pageLength: 25, order: [[7, 'desc']] });
   $('#consumptionTable').DataTable({ pageLength: 25, order: [[8, 'desc']] });
+  if ($('#partReqTable tbody tr td').length > 1) $('#partReqTable').DataTable({ pageLength: 25, order: [] });
+  if ($('#sourcingTable tbody tr td').length > 1) $('#sourcingTable').DataTable({ pageLength: 25, order: [] });
 });
+
+// Handover modal — populate from the clicked button's data-* attributes
+var _hm = document.getElementById('handoverModal');
+if (_hm) {
+  _hm.addEventListener('show.bs.modal', function (e) {
+    var b = e.relatedTarget;
+    document.getElementById('handoverForm').action = '/part-requests/' + b.getAttribute('data-req') + '/handover';
+    document.getElementById('ho_part').textContent = b.getAttribute('data-part') || '—';
+    document.getElementById('ho_eng').textContent = b.getAttribute('data-eng') || '—';
+  });
+}
 
 // Preserve active tab across page reloads
 const activeTabKey = 'spareParts_activeTab';

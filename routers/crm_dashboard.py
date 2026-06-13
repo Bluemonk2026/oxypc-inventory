@@ -14,6 +14,7 @@ from models.crm import (
     CRMContact, CRMSourcingDeal, CRMSalesOpportunity, CRMActivity,
     SOURCING_STAGES, SALES_STAGES,
 )
+from models.part_request import PartSourcingRequest
 
 router = APIRouter(prefix="/crm", tags=["crm-dashboard"])
 
@@ -110,8 +111,15 @@ async def crm_dashboard(
         for o in or2.scalars().all():
             sales_map[str(o.id)] = o
 
+    # ── Pending Requests For Part Sourcing (#13, from Spare Parts Manager) ────
+    ps_r = await db.execute(
+        select(PartSourcingRequest).order_by(PartSourcingRequest.created_at.desc()).limit(200)
+    )
+    part_sourcing = ps_r.scalars().all()
+
     return templates.TemplateResponse("crm/dashboard.html", {
         "request": request, "current_user": current_user,
+        "part_sourcing": part_sourcing,
         # contacts
         "contact_total": contact_total,
         "buyer_count": buyer_count,

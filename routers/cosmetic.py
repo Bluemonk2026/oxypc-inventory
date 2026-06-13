@@ -13,6 +13,8 @@ from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
 from models.lot import Lot
+from models.iqc_inspection import IQCInspection
+from models.repair import RepairJob
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 
 router = APIRouter(prefix="/cosmetic", tags=["cosmetic"], dependencies=[Depends(verify_csrf)])
@@ -85,6 +87,30 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
         raise HTTPException(404)
     devices = await _get_devices_at_stage(db, stage)
     next_stage = NEXT_COSMETIC.get(stage)
+
+    # Final QC (#18): show IQC data + post-repair data read-only, then grade + Ready to Sale
+    if stage == DeviceStage.final_qc:
+        device_ids = [d.id for d, _ in devices]
+        iqc_map, repairs_map = {}, {}
+        if device_ids:
+            iqcs = (await db.execute(
+                select(IQCInspection).where(IQCInspection.device_id.in_(device_ids))
+            )).scalars().all()
+            for i in iqcs:
+                iqc_map[str(i.device_id)] = i
+            rjs = (await db.execute(
+                select(RepairJob).where(RepairJob.device_id.in_(device_ids))
+                .order_by(RepairJob.started_at.desc())
+            )).scalars().all()
+            for r in rjs:
+                repairs_map.setdefault(str(r.device_id), []).append(r)
+        return templates.TemplateResponse("cosmetic/final_qc.html", {
+            "request": request, "current_user": current_user,
+            "stage": stage, "stage_label": STAGE_LABELS[stage],
+            "devices": devices, "iqc_map": iqc_map, "repairs_map": repairs_map,
+            "pipeline": COSMETIC_PIPELINE, "stage_labels": STAGE_LABELS,
+        })
+
     return templates.TemplateResponse("cosmetic/stage.html", {
         "request": request, "current_user": current_user,
         "stage": stage, "stage_label": STAGE_LABELS[stage],

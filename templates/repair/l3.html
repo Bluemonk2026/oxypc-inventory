@@ -152,10 +152,12 @@
   <div class="card-header bg-transparent fw-semibold">Devices in L3 ({{ devices|length }})</div>
   <div class="card-body p-0">
     <table id="l3Table" class="table table-hover mb-0 small">
-      <thead class="table-dark"><tr><th>Barcode</th><th>Lot</th><th>Brand</th><th>Model</th><th>CPU</th><th>RAM</th><th>Storage</th><th>Screen</th><th>Grade</th><th>Location</th><th>Notes</th></tr></thead>
+      <thead class="table-dark"><tr><th>WorkID</th><th>Barcode</th><th>Lot</th><th>Brand</th><th>Model</th><th>CPU</th><th>RAM</th><th>Storage</th><th>Screen</th><th>Grade</th><th>Location</th><th>Notes</th><th>Timeline</th><th>Action</th></tr></thead>
       <tbody>
         {% for device, lot_number in devices %}
+        {% set wo = work_map.get(device.id|string) if work_map is defined else None %}
         <tr>
+          <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
           <td><code>{{ device.barcode }}</code></td>
           <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
           <td>{{ device.brand or '—' }}</td><td>{{ device.model or '—' }}</td>
@@ -179,6 +181,15 @@
             {% endif %}
           </td>
           <td class="text-muted small">{{ device.notes or '' }}</td>
+          <td>{% if wo %}<span class="badge bg-{{ 'danger' if wo.days_pending >= 3 else ('warning text-dark' if wo.days_pending >= 1 else 'secondary') }}">{{ wo.days_pending }} day{{ 's' if wo.days_pending != 1 else '' }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td>
+            <form method="post" action="/repair/start" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+              <input type="hidden" name="barcode" value="{{ device.barcode }}">
+              <input type="hidden" name="stage" value="{{ stage }}">
+              <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-play-fill"></i> Start Repair</button>
+            </form>
+          </td>
         </tr>
         {% endfor %}
       </tbody>

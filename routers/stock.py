@@ -775,8 +775,30 @@ async def stock_in_list(
     )
     devices = result.all()
 
+    # ── Analytics count cards (#17) ──────────────────────────────────────────
+    count_rows = (await db.execute(
+        select(Device.current_stage, func.count(Device.id))
+        .where(Device.is_active == True)
+        .group_by(Device.current_stage)
+    )).all()
+    stage_counts = {stage: cnt for stage, cnt in count_rows}
+
+    def _c(*stages):
+        return sum(stage_counts.get(s, 0) for s in stages)
+
+    repair_stages = [DeviceStage.l1, DeviceStage.l2, DeviceStage.l3, DeviceStage.qc_check]
+    cosmetic_stages = [DeviceStage.cleaning, DeviceStage.dry_sanding, DeviceStage.masking,
+                       DeviceStage.painting, DeviceStage.water_sanding, DeviceStage.final_qc]
+    analytics = {
+        "iqc": _c(DeviceStage.iqc),
+        "in_stock": _c(*repair_stages, *cosmetic_stages, DeviceStage.ready_to_sale),
+        "trc": _c(*repair_stages, *cosmetic_stages),
+        "ready": _c(DeviceStage.ready_to_sale),
+    }
+
     return templates.TemplateResponse("lots/stock_in.html", {
         "request": request, "devices": devices, "current_user": current_user,
+        "analytics": analytics,
         "page": page, "page_size": page_size, "total": total, "total_pages": total_pages,
     })
 

@@ -163,4 +163,78 @@
   </div>
 </div>
 
+<!-- Pending Requests For Part Sourcing (#13) -->
+<div class="card border-0 shadow-sm mt-4">
+  <div class="card-header bg-white border-0 fw-semibold">
+    <i class="bi bi-box-seam me-2"></i>Pending Requests For Part Sourcing
+    <span class="badge bg-warning text-dark ms-1">{{ part_sourcing|selectattr('status','equalto','open')|list|length }} open</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 small align-middle">
+      <thead class="table-light"><tr>
+        <th class="ps-3">Status</th><th>Part Code</th><th>Part Name</th><th>Qty Requested</th>
+        <th>Qty Sourced</th><th>Raised By</th><th>Action</th>
+      </tr></thead>
+      <tbody>
+        {% set _sm = current_user.role.value in ['admin','sales_manager'] %}
+        {% for s in part_sourcing %}
+        <tr>
+          <td class="ps-3">{% if s.status == 'closed' %}<span class="badge bg-success">Close</span>{% else %}<span class="badge bg-warning text-dark">Open</span>{% endif %}</td>
+          <td><code>{{ s.part_code or '—' }}</code></td>
+          <td class="fw-semibold">{{ s.part_name }}</td>
+          <td>{{ s.qty_requested }}</td>
+          <td>{{ s.qty_sourced }}{% if s.source_deal_id %} <span class="text-muted small">({{ s.source_deal_id }})</span>{% endif %}</td>
+          <td>{{ s.raised_by or '—' }}</td>
+          <td>
+            {% if s.status == 'open' and _sm %}
+            <button class="btn btn-sm btn-success py-0 px-2" data-bs-toggle="modal" data-bs-target="#closeDealModal"
+                    data-sr="{{ s.id }}" data-part="{{ s.part_name }}">Close Deal</button>
+            {% elif s.status == 'closed' %}<span class="text-success small"><i class="bi bi-check-lg"></i> Closed</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No part sourcing requests.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Close Deal modal (#13) -->
+<div class="modal fade" id="closeDealModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="closeDealForm" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-box-seam me-2"></i>Close Sourcing Deal</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3"><span class="text-muted small">Part:</span> <strong id="cd_part">—</strong></div>
+        <label class="form-label fw-semibold">Source Deal ID</label>
+        <input type="text" name="source_deal_id" class="form-control mb-3" placeholder="e.g. SRC-2026-001" required>
+        <label class="form-label fw-semibold">Sourced Quantity</label>
+        <input type="number" name="qty_sourced" class="form-control" min="0" value="1" required>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-success"><i class="bi bi-check-lg me-1"></i>Close Deal</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+var _cd = document.getElementById('closeDealModal');
+if (_cd) {
+  _cd.addEventListener('show.bs.modal', function (e) {
+    var b = e.relatedTarget;
+    document.getElementById('closeDealForm').action = '/part-sourcing/' + b.getAttribute('data-sr') + '/close';
+    document.getElementById('cd_part').textContent = b.getAttribute('data-part') || '—';
+  });
+}
+</script>
 {% endblock %}

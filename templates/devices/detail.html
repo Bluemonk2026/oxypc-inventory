@@ -181,9 +181,9 @@
             <tr class="table-light">
               <th class="ps-3 fw-bold small">Total Cost</th>
               {% if device.device_price %}
-              <td class="text-end pe-3 fw-bold">₹{{ "%.2f"|format(device.device_price * (device.qty or 1) + total_parts_cost) }}</td>
+              <td class="text-end pe-3 fw-bold">₹{{ "%.2f"|format((device.device_price|float) * (device.qty or 1) + (total_parts_cost|float)) }}</td>
               {% else %}
-              <td class="text-end pe-3 fw-bold">₹{{ "%.2f"|format(lot_cost_per_device + total_parts_cost) }}</td>
+              <td class="text-end pe-3 fw-bold">₹{{ "%.2f"|format((lot_cost_per_device|float) + (total_parts_cost|float)) }}</td>
               {% endif %}
             </tr>
           </tbody>
@@ -395,6 +395,51 @@
         {% endif %}
       </div>
     </div>
+
+    <!-- Parts Consumption (#10): required parts (from IQC) + live stock + request action -->
+    {% if parts_consumption is defined %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-clipboard-plus me-2"></i>Parts Consumption
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0 align-middle">
+          <thead class="table-light">
+            <tr><th class="ps-3">Part Name</th><th>Required</th><th>Status</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+            {% set _eng = current_user.role.value in ['l1_engineer','l2_engineer','l3_engineer','admin','inventory_manager'] %}
+            {% for p in parts_consumption %}
+            <tr>
+              <td class="ps-3 small fw-semibold">{{ p.label }}</td>
+              <td>{% if p.required %}<span class="badge bg-warning text-dark">Yes</span>{% else %}<span class="badge bg-light text-muted border">No</span>{% endif %}</td>
+              <td>{% if p.in_stock %}<span class="badge bg-success">In Stock ({{ p.stock_qty }})</span>{% else %}<span class="badge bg-danger">Out of Stock</span>{% endif %}</td>
+              <td>
+                {% set r = p.request %}
+                {% if r %}
+                  {% if r.status == 'requested' %}<span class="badge bg-warning text-dark">Requested &times;{{ r.qty_requested }}</span>
+                  {% elif r.status == 'handed_over' %}<span class="badge bg-success">Handed Over &times;{{ r.qty_handed_over }}</span>
+                  {% elif r.status == 'not_in_stock' %}<span class="badge bg-danger">Not In Stock</span>
+                  {% elif r.status == 'procure' %}<span class="badge bg-info text-dark">Sent for Sourcing</span>
+                  {% else %}<span class="badge bg-secondary">{{ r.status }}</span>{% endif %}
+                {% elif _eng %}
+                <form method="post" action="/part-requests/create" class="d-flex align-items-center gap-1">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                  <input type="hidden" name="barcode" value="{{ device.barcode }}">
+                  <input type="hidden" name="part_name" value="{{ p.label }}">
+                  <input type="hidden" name="part_id" value="{{ p.part_id }}">
+                  <input type="number" name="qty" value="1" min="1" class="form-control form-control-sm" style="width:64px">
+                  <button type="submit" class="btn btn-sm btn-outline-primary"><i class="bi bi-bag-plus"></i> Request</button>
+                </form>
+                {% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
 
   </div><!-- /col-lg-7 -->
 </div><!-- /row -->

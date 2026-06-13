@@ -83,6 +83,8 @@ from routers.bulk_upload import router as bulk_upload_router
 from routers.cosmetic import router as cosmetic_router
 from routers.devices import router as devices_router
 from routers.transfers import router as transfers_router
+from routers.part_requests import router as part_requests_router
+from routers.dispatch import router as dispatch_router
 from routers.attendance import router as attendance_router
 from routers.dealers import router as dealers_router
 from routers.telecalling import router as telecalling_router
@@ -130,6 +132,8 @@ app.include_router(bulk_upload_router)
 app.include_router(cosmetic_router)
 app.include_router(devices_router)
 app.include_router(transfers_router)
+app.include_router(part_requests_router)
+app.include_router(dispatch_router)
 app.include_router(attendance_router)
 app.include_router(dealers_router)
 app.include_router(telecalling_router)

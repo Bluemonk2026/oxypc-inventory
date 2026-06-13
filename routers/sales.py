@@ -20,6 +20,7 @@ from models.device import Device, DeviceStage, StageMovement
 from models.lot import Lot
 from models.sales import Sale, Return
 from models.crm import CRMSalesOpportunity, CRMContact
+from models.dispatch_request import TelecallerDispatchRequest
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from services.control_engine import validate_sale_allowed
 from services.cost_engine import check_below_cost_warning
@@ -28,6 +29,7 @@ from services.event_bus import EventType, publish
 
 router = APIRouter(tags=["sales"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.sales)
+ready_allowed = require_roles(UserRole.admin, UserRole.sales, UserRole.sales_manager, UserRole.telecaller)
 
 
 async def _next_sale_number(db: AsyncSession) -> str:
@@ -38,7 +40,7 @@ async def _next_sale_number(db: AsyncSession) -> str:
 
 @router.get("/sales/ready", response_class=HTMLResponse)
 async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
-                     current_user: User = Depends(allowed)):
+                     current_user: User = Depends(ready_allowed)):
     result = await db.execute(
         select(Device, Lot.lot_number, Lot.buying_price, Lot.qty)
         .join(Lot, Device.lot_id == Lot.id)
@@ -46,6 +48,20 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
         .order_by(Device.updated_at.desc())
     )
     devices = result.all()
+
+    # ── Dispatch-request state (#21): Sell enabled only after approval ───────
+    device_ids = [d.id for d, *_ in devices]
+    approved_ids, requested_ids = set(), set()
+    if device_ids:
+        drs = (await db.execute(
+            select(TelecallerDispatchRequest.device_id, TelecallerDispatchRequest.status)
+            .where(TelecallerDispatchRequest.device_id.in_(device_ids))
+        )).all()
+        for did, st in drs:
+            if st == "approved":
+                approved_ids.add(str(did))
+            elif st == "requested":
+                requested_ids.add(str(did))
 
     # ── Interested dealers banner: open CRM sales opps matching ready device types ──
     ready_device_types = {d.device_type for d, *_ in devices if d.device_type}
@@ -80,6 +96,7 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
     return templates.TemplateResponse("sales/ready_list.html", {
         "request": request, "devices": devices, "current_user": current_user,
         "interested_dealers": interested_dealers,
+        "approved_ids": approved_ids, "requested_ids": requested_ids,
     })
 
 

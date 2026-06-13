@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Final QC — OxyPC{% endblock %}
+{% block page_title %}Final QC{% endblock %}
+{% block content %}
+
+<nav class="mb-3">
+  <ol class="breadcrumb small">
+    <li class="breadcrumb-item"><a href="/cosmetic">Cosmetic Pipeline</a></li>
+    <li class="breadcrumb-item active">Final QC</li>
+  </ol>
+</nav>
+
+<!-- Stage nav tabs -->
+<div class="d-flex gap-2 mb-3 flex-wrap">
+  {% for s in pipeline %}
+  <a href="/cosmetic/{{ s.value }}"
+     class="btn btn-sm {{ 'btn-primary' if s == stage else 'btn-outline-secondary' }}">{{ stage_labels[s] }}</a>
+  {% endfor %}
+</div>
+
+<p class="text-muted small">{{ devices|length }} device(s) awaiting Final QC. Review IQC + post-repair data (read-only), assign grade, then move to Ready to Sale.</p>
+
+{% for device, lot_number in devices %}
+{% set iqc = iqc_map.get(device.id|string) %}
+{% set rjs = repairs_map.get(device.id|string, []) %}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+    <span class="fw-semibold"><code>{{ device.barcode }}</code> — {{ device.brand or '' }} {{ device.model or '' }}
+      <span class="badge bg-secondary ms-1">{{ lot_number }}</span></span>
+    <span class="small">Current Grade:
+      {% if device.grade %}<span class="badge bg-info text-dark">{{ device.grade.value }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+    </span>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+
+      <!-- IQC Data (read-only) -->
+      <div class="col-lg-4">
+        <h6 class="small text-uppercase text-muted fw-bold">IQC Data <span class="badge bg-light text-muted border ms-1">read-only</span></h6>
+        {% if iqc %}
+        <table class="table table-sm small mb-0">
+          <tr><th class="text-muted">Power On</th><td>{{ iqc.power_on or '—' }}</td></tr>
+          <tr><th class="text-muted">Status</th><td>{{ iqc.status or '—' }}</td></tr>
+          <tr><th class="text-muted">All OK</th><td>{{ iqc.all_ok or '—' }}</td></tr>
+          <tr><th class="text-muted">Screen Broken</th><td>{{ iqc.screen_broken or '—' }}</td></tr>
+          <tr><th class="text-muted">Keyboard</th><td>{{ iqc.keyboard_working or '—' }}</td></tr>
+          <tr><th class="text-muted">Speaker</th><td>{{ iqc.speaker_status or '—' }}</td></tr>
+          <tr><th class="text-muted">Battery</th><td>{{ iqc.battery_present or '—' }}</td></tr>
+          <tr><th class="text-muted">WiFi</th><td>{{ iqc.wifi_status or '—' }}</td></tr>
+          <tr><th class="text-muted">R2v3</th><td>{{ iqc.r2v3_grade_category or '—' }}</td></tr>
+          <tr><th class="text-muted">Remarks</th><td>{{ iqc.remarks or '—' }}</td></tr>
+        </table>
+        {% else %}<p class="text-muted small mb-0">No IQC record.</p>{% endif %}
+      </div>
+
+      <!-- Post-Repair Data (read-only) -->
+      <div class="col-lg-4">
+        <h6 class="small text-uppercase text-muted fw-bold">Post-Repair Data <span class="badge bg-light text-muted border ms-1">read-only</span></h6>
+        <table class="table table-sm small mb-2">
+          <tr><th class="text-muted">CPU</th><td>{{ device.cpu or '—' }}</td></tr>
+          <tr><th class="text-muted">Generation</th><td>{{ device.generation or '—' }}</td></tr>
+          <tr><th class="text-muted">RAM</th><td>{{ (device.ram_gb|string ~ ' GB') if device.ram_gb else '—' }}</td></tr>
+          <tr><th class="text-muted">Storage</th><td>{{ (device.storage_gb|string ~ ' GB') if device.storage_gb else '—' }}</td></tr>
+          <tr><th class="text-muted">Battery Health</th><td>{{ (device.battery_health_pct|string ~ '%') if device.battery_health_pct is not none else '—' }}</td></tr>
+        </table>
+        {% if rjs %}
+        <div class="small fw-semibold text-muted">Repair History</div>
+        <ul class="small mb-0 ps-3">
+          {% for r in rjs %}
+          <li>{{ r.stage }} — {{ r.final_status or (r.status.value if r.status else '—') }}{% if r.resolution %}: {{ r.resolution }}{% endif %}</li>
+          {% endfor %}
+        </ul>
+        {% else %}<p class="text-muted small mb-0">No repair jobs recorded.</p>{% endif %}
+      </div>
+
+      <!-- Final QC Decision -->
+      <div class="col-lg-4">
+        <h6 class="small text-uppercase text-muted fw-bold">Final QC Decision</h6>
+        <form action="/cosmetic/advance" method="post">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+          <input type="hidden" name="barcode" value="{{ device.barcode }}">
+          <div class="mb-2">
+            <label class="form-label small">Final Status</label>
+            <select name="final_qc_status" class="form-select form-select-sm">
+              <option value="pass">Pass</option><option value="fail">Fail</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Failure Reason <small class="text-muted">(if fail)</small></label>
+            <select name="failure_reason" class="form-select form-select-sm">
+              <option value="">— N/A —</option>
+              <option>Functional</option><option>Paint</option><option>Plastic Part</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Grade</label>
+            <select name="grade" class="form-select form-select-sm">
+              <option value="">— No change —</option>
+              <option {{ 'selected' if device.grade and device.grade.value == 'A' }}>A</option>
+              <option {{ 'selected' if device.grade and device.grade.value == 'B' }}>B</option>
+              <option {{ 'selected' if device.grade and device.grade.value == 'C' }}>C</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Notes</label>
+            <input type="text" name="notes" class="form-control form-control-sm" placeholder="Remarks">
+          </div>
+          <button type="submit" class="btn btn-success w-100 btn-sm">
+            <i class="bi bi-patch-check me-1"></i>Final QC → Ready to Sale
+          </button>
+        </form>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="card border-0 shadow-sm"><div class="card-body text-center text-muted py-5">No devices awaiting Final QC.</div></div>
+{% endfor %}
+{% endblock %}

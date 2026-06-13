@@ -19,6 +19,8 @@ from models.qc import QCCheck
 from models.spare_parts import SparePartConsumption, SparePart
 from models.location import DeviceLocationLog, StorageLocation, LocationAction
 from models.iqc_inspection import IQCInspection
+from models.part_request import PartRequest
+from services.parts_required import compute_required
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 
 router = APIRouter(prefix="/devices", tags=["devices"], dependencies=[Depends(verify_csrf)])
@@ -283,6 +285,36 @@ async def device_detail(
         except Exception:
             stress_data = None
 
+    # ── Parts Consumption (#10): fixed parts list, IQC-driven Required flag,
+    #    live stock status, and any existing engineer part-request state. ───────
+    required_rows = compute_required(iqc_inspection, device)
+    pr_rows = (await db.execute(
+        select(PartRequest).where(PartRequest.device_id == device.id)
+        .order_by(PartRequest.created_at.desc())
+    )).scalars().all()
+    req_by_part = {}
+    for r in pr_rows:
+        req_by_part.setdefault(r.part_name, r)  # latest per part (rows ordered desc)
+    parts_consumption = []
+    for row in required_rows:
+        sp = (await db.execute(
+            select(SparePart).where(or_(
+                SparePart.category == row["category"],
+                SparePart.name.ilike(f"%{row['keyword']}%"),
+            )).order_by(SparePart.qty_in_stock.desc())
+        )).scalars().first()
+        stock = int(sp.qty_in_stock) if sp and sp.qty_in_stock else 0
+        existing = req_by_part.get(row["label"])
+        parts_consumption.append({
+            "label": row["label"],
+            "required": row["required"],
+            "in_stock": stock > 0,
+            "stock_qty": stock,
+            "part_id": str(sp.id) if sp else "",
+            "part_code": sp.part_code if sp else None,
+            "request": existing,
+        })
+
     return templates.TemplateResponse("devices/detail.html", {
         "request": request, "current_user": current_user,
         "device": device, "lot": lot,
@@ -294,6 +326,7 @@ async def device_detail(
         "current_location": current_location,
         "iqc_inspection": iqc_inspection,
         "stress_data": stress_data,
+        "parts_consumption": parts_consumption,
     })
 
 

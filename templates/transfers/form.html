@@ -6,7 +6,7 @@
   <div class="col-xl-9">
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-transparent fw-semibold">
-        <i class="bi bi-arrow-left-right me-2"></i>Record Stock Transfer
+        <i class="bi bi-arrow-left-right me-2"></i>Move New Stock
       </div>
       <div class="card-body">
         {% if error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>{% endif %}
@@ -45,6 +45,13 @@
           <input type="hidden" name="barcode" value="{{ device.barcode }}">
 
           <div class="row g-3 mb-4">
+            <!-- Transfer Date (read-only, auto today) -->
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Transfer Date</label>
+              <input type="date" name="transfer_date" class="form-control bg-light"
+                     value="{{ now.strftime('%Y-%m-%d') if now else '' }}" readonly>
+            </div>
+
             <!-- Transfer Type -->
             <div class="col-md-4">
               <label class="form-label fw-semibold">Transfer Type <span class="text-danger">*</span></label>
@@ -52,25 +59,26 @@
                 <option value="">— Select Type —</option>
                 <option value="trc_to_showroom">TRC → Showroom</option>
                 <option value="showroom_to_trc">Showroom → TRC</option>
-                <option value="internal">Internal Transfer</option>
+                <option value="transfer_to_trc">Transfer to TRC</option>
               </select>
-            </div>
-
-            <!-- Transfer Date -->
-            <div class="col-md-4">
-              <label class="form-label fw-semibold">Transfer Date</label>
-              <input type="date" name="transfer_date" class="form-control"
-                     value="{{ now.strftime('%Y-%m-%d') if now else '' }}">
             </div>
 
             <!-- Department -->
             <div class="col-md-4">
               <label class="form-label fw-semibold">Department</label>
-              <select name="department" class="form-select">
+              <select name="department" id="department" class="form-select">
                 <option value="">— Select Department —</option>
                 {% for d in departments %}
                 <option value="{{ d }}">{{ d }}</option>
                 {% endfor %}
+              </select>
+            </div>
+
+            <!-- Assigned User (shown only for L1/L2/L3 Engineer departments) -->
+            <div class="col-md-4 d-none" id="assigned_user_wrap">
+              <label class="form-label fw-semibold">Assign To User</label>
+              <select name="assigned_user_id" id="assigned_user_id" class="form-select">
+                <option value="">— Select User —</option>
               </select>
             </div>
 
@@ -96,16 +104,16 @@
               </select>
             </div>
 
-            <!-- Transferred By -->
-            <div class="col-md-6">
+            <!-- Transferred By (hidden — auto-set to current user) -->
+            <div class="col-md-6 d-none">
               <label class="form-label fw-semibold">Order By / Transferred By</label>
               <input type="text" name="transferred_by" class="form-control"
                      placeholder="Username of sender"
                      value="{{ current_user.username }}">
             </div>
 
-            <!-- Received By -->
-            <div class="col-md-6">
+            <!-- Received By (hidden) -->
+            <div class="col-md-6 d-none">
               <label class="form-label fw-semibold">Receiver Name</label>
               <input type="text" name="received_by" class="form-control"
                      placeholder="Username / name of receiver">
@@ -121,7 +129,7 @@
 
           <div class="d-flex gap-2">
             <button type="submit" class="btn btn-primary px-4">
-              <i class="bi bi-send me-2"></i>Record Transfer
+              <i class="bi bi-send me-2"></i>Move Item
             </button>
             <a href="/transfers" class="btn btn-outline-secondary">Cancel</a>
           </div>
@@ -143,4 +151,33 @@
     </div>
   </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var deptToRole  = {{ dept_to_role | default({}) | tojson }};
+  var usersByRole = {{ users_by_role | default({}) | tojson }};
+  var dept = document.getElementById('department');
+  var wrap = document.getElementById('assigned_user_wrap');
+  var sel  = document.getElementById('assigned_user_id');
+  if(!dept || !wrap || !sel) return;
+  var ENG = ['l1_engineer','l2_engineer','l3_engineer'];
+  function refresh(){
+    var role = deptToRole[dept.value];
+    sel.innerHTML = '<option value="">— Select User —</option>';
+    if(ENG.indexOf(role) !== -1){
+      (usersByRole[role] || []).forEach(function(u){
+        var o = document.createElement('option');
+        o.value = u.id; o.textContent = u.name + ' (' + u.username + ')';
+        sel.appendChild(o);
+      });
+      wrap.classList.remove('d-none');
+    } else {
+      wrap.classList.add('d-none');
+    }
+  }
+  dept.addEventListener('change', refresh);
+  refresh();
+})();
+</script>
 {% endblock %}

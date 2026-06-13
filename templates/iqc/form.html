@@ -43,7 +43,7 @@
               <label class="form-label">Serial No.</label>
               <input type="text" name="serial_no" class="form-control font-monospace" placeholder="Serial number">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-3 d-none">
               <label class="form-label">Sub-Category</label>
               <select name="sub_category" class="form-select">
                 <option value="">-- Select --</option>
@@ -609,9 +609,8 @@
           <div class="row g-3 mb-3">
             <div class="col-md-2">
               <label class="form-label">Quantity</label>
-              <input type="number" name="qty" class="form-control bg-light" min="1" value="1"
-                     placeholder="1" title="Each IQC entry covers exactly one unit"
-                     readonly tabindex="-1">
+              <input type="number" name="qty" class="form-control" min="1" value="1"
+                     placeholder="1">
             </div>
             <div class="col-md-3">
               <label class="form-label">Unit Price (₹) <small class="text-muted">override</small></label>

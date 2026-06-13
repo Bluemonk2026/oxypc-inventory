@@ -15,6 +15,7 @@ from models.lot import Lot
 from models.spare_parts import SparePart, SparePartPurchase, SparePartConsumption, RAMTracking
 from models.repair import RepairJob, RepairStatus
 from models.engines import SparePartsLedger
+from models.part_request import PartRequest, PartSourcingRequest
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from services.audit_engine import audit
 
@@ -86,6 +87,17 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         if c.used_at and c.used_at.year == today.year and c.used_at.month == today.month
     )
 
+    # ── Part requests raised by engineers (#11/#14) ──────────────────────────
+    part_reqs = (await db.execute(
+        select(PartRequest).order_by(PartRequest.created_at.desc()).limit(200)
+    )).scalars().all()
+    part_stock = {str(p.id): int(p.qty_in_stock or 0) for p in parts}
+
+    # ── Pending part-sourcing requests, mirrored read-only from CRM (#15) ────
+    sourcing = (await db.execute(
+        select(PartSourcingRequest).order_by(PartSourcingRequest.created_at.desc()).limit(200)
+    )).scalars().all()
+
     return templates.TemplateResponse("spare_parts/list.html", {
         "request": request, "parts": parts, "current_user": current_user,
         "purchases": purchases, "consumptions": consumptions,
@@ -93,6 +105,7 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         "below_min_count": below_min_count,
         "total_stock_value": total_stock_value,
         "consumed_this_month": consumed_this_month,
+        "part_reqs": part_reqs, "part_stock": part_stock, "sourcing": sourcing,
     })
 
 

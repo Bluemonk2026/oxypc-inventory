@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Ready to Dispatch — OxyPC{% endblock %}
+{% block page_title %}Ready to Dispatch{% endblock %}
+{% block content %}
+
+{% macro grade_table(label, items, color) %}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-transparent fw-semibold">
+    <span class="badge bg-{{ color }} me-1">{{ label }}</span> Grade Devices
+    <span class="text-muted small">({{ items|length }})</span>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0 small">
+      <thead class="table-light"><tr>
+        <th class="ps-3">Barcode</th><th>Model Name</th><th>Lot</th><th>Quantities</th>
+        <th>Dispatched</th><th>Pending</th><th>Sold</th>
+      </tr></thead>
+      <tbody>
+        {% for it in items %}
+        <tr>
+          <td class="ps-3"><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
+          <td>{{ it.model }}</td>
+          <td>{% if it.lot %}<span class="badge bg-info text-dark">{{ it.lot }}</span>{% else %}—{% endif %}</td>
+          <td>{{ it.qty }}</td>
+          <td><span class="badge bg-success">{{ it.dispatched }}</span></td>
+          <td><span class="badge bg-warning text-dark">{{ it.pending }}</span></td>
+          <td>{{ it.sold }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-3">No {{ label }} grade devices.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endmacro %}
+
+{{ grade_table('A', buckets.A, 'success') }}
+{{ grade_table('B', buckets.B, 'warning text-dark') }}
+{{ grade_table('C', buckets.C, 'danger') }}
+
+<!-- Telecaller Requests -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-transparent fw-semibold">
+    <i class="bi bi-telephone me-2"></i>Telecaller Requests
+    <span class="badge bg-warning text-dark ms-1">{{ requests|selectattr('status','equalto','requested')|list|length }} pending</span>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0 small align-middle">
+      <thead class="table-dark"><tr>
+        <th class="ps-3">Telecaller Name</th><th>Barcode</th><th>Quantity Requested</th><th>Quantity Available</th><th>Action</th>
+      </tr></thead>
+      <tbody>
+        {% set _appr = current_user.role.value in ['admin','sales_manager'] %}
+        {% for r in requests %}
+        <tr>
+          <td class="ps-3">{{ r.telecaller_name or r.telecaller_username or '—' }}</td>
+          <td><a href="/devices/{{ r.barcode }}" class="font-monospace text-decoration-none">{{ r.barcode }}</a></td>
+          <td>{{ r.qty_requested }}</td>
+          <td>{{ r.qty_available }}</td>
+          <td>
+            {% if r.status == 'approved' %}<span class="badge bg-success"><i class="bi bi-check-lg"></i> Approved</span>
+            {% elif _appr %}
+            <form method="post" action="/dispatch/{{ r.id }}/approve" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+              <button class="btn btn-sm btn-success py-0 px-2"><i class="bi bi-check-lg"></i> Approve</button>
+            </form>
+            {% else %}<span class="badge bg-warning text-dark">Requested</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-3">No telecaller requests.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -24,6 +24,8 @@ from services.control_engine import validate_transition, validate_repair_level, 
 from services.cost_engine import check_scrap_decision, auto_scrap_device, refresh_parts_cost, SCRAP_WARNING_RATIO
 from services.audit_engine import audit
 from models.spare_parts import SparePartConsumption as SPC, SparePart
+from models.work_order import WorkOrder
+from models.part_request import PartRequest
 
 router = APIRouter(prefix="/repair", tags=["repair"], dependencies=[Depends(verify_csrf)])
 
@@ -119,6 +121,40 @@ async def repair_list(stage: str, request: Request,
     )
     available_parts = _parts_res.scalars().all()
 
+    # ── Work orders (WorkID + assignment + timeline) for assigned devices ─────
+    work_map: dict = {}
+    if device_ids:
+        wo_rows = (await db.execute(
+            select(WorkOrder).where(
+                WorkOrder.device_id.in_(device_ids),
+                WorkOrder.stage == stage,
+                WorkOrder.status != "completed",
+            ).order_by(WorkOrder.assigned_at.desc())
+        )).scalars().all()
+        today = app_now().date()
+        for wo in wo_rows:
+            key = str(wo.device_id)
+            if key in work_map:
+                continue  # keep the latest (rows ordered desc)
+            days = (today - wo.assigned_at.date()).days if wo.assigned_at else 0
+            work_map[key] = {
+                "work_id": wo.work_id,
+                "assigned_name": wo.assigned_name or wo.assigned_username or "—",
+                "days_pending": max(0, days),
+            }
+
+    # ── Part-request 'not in stock' alerts to surface on the Pending list (#12) ─
+    parts_alert_map: dict = {}
+    if device_ids:
+        na_rows = (await db.execute(
+            select(PartRequest.device_id).where(
+                PartRequest.device_id.in_(device_ids),
+                PartRequest.status == "not_in_stock",
+            )
+        )).all()
+        for (did,) in na_rows:
+            parts_alert_map[str(did)] = True
+
     return templates.TemplateResponse(f"repair/{stage}.html", {
         "request": request, "devices": devices, "open_jobs": open_jobs,
         "stage": stage.upper(), "current_user": current_user,
@@ -126,6 +162,8 @@ async def repair_list(stage: str, request: Request,
         "scrap_warning_map": scrap_warning_map,
         "suggest_qc_ids": suggest_qc_ids,
         "available_parts": available_parts,
+        "work_map": work_map,
+        "parts_alert_map": parts_alert_map,
         "page": page, "page_size": page_size,
         "total": total, "total_pages": total_pages,
     })

@@ -64,10 +64,16 @@
       {% if total == 500 %}<span class="text-warning ms-1">(showing first 500 — use filters to narrow)</span>{% endif %}
     {% endif %}
   </span>
-  <a href="/devices/export?q={{ q }}&stage={{ stage }}&lot={{ lot }}&grade={{ grade }}"
-     class="btn btn-sm btn-outline-success">
-    <i class="bi bi-download me-1"></i>Export CSV
-  </a>
+  <div class="d-flex gap-2">
+    <button type="button" id="bulkDeleteBtn" class="btn btn-sm btn-outline-danger" disabled
+            onclick="submitBulkTrash()" title="Move selected devices to Trash">
+      <i class="bi bi-trash3 me-1"></i>Delete Selected (<span id="selCount">0</span>)
+    </button>
+    <a href="/devices/export?q={{ q }}&stage={{ stage }}&lot={{ lot }}&grade={{ grade }}"
+       class="btn btn-sm btn-outline-success">
+      <i class="bi bi-download me-1"></i>Export CSV
+    </a>
+  </div>
 </div>
 
 <!-- Device Table -->
@@ -77,6 +83,7 @@
       <table id="devicesTable" class="table table-hover table-sm mb-0">
         <thead class="table-dark">
           <tr>
+            <th style="width:32px"><input type="checkbox" id="selectAllChk" class="form-check-input" title="Select all on this page"></th>
             <th>Barcode</th>
             <th>Lot</th>
             <th>Brand</th>
@@ -94,6 +101,7 @@
         <tbody>
           {% for device, lot_number in devices %}
           <tr>
+            <td><input type="checkbox" class="form-check-input rowChk" value="{{ device.barcode }}"></td>
             <td><a href="/devices/{{ device.barcode }}" class="text-decoration-none"><code class="small">{{ device.barcode }}</code></a></td>
             <td><a href="/devices?lot={{ lot_number }}" class="text-decoration-none"><span class="badge bg-info text-dark small">{{ lot_number }}</span></a></td>
             <td class="small">{{ device.brand or '—' }}</td>
@@ -179,16 +187,49 @@
   </div>
 </div>
 
+<form id="bulkTrashForm" method="post" action="/trash/bulk/devices" style="display:none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+</form>
+
 {% endblock %}
 {% block scripts %}
 <script>
 $(document).ready(function() {
-  $('#devicesTable').DataTable({
+  var dt = $('#devicesTable').DataTable({
     pageLength: 25,
     order: [],
-    columnDefs: [{ orderable: false, targets: -1 }],
+    columnDefs: [{ orderable: false, targets: [0, -1] }],
     dom: '<"d-flex justify-content-between align-items-center mb-2"lf>t<"d-flex justify-content-between"ip>',
   });
+  window._dtDevices = dt;
+
+  function updateSel(){
+    var n = $(dt.rows().nodes()).find('.rowChk:checked').length;
+    $('#selCount').text(n);
+    $('#bulkDeleteBtn').prop('disabled', n === 0);
+  }
+  // Select-all toggles checkboxes on the current page
+  $('#devicesTable').on('change', '#selectAllChk', function(){
+    var checked = this.checked;
+    $(dt.rows({page:'current'}).nodes()).find('.rowChk').prop('checked', checked);
+    updateSel();
+  });
+  $('#devicesTable').on('change', '.rowChk', updateSel);
+  // Keep select-all box in sync when paging
+  dt.on('draw', function(){ $('#selectAllChk').prop('checked', false); updateSel(); });
 });
+
+function submitBulkTrash(){
+  var dt = window._dtDevices;
+  var checked = $(dt.rows().nodes()).find('.rowChk:checked');
+  if(checked.length === 0) return;
+  if(!confirm('Move ' + checked.length + ' selected device(s) to Trash? They can be restored from the Trash page.')) return;
+  var form = document.getElementById('bulkTrashForm');
+  $(form).find('input[name="barcodes"]').remove();
+  checked.each(function(){
+    $('<input>').attr({ type:'hidden', name:'barcodes', value:this.value }).appendTo(form);
+  });
+  form.submit();
+}
 </script>
 {% endblock %}

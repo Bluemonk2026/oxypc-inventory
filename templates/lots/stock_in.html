@@ -2,6 +2,35 @@
 {% block title %}Stock In — OxyPC{% endblock %}
 {% block page_title %}Stock In{% endblock %}
 {% block content %}
+<!-- Analytics count cards (#17) -->
+{% if analytics is defined %}
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-3 fw-bold text-primary">{{ analytics.iqc }}</div>
+      <div class="small text-muted">Devices in IQC</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-3 fw-bold text-success">{{ analytics.in_stock }}</div>
+      <div class="small text-muted">Devices in Stock</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-3 fw-bold text-warning">{{ analytics.trc }}</div>
+      <div class="small text-muted">Devices in TRC</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-3 fw-bold text-info">{{ analytics.ready }}</div>
+      <div class="small text-muted">Devices in Ready to Sell</div>
+    </div>
+  </div>
+</div>
+{% endif %}
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-header bg-transparent fw-semibold">Move Device to Stock In (Barcode)</div>
   <div class="card-body">
@@ -16,7 +45,7 @@
   <div class="card-body p-0">
     <div class="table-responsive">
       <table id="stockTable" class="table table-hover mb-0 small">
-        <thead class="table-dark"><tr><th>Barcode</th><th>Lot</th><th>Brand</th><th>Model</th><th>RAM</th><th>Storage</th><th>Grade</th></tr></thead>
+        <thead class="table-dark"><tr><th>Barcode</th><th>Lot</th><th>Brand</th><th>Model</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Action</th></tr></thead>
         <tbody>
           {% for device, lot_number in devices %}
           <tr>
@@ -27,6 +56,11 @@
             <td>{{ (device.ram_gb|string ~ 'GB') if device.ram_gb else '—' }}</td>
             <td>{{ (device.storage_gb|string ~ 'GB') if device.storage_gb else '—' }}</td>
             <td>{{ device.grade or '—' }}</td>
+            <td>
+              <a href="/transfers/new?barcode={{ device.barcode }}" class="btn btn-sm btn-outline-primary py-0 px-2">
+                <i class="bi bi-arrow-left-right"></i> Move Stock
+              </a>
+            </td>
           </tr>
           {% endfor %}
         </tbody>

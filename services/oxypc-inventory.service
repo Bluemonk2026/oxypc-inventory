@@ -1,33 +1,26 @@
 [Unit]
 Description=OxyPC Inventory Server
-Documentation=https://github.com/your-org/oxypc-inventory
 After=network.target postgresql.service
 Wants=postgresql.service
 
 [Service]
 Type=simple
-# Change 'oxypc' to the Linux user that owns the app directory
 User=oxypc
 Group=oxypc
 WorkingDirectory=/opt/oxypc-inventory
-# All secrets via environment file — never hardcode here
 EnvironmentFile=/opt/oxypc-inventory/.env
-ExecStart=/opt/oxypc-inventory/venv/bin/python -m uvicorn main:app \
-    --host 0.0.0.0 \
+ExecStart=/opt/oxypc-inventory/venv/bin/uvicorn main:app \
+    --host 127.0.0.1 \
     --port 8000 \
     --workers 2 \
     --log-level info
-# Restart policy: restart within 5 s on any non-zero exit
 Restart=on-failure
 RestartSec=5
-# Cap restart attempts: stop trying after 3 failures in 60 s
 StartLimitInterval=60
 StartLimitBurst=3
-# Logs go to journald — view with: journalctl -u oxypc-inventory -f
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=oxypc-inventory
-# Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
 

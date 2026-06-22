@@ -1,6 +1,7 @@
 """
 QC Router — Component scoring + grade assignment + fail counter + audit
 """
+from __future__ import annotations
 from templates_config import templates
 from datetime import datetime
 from utils.timezone import app_now

@@ -1,6 +1,6 @@
 """
 Audit Engine
-------------
+-----------
 Writes an immutable AuditLog entry for every significant system action.
 
 Usage:
@@ -9,6 +9,7 @@ Usage:
                 table_name="devices", record_id=str(device.id),
                 notes=f"{from_stage} → {to_stage}", request=request)
 """
+from __future__ import annotations
 import json
 from datetime import datetime
 from fastapi import Request

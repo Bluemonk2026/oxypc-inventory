@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from utils.timezone import app_now
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Enum as SAEnum
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Enum as SAEnum, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import enum
@@ -40,9 +40,12 @@ ROLE_LABELS = {
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint('username', name='uq_users_username'),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    username = Column(String(50), unique=True, nullable=False, index=True)
+    username = Column(String(50), nullable=False, index=True)
     full_name = Column(String(100), nullable=False)
     password_hash = Column(String(200), nullable=False)
     role = Column(SAEnum(UserRole), nullable=False, default=UserRole.sales)

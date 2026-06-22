@@ -9,6 +9,7 @@ Enforces:
 All rejections raise HTTPException(403) with a structured message.
 Every decision is logged via AuditEngine.
 """
+from __future__ import annotations
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select

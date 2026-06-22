@@ -252,8 +252,8 @@ class SchemaValidator:
             # Upsert all canonical stages
             for name, label, seq in CANONICAL_STAGES:
                 await self.conn.execute(text("""
-                    INSERT INTO stage_master (name, label, sequence)
-                    VALUES (:name, :label, :seq)
+                    INSERT INTO stage_master (id, name, label, sequence)
+                    VALUES (gen_random_uuid(), :name, :label, :seq)
                     ON CONFLICT (name) DO UPDATE
                       SET label=EXCLUDED.label, sequence=EXCLUDED.sequence
                 """), {"name": name, "label": label, "seq": seq})
@@ -261,8 +261,8 @@ class SchemaValidator:
             # Upsert all canonical transitions
             for from_s, to_s in CANONICAL_TRANSITIONS:
                 await self.conn.execute(text("""
-                    INSERT INTO allowed_transitions (from_stage, to_stage)
-                    VALUES (:f, :t)
+                    INSERT INTO allowed_transitions (id, from_stage, to_stage)
+                    VALUES (gen_random_uuid(), :f, :t)
                     ON CONFLICT (from_stage, to_stage) DO NOTHING
                 """), {"f": from_s, "t": to_s})
 

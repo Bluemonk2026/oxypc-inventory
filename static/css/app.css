@@ -139,3 +139,16 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f4f8; }
   from { opacity: 0; transform: translateY(-8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ── Global disabled-button styling (applies app-wide) ───────────────────── */
+.btn:disabled,
+.btn.disabled,
+.btn[disabled],
+button:disabled,
+button[disabled],
+fieldset:disabled .btn {
+  background-color: #D8D8D8 !important;
+  border-color: #D8D8D8 !important;
+  color: #212529 !important;
+  opacity: 1 !important;
+}

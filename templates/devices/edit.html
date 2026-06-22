@@ -45,15 +45,15 @@
             </div>
             <div class="col-md-4">
               <label class="form-label">GRN Number</label>
-              <input type="text" name="grn_number" class="form-control font-monospace"
-                     value="{{ device.grn_number or '' }}" placeholder="e.g. GRN-2024-001">
+              <input type="text" name="grn_number" class="form-control font-monospace bg-light"
+                     value="{{ device.grn_number or '' }}" placeholder="e.g. GRN-2024-001" readonly tabindex="-1">
             </div>
             <div class="col-md-4">
               <label class="form-label">Serial No.</label>
               <input type="text" name="serial_no" class="form-control font-monospace"
                      value="{{ device.serial_no or '' }}" placeholder="Serial number">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-4 d-none">
               <label class="form-label">Sub-Category</label>
               <select name="sub_category" class="form-select">
                 <option value="">-- Select --</option>
@@ -62,6 +62,11 @@
                 {% endfor %}
               </select>
             </div>
+          </div>
+
+          <!-- ── Section 2: Brand & Model ── -->
+          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Brand &amp; Model</p>
+          <div class="row g-3 mb-3">
             <div class="col-md-4">
               <label class="form-label">Device Type</label>
               <select name="device_type" class="form-select">
@@ -71,11 +76,6 @@
                 {% endfor %}
               </select>
             </div>
-          </div>
-
-          <!-- ── Section 2: Brand & Model ── -->
-          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Brand &amp; Model</p>
-          <div class="row g-3 mb-3">
             <div class="col-md-4">
               <label class="form-label">Brand / Make</label>
               <select name="brand" id="edit-brand-select" class="form-select">
@@ -102,13 +102,17 @@
           <div class="row g-3 mb-3">
             <div class="col-md-4">
               <label class="form-label">CPU / Processor</label>
-              <input type="text" name="cpu" class="form-control"
-                     value="{{ device.cpu or '' }}" placeholder="e.g. Intel Core i7-1165G7">
+              {% set cpu_opts = ['Intel Core i3','Intel Core i5','Intel Core i7','Intel Core i9','Intel Core Ultra 5','Intel Core Ultra 7','Intel Celeron','Intel Pentium','AMD Ryzen 3','AMD Ryzen 5','AMD Ryzen 7','AMD Ryzen 9','Apple M1','Apple M2','Apple M3','Apple M4','Other'] %}
+              <select name="cpu" class="form-select">
+                <option value="">Not Available</option>
+                {% if device.cpu and device.cpu not in cpu_opts %}<option value="{{ device.cpu }}" selected>{{ device.cpu }}</option>{% endif %}
+                {% for o in cpu_opts %}<option value="{{ o }}" {% if device.cpu == o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+              </select>
             </div>
             <div class="col-md-4">
               <label class="form-label">Generation</label>
               <select name="generation" class="form-select">
-                <option value="">Unknown</option>
+                <option value="">Not Available</option>
                 {% for opt in ['4th Gen','5th Gen','6th Gen','7th Gen','8th Gen','9th Gen','10th Gen','11th Gen','12th Gen','13th Gen','14th Gen','AMD Ryzen 3','AMD Ryzen 5','AMD Ryzen 7'] %}
                 <option {% if device.generation == opt %}selected{% endif %}>{{ opt }}</option>
                 {% endfor %}
@@ -117,7 +121,7 @@
             <div class="col-md-4">
               <label class="form-label">RAM (GB)</label>
               <select name="ram_gb" class="form-select">
-                <option value="">Unknown</option>
+                <option value="">Not Available</option>
                 {% for opt in [2,4,8,12,16,24,32,64] %}
                 <option value="{{ opt }}" {% if device.ram_gb == opt %}selected{% endif %}>{{ opt }}</option>
                 {% endfor %}
@@ -126,7 +130,7 @@
             <div class="col-md-4">
               <label class="form-label">SSD Capacity (GB)</label>
               <select name="storage_gb" class="form-select">
-                <option value="">Unknown</option>
+                <option value="">Not Available</option>
                 {% for opt in [128,240,256,480,512,1000,2000] %}
                 <option value="{{ opt }}" {% if device.storage_gb == opt %}selected{% endif %}>{{ opt }}</option>
                 {% endfor %}
@@ -135,7 +139,7 @@
             <div class="col-md-4">
               <label class="form-label">Storage Type</label>
               <select name="storage_type" class="form-select">
-                <option value="">Unknown</option>
+                <option value="">Not Available</option>
                 {% for opt in ['SSD','NVMe SSD','HDD','eMMC','SSHD (Hybrid)'] %}
                 <option {% if device.storage_type == opt %}selected{% endif %}>{{ opt }}</option>
                 {% endfor %}
@@ -144,7 +148,7 @@
             <div class="col-md-4">
               <label class="form-label">HDD Capacity (GB) <small class="text-muted">if dual</small></label>
               <select name="hdd_capacity_gb" class="form-select">
-                <option value="">None / N/A</option>
+                <option value="">Not Available</option>
                 {% for opt in [320,500,750,1000,2000] %}
                 <option value="{{ opt }}" {% if device.hdd_capacity_gb == opt %}selected{% endif %}>{{ opt }}</option>
                 {% endfor %}
@@ -163,6 +167,14 @@
               <label class="form-label">Battery Health % <small class="text-muted">Laptops</small></label>
               <input type="number" name="battery_health_pct" class="form-control"
                      value="{{ device.battery_health_pct or '' }}" placeholder="e.g. 85" min="0" max="100">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Internal Battery</label>
+              {% set _bp = iqc_inspection.battery_present if iqc_inspection else '' %}
+              <select name="battery_present" class="form-select">
+                <option value="">—</option>
+                {% for o in ['Yes','No'] %}<option {% if _bp == o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+              </select>
             </div>
             <div class="col-md-4 d-flex align-items-end">
               <div class="form-check ms-2 mb-2">

@@ -45,28 +45,44 @@ ACCORDION_SECTIONS = [
 ]
 
 # ── Module list for Tab 2 (Permission Matrix) ─────────────────────────────────
+# Keys MUST match the has_perm(role, '<key>', ...) checks used in templates/base.html
+# so that enabling/disabling here actually shows/hides the nav item.
 PERM_MODULES = [
     ("dashboard",       "Dashboard"),
-    ("lots",            "Lot Management"),
-    ("iqc",             "IQC Inspection"),
-    ("stock",           "Stock In"),
+    ("devices",         "Inventory Search"),
+    ("attendance",      "Attendance"),
+    # INTAKE
+    ("grn",             "GRN Generation"),
+    ("lots",            "Lot Items"),
+    ("iqc",             "IQC"),
+    # INVENTORY
+    ("stock",           "Stock Inwards"),
     ("transfers",       "Stock Transfers"),
+    ("move_device",     "Move Device Internal"),
+    ("dispatch",        "Ready to Dispatch"),
+    # REPAIR
     ("repair_l1",       "L1 Repair"),
     ("repair_l2",       "L2 Repair"),
     ("repair_l3",       "L3 Repair"),
     ("qc_check",        "QC Check"),
+    # COSMETIC
     ("cosmetic",        "Cosmetic Refurb"),
+    # PARTS
+    ("spare_parts",     "Spare Parts"),
+    # CRM
     ("crm_contacts",    "CRM Contacts"),
     ("crm_sourcing",    "CRM Sourcing"),
-    ("crm_sales_opp",   "CRM Sales Opp"),
-    ("telecalling",     "Telecalling"),
-    ("dealers",         "Dealers"),
-    ("sales",           "Sales"),
+    ("crm_sales_opp",   "CRM Sales Opportunities"),
+    # SALES & CRM
+    ("sales",           "Sales / Ready to Sale"),
     ("returns",         "Returns"),
+    ("dealers",         "Dealers"),
+    ("telecalling",     "Telecalling"),
+    ("whatsapp",        "WhatsApp"),
+    # FINANCE / LOCATIONS / REPORTS
     ("finance",         "Finance"),
-    ("spare_parts",     "Spare Parts"),
+    ("locations",       "Inventory Locations"),
     ("reports",         "Reports"),
-    ("attendance",      "Attendance"),
 ]
 
 PERM_ACTIONS = [

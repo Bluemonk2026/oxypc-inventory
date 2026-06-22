@@ -32,34 +32,45 @@
 </div>
 {% endif %}
 <div class="card border-0 shadow-sm mb-3">
-  <div class="card-header bg-transparent fw-semibold">Move Device to Stock In (Barcode)</div>
+  <div class="card-header bg-transparent fw-semibold">Move Device to Stock In (Tag Number)</div>
   <div class="card-body">
     <form action="/stock/move-to-stock" method="post" class="d-flex gap-2">
-      <input type="text" name="barcode" class="form-control barcode-field w-auto" placeholder="Scan barcode" style="min-width:250px" autofocus>
+      <input type="text" name="barcode" class="form-control barcode-field w-auto" placeholder="Scan tag number" style="min-width:250px" autofocus>
       <input type="text" name="notes" class="form-control w-auto" placeholder="Notes (optional)" style="min-width:200px">
       <button class="btn btn-success"><i class="bi bi-arrow-right-circle me-1"></i>Move to Stock</button>
     </form>
   </div>
 </div>
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <span class="text-muted small">{{ devices|length }} device(s) in Stock In</span>
+  <button type="button" id="bulkTransferBtn" class="btn btn-sm btn-primary" disabled
+          data-bs-toggle="modal" data-bs-target="#bulkTransferModal">
+    <i class="bi bi-arrow-left-right me-1"></i>Stock Transfer (<span id="selCount">0</span>)
+  </button>
+</div>
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
     <div class="table-responsive">
       <table id="stockTable" class="table table-hover mb-0 small">
-        <thead class="table-dark"><tr><th>Barcode</th><th>Lot</th><th>Brand</th><th>Model</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Action</th></tr></thead>
+        <thead class="table-dark"><tr><th style="width:32px"><input type="checkbox" id="selectAllStock" class="form-check-input"></th><th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Assigned User</th><th>Action</th></tr></thead>
         <tbody>
           {% for device, lot_number in devices %}
           <tr>
-            <td><code>{{ device.barcode }}</code></td>
+            <td><input type="checkbox" class="form-check-input stockChk" value="{{ device.barcode }}"></td>
+            <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none"><code>{{ device.barcode }}</code></a></td>
             <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
             <td>{{ device.brand or '—' }}</td>
             <td>{{ device.model or '—' }}</td>
             <td>{{ (device.ram_gb|string ~ 'GB') if device.ram_gb else '—' }}</td>
             <td>{{ (device.storage_gb|string ~ 'GB') if device.storage_gb else '—' }}</td>
             <td>{{ device.grade or '—' }}</td>
-            <td>
-              <a href="/transfers/new?barcode={{ device.barcode }}" class="btn btn-sm btn-outline-primary py-0 px-2">
-                <i class="bi bi-arrow-left-right"></i> Move Stock
-              </a>
+            <td>{% set dept = assigned_dept_map.get(device.id|string) if assigned_dept_map is defined else None %}{% if dept %}<span class="badge bg-secondary">{{ dept }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td class="text-nowrap">
+              <form method="post" action="/stock/move-to-trc" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                <input type="hidden" name="barcode" value="{{ device.barcode }}">
+                <button type="submit" class="btn btn-sm btn-outline-info py-0 px-2"><i class="bi bi-cpu"></i> Move to TRC</button>
+              </form>
             </td>
           </tr>
           {% endfor %}
@@ -90,7 +101,119 @@
   <p class="text-center text-muted small mt-1">{{ total }} device(s) in stage &bull; Page {{ page }} of {{ total_pages }}</p>
 </nav>
 {% endif %}
+<!-- Stock Validate modal (#1) -->
+<div class="modal fade" id="validateModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" action="/stock/validate" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="barcode" id="v_barcode">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-check2-square me-2"></i>Stock Validate</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3"><span class="text-muted small">Device:</span> <strong id="v_model">—</strong>
+          <div class="font-monospace small text-muted" id="v_bc">—</div></div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Quantities Received</label>
+          <input type="number" name="qty_received" class="form-control" min="0" value="1">
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Condition Received</label>
+          <select name="condition_received" class="form-select">
+            <option value="">— Select —</option>
+            <option>Good</option><option>Minor Damage</option><option>Major Damage</option><option>Dead</option><option>Missing Parts</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Reassign to Department</label>
+          <select name="reassign_department" class="form-select">
+            <option value="">— No reassignment —</option>
+            {% for d in departments %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Additional Notes</label>
+          <textarea name="notes" class="form-control" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-success"><i class="bi bi-check-lg me-1"></i>Validate</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Bulk Stock Transfer modal (#4) -->
+<div class="modal fade" id="bulkTransferModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" action="/stock/bulk-transfer" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-arrow-left-right me-2"></i>Stock Transfer — <span id="bt_count">0</span> item(s)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Transfer Type</label>
+          <select name="transfer_type" class="form-select">
+            <option value="transfer_to_trc">Transfer to TRC</option>
+            <option value="trc_to_showroom">TRC &rarr; Showroom</option>
+            <option value="showroom_to_trc">Showroom &rarr; TRC</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Department</label>
+          <select name="department" class="form-select">
+            <option value="">— Select Department —</option>
+            {% for d in departments %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+          </select>
+        </div>
+        <div id="bt_barcodes"></div>
+        <p class="small text-muted mb-0">Creates a stock transfer for each selected item.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="bi bi-send me-1"></i>Transfer Selected</button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
-<script>$(document).ready(function(){ $('#stockTable').DataTable({paging:false}); });</script>
+<script>
+$(document).ready(function(){ $('#stockTable').DataTable({paging:false}); });
+
+function selectedStockBarcodes(){ return Array.from(document.querySelectorAll('.stockChk:checked')).map(function(c){return c.value;}); }
+function updateStockSel(){
+  var n = selectedStockBarcodes().length;
+  $('#selCount').text(n);
+  $('#bulkTransferBtn').prop('disabled', n === 0);
+}
+$('#stockTable').on('change', '#selectAllStock', function(){
+  var ck = this.checked;
+  document.querySelectorAll('.stockChk').forEach(function(c){ c.checked = ck; });
+  updateStockSel();
+});
+$('#stockTable').on('change', '.stockChk', updateStockSel);
+
+var vm = document.getElementById('validateModal');
+if (vm) { vm.addEventListener('show.bs.modal', function(e){
+  var b = e.relatedTarget;
+  document.getElementById('v_barcode').value = b.getAttribute('data-barcode');
+  document.getElementById('v_bc').textContent = b.getAttribute('data-barcode');
+  document.getElementById('v_model').textContent = b.getAttribute('data-model') || '—';
+});}
+
+var btm = document.getElementById('bulkTransferModal');
+if (btm) { btm.addEventListener('show.bs.modal', function(){
+  var bcs = selectedStockBarcodes();
+  document.getElementById('bt_count').textContent = bcs.length;
+  var wrap = document.getElementById('bt_barcodes'); wrap.innerHTML = '';
+  bcs.forEach(function(bc){
+    var inp = document.createElement('input'); inp.type='hidden'; inp.name='barcodes'; inp.value=bc; wrap.appendChild(inp);
+  });
+});}
+</script>
 {% endblock %}

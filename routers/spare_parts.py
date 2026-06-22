@@ -161,6 +161,7 @@ async def update_part(
     name: str = Form(...),
     category: str = Form(...),
     unit_price: str = Form("0"),
+    qty_in_stock: int = Form(None),
     min_stock_alert: int = Form(5),
     supplier: str = Form(""),
     notes: str = Form(""),
@@ -173,6 +174,8 @@ async def update_part(
         raise HTTPException(404, "Part not found")
     part.name = name; part.category = category; part.unit_price = float(unit_price)
     part.min_stock_alert = min_stock_alert; part.supplier = supplier or None; part.notes = notes or None
+    if qty_in_stock is not None:
+        part.qty_in_stock = max(0, int(qty_in_stock))
     await db.commit()
     return RedirectResponse(url="/spare-parts?success=Part+updated", status_code=302)
 

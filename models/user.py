@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from utils.timezone import app_now
 from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Enum as SAEnum, UniqueConstraint
+from sqlalchemy.types import TypeDecorator
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import enum
@@ -38,6 +39,30 @@ ROLE_LABELS = {
 }
 
 
+class RoleValue(str):
+    """A role string that also exposes `.value`, so existing code using
+    `current_user.role.value` and `role == UserRole.x` keeps working now that
+    roles are free-text (custom roles allowed)."""
+    @property
+    def value(self):
+        return str(self)
+
+
+class RoleType(TypeDecorator):
+    """Persist role as text (so custom roles are allowed) but read it back as a
+    RoleValue, preserving `.value` access and equality with UserRole members."""
+    impl = String(60)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        return getattr(value, "value", None) or str(value)
+
+    def process_result_value(self, value, dialect):
+        return RoleValue(value) if value is not None else None
+
+
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
@@ -48,7 +73,7 @@ class User(Base):
     username = Column(String(50), nullable=False, index=True)
     full_name = Column(String(100), nullable=False)
     password_hash = Column(String(200), nullable=False)
-    role = Column(SAEnum(UserRole), nullable=False, default=UserRole.sales)
+    role = Column(RoleType(), nullable=False, default="sales")
     status = Column(Boolean, default=True)
     created_at = Column(DateTime, default=app_now)
     created_by = Column(String(50), nullable=True)

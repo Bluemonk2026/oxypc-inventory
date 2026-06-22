@@ -10,9 +10,9 @@
         {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
         <form action="/sales/new" method="post">
           <div class="mb-3">
-            <label class="form-label fw-semibold">Device Barcode <span class="text-danger">*</span></label>
+            <label class="form-label fw-semibold">Device Tag Number <span class="text-danger">*</span></label>
             <input type="text" name="barcode" id="barcode" class="form-control barcode-field font-monospace"
-              value="{{ device.barcode if device else '' }}" placeholder="Scan barcode" autofocus required>
+              value="{{ device.barcode if device else '' }}" placeholder="Scan tag number" autofocus required>
           </div>
           {% if device %}
           <div class="alert alert-success py-2 mb-3 small">
@@ -31,9 +31,16 @@
             </div>
             <div class="col-md-6">
               <label class="form-label">Quantity</label>
+              {% if approved_qty %}
+              <input type="number" class="form-control" value="{{ approved_qty }}" disabled
+                     title="Quantity locked to approved telecaller request">
+              <input type="hidden" name="qty" value="{{ approved_qty }}">
+              <div class="form-text small text-muted">Locked to approved request quantity ({{ approved_qty }})</div>
+              {% else %}
               <input type="number" name="qty" class="form-control" value="1" min="1" max="500"
                      title="Number of units (for bulk sale record). Each device still needs individual barcode.">
               <div class="form-text small text-muted">Units in this sale (informational — each device still tracked by barcode)</div>
+              {% endif %}
             </div>
           <div class="col-md-6">
               <label class="form-label">Payment Mode</label>

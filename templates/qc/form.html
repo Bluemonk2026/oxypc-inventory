@@ -23,9 +23,9 @@
         <form action="/qc/new" method="post">
           <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
           <div class="mb-3">
-            <label class="form-label fw-semibold">Device Barcode</label>
+            <label class="form-label fw-semibold">Device Tag Number</label>
             <input type="text" name="barcode" class="form-control barcode-field font-monospace"
-              value="{{ device.barcode if device else '' }}" placeholder="Scan barcode" autofocus required>
+              value="{{ device.barcode if device else '' }}" placeholder="Scan tag number" autofocus required>
           </div>
           {% if device %}
           <div class="alert alert-info py-2 mb-3 small">

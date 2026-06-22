@@ -40,7 +40,7 @@
       <div class="card-body p-0">
         {% if data.devices %}
         <table class="table table-sm mb-0 small">
-          <thead class="table-light"><tr><th>Barcode</th><th>Device</th><th>Lot</th><th></th></tr></thead>
+          <thead class="table-light"><tr><th>Tag Number</th><th>Device</th><th>Lot</th><th></th></tr></thead>
           <tbody>
             {% for device, lot_number in data.devices[:5] %}
             <tr>

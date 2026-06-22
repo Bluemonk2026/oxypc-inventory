@@ -104,7 +104,7 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
 async def sale_new_form(request: Request, barcode: str = None,
                         db: AsyncSession = Depends(get_db),
                         current_user: User = Depends(allowed)):
-    device = None; lot = None; stage_error = None
+    device = None; lot = None; stage_error = None; approved_qty = None
     if barcode:
         result = await db.execute(select(Device).where(Device.barcode == barcode))
         device = result.scalar_one_or_none()
@@ -116,11 +116,20 @@ async def sale_new_form(request: Request, barcode: str = None,
                 stage_val = device.current_stage.value if device.current_stage else "unknown"
                 stage_error = (f"Device is in stage '{stage_val}' — "
                                f"it must be in 'ready_to_sale' to sell.")
+            # Prefill qty from the latest approved telecaller dispatch request
+            appr = (await db.execute(
+                select(TelecallerDispatchRequest)
+                .where(TelecallerDispatchRequest.device_id == device.id,
+                       TelecallerDispatchRequest.status == "approved")
+                .order_by(TelecallerDispatchRequest.approved_at.desc())
+            )).scalars().first()
+            if appr:
+                approved_qty = appr.qty_requested
     next_num = await _next_sale_number(db)
     return templates.TemplateResponse("sales/new.html", {
         "request": request, "device": device, "lot": lot,
         "next_sale_number": next_num, "current_user": current_user,
-        "error": stage_error,
+        "error": stage_error, "approved_qty": approved_qty,
     })
 
 

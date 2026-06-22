@@ -124,7 +124,7 @@
         {% endif %}
         <table class="table table-sm mb-0">
           <tbody>
-            <tr><th class="ps-3 text-muted small w-40">GRN Number</th><td>{{ device.grn_number or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small w-40">GRN Number</th><td>{% if device.grn_number %}<a href="/grn?highlight={{ device.grn_number|urlencode }}" class="text-decoration-none font-monospace" title="View in GRN Import">{{ device.grn_number }}</a>{% else %}—{% endif %}</td></tr>
             <tr><th class="ps-3 text-muted small">Serial No.</th><td class="font-monospace small">{{ device.serial_no or '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">Floor</th><td>{{ device.floor or '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">Warehouse</th><td>{{ device.warehouse or '—' }}</td></tr>
@@ -194,10 +194,93 @@
       </div>
     </div>
 
+    <!-- Work ID History -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-clipboard-check me-2"></i>Work ID History
+        {% if work_orders is defined and work_orders %}<span class="badge bg-secondary ms-1">{{ work_orders|length }}</span>{% endif %}
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0 align-middle">
+          <thead class="table-light">
+            <tr><th class="ps-3">Work ID</th><th>Stage</th><th>Assigned To</th><th>Status</th><th class="pe-3">Assigned On</th></tr>
+          </thead>
+          <tbody>
+            {% for wo in (work_orders if work_orders is defined else []) %}
+            <tr>
+              <td class="ps-3 font-monospace fw-bold"><a href="/workid-status?highlight={{ wo.work_id }}" class="text-decoration-none" title="View in WorkID Status">{{ wo.work_id }}</a></td>
+              <td><span class="badge bg-dark text-uppercase">{{ wo.stage }}</span></td>
+              <td>{{ wo.assigned_name or wo.assigned_username or '—' }}</td>
+              <td>
+                {% if wo.status == 'completed' %}<span class="badge bg-success">Completed</span>
+                {% elif wo.status == 'in_progress' %}<span class="badge bg-warning text-dark">In Progress</span>
+                {% else %}<span class="badge bg-secondary">{{ wo.status|replace('_',' ')|title }}</span>{% endif %}
+              </td>
+              <td class="pe-3 text-muted small">{{ wo.assigned_at.strftime('%d-%m-%Y %H:%M') if wo.assigned_at else '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-muted py-3">No Work IDs assigned yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   </div>
 
   <!-- ── Right column: Timeline, Repairs, QC, Parts ── -->
   <div class="col-lg-7">
+
+    <!-- Parts Consumption (#10): required parts (from IQC) + live stock + request action -->
+    {% if parts_consumption is defined %}
+    <div class="card border-0 shadow-sm mb-3" id="parts">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-clipboard-plus me-2"></i>Parts Consumption
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0 align-middle">
+          <thead class="table-light">
+            <tr><th class="ps-3">Part Name</th><th>Required</th><th>Status</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+            {% set _eng = current_user.role.value in ['l1_engineer','l2_engineer','l3_engineer','admin','inventory_manager'] %}
+            {% for p in parts_consumption %}
+            <tr>
+              <td class="ps-3 small fw-semibold">{{ p.label }}</td>
+              <td>{% if p.required %}<span class="badge bg-warning text-dark">Yes</span>{% else %}<span class="badge bg-light text-muted border">No</span>{% endif %}</td>
+              <td>{% if p.in_stock %}<span class="badge bg-success">In Stock ({{ p.stock_qty }})</span>{% else %}<span class="badge bg-danger">Out of Stock</span>{% endif %}</td>
+              <td>
+                {% set r = p.request %}
+                {% if r %}
+                  {% if r.status == 'requested' %}<span class="badge bg-warning text-dark">Requested &times;{{ r.qty_requested }}</span>
+                  {% elif r.status == 'handed_over' %}
+                    <span class="badge bg-success" id="hoBadge_{{ r.id }}">Handed Over &times;{{ r.qty_handed_over }}</span>
+                    <form method="post" action="/part-requests/{{ r.id }}/validate-receiving" class="d-inline ms-1">
+                      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                      <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2"><i class="bi bi-check2-circle"></i> Validate Receiving</button>
+                    </form>
+                  {% elif r.status == 'received' %}<span class="badge bg-primary">Received &times;{{ r.qty_handed_over }}</span>
+                  {% elif r.status == 'not_in_stock' %}<span class="badge bg-danger">Not In Stock</span>
+                  {% elif r.status == 'procure' %}<span class="badge bg-info text-dark">Sent for Sourcing</span>
+                  {% else %}<span class="badge bg-secondary">{{ r.status }}</span>{% endif %}
+                {% elif _eng %}
+                <form method="post" action="/part-requests/create" class="d-flex align-items-center gap-1">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                  <input type="hidden" name="barcode" value="{{ device.barcode }}">
+                  <input type="hidden" name="part_name" value="{{ p.label }}">
+                  <input type="hidden" name="part_id" value="{{ p.part_id }}">
+                  <input type="number" name="qty" value="1" min="1" class="form-control form-control-sm" style="width:64px" {% if not p.required %}disabled{% endif %}>
+                  <button type="submit" class="btn btn-sm btn-outline-primary" {% if not p.required %}disabled title="Part not required for this device"{% endif %}><i class="bi bi-bag-plus"></i> Request</button>
+                </form>
+                {% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
 
     <!-- Stage Timeline -->
     <div class="card border-0 shadow-sm mb-3">
@@ -235,11 +318,16 @@
     </div>
 
     <!-- Repair Jobs -->
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-transparent fw-semibold small text-uppercase">
-        <i class="bi bi-tools me-2"></i>Repair History
-      </div>
-      <div class="card-body p-0">
+    <div class="accordion mb-3" id="repairHistoryAcc">
+      <div class="accordion-item border-0 shadow-sm">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold small text-uppercase" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#repairHistoryBody" aria-expanded="false">
+            <i class="bi bi-tools me-2"></i>Repair History
+          </button>
+        </h2>
+        <div id="repairHistoryBody" class="accordion-collapse collapse">
+          <div class="accordion-body p-0">
         {% if repairs %}
         <table class="table table-sm mb-0">
           <thead class="table-light">
@@ -274,15 +362,22 @@
         {% else %}
         <div class="text-center text-muted py-3 small">No repair jobs recorded</div>
         {% endif %}
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- QC Checks -->
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-transparent fw-semibold small text-uppercase">
-        <i class="bi bi-patch-check me-2"></i>QC Checks
-      </div>
-      <div class="card-body p-0">
+    <div class="accordion mb-3" id="qcChecksAcc">
+      <div class="accordion-item border-0 shadow-sm">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold small text-uppercase" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#qcChecksBody" aria-expanded="false">
+            <i class="bi bi-patch-check me-2"></i>QC Checks
+          </button>
+        </h2>
+        <div id="qcChecksBody" class="accordion-collapse collapse">
+          <div class="accordion-body p-0">
         {% if qc_checks %}
         <table class="table table-sm mb-0">
           <thead class="table-light">
@@ -313,6 +408,8 @@
         {% else %}
         <div class="text-center text-muted py-3 small">No QC checks recorded</div>
         {% endif %}
+          </div>
+        </div>
       </div>
     </div>
 
@@ -358,14 +455,19 @@
     {% endif %}
 
     <!-- Spare Parts Consumed -->
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-transparent fw-semibold small text-uppercase d-flex justify-content-between">
-        <span><i class="bi bi-gear me-2"></i>Spare Parts Consumed</span>
-        {% if total_parts_cost > 0 %}
-        <span class="badge bg-danger">Total: ₹{{ "%.2f"|format(total_parts_cost) }}</span>
-        {% endif %}
-      </div>
-      <div class="card-body p-0">
+    <div class="accordion mb-3" id="sparePartsAcc">
+      <div class="accordion-item border-0 shadow-sm">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold small text-uppercase" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#sparePartsBody" aria-expanded="false">
+            <span><i class="bi bi-gear me-2"></i>Spare Parts Consumed</span>
+            {% if total_parts_cost > 0 %}
+            <span class="badge bg-danger ms-auto me-2">Total: ₹{{ "%.2f"|format(total_parts_cost) }}</span>
+            {% endif %}
+          </button>
+        </h2>
+        <div id="sparePartsBody" class="accordion-collapse collapse">
+          <div class="accordion-body p-0">
         {% if parts_consumed %}
         <table class="table table-sm mb-0">
           <thead class="table-light">
@@ -393,53 +495,10 @@
         {% else %}
         <div class="text-center text-muted py-3 small">No spare parts consumed on this device</div>
         {% endif %}
+          </div>
+        </div>
       </div>
     </div>
-
-    <!-- Parts Consumption (#10): required parts (from IQC) + live stock + request action -->
-    {% if parts_consumption is defined %}
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-transparent fw-semibold small text-uppercase">
-        <i class="bi bi-clipboard-plus me-2"></i>Parts Consumption
-      </div>
-      <div class="card-body p-0">
-        <table class="table table-sm mb-0 align-middle">
-          <thead class="table-light">
-            <tr><th class="ps-3">Part Name</th><th>Required</th><th>Status</th><th>Action</th></tr>
-          </thead>
-          <tbody>
-            {% set _eng = current_user.role.value in ['l1_engineer','l2_engineer','l3_engineer','admin','inventory_manager'] %}
-            {% for p in parts_consumption %}
-            <tr>
-              <td class="ps-3 small fw-semibold">{{ p.label }}</td>
-              <td>{% if p.required %}<span class="badge bg-warning text-dark">Yes</span>{% else %}<span class="badge bg-light text-muted border">No</span>{% endif %}</td>
-              <td>{% if p.in_stock %}<span class="badge bg-success">In Stock ({{ p.stock_qty }})</span>{% else %}<span class="badge bg-danger">Out of Stock</span>{% endif %}</td>
-              <td>
-                {% set r = p.request %}
-                {% if r %}
-                  {% if r.status == 'requested' %}<span class="badge bg-warning text-dark">Requested &times;{{ r.qty_requested }}</span>
-                  {% elif r.status == 'handed_over' %}<span class="badge bg-success">Handed Over &times;{{ r.qty_handed_over }}</span>
-                  {% elif r.status == 'not_in_stock' %}<span class="badge bg-danger">Not In Stock</span>
-                  {% elif r.status == 'procure' %}<span class="badge bg-info text-dark">Sent for Sourcing</span>
-                  {% else %}<span class="badge bg-secondary">{{ r.status }}</span>{% endif %}
-                {% elif _eng %}
-                <form method="post" action="/part-requests/create" class="d-flex align-items-center gap-1">
-                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-                  <input type="hidden" name="barcode" value="{{ device.barcode }}">
-                  <input type="hidden" name="part_name" value="{{ p.label }}">
-                  <input type="hidden" name="part_id" value="{{ p.part_id }}">
-                  <input type="number" name="qty" value="1" min="1" class="form-control form-control-sm" style="width:64px">
-                  <button type="submit" class="btn btn-sm btn-outline-primary"><i class="bi bi-bag-plus"></i> Request</button>
-                </form>
-                {% else %}<span class="text-muted">—</span>{% endif %}
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-    {% endif %}
 
   </div><!-- /col-lg-7 -->
 </div><!-- /row -->

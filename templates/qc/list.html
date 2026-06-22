@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}QC Check — OxyPC{% endblock %}
-{% block page_title %}QC Check{% endblock %}
+{% block title %}Stress Test — OxyPC{% endblock %}
+{% block page_title %}Stress Test{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <span class="text-muted">{{ devices|length }} device(s) awaiting QC</span>
@@ -9,7 +9,7 @@
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
     <table id="qcTable" class="table table-hover mb-0 small">
-      <thead class="table-dark"><tr><th>Barcode</th><th>Lot</th><th>Brand</th><th>Model</th><th>CPU</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Location</th><th>Actions</th></tr></thead>
+      <thead class="table-dark"><tr><th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>CPU</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Location</th><th>Actions</th></tr></thead>
       <tbody>
         {% for device, lot_number in devices %}
         <tr>

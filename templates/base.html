@@ -45,14 +45,19 @@
       {# ── INTAKE ──────────────────────────────────────────────────────── #}
       {% if role in ['admin','inventory_manager','iqc_inspector'] %}
       <li class="nav-section">INTAKE</li>
+      {% if role in ['admin','inventory_manager'] and has_perm(role,'grn','enable') %}
+      <li><a href="/grn" class="nav-link {% if '/grn' in request.url.path %}active{% endif %}">
+        <i class="bi bi-receipt me-2"></i> GRN Generation
+      </a></li>
+      {% endif %}
       {% if has_perm(role,'lots','enable') %}
       <li><a href="/lots" class="nav-link {% if '/lots' in request.url.path %}active{% endif %}">
-        <i class="bi bi-box-seam me-2"></i> Lots of Devices
+        <i class="bi bi-box-seam me-2"></i> Lot Items
       </a></li>
       {% endif %}
       {% if has_perm(role,'iqc','enable') %}
       <li><a href="/iqc" class="nav-link {% if '/iqc' in request.url.path %}active{% endif %}">
-        <i class="bi bi-clipboard-check me-2"></i> IQC of Devices
+        <i class="bi bi-clipboard-check me-2"></i> IQC Items
       </a></li>
       {% endif %}
       {% endif %}
@@ -61,21 +66,22 @@
       {% if role in ['admin','inventory_manager','l1_engineer','l2_engineer','l3_engineer','iqc_inspector','qc_inspector','sales','sales_manager','telecaller'] %}
       <li class="nav-section">INVENTORY</li>
       {% if role in ['admin','inventory_manager'] and has_perm(role,'stock','enable') %}
-      <li><a href="/stock" class="nav-link {% if '/stock' in request.url.path %}active{% endif %}">
-        <i class="bi bi-archive me-2"></i> Stock In Devices
+      <li><a href="/stock" class="nav-link {% if request.url.path == '/stock' %}active{% endif %}">
+        <i class="bi bi-archive me-2"></i> Stock Inwards
+      </a></li>
+      <li><a href="/trc-production" class="nav-link {% if '/trc-production' in request.url.path %}active{% endif %}">
+        <i class="bi bi-cpu me-2"></i> TRC Production
+      </a></li>
+      <li><a href="/scrap-products" class="nav-link {% if '/scrap-products' in request.url.path %}active{% endif %}">
+        <i class="bi bi-trash3 me-2"></i> Scrap Products
       </a></li>
       {% endif %}
       {% if role in ['admin','inventory_manager'] and has_perm(role,'transfers','enable') %}
       <li><a href="/transfers" class="nav-link {% if '/transfers' in request.url.path %}active{% endif %}">
-        <i class="bi bi-arrow-left-right me-2"></i> Stock Transfers
+        <i class="bi bi-arrow-left-right me-2"></i> Move Tag to Any
       </a></li>
       {% endif %}
-      {% if role in ['admin','inventory_manager','l1_engineer','l2_engineer','l3_engineer','iqc_inspector','qc_inspector'] %}
-      <li><a href="/repair/move/form" class="nav-link {% if 'move' in request.url.path %}active{% endif %}">
-        <i class="bi bi-arrow-left-right me-2"></i> Move Device
-      </a></li>
-      {% endif %}
-      {% if role in ['admin','inventory_manager','sales','sales_manager','telecaller'] %}
+      {% if role in ['admin','inventory_manager','sales','sales_manager','telecaller'] and has_perm(role,'dispatch','enable') %}
       <li><a href="/dispatch" class="nav-link {% if '/dispatch' in request.url.path %}active{% endif %}">
         <i class="bi bi-truck me-2"></i> Ready to Dispatch
       </a></li>
@@ -103,7 +109,7 @@
       {% endif %}
       {% if role in ['admin','qc_inspector'] and has_perm(role,'qc_check','enable') %}
       <li><a href="/qc" class="nav-link {% if request.url.path.startswith('/qc') %}active{% endif %}">
-        <i class="bi bi-patch-check me-2"></i> QC Check
+        <i class="bi bi-patch-check me-2"></i> Stress Test
       </a></li>
       {% endif %}
 
@@ -137,6 +143,9 @@
       </a></li>
       <li><a href="/cosmetic/final_qc" class="nav-link {% if request.url.path == '/cosmetic/final_qc' %}active{% endif %}">
         <i class="bi bi-shield-check me-2"></i> Final QC
+      </a></li>
+      <li><a href="/workid-status" class="nav-link {% if request.url.path == '/workid-status' %}active{% endif %}">
+        <i class="bi bi-clipboard-check me-2"></i> WorkID Status
       </a></li>
       {% endif %}
 
@@ -272,6 +281,9 @@
       <li><a href="/admin/users" class="nav-link {% if '/admin/users' in request.url.path %}active{% endif %}">
         <i class="bi bi-people me-2"></i> Users
       </a></li>
+      <li><a href="/repair/move/form" class="nav-link {% if 'move' in request.url.path %}active{% endif %}">
+        <i class="bi bi-arrow-left-right me-2"></i> Move Device Internal
+      </a></li>
       <li><a href="/admin/cost-config" class="nav-link {% if '/admin/cost-config' in request.url.path %}active{% endif %}">
         <i class="bi bi-calculator me-2"></i> Cost Config
       </a></li>
@@ -326,7 +338,7 @@
   </nav>
 
   <!-- Main content -->
-  <div id="page-content-wrapper" class="flex-grow-1 d-flex flex-column">
+  <div id="page-content-wrapper" class="flex-grow-1 d-flex flex-column" style="min-width:0">
     <!-- Topbar -->
     <nav class="navbar navbar-expand topbar px-3">
       <button class="btn btn-link me-3" id="sidebarToggle"><i class="bi bi-list fs-5"></i></button>
@@ -357,7 +369,7 @@
     </div>
 
     <!-- Content -->
-    <main class="flex-grow-1 px-4 py-3">
+    <main class="flex-grow-1 px-4 py-3" style="min-width:0">
       {% block content %}{% endblock %}
     </main>
   </div>

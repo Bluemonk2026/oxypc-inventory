@@ -6,19 +6,19 @@
   <div class="col-xl-9">
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-transparent fw-semibold">
-        <i class="bi bi-arrow-left-right me-2"></i>Move New Stock
+        <i class="bi bi-arrow-left-right me-2"></i>Assign Stock or Move Stock
       </div>
       <div class="card-body">
         {% if error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>{% endif %}
 
-        <!-- Step 1: Barcode lookup -->
+        <!-- Step 1: Tag Number lookup -->
         <div class="bg-light rounded p-3 mb-4">
           <h6 class="fw-bold text-primary mb-3"><i class="bi bi-upc-scan me-2"></i>Device Lookup</h6>
           <form method="get" action="/transfers/new" class="row g-2 align-items-end">
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Barcode / Tag Number</label>
+              <label class="form-label fw-semibold">Tag Number / Tag Number</label>
               <input type="text" name="barcode" class="form-control font-monospace"
-                     placeholder="Scan or type barcode" value="{{ barcode }}" autofocus>
+                     placeholder="Scan or type tag number" value="{{ barcode }}" autofocus>
             </div>
             <div class="col-auto">
               <button type="submit" class="btn btn-outline-primary">
@@ -79,28 +79,6 @@
               <label class="form-label fw-semibold">Assign To User</label>
               <select name="assigned_user_id" id="assigned_user_id" class="form-select">
                 <option value="">— Select User —</option>
-              </select>
-            </div>
-
-            <!-- From Warehouse -->
-            <div class="col-md-6">
-              <label class="form-label fw-semibold">Transfer From <span class="text-danger">*</span></label>
-              <select name="from_warehouse" class="form-select" required>
-                <option value="">— Select Warehouse —</option>
-                {% for w in warehouses %}
-                <option value="{{ w }}" {% if device.warehouse == w %}selected{% endif %}>{{ w }}</option>
-                {% endfor %}
-              </select>
-            </div>
-
-            <!-- To Warehouse -->
-            <div class="col-md-6">
-              <label class="form-label fw-semibold">Transfer To <span class="text-danger">*</span></label>
-              <select name="to_warehouse" class="form-select" required>
-                <option value="">— Select Warehouse —</option>
-                {% for w in warehouses %}
-                <option value="{{ w }}">{{ w }}</option>
-                {% endfor %}
               </select>
             </div>
 

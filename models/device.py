@@ -15,6 +15,7 @@ class DeviceStage(str, enum.Enum):
     l1 = "l1"
     l2 = "l2"
     l3 = "l3"
+    trc_production = "trc_production"
     qc_check = "qc_check"
     cleaning = "cleaning"
     dry_sanding = "dry_sanding"
@@ -43,7 +44,8 @@ STAGE_LABELS = {
     DeviceStage.l1: "L1 Repair",
     DeviceStage.l2: "L2 Repair",
     DeviceStage.l3: "L3 Repair",
-    DeviceStage.qc_check: "QC Check",
+    DeviceStage.trc_production: "TRC Production",
+    DeviceStage.qc_check: "Stress Test",
     DeviceStage.cleaning: "Cleaning",
     DeviceStage.dry_sanding: "Dry Sanding",
     DeviceStage.masking: "Masking",
@@ -63,6 +65,7 @@ STAGE_COLORS = {
     DeviceStage.l1: "warning",
     DeviceStage.l2: "warning",
     DeviceStage.l3: "danger",
+    DeviceStage.trc_production: "info",
     DeviceStage.qc_check: "primary",
     DeviceStage.cleaning: "teal",
     DeviceStage.dry_sanding: "teal",

@@ -152,10 +152,17 @@
 </div>
 
 {% elif role == 'admin' %}
-<div class="card border-0 shadow-sm mb-4">
-  <div class="card-header bg-dark text-white fw-semibold"><i class="bi bi-shield-lock me-2"></i>Admin Overview — All Queues</div>
-  <div class="card-body">
-    <div class="row g-3">
+<div class="accordion mb-4" id="adminOverviewAcc">
+  <div class="accordion-item border-0 shadow-sm">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed bg-dark text-white" type="button" data-bs-toggle="collapse"
+              data-bs-target="#adminOverviewBody" aria-expanded="false" aria-controls="adminOverviewBody">
+        <i class="bi bi-shield-lock me-2"></i>Admin Overview — All Queues
+      </button>
+    </h2>
+    <div id="adminOverviewBody" class="accordion-collapse collapse" data-bs-parent="#adminOverviewAcc">
+      <div class="accordion-body">
+        <div class="row g-3">
       {% for key, label, color, link, btn_text in [
         ('iqc_pending','IQC Pending','secondary','/iqc','IQC'),
         ('l1_count','L1 Queue','warning','/repair/l1','L1'),
@@ -212,6 +219,8 @@
           <div class="text-muted small mb-1">Credit Notes (Month)</div>
           <div class="fs-3 fw-bold text-warning">{{ user_queue.get('dealer_credit_notes_month', 0) }}</div>
           <a href="/dealers" class="btn btn-sm btn-outline-secondary mt-1 w-100">View</a>
+        </div>
+      </div>
         </div>
       </div>
     </div>
@@ -520,7 +529,7 @@
     <div class="table-responsive">
       <table class="table table-hover mb-0 small">
         <thead class="table-light">
-          <tr><th>Time</th><th>Barcode</th><th>Device</th><th>From</th><th>To</th><th>By</th></tr>
+          <tr><th>Time</th><th>Tag Number</th><th>Device</th><th>From</th><th>To</th><th>By</th></tr>
         </thead>
         <tbody>
           {% for mv, barcode, brand, model in recent_movements %}

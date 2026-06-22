@@ -10,7 +10,7 @@
       <div class="col-md-4">
         <label class="form-label small fw-semibold mb-1">Search</label>
         <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm barcode-field font-monospace"
-               placeholder="Barcode, brand, model, serial, CPU, GRN…">
+               placeholder="Tag Number, brand, model, serial, CPU, GRN…">
       </div>
       <div class="col-md-2">
         <label class="form-label small fw-semibold mb-1">Stage</label>
@@ -84,7 +84,7 @@
         <thead class="table-dark">
           <tr>
             <th style="width:32px"><input type="checkbox" id="selectAllChk" class="form-check-input" title="Select all on this page"></th>
-            <th>Barcode</th>
+            <th>Tag Number</th>
             <th>Lot</th>
             <th>Brand</th>
             <th>Model</th>
@@ -92,8 +92,9 @@
             <th>RAM</th>
             <th>Storage</th>
             <th>Grade</th>
+            <th>Stock Price</th>
+            <th>Sale Price</th>
             <th>Stage</th>
-            <th>Location</th>
             <th>Updated</th>
             <th></th>
           </tr>
@@ -102,8 +103,9 @@
           {% for device, lot_number in devices %}
           <tr>
             <td><input type="checkbox" class="form-check-input rowChk" value="{{ device.barcode }}"></td>
-            <td><a href="/devices/{{ device.barcode }}" class="text-decoration-none"><code class="small">{{ device.barcode }}</code></a></td>
-            <td><a href="/devices?lot={{ lot_number }}" class="text-decoration-none"><span class="badge bg-info text-dark small">{{ lot_number }}</span></a></td>
+            <td class="text-nowrap"><a href="/devices/{{ device.barcode }}" class="text-decoration-none"><code class="small fw-bold">{{ device.barcode }}</code></a>
+              <span class="badge rounded-pill bg-secondary ms-1" title="Quantity">{{ device.qty or 1 }}</span></td>
+            <td><a href="/devices?lot={{ lot_number }}" class="btn btn-sm py-0 px-2 small text-decoration-none" style="background-color:#ffffff;border:1px solid #6C757D;color:#6C757D;">{{ lot_number }}</a></td>
             <td class="small">{{ device.brand or '—' }}</td>
             <td class="small">{{ device.model or '—' }}</td>
             <td class="text-muted small">{{ device.cpu or '—' }}</td>
@@ -121,6 +123,8 @@
               </span>
               {% else %}—{% endif %}
             </td>
+            <td class="small">{% set sp = stock_price_map.get(device.id|string) if stock_price_map is defined else None %}{% if sp is not none %}₹{{ "{:,.0f}".format(sp) }}{% else %}—{% endif %}</td>
+            <td class="small">{% set salep = sale_price_map.get(device.id|string) if sale_price_map is defined else None %}{% if salep is not none %}₹{{ "{:,.0f}".format(salep) }}{% else %}—{% endif %}</td>
             <td>
               {% set s = device.current_stage %}
               {% if s.value in ['iqc'] %}
@@ -141,26 +145,6 @@
                 <span class="badge bg-purple" style="background:#6f42c1">{{ stage_labels.get(s, s.value) }}</span>
               {% else %}
                 <span class="badge bg-light text-dark">{{ stage_labels.get(s, s.value) }}</span>
-              {% endif %}
-            </td>
-            <td class="small">
-              {% set loc = location_map.get(device.id | string) %}
-              {% if loc and loc.unit_id %}
-                {% if loc.action == 'picked_up' %}
-                  <span class="badge bg-warning text-dark" title="In hand — {{ loc.actor_name }}">
-                    <i class="bi bi-hand-index me-1"></i>{{ loc.unit_id }}
-                  </span>
-                {% else %}
-                  <span class="badge bg-success">{{ loc.unit_id }}</span>
-                {% endif %}
-              {% elif loc and loc.action == 'picked_up' %}
-                <span class="badge bg-warning text-dark" title="In hand — {{ loc.actor_name }}">
-                  <i class="bi bi-hand-index me-1"></i>In Hand
-                </span>
-              {% else %}
-                <a href="/locations/device/{{ device.id }}" class="text-muted small text-decoration-none" title="No location — click to assign">
-                  <i class="bi bi-geo-alt text-danger"></i> —
-                </a>
               {% endif %}
             </td>
             <td class="small text-muted">

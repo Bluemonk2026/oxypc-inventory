@@ -60,16 +60,13 @@
         <div class="d-flex gap-2">
           <button class="btn btn-sm btn-success py-0" type="button"
                   data-bs-toggle="collapse" data-bs-target="#grnInlineForm">
-            <i class="bi bi-receipt-cutoff me-1"></i>Record GRN
+            <i class="bi bi-receipt-cutoff me-1"></i>Validate GRN
           </button>
-          <a href="/grn/new?lot_id={{ lot.id }}" class="btn btn-sm btn-outline-success py-0">
-            <i class="bi bi-file-earmark-plus me-1"></i>Submit GRN (Full Form)
-          </a>
           <a href="/lots/{{ lot.id }}/register" class="btn btn-sm btn-success py-0">
-            <i class="bi bi-upc-scan me-1"></i>Register Barcodes (GRN)
+            <i class="bi bi-upc-scan me-1"></i>Add New Tag
           </a>
           <a href="/lots/{{ lot.id }}/edit" class="btn btn-sm btn-outline-primary py-0">
-            <i class="bi bi-pencil me-1"></i>Edit
+            <i class="bi bi-pencil me-1"></i>Edit Lot
           </a>
         </div>
       </div>
@@ -202,23 +199,29 @@
   </div>
 </div>
 
-<!-- ── Invoice Line Items (Category/Model-wise Prices) ── -->
-<div class="card border-0 shadow-sm mb-4">
-  <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
-    <span class="fw-semibold"><i class="bi bi-list-columns-reverse me-2"></i>Invoice Line Items — Category & Model-wise Prices</span>
-    <div class="d-flex gap-2">
-      <button class="btn btn-sm btn-outline-secondary" onclick="exportLineItemsCSV()">
-        <i class="bi bi-download me-1"></i>Export CSV
+<!-- ── Invoice Line Items (Category/Model-wise Prices) — accordion, rendered at the bottom ── -->
+{% set lineitems_block %}
+<div class="accordion mb-4" id="lineItemsAcc">
+  <div class="accordion-item border-0 shadow-sm">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed fw-semibold" type="button"
+              data-bs-toggle="collapse" data-bs-target="#lineItemsBody" aria-expanded="false">
+        <i class="bi bi-list-columns-reverse me-2"></i>Category / Model Based Line Items
       </button>
-      <button class="btn btn-sm btn-outline-primary" onclick="openBulkLineImport()">
-        <i class="bi bi-upload me-1"></i>Bulk Import
-      </button>
-      <button class="btn btn-sm btn-success" onclick="openAddLineItem()">
-        <i class="bi bi-plus-circle me-1"></i>Add Line Item
-      </button>
-    </div>
-  </div>
-  <div class="card-body p-0">
+    </h2>
+    <div id="lineItemsBody" class="accordion-collapse collapse">
+      <div class="accordion-body p-0">
+        <div class="d-flex justify-content-end gap-2 p-2 border-bottom">
+          <button class="btn btn-sm btn-outline-secondary" onclick="exportLineItemsCSV()">
+            <i class="bi bi-download me-1"></i>Export CSV
+          </button>
+          <button class="btn btn-sm btn-outline-primary" onclick="openBulkLineImport()">
+            <i class="bi bi-upload me-1"></i>Bulk Import
+          </button>
+          <button class="btn btn-sm btn-success" onclick="openAddLineItem()">
+            <i class="bi bi-plus-circle me-1"></i>Add Line Item
+          </button>
+        </div>
     <div id="lineItemsContainer">
       {% if line_items %}
       <div class="table-responsive">
@@ -276,7 +279,7 @@
               <td class="text-muted small">{{ item.notes or '' }}</td>
               <td class="text-nowrap">
                 <button class="btn btn-xs btn-outline-secondary py-0 px-1 me-1"
-                        onclick="editLineItem('{{ item.id }}', {{ {'id': item.id|string, 'sub_category': item.sub_category, 'brand': item.brand or '', 'model': item.model or '', 'cpu': item.cpu or '', 'generation': item.generation or '', 'ram_gb': item.ram_gb, 'has_ram': item.has_ram, 'storage_gb': item.storage_gb, 'storage_type': item.storage_type or '', 'has_storage': item.has_storage, 'screen_size': item.screen_size or '', 'grade': item.grade or '', 'unit_price': item.unit_price|string, 'qty': item.qty, 'notes': item.notes or ''} | tojson }})" title="Edit">
+                        onclick='editLineItem({{ {'id': item.id|string, 'sub_category': item.sub_category, 'brand': item.brand or '', 'model': item.model or '', 'cpu': item.cpu or '', 'generation': item.generation or '', 'ram_gb': item.ram_gb, 'has_ram': item.has_ram, 'storage_gb': item.storage_gb, 'storage_type': item.storage_type or '', 'has_storage': item.has_storage, 'screen_size': item.screen_size or '', 'grade': item.grade or '', 'unit_price': item.unit_price|string, 'qty': item.qty, 'notes': item.notes or ''} | tojson }})' title="Edit">
                   <i class="bi bi-pencil" style="font-size:.7rem;"></i>
                 </button>
                 <button class="btn btn-xs btn-outline-danger py-0 px-1"
@@ -301,14 +304,14 @@
       <div class="text-center py-5 text-muted" id="emptyLineItems">
         <i class="bi bi-list-columns-reverse fs-1 d-block mb-2"></i>
         No invoice line items recorded yet.
-        <br><a href="#" onclick="openAddLineItem();return false;" class="btn btn-sm btn-success mt-2">
-          <i class="bi bi-plus-circle me-1"></i>Add First Line Item
-        </a>
       </div>
       {% endif %}
     </div>
+      </div>
+    </div>
   </div>
 </div>
+{% endset %}
 
 <!-- ── Add / Edit Line Item Modal ── -->
 <div class="modal fade" id="lineItemModal" tabindex="-1">
@@ -342,7 +345,12 @@
           </div>
           <div class="col-md-3">
             <label class="form-label fw-semibold">Brand</label>
-            <input type="text" id="liBrand" class="form-control form-control-sm" placeholder="HP, Dell, Lenovo...">
+            <select id="liBrand" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              <option>HP</option><option>Dell</option><option>Lenovo</option><option>Acer</option>
+              <option>Asus</option><option>Apple</option><option>Samsung</option><option>Toshiba</option>
+              <option>MSI</option><option>Microsoft</option><option>LG</option><option>Compaq</option><option>Other</option>
+            </select>
           </div>
           <div class="col-md-6">
             <label class="form-label fw-semibold">Model</label>
@@ -351,11 +359,20 @@
           <!-- Row 2: CPU, Generation, Screen Size -->
           <div class="col-md-5">
             <label class="form-label">CPU / Processor</label>
-            <input type="text" id="liCpu" class="form-control form-control-sm" placeholder="Intel Core i5-8250U">
+            <select id="liCpu" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              <option>i3</option><option>i5</option><option>i7</option><option>i9</option>
+              <option>Celeron</option><option>Pentium</option><option>Core 2 Duo</option>
+              <option>AMD Ryzen 3</option><option>AMD Ryzen 5</option><option>AMD Ryzen 7</option>
+              <option>AMD</option><option>AMD PRO</option><option>Xeon</option><option>Other</option>
+            </select>
           </div>
           <div class="col-md-4">
             <label class="form-label">Generation</label>
-            <input type="text" id="liGen" class="form-control form-control-sm" placeholder="8th Gen">
+            <select id="liGen" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              {% for g in ['1st Gen','2nd Gen','3rd Gen','4th Gen','5th Gen','6th Gen','7th Gen','8th Gen','9th Gen','10th Gen','11th Gen','12th Gen','13th Gen','14th Gen'] %}<option>{{ g }}</option>{% endfor %}
+            </select>
           </div>
           <div class="col-md-3">
             <label class="form-label">Screen Size</label>
@@ -364,7 +381,11 @@
           <!-- Row 3: RAM -->
           <div class="col-md-3">
             <label class="form-label fw-semibold">RAM (GB)</label>
-            <input type="number" id="liRam" class="form-control form-control-sm" placeholder="8">
+            <select id="liRam" class="form-select form-select-sm">
+              <option value="">—</option>
+              <option value="2">2 GB</option><option value="4">4 GB</option><option value="8">8 GB</option>
+              <option value="16">16 GB</option><option value="32">32 GB</option><option value="64">64 GB</option>
+            </select>
           </div>
           <div class="col-md-3 d-flex align-items-end pb-1">
             <div class="form-check ms-2">
@@ -375,7 +396,11 @@
           <!-- Row 4: Storage -->
           <div class="col-md-2">
             <label class="form-label fw-semibold">Storage (GB)</label>
-            <input type="number" id="liStorageGb" class="form-control form-control-sm" placeholder="256">
+            <select id="liStorageGb" class="form-select form-select-sm">
+              <option value="">—</option>
+              <option value="128">128 GB</option><option value="256">256 GB</option><option value="512">512 GB</option>
+              <option value="1024">1 TB</option><option value="2048">2 TB</option>
+            </select>
           </div>
           <div class="col-md-2">
             <label class="form-label fw-semibold">Type</label>
@@ -471,8 +496,8 @@
 <!-- ── Devices Table ── -->
 <div class="card border-0 shadow-sm">
   <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
-    <span class="fw-semibold"><i class="bi bi-laptop me-2"></i>Devices in this Lot ({{ devices|length }})</span>
-    <a href="/iqc?lot={{ lot.lot_number }}" class="btn btn-sm btn-outline-success">
+    <span class="fw-semibold"><i class="bi bi-laptop me-2"></i>Individual Product Tags in this Lot ({{ devices|length }})</span>
+    <a href="/iqc/new?lot_id={{ lot.id }}&grn_number={{ lot.grn_system_number or lot.grn_number_new or '' }}" class="btn btn-sm btn-outline-success">
       <i class="bi bi-plus-circle me-1"></i>Register Device
     </a>
   </div>
@@ -481,7 +506,7 @@
       <table id="deviceTable" class="table table-hover mb-0 small">
         <thead class="table-dark">
           <tr>
-            <th>Barcode</th><th>Brand</th><th>Model</th><th>CPU</th><th>RAM</th>
+            <th>Tag Number</th><th>Device Type</th><th>Brand</th><th>Model</th><th>CPU</th><th>RAM</th>
             <th>Storage</th><th>Grade</th><th>Stage</th><th>Floor</th>
             <th class="text-center" title="IQC done">IQC</th>
             <th class="text-center" title="Repair attempts">Repairs</th>
@@ -495,6 +520,7 @@
           {% set did = d.id | string %}
           <tr>
             <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none fw-semibold">{{ d.barcode }}</a></td>
+            <td>{{ d.device_type or '—' }}</td>
             <td>{{ d.brand or '—' }}</td>
             <td>{{ d.model or '—' }}</td>
             <td>{{ d.cpu or '—' }}</td>
@@ -541,6 +567,9 @@
     </div>
   </div>
 </div>
+
+{# Category / Model Based Line Items accordion — moved to the bottom #}
+{{ lineitems_block }}
 {% endblock %}
 {% block scripts %}
 <script>
@@ -567,18 +596,27 @@ function openAddLineItem() {
   new bootstrap.Modal(document.getElementById('lineItemModal')).show();
 }
 
-function editLineItem(id, item) {
-  document.getElementById('liEditId').value = id;
+function setSel(id, val) {
+  // Set a <select> value; if the stored value isn't a listed option, add it so
+  // editing an existing record never loses data.
+  const el = document.getElementById(id);
+  val = (val === null || val === undefined || val === '') ? '' : String(val);
+  if (val && !Array.from(el.options).some(o => o.value === val)) el.add(new Option(val, val));
+  el.value = val;
+}
+
+function editLineItem(item) {
+  document.getElementById('liEditId').value = item.id;
   document.getElementById('lineItemModalTitle').innerHTML = '<i class="bi bi-pencil me-2"></i>Edit Line Item';
   document.getElementById('liSubCat').value   = item.sub_category || 'Laptop';
-  document.getElementById('liBrand').value    = item.brand || '';
+  setSel('liBrand', item.brand);
   document.getElementById('liModel').value    = item.model || '';
-  document.getElementById('liCpu').value      = item.cpu || '';
-  document.getElementById('liGen').value      = item.generation || '';
+  setSel('liCpu', item.cpu);
+  setSel('liGen', item.generation);
   document.getElementById('liScreen').value   = item.screen_size || '';
-  document.getElementById('liRam').value      = item.ram_gb || '';
+  setSel('liRam', item.ram_gb);
   document.getElementById('liHasRam').checked = item.has_ram !== false;
-  document.getElementById('liStorageGb').value   = item.storage_gb || '';
+  setSel('liStorageGb', item.storage_gb);
   document.getElementById('liStorageType').value = item.storage_type || '';
   document.getElementById('liHasStorage').checked = item.has_storage !== false;
   document.getElementById('liGrade').value    = item.grade || '';

@@ -32,7 +32,7 @@
       <div class="card-body p-0">
         <table id="cosmeticTable" class="table table-hover mb-0 small">
           <thead class="table-dark">
-            <tr><th>Barcode</th><th>Brand</th><th>Model</th><th>CPU</th><th>Grade</th><th>Lot</th><th>Since</th><th>Action</th></tr>
+            <tr><th>Tag Number</th><th>Brand</th><th>Model</th><th>CPU</th><th>Grade</th><th>Lot</th><th>Since</th><th>Action</th></tr>
           </thead>
           <tbody>
             {% for device, lot_number in devices %}
@@ -79,8 +79,8 @@
         <form action="/cosmetic/advance" method="post">
           <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
           <div class="mb-2">
-            <label class="form-label fw-semibold small">Barcode</label>
-            <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan barcode" autofocus>
+            <label class="form-label fw-semibold small">Tag Number</label>
+            <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan tag number" autofocus>
           </div>
           <div class="mb-2">
             <label class="form-label small">Final Status</label>
@@ -171,8 +171,8 @@
         <form action="/cosmetic/advance" method="post">
           <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
           <div class="mb-3">
-            <label class="form-label fw-semibold">Barcode</label>
-            <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan barcode" autofocus>
+            <label class="form-label fw-semibold">Tag Number</label>
+            <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan tag number" autofocus>
           </div>
           <div class="mb-3">
             <label class="form-label">Notes (optional)</label>

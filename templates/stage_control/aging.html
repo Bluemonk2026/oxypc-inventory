@@ -38,7 +38,7 @@
 <div class="card shadow-sm mb-4">
   <div class="card-body p-0">
     <table class="table table-hover mb-0 table-sm">
-      <thead class="table-warning"><tr><th>Barcode</th><th>Brand/Model</th><th>Stage</th><th>Days in Stage</th><th>Total Days</th></tr></thead>
+      <thead class="table-warning"><tr><th>Tag Number</th><th>Brand/Model</th><th>Stage</th><th>Days in Stage</th><th>Total Days</th></tr></thead>
       <tbody>
         {% for aging, barcode, brand, model, stage, grade in stuck %}
         <tr>
@@ -60,7 +60,7 @@
 <div class="card shadow-sm mb-4">
   <div class="card-body p-0">
     <table class="table table-hover mb-0 table-sm">
-      <thead class="table-danger"><tr><th>Barcode</th><th>Brand/Model</th><th>Stage</th><th>Total Days</th></tr></thead>
+      <thead class="table-danger"><tr><th>Tag Number</th><th>Brand/Model</th><th>Stage</th><th>Total Days</th></tr></thead>
       <tbody>
         {% for aging, barcode, brand, model, stage, grade in dead_stock %}
         <tr>
@@ -81,7 +81,7 @@
 <div class="card shadow-sm">
   <div class="card-body p-0">
     <table class="table table-hover mb-0 table-sm">
-      <thead style="background:#FFF3E0"><tr><th>Barcode</th><th>Brand/Model</th><th>Total Cost</th><th>Expected Sale</th><th>Cost %</th></tr></thead>
+      <thead style="background:#FFF3E0"><tr><th>Tag Number</th><th>Brand/Model</th><th>Total Cost</th><th>Expected Sale</th><th>Cost %</th></tr></thead>
       <tbody>
         {% for costing, barcode, brand, model in cost_warnings %}
         <tr>

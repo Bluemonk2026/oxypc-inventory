@@ -20,9 +20,16 @@ from models.engines import RepairAttempt
 from models.qc import QCCheck
 from models.iqc_inspection import IQCInspection
 from models.cost_config import CostConfig
+from models.stock_transfer import StockTransfer
+from models.stock_validation import StockValidation
 
 router = APIRouter(tags=["stock"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
+
+STOCK_DEPARTMENTS = [
+    "IQC Inspector", "L1 Engineer", "L2 Engineer", "L3 Engineer",
+    "QC Inspector", "Inventory Manager", "Sales Manager", "Spare Parts Manager",
+]
 
 import csv
 import io
@@ -271,6 +278,10 @@ async def new_lot_form(
     prefill_price: str = Query(default=""),
     prefill_notes: str = Query(default=""),
     prefill_po: str = Query(default=""),
+    grn_system_number: str = Query(default=""),
+    grn_date: str = Query(default=""),
+    supplier: str = Query(default=""),
+    lot_number: str = Query(default=""),
 ):
     next_num = await _next_lot_number(db)
     prefill = {
@@ -285,6 +296,12 @@ async def new_lot_form(
         "request": request, "next_lot_number": next_num,
         "current_user": current_user, "error": None,
         "prefill": prefill, "lot": None,
+        "prefill_grn_system": grn_system_number,
+        "prefill_grn_date": _norm_grn_date(grn_date),
+        "prefill_supplier_locked": supplier,
+        "prefill_lot_number": lot_number,
+        "from_grn": bool(grn_system_number or lot_number or supplier),
+        "today_date": app_now().strftime('%Y-%m-%d'),
     })
 
 
@@ -300,6 +317,23 @@ def _parse_decimal(s: str):
         return float(s) if s else None
     except Exception:
         return None
+
+
+def _norm_grn_date(s: str) -> str:
+    """Normalise a free-text invoice date (the GRN 'Date of Invoice') to
+    YYYY-MM-DD for the date picker. Returns '' if unparseable (the form then
+    falls back to today)."""
+    s = (s or "").strip()
+    if not s:
+        return ""
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d",
+                "%d.%m.%Y", "%d-%b-%Y", "%d %b %Y", "%d %B %Y", "%b %d, %Y",
+                "%B %d, %Y", "%d-%b-%y", "%d/%m/%y"):
+        try:
+            return _dt.strptime(s, fmt).strftime("%Y-%m-%d")
+        except Exception:
+            continue
+    return ""
 
 
 @router.post("/lots/new")
@@ -796,9 +830,24 @@ async def stock_in_list(
         "ready": _c(DeviceStage.ready_to_sale),
     }
 
+    # ── Assigned department per device (latest stock transfer) for #1 column ──
+    device_ids = [d.id for d, _ in devices]
+    assigned_dept_map = {}
+    if device_ids:
+        st_rows = (await db.execute(
+            select(StockTransfer.device_id, StockTransfer.department)
+            .where(StockTransfer.device_id.in_(device_ids), StockTransfer.department != None)
+            .order_by(StockTransfer.transfer_date.desc())
+        )).all()
+        for did, dept in st_rows:
+            key = str(did)
+            if key not in assigned_dept_map and dept:
+                assigned_dept_map[key] = dept
+
     return templates.TemplateResponse("lots/stock_in.html", {
         "request": request, "devices": devices, "current_user": current_user,
-        "analytics": analytics,
+        "analytics": analytics, "assigned_dept_map": assigned_dept_map,
+        "departments": STOCK_DEPARTMENTS,
         "page": page, "page_size": page_size, "total": total, "total_pages": total_pages,
     })
 
@@ -806,6 +855,87 @@ async def stock_in_list(
 @router.get("/stock/move-to-stock")
 async def move_to_stock_get():
     return RedirectResponse(url="/stock", status_code=302)
+
+
+def _transfer_snapshot(device, **over):
+    """Build common StockTransfer snapshot kwargs from a device."""
+    base = dict(
+        device_id=device.id, barcode=device.barcode, serial_no=device.serial_no,
+        make=device.brand, model=device.model, category=device.sub_category,
+        product_stage=device.current_stage.value if device.current_stage else None,
+        transfer_date=app_now(),
+    )
+    base.update(over)
+    return base
+
+
+@router.post("/stock/validate")
+async def stock_validate(
+    request: Request,
+    barcode: str = Form(...),
+    qty_received: str = Form(""),
+    condition_received: str = Form(""),
+    reassign_department: str = Form(""),
+    notes: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    try:
+        qty = int(qty_received) if qty_received else None
+    except ValueError:
+        qty = None
+    db.add(StockValidation(
+        device_id=device.id, barcode=device.barcode, qty_received=qty,
+        condition_received=condition_received or None,
+        reassign_department=reassign_department or None, notes=notes or None,
+        validated_by=current_user.username,
+    ))
+    # Reassignment records a stock transfer to that department (drives 'Assigned User')
+    if reassign_department:
+        wh = device.warehouse or "Stock In"
+        db.add(StockTransfer(**_transfer_snapshot(
+            device, transfer_type="reassign", from_warehouse=wh, to_warehouse=wh,
+            transferred_by=current_user.username, department=reassign_department,
+            notes="Reassigned via Stock Validate", created_by=current_user.username,
+        )))
+    await audit(db, user=current_user, action="STOCK_VALIDATE", table_name="stock_validations",
+                record_id=str(device.id),
+                new_value={"barcode": barcode, "qty_received": qty,
+                           "condition": condition_received, "reassign": reassign_department},
+                request=request)
+    await db.commit()
+    return RedirectResponse(url=f"/stock?success=Stock+validated+for+{barcode}", status_code=302)
+
+
+@router.post("/stock/bulk-transfer")
+async def stock_bulk_transfer(
+    request: Request,
+    barcodes: list[str] = Form(default=[]),
+    transfer_type: str = Form("transfer_to_trc"),
+    department: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    barcodes = [b for b in (barcodes or []) if b]
+    if not barcodes:
+        return RedirectResponse(url="/stock?error=No+items+selected", status_code=302)
+    devices = (await db.execute(select(Device).where(Device.barcode.in_(barcodes)))).scalars().all()
+    cnt = 0
+    for device in devices:
+        db.add(StockTransfer(**_transfer_snapshot(
+            device, transfer_type=transfer_type or "transfer_to_trc",
+            from_warehouse=device.warehouse or "Stock In", to_warehouse=device.warehouse or "TRC",
+            transferred_by=current_user.username, department=department or None,
+            notes="Bulk stock transfer", created_by=current_user.username,
+        )))
+        cnt += 1
+    await audit(db, user=current_user, action="STOCK_BULK_TRANSFER", table_name="stock_transfers",
+                record_id=None, new_value={"count": cnt, "department": department}, request=request)
+    await db.commit()
+    return RedirectResponse(url=f"/stock?success={cnt}+item(s)+transferred", status_code=302)
 
 
 @router.post("/stock/move-to-stock")
@@ -829,6 +959,76 @@ async def move_to_stock(
     db.add(movement)
     await db.commit()
     return RedirectResponse(url="/stock?success=Moved+to+Stock", status_code=302)
+
+
+@router.post("/stock/move-to-trc")
+async def move_to_trc(
+    barcode: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Move a Stock Inward device into the TRC Production stage."""
+    device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    prev_stage = device.current_stage
+    prev_mv = (await db.execute(
+        select(StageMovement).where(
+            StageMovement.device_id == device.id,
+            StageMovement.to_stage == prev_stage,
+            StageMovement.exited_at == None,
+        ).order_by(StageMovement.moved_at.desc())
+    )).scalars().first()
+    if prev_mv:
+        prev_mv.exited_at = app_now()
+    device.current_stage = DeviceStage.trc_production
+    device.updated_at = app_now()
+    db.add(StageMovement(
+        device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.trc_production,
+        moved_by=current_user.username, notes="Moved to TRC Production",
+    ))
+    await db.commit()
+    return RedirectResponse(url="/stock?success=Moved+to+TRC+Production", status_code=302)
+
+
+@router.get("/trc-production", response_class=HTMLResponse)
+async def trc_production_list(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+):
+    offset = (page - 1) * page_size
+    base_stmt = (
+        select(Device, Lot.lot_number)
+        .join(Lot, Device.lot_id == Lot.id)
+        .where(Device.current_stage == DeviceStage.trc_production, Device.is_active == True)
+    )
+    total = (await db.execute(select(func.count()).select_from(base_stmt.subquery()))).scalar() or 0
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    devices = (await db.execute(
+        base_stmt.order_by(Device.updated_at.desc()).offset(offset).limit(page_size)
+    )).all()
+
+    device_ids = [d.id for d, _ in devices]
+    assigned_dept_map = {}
+    if device_ids:
+        st_rows = (await db.execute(
+            select(StockTransfer.device_id, StockTransfer.department)
+            .where(StockTransfer.device_id.in_(device_ids), StockTransfer.department != None)
+            .order_by(StockTransfer.transfer_date.desc())
+        )).all()
+        for did, dept in st_rows:
+            key = str(did)
+            if key not in assigned_dept_map and dept:
+                assigned_dept_map[key] = dept
+
+    return templates.TemplateResponse("lots/trc_production.html", {
+        "request": request, "devices": devices, "current_user": current_user,
+        "assigned_dept_map": assigned_dept_map, "departments": STOCK_DEPARTMENTS,
+        "page": page, "page_size": page_size, "total": total, "total_pages": total_pages,
+    })
 
 
 # ── Lot Line Items (Invoice Breakdown) ─────────────────────────────────────

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}GRN Register — {{ lot.lot_number }}{% endblock %}
-{% block page_title %}GRN Barcode Registration{% endblock %}
+{% block page_title %}GRN Tag Number Registration{% endblock %}
 {% block content %}
 
 {% if request.query_params.get('success') %}
@@ -63,10 +63,10 @@
   {# ── Left: Scanner & Entry ─────────────────────────────────────────────── #}
   <div class="col-xl-5">
 
-    {# Barcode Scanner Card #}
+    {# Tag Number Scanner Card #}
     <div class="card border-0 shadow-sm mb-3">
       <div class="card-header fw-semibold" style="background:#075E54;color:#fff">
-        <i class="bi bi-upc-scan me-2"></i>Scan / Enter Barcode
+        <i class="bi bi-upc-scan me-2"></i>Scan / Enter Tag Number
       </div>
       <div class="card-body">
         <!-- Line Item Picker -->
@@ -78,9 +78,9 @@
           <div class="text-muted small mt-1" id="lineItemPickerHint"></div>
         </div>
         <div class="mb-3">
-          <label class="form-label small fw-semibold">Barcode <span class="text-danger">*</span></label>
+          <label class="form-label small fw-semibold">Tag Number <span class="text-danger">*</span></label>
           <input type="text" id="barcodeInput" class="form-control form-control-lg barcode-field"
-                 placeholder="Scan or type barcode…" autofocus autocomplete="off"
+                 placeholder="Scan or type tag number…" autofocus autocomplete="off"
                  onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('registerBtn').click();}">
         </div>
         <div class="row g-2 mb-3">
@@ -203,7 +203,7 @@
           <thead class="table-light sticky-top">
             <tr>
               <th>#</th>
-              <th>Barcode</th>
+              <th>Tag Number</th>
               <th>Category</th>
               <th>Brand / Model</th>
               <th>Serial No</th>

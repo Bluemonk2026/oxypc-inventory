@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block title %}GRN — OxyPC{% endblock %}
+{% block page_title %}GRN — Invoice Import{% endblock %}
+{% block content %}
+
+{% if error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>{% endif %}
+{% if success %}<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>{% endif %}
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <h6 class="fw-bold mb-1"><i class="bi bi-file-earmark-arrow-up me-2"></i>Upload Invoice</h6>
+      <span class="text-muted small">Upload an invoice PDF — a 12-digit GRN is generated and the fields are read from the file. Duplicates are rejected.</span>
+    </div>
+    <form action="/grn/upload" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="file" name="invoice" accept="application/pdf,.pdf" class="form-control form-control-sm" style="min-width:260px" required>
+      <button type="submit" class="btn btn-primary btn-sm text-nowrap"><i class="bi bi-cloud-upload me-1"></i>Upload Invoice</button>
+    </form>
+  </div>
+</div>
+
+<!-- Filter bar -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold mb-1">Search GRN</label>
+        <input type="text" id="fGrn" class="form-control form-control-sm font-monospace" placeholder="GRN…">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold mb-1">Search Invoice</label>
+        <input type="text" id="fInvoice" class="form-control form-control-sm" placeholder="Invoice number…">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Search Vendor Name</label>
+        <input type="text" id="fVendor" class="form-control form-control-sm" placeholder="Vendor…">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">From</label>
+        <input type="date" id="fFrom" class="form-control form-control-sm">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">To</label>
+        <input type="date" id="fTo" class="form-control form-control-sm">
+      </div>
+    </div>
+    <div class="mt-2"><button type="button" id="fReset" class="btn btn-outline-secondary btn-sm">Reset Filters</button></div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="grnTable" class="table table-hover mb-0 small align-middle">
+        <thead class="table-dark">
+          <tr>
+            <th class="ps-3">GRN</th><th>Lot Number</th><th>Invoice Number</th><th>Date of Invoice</th>
+            <th>Vendor Name</th><th>Quantity</th><th>Amount</th><th>GRN Status</th><th>Download</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set _hl = request.query_params.get('highlight') %}
+          {% for g in grns %}
+          <tr id="grn-{{ g.grn_number }}" class="{{ 'table-warning' if _hl and _hl == g.grn_number else '' }}">
+            <td class="ps-3"><span class="font-monospace fw-bold">{{ g.grn_number }}</span></td>
+            <td class="font-monospace">{% if g.lot_number %}<a href="/lots/new?grn_system_number={{ g.grn_number }}&grn_date={{ (g.invoice_date or '') | urlencode }}&supplier={{ (g.sender_name or '') | urlencode }}&lot_number={{ (g.lot_number or '') | urlencode }}" class="text-decoration-none" title="Create lot prefilled from this GRN">{{ g.lot_number }}</a>{% else %}—{% endif %}</td>
+            <td>{{ g.invoice_number or '—' }}</td>
+            <td>{{ g.invoice_date or '—' }}</td>
+            <td>{{ g.sender_name or '—' }}</td>
+            <td>{{ g.quantity if g.quantity is not none else '—' }}</td>
+            <td>{% if g.amount is not none %}₹{{ "{:,.2f}".format(g.amount) }}{% else %}—{% endif %}</td>
+            <td>{% if g.validated %}<span class="badge bg-success">Validated</span>{% else %}<span class="badge bg-danger">Not Yet Validate</span>{% endif %}</td>
+            <td>
+              {% if g.file_path %}
+              <a href="/grn/download/{{ g.id }}" class="btn btn-sm btn-outline-secondary py-0 px-2"><i class="bi bi-download"></i></a>
+              {% else %}—{% endif %}
+            </td>
+            <td class="text-nowrap">
+              <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
+                      data-bs-toggle="modal" data-bs-target="#editGrnModal"
+                      data-id="{{ g.id }}" data-lot="{{ g.lot_number or '' }}" data-inv="{{ g.invoice_number or '' }}" data-date="{{ g.invoice_date or '' }}"
+                      data-sender="{{ g.sender_name or '' }}" data-qty="{{ g.quantity if g.quantity is not none else '' }}"
+                      data-amount="{{ g.amount if g.amount is not none else '' }}">
+                <i class="bi bi-pencil"></i> Edit
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-success py-0 px-2"
+                      data-bs-toggle="modal" data-bs-target="#validateGrnModal"
+                      data-id="{{ g.id }}" data-grn="{{ g.grn_number }}"
+                      data-qty="{{ g.quantity if g.quantity is not none else '' }}">
+                <i class="bi bi-receipt-cutoff"></i> Validate GRN
+              </button>
+              <a href="/lots/new?grn_system_number={{ g.grn_number }}&grn_date={{ (g.invoice_date or '') | urlencode }}&supplier={{ (g.sender_name or '') | urlencode }}&lot_number={{ (g.lot_number or '') | urlencode }}" class="btn btn-sm btn-outline-primary py-0 px-2">
+                <i class="bi bi-plus-circle"></i> Add Lot
+              </a>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="text-center text-muted py-4">No GRN imports yet. Upload an invoice to begin.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Edit GRN modal -->
+<div class="modal fade" id="editGrnModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="editGrnForm" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Edit GRN</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2"><label class="form-label fw-semibold">Lot Number</label>
+          <input type="text" name="lot_number" id="e_lot" class="form-control font-monospace"></div>
+        <div class="mb-2"><label class="form-label fw-semibold">Invoice Number</label>
+          <input type="text" name="invoice_number" id="e_inv" class="form-control"></div>
+        <div class="mb-2"><label class="form-label fw-semibold">Date of Invoice</label>
+          <input type="date" name="invoice_date" id="e_date" class="form-control"></div>
+        <div class="mb-2"><label class="form-label fw-semibold">Vendor Name</label>
+          <input type="text" name="sender_name" id="e_sender" class="form-control"></div>
+        <div class="row g-2">
+          <div class="col-6"><label class="form-label fw-semibold">Quantity</label>
+            <input type="number" name="quantity" id="e_qty" class="form-control" min="0"></div>
+          <div class="col-6"><label class="form-label fw-semibold">Amount</label>
+            <input type="text" name="amount" id="e_amount" class="form-control"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Validate GRN modal (same fields as the Lot table's Validate GRN modal) -->
+<div class="modal fade" id="validateGrnModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form method="post" id="validateGrnForm" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header text-white" style="background:#198754">
+        <h5 class="modal-title"><i class="bi bi-receipt-cutoff me-2"></i>Validate GRN — <span id="vg_grn"></span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-6">
+            <label class="form-label fw-semibold">Expected Qty</label>
+            <input type="number" id="vg_expected" class="form-control" min="0" disabled>
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold">Received Qty <span class="text-danger">*</span></label>
+            <input type="number" name="received_qty" id="vg_received" class="form-control" min="0" required placeholder="Actual count">
+          </div>
+          <div class="col-12">
+            <label class="form-label">GRN Reference No.</label>
+            <input type="text" name="grn_number" class="form-control font-monospace" placeholder="e.g. GRN-2025-001">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Notes / Remarks</label>
+            <textarea name="notes" class="form-control" rows="2" placeholder="Discrepancy notes, condition, etc."></textarea>
+          </div>
+        </div>
+        <div class="alert alert-info small mt-3 mb-0 py-2"><i class="bi bi-info-circle me-1"></i>Submitting marks this GRN as <strong>Validated</strong>.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-success px-4"><i class="bi bi-check2-circle me-1"></i>Submit GRN</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){
+  var dt = null;
+  if ($('#grnTable tbody tr td').length > 1) {
+    dt = $('#grnTable').DataTable({pageLength:25, order:[]});
+
+    // Date-range custom filter on the "Date of Invoice" column (index 2, ISO yyyy-mm-dd)
+    $.fn.dataTable.ext.search.push(function(settings, data){
+      if (settings.nTable.id !== 'grnTable') return true;
+      var from = document.getElementById('fFrom').value;
+      var to   = document.getElementById('fTo').value;
+      if (!from && !to) return true;
+      var d = (data[2] || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;  // unparseable dates excluded when filtering
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    });
+
+    // Per-column text searches
+    document.getElementById('fGrn').addEventListener('input', function(){ dt.column(0).search(this.value).draw(); });
+    document.getElementById('fInvoice').addEventListener('input', function(){ dt.column(1).search(this.value).draw(); });
+    document.getElementById('fVendor').addEventListener('input', function(){ dt.column(3).search(this.value).draw(); });
+    document.getElementById('fFrom').addEventListener('change', function(){ dt.draw(); });
+    document.getElementById('fTo').addEventListener('change', function(){ dt.draw(); });
+    document.getElementById('fReset').addEventListener('click', function(){
+      ['fGrn','fInvoice','fVendor','fFrom','fTo'].forEach(function(id){ document.getElementById(id).value=''; });
+      dt.column(0).search('').column(1).search('').column(3).search('').draw();
+    });
+  }
+
+  // Highlight + scroll to a GRN passed via ?highlight=
+  var hl = {{ (request.query_params.get('highlight') or '')|tojson }};
+  if (hl) {
+    var row = document.getElementById('grn-' + hl);
+    if (row) {
+      row.classList.add('table-warning');
+      if (row.scrollIntoView) row.scrollIntoView({behavior:'smooth', block:'center'});
+    }
+  }
+});
+var em = document.getElementById('editGrnModal');
+if (em) { em.addEventListener('show.bs.modal', function(e){
+  var b = e.relatedTarget;
+  document.getElementById('editGrnForm').action = '/grn/' + b.getAttribute('data-id') + '/edit';
+  document.getElementById('e_lot').value = b.getAttribute('data-lot') || '';
+  document.getElementById('e_inv').value = b.getAttribute('data-inv') || '';
+  document.getElementById('e_date').value = b.getAttribute('data-date') || '';
+  document.getElementById('e_sender').value = b.getAttribute('data-sender') || '';
+  document.getElementById('e_qty').value = b.getAttribute('data-qty') || '';
+  document.getElementById('e_amount').value = b.getAttribute('data-amount') || '';
+});}
+var vgm = document.getElementById('validateGrnModal');
+if (vgm) { vgm.addEventListener('show.bs.modal', function(e){
+  var b = e.relatedTarget;
+  document.getElementById('validateGrnForm').action = '/grn/' + b.getAttribute('data-id') + '/validate';
+  document.getElementById('vg_grn').textContent = b.getAttribute('data-grn') || '';
+  document.getElementById('vg_expected').value = b.getAttribute('data-qty') || '';
+  document.getElementById('vg_received').value = '';
+});}
+</script>
+{% endblock %}

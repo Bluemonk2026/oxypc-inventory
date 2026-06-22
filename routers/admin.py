@@ -99,21 +99,36 @@ router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(verify
 require_admin = require_roles(UserRole.admin)
 
 
+async def _role_data(db: AsyncSession):
+    """(choices, label_map) for role dropdowns/labels: built-in enum + custom roles (string keys)."""
+    from models.role_permissions import CustomRole
+    choices = [(r.value, ROLE_LABELS.get(r, r.value)) for r in UserRole]
+    seen = {v for v, _ in choices}
+    rows = (await db.execute(select(CustomRole).order_by(CustomRole.display_name))).scalars().all()
+    for c in rows:
+        if c.role_name not in seen:
+            choices.append((c.role_name, c.display_name or c.role_name))
+            seen.add(c.role_name)
+    return choices, {v: l for v, l in choices}
+
+
 @router.get("/users", response_class=HTMLResponse)
 async def list_users(request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
     result = await db.execute(select(User).order_by(User.created_at.desc()))
     users = result.scalars().all()
+    role_choices, role_label_map = await _role_data(db)
     return templates.TemplateResponse("admin/users.html", {
         "request": request, "users": users, "current_user": current_user,
-        "role_labels": ROLE_LABELS, "roles": [r for r in UserRole]
+        "role_choices": role_choices, "role_label_map": role_label_map,
     })
 
 
 @router.get("/users/new", response_class=HTMLResponse)
-async def new_user_form(request: Request, current_user: User = Depends(require_admin)):
+async def new_user_form(request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+    role_choices, role_label_map = await _role_data(db)
     return templates.TemplateResponse("admin/user_form.html", {
         "request": request, "current_user": current_user,
-        "roles": [r for r in UserRole], "role_labels": ROLE_LABELS, "edit_user": None
+        "role_choices": role_choices, "role_label_map": role_label_map, "edit_user": None
     })
 
 
@@ -129,14 +144,15 @@ async def create_user(
 ):
     existing = await db.execute(select(User).where(User.username == username))
     if existing.scalar_one_or_none():
+        role_choices, role_label_map = await _role_data(db)
         return templates.TemplateResponse("admin/user_form.html", {
             "request": request, "current_user": current_user,
-            "roles": [r for r in UserRole], "role_labels": ROLE_LABELS,
+            "role_choices": role_choices, "role_label_map": role_label_map,
             "edit_user": None, "error": "Username already exists"
         })
     user = User(
         username=username, full_name=full_name,
-        role=UserRole(role), password_hash=hash_password(password),
+        role=role, password_hash=hash_password(password),
         created_by=current_user.username, status=True,
     )
     db.add(user)
@@ -155,9 +171,10 @@ async def edit_user_form(user_id: str, request: Request, db: AsyncSession = Depe
     edit_user = result.scalar_one_or_none()
     if not edit_user:
         raise HTTPException(404)
+    role_choices, role_label_map = await _role_data(db)
     return templates.TemplateResponse("admin/user_form.html", {
         "request": request, "current_user": current_user,
-        "roles": [r for r in UserRole], "role_labels": ROLE_LABELS, "edit_user": edit_user
+        "role_choices": role_choices, "role_label_map": role_label_map, "edit_user": edit_user
     })
 
 
@@ -176,7 +193,7 @@ async def update_user(
         raise HTTPException(404)
     old_vals = {"full_name": user.full_name, "role": user.role.value, "status": user.status}
     user.full_name = full_name
-    user.role = UserRole(role)
+    user.role = role
     new_status = (status == "on")
     user.status = new_status
     action = "USER_DISABLED" if not new_status and old_vals["status"] else "USER_UPDATED"

@@ -18,6 +18,59 @@ router = APIRouter(prefix="/iqc", tags=["iqc"], dependencies=[Depends(verify_csr
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.iqc_inspector)
 
 
+def _find_usb_iqc_file():
+    """Scan removable drives for the OxyQC 'latest' inspection file written by the
+    USB app (<USB>\\oxyqc_offline\\latest_iqc.json). Returns Path or None."""
+    import platform
+    from pathlib import Path
+    candidates_rel = ["oxyqc_offline/latest_iqc.json", "latest_iqc.json"]
+    roots = []
+    if platform.system() == "Windows":
+        try:
+            import ctypes, string
+            DRIVE_REMOVABLE = 2
+            bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+            for letter in string.ascii_uppercase:
+                if bitmask & 1:
+                    root = f"{letter}:\\"
+                    if ctypes.windll.kernel32.GetDriveTypeW(root) == DRIVE_REMOVABLE:
+                        roots.append(Path(root))
+                bitmask >>= 1
+        except Exception:
+            pass
+    else:
+        for base in ("/media", "/mnt", "/run/media"):
+            p = Path(base)
+            if p.exists():
+                roots.extend(p.glob("*"))
+    best = None
+    for r in roots:
+        for rel in candidates_rel:
+            f = r / rel
+            try:
+                if f.exists() and (best is None or f.stat().st_mtime > best.stat().st_mtime):
+                    best = f
+            except Exception:
+                pass
+    return best
+
+
+@router.get("/usb-import")
+async def usb_import(current_user: User = Depends(allowed)):
+    """Auto-pick the latest IQC data file from a connected OxyQC USB drive and
+    return the saved payload (used by the IQC form to prefill all fields)."""
+    import json as _json
+    f = _find_usb_iqc_file()
+    if not f:
+        raise HTTPException(404, "No OxyQC USB data file found. Plug in the OxyQC USB drive.")
+    try:
+        data = _json.loads(f.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(422, f"Could not read USB data file: {e}")
+    data = {k: v for k, v in data.items() if not str(k).startswith("_")}
+    return {"source": str(f), "data": data}
+
+
 @router.get("", response_class=HTMLResponse)
 async def iqc_list(
     request: Request,
@@ -96,11 +149,14 @@ async def iqc_export_csv(
 
 
 @router.get("/new", response_class=HTMLResponse)
-async def iqc_new_form(request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(allowed)):
+async def iqc_new_form(request: Request, db: AsyncSession = Depends(get_db),
+                       current_user: User = Depends(allowed),
+                       lot_id: str = Query(default=""), grn_number: str = Query(default="")):
     lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
     lots = lots_result.scalars().all()
     return templates.TemplateResponse("iqc/form.html", {
-        "request": request, "lots": lots, "current_user": current_user, "error": None
+        "request": request, "lots": lots, "current_user": current_user, "error": None,
+        "prefill_lot_id": lot_id, "prefill_grn": grn_number,
     })
 
 
@@ -213,6 +269,30 @@ async def iqc_create(
             "request": request, "lots": lots, "current_user": current_user,
             "error": f"Barcode {barcode} already exists"
         })
+
+    # ── Validate UUID inputs ─────────────────────────────────────────────────
+    # A non-UUID lot_id / lot_line_item_id (e.g. from a stale barcode autofill or
+    # an unselected dropdown) would otherwise hit Postgres' "invalid input syntax
+    # for type uuid" and get masked as a misleading 404. Fail cleanly instead.
+    import uuid as _uuid
+
+    def _is_uuid(v):
+        try:
+            _uuid.UUID(str(v))
+            return True
+        except (ValueError, AttributeError, TypeError):
+            return False
+
+    if not _is_uuid(lot_id):
+        lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
+        lots = lots_result.scalars().all()
+        return templates.TemplateResponse("iqc/form.html", {
+            "request": request, "lots": lots, "current_user": current_user,
+            "error": "Please select a valid Lot from the dropdown before adding to IQC.",
+        })
+    # Ignore a malformed line-item id rather than crashing the insert
+    if lot_line_item_id and not _is_uuid(lot_line_item_id):
+        lot_line_item_id = ""
 
     device = Device(
         barcode=barcode, lot_id=lot_id,

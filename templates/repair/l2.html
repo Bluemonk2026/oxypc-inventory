@@ -2,118 +2,9 @@
 {% block title %}L2 Repair — OxyPC{% endblock %}
 {% block page_title %}L2 Repair Stage{% endblock %}
 {% block content %}
-<div class="row g-3 mb-3">
-  <div class="col-md-6">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-header bg-warning-subtle fw-semibold"><i class="bi bi-wrench me-2"></i>Start L2 Repair</div>
-      <div class="card-body">
-        <form action="/repair/start" method="post" class="d-flex flex-column gap-2">
-          <input type="hidden" name="stage" value="L2">
-          <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan device barcode" autofocus>
-          <input type="text" name="issue_description" class="form-control" placeholder="Issue description">
-          <button class="btn btn-warning"><i class="bi bi-play-circle me-1"></i>Start Repair</button>
-        </form>
-      </div>
-    </div>
-  </div>
-  <div class="col-md-6">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-header bg-success-subtle fw-semibold"><i class="bi bi-check-circle me-2"></i>Complete L2 Job</div>
-      <div class="card-body">
-        <form action="/repair/complete" method="post">
-          <div class="row g-2">
-            <div class="col-md-8">
-              <select name="job_id" class="form-select" required>
-                <option value="">-- Select open job --</option>
-                {% for job, barcode, brand, model in open_jobs %}
-                <option value="{{ job.id }}">{{ barcode }} — {{ brand }} {{ model }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-md-4">
-              <select name="final_status" class="form-select">
-                <option value="">Final Status</option>
-                <option>Completed</option><option>PNA</option>
-                <option>Escalate to L3</option><option>Scrap</option><option>Lot</option>
-              </select>
-            </div>
-            <div class="col-12">
-              <input type="text" name="resolution" class="form-control" placeholder="Resolution / work done">
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold">Dust Cleaning</label>
-              <select name="dust_cleaning" class="form-select form-select-sm">
-                <option value="">—</option><option>Done</option><option>Not Done</option>
-              </select>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold">C-MOS Battery</label>
-              <select name="cmos_battery_change" class="form-select form-select-sm">
-                <option value="">—</option><option>Done</option><option>Not Done</option>
-              </select>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold">Thermal Paste</label>
-              <select name="thermal_paste" class="form-select form-select-sm">
-                <option value="">—</option><option>Done</option><option>Not Done</option>
-              </select>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold">RAM Status</label>
-              <select name="ram_status" class="form-select form-select-sm" id="ramStatus2">
-                <option value="No Change">No Change</option>
-                <option value="Upgraded">Upgraded</option><option value="Downgraded">Downgraded</option>
-              </select>
-            </div>
-            <div class="col-md-4" id="ramRem2" style="display:none">
-              <label class="form-label small">RAM Removed</label>
-              <select name="ram_removed_gb" class="form-select form-select-sm">
-                <option value="">—</option><option>4GB</option><option>8GB</option><option>16GB</option>
-              </select>
-            </div>
-            <div class="col-md-4" id="ramAdd2" style="display:none">
-              <label class="form-label small">RAM Added</label>
-              <select name="ram_added_gb" class="form-select form-select-sm">
-                <option value="">—</option><option>8GB</option><option>16GB</option><option>32GB</option>
-              </select>
-            </div>
-            <div class="col-md-6">
-              <div class="form-check mt-2">
-                <input class="form-check-input" type="checkbox" name="move_to_next" value="yes" id="mn2" checked>
-                <label class="form-check-label" for="mn2">Move to L3 after completing</label>
-              </div>
-            </div>
-          </div>
-          <!-- Parts Used (optional) -->
-          <div class="col-12 mt-1">
-            <label class="form-label small fw-semibold">Parts Used</label>
-            <div id="parts-list">
-              <div class="row g-2 mb-1 part-entry">
-                <div class="col-md-8">
-                  <select name="part_ids" class="form-select form-select-sm">
-                    <option value="">— No part —</option>
-                    {% for p in available_parts %}
-                    <option value="{{ p.id }}">{{ p.part_code }} — {{ p.name }} ({{ p.qty_in_stock }} in stock)</option>
-                    {% endfor %}
-                  </select>
-                </div>
-                <div class="col-md-3">
-                  <input type="number" name="part_qtys" class="form-control form-control-sm"
-                         min="1" placeholder="Qty" value="">
-                </div>
-              </div>
-            </div>
-            <button type="button" class="btn btn-outline-secondary btn-sm mt-1" id="add-part"
-                    onclick="(function(){var c=document.getElementById('parts-list'),t=c.querySelector('.part-entry').cloneNode(true);t.querySelectorAll('select,input').forEach(function(e){e.value='';});c.appendChild(t);})()">
-              <i class="bi bi-plus me-1"></i>Add Part
-            </button>
-          </div>
-          <button class="btn btn-success mt-2 w-100"><i class="bi bi-check-lg me-1"></i>Mark Complete</button>
-        </form>
-      </div>
-    </div>
-  </div>
-</div>
+
+{# Start L2 Repair section hidden per spec — repairs are started from the Devices in L2 table below. #}
+
 <!-- Scrap warning / Suggest QC banners -->
 {% if scrap_warning_map %}
 <div class="alert alert-danger alert-dismissible fade show mb-3" role="alert">
@@ -138,86 +29,126 @@
 </div>
 {% endif %}
 
-<div class="card border-0 shadow-sm">
-  <div class="card-header bg-transparent fw-semibold">Devices in L2 ({{ devices|length }})</div>
-  <div class="card-body p-0">
-    <table id="l2Table" class="table table-hover mb-0 small">
-      <thead class="table-dark"><tr><th>WorkID</th><th>Barcode</th><th>Lot</th><th>Brand</th><th>Model</th><th>CPU</th><th>RAM</th><th>Storage</th><th>Screen</th><th>Grade</th><th>Location</th><th>Notes</th><th>Timeline</th><th>Action</th></tr></thead>
-      <tbody>
-        {% for device, lot_number in devices %}
-        {% set wo = work_map.get(device.id|string) if work_map is defined else None %}
-        <tr>
-          <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
-          <td><code>{{ device.barcode }}</code></td>
-          <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
-          <td>{{ device.brand or '—' }}</td><td>{{ device.model or '—' }}</td>
-          <td class="text-muted small">{{ device.cpu or '—' }}</td>
-          <td>{{ (device.ram_gb|string ~ 'GB') if device.ram_gb else '—' }}</td>
-          <td>{{ (device.storage_gb|string ~ 'GB') if device.storage_gb else '—' }}</td>
-          <td class="text-muted small">{{ device.screen_size or '—' }}</td>
-          <td>{{ device.grade or '—' }}</td>
-          <td>
-            {% set loc = location_map.get(device.id | string) %}
-            {% if loc and loc.unit_id %}
-              {% if loc.action == 'picked_up' %}
-                <span class="badge bg-warning text-dark"><i class="bi bi-hand-index me-1"></i>{{ loc.unit_id }}</span>
-              {% else %}
-                <span class="badge bg-success">{{ loc.unit_id }}</span>
-              {% endif %}
-            {% elif loc and loc.action == 'picked_up' %}
-              <span class="badge bg-warning text-dark"><i class="bi bi-hand-index me-1"></i>In Hand</span>
-            {% else %}
-              <a href="/locations/device/{{ device.id }}" class="text-danger small" title="Assign location"><i class="bi bi-geo-alt"></i> —</a>
-            {% endif %}
-          </td>
-          <td class="text-muted small">{{ device.notes or '' }}</td>
-          <td>{% if wo %}<span class="badge bg-{{ 'danger' if wo.days_pending >= 3 else ('warning text-dark' if wo.days_pending >= 1 else 'secondary') }}">{{ wo.days_pending }} day{{ 's' if wo.days_pending != 1 else '' }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-          <td>
-            <form method="post" action="/repair/start" class="d-inline">
-              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-              <input type="hidden" name="barcode" value="{{ device.barcode }}">
-              <input type="hidden" name="stage" value="{{ stage }}">
-              <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-play-fill"></i> Start Repair</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
+<div class="d-flex flex-column flex-lg-row gap-3 align-items-start">
 
-{# ── Pagination ────────────────────────────────────────────────────────── #}
-{% if total_pages and total_pages > 1 %}
-<nav class="mt-3" aria-label="Device list pagination">
-  <ul class="pagination pagination-sm justify-content-center mb-0">
-    <li class="page-item {% if page <= 1 %}disabled{% endif %}">
-      <a class="page-link" href="?page={{ page - 1 }}&page_size={{ page_size }}">‹ Prev</a>
-    </li>
-    {% for p in range(1, total_pages + 1) %}
-      {% if p == page %}
-        <li class="page-item active"><span class="page-link">{{ p }}</span></li>
-      {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
-        <li class="page-item"><a class="page-link" href="?page={{ p }}&page_size={{ page_size }}">{{ p }}</a></li>
-      {% elif p == page - 3 or p == page + 3 %}
-        <li class="page-item disabled"><span class="page-link">…</span></li>
-      {% endif %}
-    {% endfor %}
-    <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
-      <a class="page-link" href="?page={{ page + 1 }}&page_size={{ page_size }}">Next ›</a>
-    </li>
-  </ul>
-  <p class="text-center text-muted small mt-1">{{ total }} device(s) in stage &bull; Page {{ page }} of {{ total_pages }}</p>
-</nav>
-{% endif %}
+  <!-- Devices in L2 (70%) -->
+  <div style="flex:1 1 70%; width:70%; min-width:0;">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">Devices in L2 ({{ devices|length }})</div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table id="l2Table" class="table table-hover mb-0 small">
+            <thead class="table-dark"><tr><th>WorkID</th><th>Tag Number</th><th>Location</th><th>Parts Required</th><th>Parts Requested</th><th>Notes</th><th>Timeline</th><th>Action</th></tr></thead>
+            <tbody>
+              {% for device, lot_number in devices %}
+              {% set wo = work_map.get(device.id|string) if work_map is defined else None %}
+              <tr>
+                <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
+                <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a></td>
+                <td>
+                  {% set loc = location_map.get(device.id | string) %}
+                  {% if loc and loc.unit_id %}
+                    {% if loc.action == 'picked_up' %}
+                      <span class="badge bg-warning text-dark"><i class="bi bi-hand-index me-1"></i>{{ loc.unit_id }}</span>
+                    {% else %}
+                      <span class="badge bg-success">{{ loc.unit_id }}</span>
+                    {% endif %}
+                  {% elif loc and loc.action == 'picked_up' %}
+                    <span class="badge bg-warning text-dark"><i class="bi bi-hand-index me-1"></i>In Hand</span>
+                  {% else %}
+                    <a href="/locations/device/{{ device.id }}" class="text-danger small" title="Assign location"><i class="bi bi-geo-alt"></i> —</a>
+                  {% endif %}
+                </td>
+                <td class="text-center">{% set pr = parts_required_map.get(device.id|string, 0) if parts_required_map is defined else 0 %}<span class="badge bg-{{ 'warning text-dark' if pr else 'light text-muted border' }}">{{ pr }}</span></td>
+                <td class="text-center">{% set pq = parts_requested_map.get(device.id|string, 0) if parts_requested_map is defined else 0 %}<span class="badge bg-{{ 'primary' if pq else 'light text-muted border' }}">{{ pq }}</span></td>
+                <td class="text-muted small">{{ device.notes or '' }}</td>
+                <td>{% if wo %}<span class="badge bg-{{ 'danger' if wo.days_pending >= 3 else ('warning text-dark' if wo.days_pending >= 1 else 'secondary') }}">{{ wo.days_pending }} day{{ 's' if wo.days_pending != 1 else '' }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                <td class="text-nowrap">
+                  {% if started_ids is defined and device.id|string in started_ids %}
+                  <span class="badge rounded-pill bg-info"><i class="bi bi-play-circle me-1"></i>Repair Started</span>
+                  {% else %}
+                  <form method="post" action="/repair/start" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                    <input type="hidden" name="barcode" value="{{ device.barcode }}">
+                    <input type="hidden" name="stage" value="{{ stage }}">
+                    <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-play-fill"></i> Start Repair</button>
+                  </form>
+                  {% endif %}
+                  <a href="/devices/{{ device.barcode }}#parts" class="btn btn-sm" style="background-color:#ffc107;color:#000000;border-color:#ffc107;"><i class="bi bi-bag-plus"></i> Request Part</a>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    {# ── Pagination ────────────────────────────────────────────────────────── #}
+    {% if total_pages and total_pages > 1 %}
+    <nav class="mt-3" aria-label="Device list pagination">
+      <ul class="pagination pagination-sm justify-content-center mb-0">
+        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+          <a class="page-link" href="?page={{ page - 1 }}&page_size={{ page_size }}">‹ Prev</a>
+        </li>
+        {% for p in range(1, total_pages + 1) %}
+          {% if p == page %}
+            <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+          {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+            <li class="page-item"><a class="page-link" href="?page={{ p }}&page_size={{ page_size }}">{{ p }}</a></li>
+          {% elif p == page - 3 or p == page + 3 %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+          <a class="page-link" href="?page={{ page + 1 }}&page_size={{ page_size }}">Next ›</a>
+        </li>
+      </ul>
+      <p class="text-center text-muted small mt-1">{{ total }} device(s) in stage &bull; Page {{ page }} of {{ total_pages }}</p>
+    </nav>
+    {% endif %}
+  </div>
+
+  <!-- Complete L2 Repair Job (30%) -->
+  <div style="flex:1 1 30%; width:30%; min-width:0;">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-success-subtle fw-semibold"><i class="bi bi-check-circle me-2"></i>Complete L2 Repair Job</div>
+      <div class="card-body">
+        <form action="/repair/complete" method="post">
+          <div class="row g-2">
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Open Job</label>
+              <select name="job_id" class="form-select" required>
+                <option value="">-- Select open job --</option>
+                {% for job, barcode, brand, model in open_jobs %}
+                <option value="{{ job.id }}">{{ barcode }} — {{ brand }} {{ model }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold d-block">Final Status</label>
+              {% for opt in ['Completed','Escalate to L3'] %}
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="final_status" value="{{ opt }}" id="fs_l2_{{ loop.index }}">
+                <label class="form-check-label" for="fs_l2_{{ loop.index }}">{{ opt }}</label>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Resolution / Work Done</label>
+              <input type="text" name="resolution" class="form-control" placeholder="Resolution / work done">
+            </div>
+          </div>
+          <button class="btn btn-success mt-3 w-100"><i class="bi bi-check-lg me-1"></i>Mark Complete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
 $(document).ready(function(){ $('#l2Table').DataTable({paging:false}); });
-document.getElementById('ramStatus2').addEventListener('change', function() {
-  const c = this.value !== 'No Change';
-  document.getElementById('ramRem2').style.display = c ? '' : 'none';
-  document.getElementById('ramAdd2').style.display = c ? '' : 'none';
-});
 </script>
 {% endblock %}

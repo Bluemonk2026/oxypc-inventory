@@ -20,6 +20,9 @@ from models.spare_parts import SparePartConsumption, SparePart
 from models.location import DeviceLocationLog, StorageLocation, LocationAction
 from models.iqc_inspection import IQCInspection
 from models.part_request import PartRequest
+from models.work_order import WorkOrder
+from models.engines import DeviceCosting
+from models.sales import Sale
 from services.parts_required import compute_required
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 
@@ -139,6 +142,24 @@ async def device_search(
     device_ids = [d.id for d, _ in devices]  # UUID objects
     location_map = await _build_location_map(db, device_ids)
 
+    # Stock Price (P&L total cost) + Sale Price (from Sales) per device
+    stock_price_map, sale_price_map = {}, {}
+    if device_ids:
+        for c in (await db.execute(
+            select(DeviceCosting).where(DeviceCosting.device_id.in_(device_ids))
+        )).scalars().all():
+            stock_price_map[str(c.device_id)] = c.total_cost
+        for d, _ in devices:
+            did = str(d.id)
+            if did not in stock_price_map and d.device_price:
+                stock_price_map[did] = d.device_price * (d.qty or 1)
+        sale_rows = (await db.execute(
+            select(Sale.device_id, func.max(Sale.sale_price))
+            .where(Sale.device_id.in_(device_ids)).group_by(Sale.device_id)
+        )).all()
+        for did, sp in sale_rows:
+            sale_price_map[str(did)] = sp
+
     return templates.TemplateResponse("devices/list.html", {
         "request": request, "current_user": current_user,
         "devices": devices, "lots": lots,
@@ -146,6 +167,7 @@ async def device_search(
         "q": q, "stage": stage, "lot": lot, "grade": grade, "category": category,
         "total": len(devices),
         "location_map": location_map,
+        "stock_price_map": stock_price_map, "sale_price_map": sale_price_map,
     })
 
 
@@ -315,6 +337,12 @@ async def device_detail(
             "request": existing,
         })
 
+    # ── Work ID History — all WorkOrders assigned to this device ──────────────
+    work_orders = (await db.execute(
+        select(WorkOrder).where(WorkOrder.device_id == device.id)
+        .order_by(WorkOrder.assigned_at.desc())
+    )).scalars().all()
+
     return templates.TemplateResponse("devices/detail.html", {
         "request": request, "current_user": current_user,
         "device": device, "lot": lot,
@@ -327,6 +355,7 @@ async def device_detail(
         "iqc_inspection": iqc_inspection,
         "stress_data": stress_data,
         "parts_consumption": parts_consumption,
+        "work_orders": work_orders,
     })
 
 
@@ -354,11 +383,15 @@ async def device_edit_form(
         .order_by(StageMovement.moved_at.desc())
     )
     movements = movements_result.scalars().all()
+    iqc_inspection = (await db.execute(
+        select(IQCInspection).where(IQCInspection.device_id == device.id)
+    )).scalar_one_or_none()
     return templates.TemplateResponse("devices/edit.html", {
         "request": request, "current_user": current_user,
         "device": device, "lots": lots,
         "storage_locations": storage_locations,
         "movements": movements,
+        "iqc_inspection": iqc_inspection,
         "success": request.query_params.get("success"),
     })
 
@@ -382,6 +415,7 @@ async def device_edit_save(
     hdd_capacity_gb: str = Form(""),
     screen_size: str = Form(""),
     battery_health_pct: str = Form(""),
+    battery_present: str = Form(""),
     bios_password: str = Form("no"),
     color: str = Form(""),
     grade: str = Form(""),
@@ -433,6 +467,14 @@ async def device_edit_save(
         except ValueError:
             pass
     device.updated_at = app_now()
+
+    # Internal Battery is stored on the device's IQC inspection (drives the Battery
+    # part-required flag on the Parts Consumption section). Update it if one exists.
+    iqc_inspection = (await db.execute(
+        select(IQCInspection).where(IQCInspection.device_id == device.id)
+    )).scalar_one_or_none()
+    if iqc_inspection is not None:
+        iqc_inspection.battery_present = battery_present or None
 
     await db.commit()
     return RedirectResponse(

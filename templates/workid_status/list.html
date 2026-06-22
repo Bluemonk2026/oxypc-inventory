@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}WorkID Status — OxyPC{% endblock %}
+{% block page_title %}WorkID Status{% endblock %}
+{% block content %}
+
+<!-- Filter bar -->
+<form method="get" action="/workid-status" class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold mb-1">Search WorkID</label>
+        <input type="text" name="workid" value="{{ f_workid }}" class="form-control form-control-sm font-monospace" placeholder="WorkID…">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold mb-1">Search Tag Number</label>
+        <input type="text" name="tag" value="{{ f_tag }}" class="form-control form-control-sm font-monospace" placeholder="Tag number…">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Engineer</label>
+        <select name="engineer" class="form-select form-select-sm">
+          <option value="">All Engineers</option>
+          {% for uname, name in engineers %}
+          <option value="{{ uname }}" {% if f_engineer == uname %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">From</label>
+        <input type="date" name="date_from" value="{{ f_date_from }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">To</label>
+        <input type="date" name="date_to" value="{{ f_date_to }}" class="form-control form-control-sm">
+      </div>
+    </div>
+    <div class="d-flex gap-2 mt-2">
+      <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search me-1"></i>Search</button>
+      <a href="/workid-status" class="btn btn-outline-secondary btn-sm">Reset</a>
+    </div>
+  </div>
+</form>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-clipboard-check me-2"></i>Work ID Details</span>
+    <span class="text-muted small">{{ items|length }} WorkID(s)</span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="workidTable" class="table table-hover mb-0 small align-middle">
+        <thead class="table-dark">
+          <tr>
+            <th>WorkID</th><th>Tag Number</th><th>Model</th><th>Current Status</th>
+            <th>Parts Required</th><th>Parts Requested</th><th>Timeline</th><th>Notes</th><th>Assigned Engineer</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+          <tr id="wo-{{ it.work_id }}" class="{{ 'table-warning' if highlight and highlight == it.work_id else '' }}">
+            <td class="font-monospace fw-bold">{{ it.work_id }}</td>
+            <td><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
+            <td>{{ it.model or '—' }}</td>
+            <td><span class="badge bg-secondary">{{ it.stage_label }}</span></td>
+            <td class="text-center"><span class="badge bg-{{ 'warning text-dark' if it.parts_required else 'light text-muted border' }}">{{ it.parts_required }}</span></td>
+            <td class="text-center"><span class="badge bg-{{ 'primary' if it.parts_requested else 'light text-muted border' }}">{{ it.parts_requested }}</span></td>
+            <td class="text-nowrap">
+              <span class="text-muted">{{ it.start.strftime('%d-%m-%Y') if it.start else '—' }}</span>
+              <i class="bi bi-arrow-right mx-1 text-muted"></i>
+              {% if it.finalqc %}<span class="text-muted">{{ it.finalqc.strftime('%d-%m-%Y') }}</span>
+              {% else %}<span class="text-muted fst-italic">ongoing</span>{% endif %}
+              <span class="badge rounded-pill bg-{{ 'success' if it.finalqc else ('danger' if it.days >= 7 else 'warning text-dark') }} ms-1"
+                    title="{{ 'Days from creation to Final QC' if it.finalqc else 'Days since creation (not yet sent to Final QC)' }}">
+                {{ it.days }} day{{ 's' if it.days != 1 else '' }}
+              </span>
+            </td>
+            <td class="text-muted">{{ it.notes or '' }}</td>
+            <td>{{ it.engineer }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="text-center text-muted py-4">No WorkIDs found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){
+  if ($('#workidTable tbody tr td').length > 1) {
+    $('#workidTable').DataTable({ pageLength: 25, order: [] });
+  }
+  {% if highlight %}
+  // Scroll the highlighted WorkID row into view
+  var hl = document.getElementById('wo-{{ highlight }}');
+  if (hl) {
+    if (hl.scrollIntoView) hl.scrollIntoView({behavior:'smooth', block:'center'});
+    hl.classList.add('table-warning');
+  }
+  {% endif %}
+});
+</script>
+{% endblock %}

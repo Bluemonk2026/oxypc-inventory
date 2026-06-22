@@ -17,9 +17,12 @@ def _faulty(val):
 
 
 PARTS_MATRIX = [
-    ("RAM",               "RAM",        "ram",      lambda i, d: False),
-    ("SSD / Storage",     "SSD",        "ssd",      lambda i, d: False),
-    ("HDD Connector/Caddy", "HDD",      "hdd",      lambda i, d: _is(i.hdd_connector, "No")),
+    # RAM required when RAM = "Not Available" (blank → stored as None)
+    ("RAM",               "RAM",        "ram",      lambda i, d: d is not None and d.ram_gb is None),
+    # SSD / Storage required when SSD Capacity OR Storage Type = "Not Available"
+    ("SSD / Storage",     "SSD",        "ssd",      lambda i, d: d is not None and (d.storage_gb is None or not d.storage_type)),
+    # HDD Connector/Caddy required when HDD connector faulty OR HDD Capacity = "Not Available"
+    ("HDD Connector/Caddy", "HDD",      "hdd",      lambda i, d: _is(i.hdd_connector, "No") or (d is not None and d.hdd_capacity_gb is None)),
     ("Battery",           "Battery",    "battery",  lambda i, d: _is(i.battery_present, "No")
                           or (d is not None and d.battery_health_pct is not None and d.battery_health_pct < 40)),
     ("Keyboard",          "Keyboard",   "keyboard", lambda i, d: _is(i.keyboard_working, "No")
@@ -38,15 +41,21 @@ PARTS_MATRIX = [
 ]
 
 
+class _NullIQC:
+    """Stand-in when a device has no IQC inspection yet — any attribute reads as None,
+    so device-driven rules (RAM / Storage / HDD = 'Not Available') still evaluate."""
+    def __getattr__(self, _name):
+        return None
+
+
 def compute_required(iqc, device):
     """Return list of {label, category, keyword, required} for the fixed parts list."""
+    i = iqc if iqc is not None else _NullIQC()
     rows = []
     for label, category, keyword, fn in PARTS_MATRIX:
-        required = False
-        if iqc is not None:
-            try:
-                required = bool(fn(iqc, device))
-            except Exception:
-                required = False
+        try:
+            required = bool(fn(i, device))
+        except Exception:
+            required = False
         rows.append({"label": label, "category": category, "keyword": keyword, "required": required})
     return rows

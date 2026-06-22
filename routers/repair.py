@@ -26,6 +26,8 @@ from services.audit_engine import audit
 from models.spare_parts import SparePartConsumption as SPC, SparePart
 from models.work_order import WorkOrder
 from models.part_request import PartRequest
+from models.iqc_inspection import IQCInspection
+from services.parts_required import compute_required
 
 router = APIRouter(prefix="/repair", tags=["repair"], dependencies=[Depends(verify_csrf)])
 
@@ -155,6 +157,33 @@ async def repair_list(stage: str, request: Request,
         for (did,) in na_rows:
             parts_alert_map[str(did)] = True
 
+    # ── Parts Required (IQC-driven count) + Parts Requested (requested + handed over) ─
+    parts_required_map: dict = {}
+    parts_requested_map: dict = {}
+    if device_ids:
+        # Required count: from each device's IQC inspection via the fixed parts matrix
+        iqc_rows = (await db.execute(
+            select(IQCInspection).where(IQCInspection.device_id.in_(device_ids))
+        )).scalars().all()
+        iqc_by_dev = {}
+        for iqc in iqc_rows:
+            iqc_by_dev.setdefault(str(iqc.device_id), iqc)  # one per device
+        dev_by_id = {str(d.id): d for d, _ in devices}
+        for did_str, dev in dev_by_id.items():
+            iqc = iqc_by_dev.get(did_str)
+            parts_required_map[did_str] = sum(
+                1 for r in compute_required(iqc, dev) if r["required"]
+            )
+        # Requested count: PartRequests in requested / handed_over state
+        pr_rows = (await db.execute(
+            select(PartRequest.device_id, func.count(PartRequest.id))
+            .where(PartRequest.device_id.in_(device_ids),
+                   PartRequest.status.in_(["requested", "handed_over"]))
+            .group_by(PartRequest.device_id)
+        )).all()
+        for did, cnt in pr_rows:
+            parts_requested_map[str(did)] = cnt
+
     return templates.TemplateResponse(f"repair/{stage}.html", {
         "request": request, "devices": devices, "open_jobs": open_jobs,
         "stage": stage.upper(), "current_user": current_user,
@@ -164,6 +193,9 @@ async def repair_list(stage: str, request: Request,
         "available_parts": available_parts,
         "work_map": work_map,
         "parts_alert_map": parts_alert_map,
+        "parts_required_map": parts_required_map,
+        "parts_requested_map": parts_requested_map,
+        "started_ids": {str(j.device_id) for j, *_ in open_jobs},
         "page": page, "page_size": page_size,
         "total": total, "total_pages": total_pages,
     })
@@ -350,6 +382,12 @@ async def complete_repair(
                              notes=f"{job.stage} escalated — {final_status}"))
         device.current_stage = escalate_to
         device.updated_at    = app_now()
+        # Carry the same WorkID to the next level (re-stage the open WorkOrder)
+        await db.execute(
+            sa_update(WorkOrder)
+            .where(WorkOrder.device_id == device.id, WorkOrder.status != "completed")
+            .values(stage=escalate_to.value)
+        )
 
     elif final_status == "PNA" and device:
         # Parts Not Available — keep device in current stage; job status already saved above
@@ -359,6 +397,33 @@ async def complete_repair(
                                "status": "PNA", "resolution": resolution or ""},
                     request=request)
 
+    elif final_status == "Back to Inventory" and device:
+        # Move the device back to the Stock Inward table
+        from sqlalchemy import update as sa_update
+        current = device.current_stage
+        prev_mv = (await db.execute(
+            select(StageMovement)
+            .where(StageMovement.device_id == device.id,
+                   StageMovement.to_stage  == current,
+                   StageMovement.exited_at == None)
+            .order_by(StageMovement.moved_at.desc())
+        )).scalars().first()
+        if prev_mv:
+            prev_mv.exited_at = app_now()
+        # Close any other open repair jobs at this stage
+        await db.execute(
+            sa_update(RepairJob)
+            .where(RepairJob.device_id == device.id,
+                   RepairJob.stage     == job.stage,
+                   RepairJob.status    == RepairStatus.in_progress)
+            .values(status=RepairStatus.completed, completed_at=app_now())
+        )
+        db.add(StageMovement(device_id=device.id, from_stage=current, to_stage=DeviceStage.stock_in,
+                             moved_by=current_user.username,
+                             notes=f"{job.stage} completed — moved back to Stock Inward"))
+        device.current_stage = DeviceStage.stock_in
+        device.updated_at    = app_now()
+
     elif (move_to_next == "yes"
           or final_status.strip().lower() in ("completed", "ok")) and device:
         # A successful completion always advances to the next stage
@@ -367,7 +432,11 @@ async def complete_repair(
         from sqlalchemy import update as sa_update
         is_admin = current_user.role.value == "admin"
         current  = device.current_stage
-        next_s   = NEXT_STAGE.get(current)
+        # Per business rule: a Completed repair at L1/L2/L3 goes straight to Stress Test (qc_check)
+        if final_status.strip().lower() in ("completed", "ok"):
+            next_s = DeviceStage.qc_check
+        else:
+            next_s = NEXT_STAGE.get(current)
         if next_s:
             await validate_transition(device, next_s, db, override_admin=is_admin)
             prev_mv = (await db.execute(

@@ -190,7 +190,7 @@
           <tr>
             <th>Part Name</th><th>Code</th><th>Qty Used</th>
             <th>Unit Cost</th><th>Total Cost</th>
-            <th>Device Barcode</th><th>Stage</th>
+            <th>Device Tag Number</th><th>Stage</th>
             <th>Used By</th><th>Date</th>
           </tr>
         </thead>
@@ -231,23 +231,24 @@
     <div class="table-responsive">
       <table id="partReqTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark"><tr>
-          <th>WorkID</th><th>Barcode</th><th>Engineer</th><th>Part Name</th>
-          <th>Qty Requested</th><th>Qty Handover</th><th>Action</th>
+          <th>WorkID</th><th>Tag Number</th><th>Engineer</th><th>Part Name</th>
+          <th>Qty Requested</th><th>Qty Handover</th><th>QTY Available</th><th>Action</th>
         </tr></thead>
         <tbody>
           {% for r in part_reqs %}
           {% set stock = part_stock.get(r.part_id|string, 0) %}
           {% set sufficient = r.part_id and stock >= r.qty_requested %}
           <tr>
-            <td class="font-monospace">{{ r.work_id or '—' }}</td>
+            <td class="font-monospace">{% if r.work_id %}<a href="/workid-status?highlight={{ r.work_id }}" class="text-decoration-none" title="View in WorkID Status">{{ r.work_id }}</a>{% else %}—{% endif %}</td>
             <td><a href="/devices/{{ r.barcode }}" class="font-monospace text-decoration-none">{{ r.barcode }}</a></td>
             <td>{{ r.engineer_name or r.requested_by or '—' }}</td>
             <td class="fw-semibold">{{ r.part_name }}</td>
             <td>{{ r.qty_requested }}</td>
             <td>{{ r.qty_handed_over or '—' }}</td>
+            <td><span class="badge {{ 'bg-success' if sufficient else 'bg-danger' }}">{{ stock }}</span></td>
             <td>
-              {% if r.status == 'requested' %}
-              <div class="d-flex gap-1 flex-wrap">
+              <div class="d-flex gap-1 flex-wrap align-items-center">
+                {% if r.status == 'requested' %}
                 <button class="btn btn-sm btn-success py-0 px-2" data-bs-toggle="modal" data-bs-target="#handoverModal"
                         data-req="{{ r.id }}" data-part="{{ r.part_name }}" data-eng="{{ r.engineer_name or r.requested_by }}"
                         {{ 'disabled' if not sufficient }}>Handover</button>
@@ -255,19 +256,20 @@
                   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                   <button class="btn btn-sm btn-outline-danger py-0 px-2" {{ 'disabled' if sufficient }}>Not In Stock</button>
                 </form>
+                {% elif r.status == 'handed_over' %}<span class="badge bg-success">Handed Over &times;{{ r.qty_handed_over }}</span>
+                {% elif r.status == 'not_in_stock' %}<span class="badge bg-danger">Not In Stock</span>
+                {% elif r.status == 'procure' %}<span class="badge bg-info text-dark">Sent for Sourcing</span>
+                {% else %}<span class="badge bg-secondary">{{ r.status }}</span>{% endif %}
+                {# Procure — always visible and enabled regardless of status #}
                 <form method="post" action="/part-requests/{{ r.id }}/procure" class="d-inline">
                   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                   <button class="btn btn-sm btn-outline-info py-0 px-2">Procure</button>
                 </form>
               </div>
-              {% elif r.status == 'handed_over' %}<span class="badge bg-success">Handed Over &times;{{ r.qty_handed_over }}</span>
-              {% elif r.status == 'not_in_stock' %}<span class="badge bg-danger">Not In Stock</span>
-              {% elif r.status == 'procure' %}<span class="badge bg-info text-dark">Sent for Sourcing</span>
-              {% else %}<span class="badge bg-secondary">{{ r.status }}</span>{% endif %}
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="7" class="text-center text-muted py-4">No part requests.</td></tr>
+          <tr><td colspan="8" class="text-center text-muted py-4">No part requests.</td></tr>
           {% endfor %}
         </tbody>
       </table>

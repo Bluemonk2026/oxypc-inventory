@@ -65,10 +65,17 @@ async def dispatch_list(request: Request, db: AsyncSession = Depends(get_db),
         for did, cnt in sold_rows:
             sold_by[str(did)] = cnt
 
-    buckets = {"A": [], "B": [], "C": []}
+    buckets = {"A": [], "B": [], "C": [], "D": []}
     for device, lot_number in rows:
         gv = device.grade.value if device.grade else None
-        key = "A" if gv == "A" else ("B" if gv == "B" else "C")
+        if gv == "A":
+            key = "A"
+        elif gv == "B":
+            key = "B"
+        elif gv == "D":
+            key = "D"
+        else:
+            key = "C"  # C, scrap, ungraded → C
         qty = device.qty or 1
         disp = approved_qty.get(str(device.id), 0)
         buckets[key].append({
@@ -77,9 +84,28 @@ async def dispatch_list(request: Request, db: AsyncSession = Depends(get_db),
             "pending": max(0, qty - disp), "sold": sold_by.get(str(device.id), 0),
         })
 
+    # Per-grade summary for the count cards (total + dispatched/pending/sold split)
+    card_stats = {}
+    for g, items in buckets.items():
+        card_stats[g] = {
+            "total": len(items),
+            "dispatched": sum(i["dispatched"] for i in items),
+            "pending": sum(i["pending"] for i in items),
+            "sold": sum(i["sold"] for i in items),
+        }
+
+    # Distinct telecallers for the request-section filter dropdown
+    _seen = {}
+    for r in dr:
+        uname = r.telecaller_username or ""
+        if uname and uname not in _seen:
+            _seen[uname] = r.telecaller_name or uname
+    telecaller_options = sorted(_seen.items(), key=lambda kv: kv[1].lower())
+
     return templates.TemplateResponse("dispatch/list.html", {
         "request": request, "current_user": current_user,
-        "buckets": buckets, "requests": dr,
+        "buckets": buckets, "card_stats": card_stats, "requests": dr,
+        "telecaller_options": telecaller_options,
     })
 
 

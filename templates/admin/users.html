@@ -24,7 +24,7 @@
           <td>{{ user.full_name }}</td>
           <td>
             <span class="badge {{ 'bg-danger' if user.role.value == 'admin' else 'bg-primary' if user.role.value == 'sales' else 'bg-info text-dark' }}">
-              {{ role_labels.get(user.role, user.role) }}
+              {{ role_label_map.get(user.role.value, user.role.value) if role_label_map is defined else user.role.value }}
             </span>
           </td>
           <td>

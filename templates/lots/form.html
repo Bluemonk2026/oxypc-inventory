@@ -24,19 +24,21 @@
           <!-- ════════════════ SECTION 1: Lot Identity ════════════════ -->
           <div class="bg-light rounded p-3 mb-4">
             <h6 class="fw-bold text-primary mb-3"><i class="bi bi-hash me-2"></i>Lot Identity</h6>
+            {% set _from_grn = (from_grn is defined and from_grn) %}
             <div class="row g-3">
               <div class="col-md-3">
                 <label class="form-label fw-semibold">Lot Number <span class="text-danger">*</span></label>
-                <input type="text" name="lot_number" class="form-control font-monospace"
-                       value="{{ lot.lot_number if lot else next_lot_number }}" required>
+                <input type="text" name="lot_number" class="form-control font-monospace {{ 'bg-light' if _from_grn and prefill_lot_number }}"
+                       value="{{ lot.lot_number if lot else ((prefill_lot_number if (prefill_lot_number is defined and prefill_lot_number) else next_lot_number)) }}" required
+                       {% if _from_grn and prefill_lot_number is defined and prefill_lot_number %}readonly tabindex="-1"{% endif %}>
               </div>
               <div class="col-md-3">
                 <label class="form-label fw-semibold">GRN System Number</label>
-                <input type="text" name="grn_system_number" class="form-control font-monospace"
-                       placeholder="e.g. GRN-178"
-                       value="{{ lot.grn_system_number or '' if lot else '' }}">
+                <input type="text" name="grn_system_number" class="form-control font-monospace {{ 'bg-light' if _from_grn }}"
+                       placeholder="e.g. GRN-178" {% if _from_grn %}readonly tabindex="-1"{% endif %}
+                       value="{{ (lot.grn_system_number or '') if lot else (prefill_grn_system if prefill_grn_system is defined else '') }}">
               </div>
-              <div class="col-md-3">
+              <div class="col-md-3 d-none">
                 <label class="form-label fw-semibold">GRN Number (Numeric)</label>
                 <input type="number" name="grn_number_new" class="form-control"
                        placeholder="e.g. 433" min="0"
@@ -44,21 +46,22 @@
               </div>
               <div class="col-md-3">
                 <label class="form-label fw-semibold">Purchase / GRN Date <span class="text-danger">*</span></label>
-                <input type="date" name="purchase_date" class="form-control" required
-                       value="{{ lot.purchase_date.strftime('%Y-%m-%d') if lot and lot.purchase_date else '' }}">
+                <input type="date" name="purchase_date" class="form-control {{ 'bg-light' if _from_grn }}" required {% if _from_grn %}readonly{% endif %}
+                       value="{{ lot.purchase_date.strftime('%Y-%m-%d') if (lot and lot.purchase_date) else (prefill_grn_date if (prefill_grn_date is defined and prefill_grn_date) else (today_date if today_date is defined else '')) }}">
               </div>
-              <div class="col-md-4">
+              {% set _supplier_locked = (prefill_supplier_locked is defined and prefill_supplier_locked) %}
+              <div class="col-md-3">
+                <label class="form-label fw-semibold">Supplier / Vendor Name <span class="text-danger">*</span></label>
+                <input type="text" name="supplier_name" class="form-control {{ 'bg-light' if _supplier_locked }}"
+                       placeholder="Supplier name" required {% if _supplier_locked %}readonly tabindex="-1"{% endif %}
+                       value="{{ lot.supplier_name if lot else (prefill_supplier_locked if _supplier_locked else (prefill.supplier if prefill else '')) }}">
+              </div>
+              <div class="col-md-6">
                 <label class="form-label fw-semibold">Date of Material Received</label>
                 <input type="date" name="grn_date" class="form-control"
                        value="{{ lot.grn_date.strftime('%Y-%m-%d') if lot and lot.grn_date else '' }}">
               </div>
-              <div class="col-md-4">
-                <label class="form-label fw-semibold">Supplier / Vendor Name <span class="text-danger">*</span></label>
-                <input type="text" name="supplier_name" class="form-control"
-                       placeholder="Supplier name" required
-                       value="{{ lot.supplier_name if lot else (prefill.supplier if prefill else '') }}">
-              </div>
-              <div class="col-md-4">
+              <div class="col-md-6">
                 <label class="form-label fw-semibold">Vendor Name (PO)</label>
                 <input type="text" name="vendor_name" class="form-control"
                        placeholder="Vendor from PO (if different)"

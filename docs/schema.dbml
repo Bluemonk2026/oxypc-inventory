@@ -1229,3 +1229,87 @@ Ref: qa_test_cases.requirement_id > qa_requirements.id
 Ref: qa_uat_scenarios.requirement_id > qa_requirements.id
 Ref: qa_test_executions.test_case_id > qa_test_cases.id
 Ref: qa_defects.test_case_id > qa_test_cases.id
+
+// ══════════════════════════════════════════════════════════════════════
+// Sprint 29 — Workflow & Fulfilment pool (added Jun 2026)
+// ══════════════════════════════════════════════════════════════════════
+
+Table work_orders {
+  id uuid [pk, not null]
+  work_id varchar(12) [unique, not null, note: '12-digit WorkID']
+  device_id uuid [not null, note: 'indexed']
+  barcode varchar(100)
+  stage varchar(5) [note: 'l1 | l2 | l3']
+  assigned_role varchar(30)
+  assigned_user_id uuid [note: 'indexed']
+  assigned_username varchar(50)
+  assigned_name varchar(100)
+  status varchar(20) [not null, default: 'pending']
+  source_transfer_id uuid
+  assigned_at datetime [not null, default: `now()`]
+  started_at datetime
+  completed_at datetime
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+}
+
+Table part_requests {
+  id uuid [pk, not null]
+  work_order_id uuid
+  work_id varchar(12)
+  device_id uuid [not null, note: 'indexed']
+  barcode varchar(100)
+  stage varchar(5)
+  part_id uuid
+  part_name varchar(150) [not null]
+  requested_by varchar(50)
+  engineer_name varchar(100)
+  qty_requested int [not null, default: 1]
+  qty_handed_over int [not null, default: 0]
+  status varchar(20) [not null, default: 'requested', note: 'requested|handed_over|not_in_stock|procure']
+  created_at datetime [default: `now()`]
+  actioned_at datetime
+  actioned_by varchar(50)
+}
+
+Table part_sourcing_requests {
+  id uuid [pk, not null]
+  part_request_id uuid
+  part_id uuid
+  part_code varchar(20)
+  part_name varchar(150) [not null]
+  qty_requested int [not null, default: 1]
+  qty_sourced int [not null, default: 0]
+  raised_by varchar(50)
+  status varchar(10) [not null, default: 'open', note: 'open|closed']
+  source_deal_id varchar(50)
+  created_at datetime [default: `now()`]
+  closed_at datetime
+  closed_by varchar(50)
+}
+
+Table telecaller_dispatch_requests {
+  id uuid [pk, not null]
+  device_id uuid [not null, note: 'indexed']
+  barcode varchar(100)
+  telecaller_username varchar(50)
+  telecaller_name varchar(100)
+  qty_requested int [not null, default: 1]
+  qty_available int [not null, default: 1]
+  grade varchar(10)
+  status varchar(20) [not null, default: 'requested', note: 'requested|approved']
+  created_at datetime [default: `now()`]
+  approved_at datetime
+  approved_by varchar(50)
+}
+
+// Sprint 29 refs
+Ref: work_orders.device_id > devices.id
+Ref: work_orders.assigned_user_id > users.id
+Ref: work_orders.source_transfer_id > stock_transfers.id
+Ref: part_requests.work_order_id > work_orders.id
+Ref: part_requests.device_id > devices.id
+Ref: part_requests.part_id > spare_parts.id
+Ref: part_sourcing_requests.part_request_id > part_requests.id
+Ref: part_sourcing_requests.part_id > spare_parts.id
+Ref: telecaller_dispatch_requests.device_id > devices.id

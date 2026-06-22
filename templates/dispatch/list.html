@@ -3,57 +3,83 @@
 {% block page_title %}Ready to Dispatch{% endblock %}
 {% block content %}
 
-{% macro grade_table(label, items, color) %}
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-header bg-transparent fw-semibold">
-    <span class="badge bg-{{ color }} me-1">{{ label }}</span> Grade Devices
-    <span class="text-muted small">({{ items|length }})</span>
+{% set GRADES = [('A','success'),('B','warning text-dark'),('C','danger'),('D','secondary')] %}
+
+<!-- Count cards (#7): per-grade total + Dispatched / Pending / Sold -->
+<div class="row g-3 mb-3">
+  {% for g, color in GRADES %}
+  {% set st = (card_stats[g] if card_stats is defined else {'total':0,'dispatched':0,'pending':0,'sold':0}) %}
+  <div class="col-6 col-lg-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body py-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="badge bg-{{ color }}">Grade {{ g }}</span>
+          <span class="fs-3 fw-bold">{{ st.total }}</span>
+        </div>
+        <div class="d-flex justify-content-between text-center small">
+          <div><div class="text-muted">Dispatched</div><div class="fw-bold text-success">{{ st.dispatched }}</div></div>
+          <div><div class="text-muted">Pending</div><div class="fw-bold text-warning">{{ st.pending }}</div></div>
+          <div><div class="text-muted">Sold</div><div class="fw-bold">{{ st.sold }}</div></div>
+        </div>
+      </div>
+    </div>
   </div>
-  <div class="card-body p-0">
-    <table class="table table-hover mb-0 small">
-      <thead class="table-light"><tr>
-        <th class="ps-3">Barcode</th><th>Model Name</th><th>Lot</th><th>Quantities</th>
-        <th>Dispatched</th><th>Pending</th><th>Sold</th>
-      </tr></thead>
-      <tbody>
-        {% for it in items %}
-        <tr>
-          <td class="ps-3"><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
-          <td>{{ it.model }}</td>
-          <td>{% if it.lot %}<span class="badge bg-info text-dark">{{ it.lot }}</span>{% else %}—{% endif %}</td>
-          <td>{{ it.qty }}</td>
-          <td><span class="badge bg-success">{{ it.dispatched }}</span></td>
-          <td><span class="badge bg-warning text-dark">{{ it.pending }}</span></td>
-          <td>{{ it.sold }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="7" class="text-center text-muted py-3">No {{ label }} grade devices.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {% endfor %}
 </div>
+
+{% macro grade_rows(label, items) %}
+<table class="table table-hover mb-0 small">
+  <thead class="table-light"><tr>
+    <th class="ps-3">Tag Number</th><th>Model Name</th><th>Lot</th><th>Quantities</th>
+    <th>Dispatched</th><th>Pending</th><th>Sold</th>
+  </tr></thead>
+  <tbody>
+    {% for it in items %}
+    <tr>
+      <td class="ps-3"><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
+      <td>{{ it.model }}</td>
+      <td>{% if it.lot %}<span class="badge bg-info text-dark">{{ it.lot }}</span>{% else %}—{% endif %}</td>
+      <td>{{ it.qty }}</td>
+      <td><span class="badge bg-success">{{ it.dispatched }}</span></td>
+      <td><span class="badge bg-warning text-dark">{{ it.pending }}</span></td>
+      <td>{{ it.sold }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="text-center text-muted py-3">No {{ label }} grade devices.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
 {% endmacro %}
 
-{{ grade_table('A', buckets.A, 'success') }}
-{{ grade_table('B', buckets.B, 'warning text-dark') }}
-{{ grade_table('C', buckets.C, 'danger') }}
-
-<!-- Telecaller Requests -->
+<!-- Telecaller Requests (moved above accordions) -->
 <div class="card border-0 shadow-sm mb-3">
-  <div class="card-header bg-transparent fw-semibold">
-    <i class="bi bi-telephone me-2"></i>Telecaller Requests
-    <span class="badge bg-warning text-dark ms-1">{{ requests|selectattr('status','equalto','requested')|list|length }} pending</span>
+  <div class="card-header bg-transparent">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span class="fw-semibold">
+        <i class="bi bi-telephone me-2"></i>Telecaller Requests
+        <span class="badge bg-warning text-dark ms-1">{{ requests|selectattr('status','equalto','requested')|list|length }} pending</span>
+      </span>
+      <div class="d-flex gap-2 flex-wrap">
+        <select id="tcFilter" class="form-select form-select-sm" style="min-width:180px">
+          <option value="">All Telecallers</option>
+          {% for uname, name in (telecaller_options if telecaller_options is defined else []) %}
+          <option value="{{ uname }}">{{ name }}</option>
+          {% endfor %}
+        </select>
+        <input type="text" id="tcSearch" class="form-control form-control-sm" style="min-width:200px"
+               placeholder="Search Tag Number…">
+      </div>
+    </div>
   </div>
   <div class="card-body p-0">
-    <table class="table table-hover mb-0 small align-middle">
+    <table id="tcRequestsTable" class="table table-hover mb-0 small align-middle">
       <thead class="table-dark"><tr>
-        <th class="ps-3">Telecaller Name</th><th>Barcode</th><th>Quantity Requested</th><th>Quantity Available</th><th>Action</th>
+        <th class="ps-3">Telecaller Name</th><th>Tag Number</th><th>Quantity Requested</th><th>Quantity Available</th><th>Action</th>
       </tr></thead>
       <tbody>
         {% set _appr = current_user.role.value in ['admin','sales_manager'] %}
         {% for r in requests %}
-        <tr>
+        <tr data-telecaller="{{ r.telecaller_username or '' }}" data-barcode="{{ (r.barcode or '')|lower }}">
           <td class="ps-3">{{ r.telecaller_name or r.telecaller_username or '—' }}</td>
           <td><a href="/devices/{{ r.barcode }}" class="font-monospace text-decoration-none">{{ r.barcode }}</a></td>
           <td>{{ r.qty_requested }}</td>
@@ -69,10 +95,62 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="text-center text-muted py-3">No telecaller requests.</td></tr>
+        <tr id="tcEmptyRow"><td colspan="5" class="text-center text-muted py-3">No telecaller requests.</td></tr>
         {% endfor %}
+        <tr id="tcNoMatchRow" class="d-none"><td colspan="5" class="text-center text-muted py-3">No matching requests.</td></tr>
       </tbody>
     </table>
   </div>
 </div>
+
+<!-- Grade tables in accordions (#8); first (A) open by default -->
+<div class="accordion mb-3" id="gradeAccordion">
+  {% for g, color in GRADES %}
+  {% set items = buckets[g] %}
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button {{ '' if loop.first else 'collapsed' }}" type="button"
+              data-bs-toggle="collapse" data-bs-target="#grade{{ g }}"
+              aria-expanded="{{ 'true' if loop.first else 'false' }}" aria-controls="grade{{ g }}">
+        <span class="badge bg-{{ color }} me-2">{{ g }}</span> Grade Devices
+        <span class="text-muted small ms-2">({{ items|length }})</span>
+      </button>
+    </h2>
+    <div id="grade{{ g }}" class="accordion-collapse collapse {{ 'show' if loop.first else '' }}" data-bs-parent="#gradeAccordion">
+      <div class="accordion-body p-0">
+        {{ grade_rows(g, items) }}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var filterSel = document.getElementById('tcFilter');
+  var searchBox = document.getElementById('tcSearch');
+  var table = document.getElementById('tcRequestsTable');
+  if (!table) return;
+  var noMatch = document.getElementById('tcNoMatchRow');
+
+  function applyFilter(){
+    var tc = (filterSel ? filterSel.value : '');
+    var q = (searchBox ? searchBox.value.trim().toLowerCase() : '');
+    var rows = table.querySelectorAll('tbody tr[data-barcode]');
+    var visible = 0;
+    rows.forEach(function(row){
+      var okTc = !tc || row.getAttribute('data-telecaller') === tc;
+      var okQ  = !q || (row.getAttribute('data-barcode') || '').indexOf(q) !== -1;
+      var show = okTc && okQ;
+      row.classList.toggle('d-none', !show);
+      if (show) visible++;
+    });
+    if (noMatch) noMatch.classList.toggle('d-none', !(rows.length && visible === 0));
+  }
+  if (filterSel) filterSel.addEventListener('change', applyFilter);
+  if (searchBox) searchBox.addEventListener('input', applyFilter);
+})();
+</script>
 {% endblock %}

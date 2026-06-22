@@ -10,8 +10,8 @@
         {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
         <form action="/returns/new" method="post">
           <div class="mb-3">
-            <label class="form-label fw-semibold">Device Barcode</label>
-            <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan barcode" autofocus required>
+            <label class="form-label fw-semibold">Device Tag Number</label>
+            <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan tag number" autofocus required>
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Return Reason</label>

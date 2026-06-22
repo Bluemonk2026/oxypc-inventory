@@ -13,11 +13,20 @@
         {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
         <form action="/iqc/new" method="post">
 
+          <!-- ── USB auto-import bar ── -->
+          <div class="d-flex align-items-center justify-content-between bg-light border rounded p-2 mb-3">
+            <span class="small text-muted"><i class="bi bi-usb-drive me-1"></i>OxyQC USB: boot a laptop from the USB to capture specs, then plug it into this PC and import.</span>
+            <div class="d-flex align-items-center gap-2">
+              <span id="usbStatus" class="small"></span>
+              <button type="button" id="usbImportBtn" class="btn btn-sm btn-outline-primary"><i class="bi bi-download me-1"></i>Import from USB</button>
+            </div>
+          </div>
+
           <!-- ── Section 1: Identity ── -->
           <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Identity</p>
           <div class="row g-3 mb-3">
             <div class="col-md-3">
-              <label class="form-label fw-semibold">Barcode / Asset Tag <span class="text-danger">*</span></label>
+              <label class="form-label fw-semibold">Tag Number / Asset Tag <span class="text-danger">*</span></label>
               <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan or type" autofocus required>
             </div>
             <div class="col-md-3">
@@ -25,11 +34,11 @@
               <select name="lot_id" id="lot_id" class="form-select" required>
                 <option value="">-- Select Lot --</option>
                 {% for lot in lots %}
-                <option value="{{ lot.id }}">{{ lot.lot_number }} — {{ lot.supplier_name }}</option>
+                <option value="{{ lot.id }}" {% if prefill_lot_id is defined and prefill_lot_id and prefill_lot_id|string == lot.id|string %}selected{% endif %}>{{ lot.lot_number }} — {{ lot.supplier_name }}</option>
                 {% endfor %}
               </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-3 d-none">
               <label class="form-label">Lot Line Item <small class="text-muted">(auto-fills specs)</small></label>
               <select name="lot_line_item_id" id="lot_line_item_id" class="form-select">
                 <option value="">-- Select line item (optional) --</option>
@@ -37,7 +46,7 @@
             </div>
             <div class="col-md-3">
               <label class="form-label">GRN Number</label>
-              <input type="text" name="grn_number" class="form-control font-monospace" placeholder="e.g. GRN-2024-001">
+              <input type="text" name="grn_number" class="form-control font-monospace bg-light" placeholder="e.g. GRN-2024-001" value="{{ prefill_grn if prefill_grn is defined else '' }}" readonly tabindex="-1">
             </div>
             <div class="col-md-3">
               <label class="form-label">Serial No.</label>
@@ -51,6 +60,11 @@
                 <option>All-in-One</option><option>Workstation</option><option>Mini PC</option><option>Tablet</option>
               </select>
             </div>
+          </div>
+
+          <!-- ── Section 2: Brand & Model ── -->
+          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Brand &amp; Model</p>
+          <div class="row g-3 mb-3">
             <div class="col-md-3">
               <label class="form-label">Device Type</label>
               <select name="device_type" class="form-select">
@@ -59,11 +73,6 @@
                 <option>Workstation</option><option>Mini PC</option><option>Server</option><option>Tablet</option>
               </select>
             </div>
-          </div>
-
-          <!-- ── Section 2: Brand & Model ── -->
-          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Brand &amp; Model</p>
-          <div class="row g-3 mb-3">
             <div class="col-md-3">
               <label class="form-label">Brand / Make</label>
               <select name="brand" id="iqc-brand-select" class="form-select">
@@ -88,32 +97,18 @@
           <div class="row g-3 mb-3">
             <div class="col-md-4">
               <label class="form-label">CPU / Processor</label>
-              <input type="text" name="cpu" class="form-control" list="cpu-suggestions"
-                     placeholder="Type or select CPU"
-                     value="{{ device.cpu or '' if device else '' }}">
-              <datalist id="cpu-suggestions">
-                <option value="Intel Core i3">
-                <option value="Intel Core i5">
-                <option value="Intel Core i7">
-                <option value="Intel Core i9">
-                <option value="Intel Core Ultra 5">
-                <option value="Intel Core Ultra 7">
-                <option value="Intel Celeron">
-                <option value="Intel Pentium">
-                <option value="AMD Ryzen 3">
-                <option value="AMD Ryzen 5">
-                <option value="AMD Ryzen 7">
-                <option value="AMD Ryzen 9">
-                <option value="Apple M1">
-                <option value="Apple M2">
-                <option value="Apple M3">
-                <option value="Apple M4">
-              </datalist>
+              {% set cpu_opts = ['Intel Core i3','Intel Core i5','Intel Core i7','Intel Core i9','Intel Core Ultra 5','Intel Core Ultra 7','Intel Celeron','Intel Pentium','AMD Ryzen 3','AMD Ryzen 5','AMD Ryzen 7','AMD Ryzen 9','Apple M1','Apple M2','Apple M3','Apple M4','Other'] %}
+              {% set cur_cpu = device.cpu if device else '' %}
+              <select name="cpu" class="form-select">
+                <option value="">Not Available</option>
+                {% if cur_cpu and cur_cpu not in cpu_opts %}<option value="{{ cur_cpu }}" selected>{{ cur_cpu }}</option>{% endif %}
+                {% for o in cpu_opts %}<option value="{{ o }}" {% if cur_cpu == o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+              </select>
             </div>
             <div class="col-md-4">
               <label class="form-label">Generation</label>
               <select name="generation" class="form-select">
-                <option value="">Unknown</option>
+                <option value="">Not Available</option>
                 <option>4th Gen</option><option>5th Gen</option><option>6th Gen</option>
                 <option>7th Gen</option><option>8th Gen</option><option>9th Gen</option>
                 <option>10th Gen</option><option>11th Gen</option><option>12th Gen</option>
@@ -128,7 +123,7 @@
             <div class="col-md-4">
               <label class="form-label">RAM (GB)</label>
               <select name="ram_gb" class="form-select">
-                <option value="">Unknown</option>
+                <option value="">Not Available</option>
                 <option>2</option><option>4</option><option>8</option><option>12</option>
                 <option>16</option><option>24</option><option>32</option><option>64</option>
               </select>
@@ -136,7 +131,7 @@
             <div class="col-md-3">
               <label class="form-label">SSD Capacity (GB)</label>
               <select name="storage_gb" class="form-select">
-                <option value="">Unknown</option>
+                <option value="">Not Available</option>
                 <option>128</option><option>240</option><option>256</option><option>320</option><option>480</option>
                 <option>512</option><option>960</option><option>1000</option><option>2000</option>
               </select>
@@ -144,7 +139,7 @@
             <div class="col-md-3">
               <label class="form-label">Storage Type</label>
               <select name="storage_type" class="form-select">
-                <option value="">Unknown</option>
+                <option value="">Not Available</option>
                 <option>SSD</option><option>NVMe SSD</option><option>HDD</option>
                 <option>eMMC</option><option>SSHD (Hybrid)</option>
               </select>
@@ -152,7 +147,7 @@
             <div class="col-md-3">
               <label class="form-label">HDD Capacity (GB) <small class="text-muted">if dual</small></label>
               <select name="hdd_capacity_gb" class="form-select">
-                <option value="">None / N/A</option>
+                <option value="">Not Available</option>
                 <option>320</option><option>500</option><option>750</option>
                 <option>1000</option><option>2000</option>
               </select>
@@ -169,6 +164,12 @@
             <div class="col-md-3">
               <label class="form-label">Battery Health % <small class="text-muted">Laptops</small></label>
               <input type="number" name="battery_health_pct" class="form-control" placeholder="e.g. 85" min="0" max="100">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Internal Battery</label>
+              <select name="battery_present" class="form-select">
+                <option value="">—</option>{% for o in ['Yes','No'] %}<option>{{o}}</option>{% endfor %}
+              </select>
             </div>
             <div class="col-md-3 d-flex align-items-end">
               <div class="form-check ms-2 mb-2">
@@ -584,12 +585,6 @@
               </select>
             </div>
             <div class="col-md-2">
-              <label class="form-label small">Internal Battery</label>
-              <select name="battery_present" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-2">
               <label class="form-label small">Battery Cable</label>
               <select name="battery_cable" class="form-select form-select-sm">
                 <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
@@ -667,6 +662,7 @@ document.addEventListener('DOMContentLoaded', () => {
     plugins: ['clear_button'],
     // Keep the native <option value=""> so "required" validation still works
   });
+  window.lotSelect = lotSelect;
 });
 
 // Autofill IQC form from barcode lookup
@@ -703,7 +699,7 @@ document.querySelector('[name="barcode"]').addEventListener('change', function()
       setSelect('brand', d.brand);
       setInput('model', d.model);
       setInput('color', d.color);
-      setInput('cpu', d.cpu);
+      setSelect('cpu', d.cpu);
       setSelect('generation', d.generation);
       setSelect('ram_gb', d.ram_gb);
       setSelect('storage_gb', d.storage_gb);
@@ -786,5 +782,70 @@ document.getElementById('lot_line_item_id').addEventListener('change', async fun
     set('device_price', d.unit_price);
   } catch(e) {}
 });
+</script>
+
+<script>
+/* ── OxyQC USB import: read latest_iqc.json from a connected USB and prefill ── */
+(function(){
+  var ENUM_MAP = {
+    wifi_status:   {true: 'Working', false: 'Not Working'},
+    webcam_status: {true: 'Ok',      false: 'Faulty'},
+  };
+  function prefill(d){
+    var filled = 0;
+    Object.keys(d).forEach(function(key){
+      var val = d[key];
+      if (val === null || val === undefined || val === '') return;
+      if (key === 'lot_id') {
+        if (window.lotSelect) { try { window.lotSelect.setValue(String(val), true); filled++; } catch(e){} }
+        return;
+      }
+      var el = document.querySelector('[name="' + key + '"]');
+      if (!el) return;
+      if (el.type === 'checkbox') {
+        el.checked = (val === true || val === 'Yes' || val === 1 || val === 'true');
+        filled++; return;
+      }
+      if (el.tagName === 'SELECT') {
+        var want = val;
+        if (typeof val === 'boolean') {
+          want = (ENUM_MAP[key] ? ENUM_MAP[key][val] : (val ? 'Yes' : 'No'));
+        }
+        want = String(want);
+        var matched = false;
+        for (var i = 0; i < el.options.length; i++) {
+          if (el.options[i].value === want || el.options[i].text.trim() === want) {
+            el.value = el.options[i].value; matched = true; break;
+          }
+        }
+        if (!matched && key === 'cpu' && want) { el.add(new Option(want, want, true, true)); matched = true; }
+        if (matched) filled++;
+        return;
+      }
+      el.value = val; filled++;   // text / number inputs
+    });
+    return filled;
+  }
+
+  function doImport(manual){
+    var status = document.getElementById('usbStatus');
+    if (manual && status) status.innerHTML = '<span class="text-muted">Scanning USB…</span>';
+    fetch('/iqc/usb-import', {headers: {'Accept':'application/json'}})
+      .then(function(r){ if (!r.ok) throw r; return r.json(); })
+      .then(function(j){
+        var n = prefill(j.data || {});
+        if (status) status.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Imported ' + n + ' field(s) from USB</span>';
+      })
+      .catch(function(err){
+        if (!manual) return;  // stay silent on auto-attempt
+        if (status) status.innerHTML = '<span class="text-danger">No OxyQC USB data found</span>';
+      });
+  }
+
+  var btn = document.getElementById('usbImportBtn');
+  if (btn) btn.addEventListener('click', function(){ doImport(true); });
+  // Auto-attempt once on load (silent if no USB present)
+  document.addEventListener('DOMContentLoaded', function(){ setTimeout(function(){ doImport(false); }, 600); });
+})();
 </script>
 {% endblock %}

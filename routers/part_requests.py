@@ -89,6 +89,23 @@ async def handover_part(req_id: str, request: Request, qty: int = Form(...),
     return RedirectResponse(url="/spare-parts?success=Part+handed+over", status_code=302)
 
 
+@router.post("/part-requests/{req_id}/validate-receiving")
+async def validate_receiving(req_id: str, request: Request,
+                             db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Engineer confirms receipt of a handed-over part — flips status to 'received'."""
+    pr = (await db.execute(select(PartRequest).where(PartRequest.id == _as_uuid(req_id)))).scalar_one_or_none()
+    if not pr:
+        raise HTTPException(404, "Part request not found")
+    pr.status = "received"
+    pr.actioned_at = app_now()
+    pr.actioned_by = current_user.username
+    await audit(db, user=current_user, action="PART_RECEIVED", table_name="part_requests",
+                record_id=str(pr.id), request=request)
+    await db.commit()
+    dest = f"/devices/{pr.barcode}" if pr.barcode else "/spare-parts"
+    return RedirectResponse(url=dest + "?success=Part+received", status_code=302)
+
+
 @router.post("/part-requests/{req_id}/not-in-stock")
 async def not_in_stock(req_id: str, request: Request,
                        db: AsyncSession = Depends(get_db), current_user: User = Depends(spm_allowed)):

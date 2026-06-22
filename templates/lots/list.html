@@ -122,7 +122,7 @@
                       data-lot-id="{{ lot.id }}"
                       data-lot-number="{{ lot.lot_number }}"
                       data-expected="{{ lot.qty }}">
-                <i class="bi bi-receipt-cutoff me-1"></i>GRN
+                <i class="bi bi-receipt-cutoff me-1"></i>Validate GRN
               </button>
               <form method="post" action="/lots/{{ lot.id }}/delete" class="d-inline"
                     onsubmit="return confirm('Permanently delete lot {{ lot.lot_number }}?\n\nThis cannot be undone. All lot data will be removed.')">

@@ -7,73 +7,61 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Copy files via scp
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          source: "."
-          target: "/opt/oxypc"
-          rm: false
+      - name: Setup and Deploy
+        run: |
+          # Copy files from the runner workspace to the final destination
+          mkdir -p /opt/oxypc
+          cp -r ./* /opt/oxypc/
+          cd /opt/oxypc
+          
+          # Setup virtual environment if missing
+          if [ ! -d "venv" ]; then
+            python3 -m venv venv
+          fi
+          
+          # Activate and install dependencies
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install python-dotenv uvicorn
+          
+          # Create the systemd service if it doesn't exist
+          if [ ! -f /etc/systemd/system/oxypc.service ]; then
+            cat << 'EOF' > /etc/systemd/system/oxypc.service
+          [Unit]
+          Description=OxyPC FastAPI Application
+          After=network.target
 
-      - name: Execute remote ssh commands
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            cd /opt/oxypc
-            
-            # Setup virtual environment if missing
-            if [ ! -d "venv" ]; then
-              python3 -m venv venv
-            fi
-            
-            # Activate and install dependencies
-            source venv/bin/activate
-            pip install --upgrade pip
-            pip install -r requirements.txt
-            pip install python-dotenv uvicorn
-            
-            # Create the systemd service if it doesn't exist
-            if [ ! -f /etc/systemd/system/oxypc.service ]; then
-              cat << 'EOF' > /etc/systemd/system/oxypc.service
-            [Unit]
-            Description=OxyPC FastAPI Application
-            After=network.target
+          [Service]
+          User=root
+          WorkingDirectory=/opt/oxypc
+          Environment="PATH=/opt/oxypc/venv/bin"
+          ExecStart=/opt/oxypc/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+          Restart=always
 
-            [Service]
-            User=root
-            WorkingDirectory=/opt/oxypc
-            Environment="PATH=/opt/oxypc/venv/bin"
-            ExecStart=/opt/oxypc/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
-            Restart=always
-
-            [Install]
-            WantedBy=multi-user.target
-            EOF
-              systemctl daemon-reload
-              systemctl enable oxypc
-            fi
-            
-            # Create a basic .env file if it doesn't exist
-            if [ ! -f /opt/oxypc/.env ]; then
-              cp /opt/oxypc/deploy/.env.example /opt/oxypc/.env
-              sed -i "s/postgres:password/oxypc_user:oxypc_strong_password/g" /opt/oxypc/.env
-              sed -i "s/localhost:5432\/oxypc_db/localhost:5432\/oxypc_inventory_db/g" /opt/oxypc/.env
-            fi
-            
-            # Run database migrations
-            alembic upgrade head
-            
-            # Restart the service
-            systemctl restart oxypc
-            echo "Deployment completed successfully!"
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+            systemctl daemon-reload
+            systemctl enable oxypc
+          fi
+          
+          # Create a basic .env file if it doesn't exist
+          if [ ! -f /opt/oxypc/.env ]; then
+            cp /opt/oxypc/deploy/.env.example /opt/oxypc/.env
+            sed -i "s/postgres:password/oxypc_user:oxypc_strong_password/g" /opt/oxypc/.env
+            sed -i "s/localhost:5432\/oxypc_db/localhost:5432\/oxypc_inventory_db/g" /opt/oxypc/.env
+          fi
+          
+          # Run database migrations
+          alembic upgrade head
+          
+          # Restart the service
+          systemctl restart oxypc
+          echo "Deployment completed successfully!"

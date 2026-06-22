@@ -55,9 +55,11 @@ jobs:
           # Create a basic .env file if it doesn't exist
           if [ ! -f /opt/oxypc/.env ]; then
             cp /opt/oxypc/deploy/.env.example /opt/oxypc/.env
-            sed -i "s/postgres:password/oxypc_user:oxypc_strong_password/g" /opt/oxypc/.env
-            sed -i "s/localhost:5432\/oxypc_db/localhost:5432\/oxypc_inventory_db/g" /opt/oxypc/.env
           fi
+          
+          # Always ensure correct DB settings
+          sed -i "s/CHANGE_ME_STRONG_DB_PASSWORD/oxypc_strong_password/g" /opt/oxypc/.env
+          sed -i "s/localhost:5432\/oxypc_db/localhost:5432\/oxypc_inventory_db/g" /opt/oxypc/.env
           
           # Run database migrations
           alembic upgrade head

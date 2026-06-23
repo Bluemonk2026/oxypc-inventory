@@ -95,6 +95,12 @@
                       data-id="{{ g.id }}" data-grn="{{ g.grn_number }}">
                 <i class="bi bi-link-45deg"></i> Map this GRN
               </button>
+              <form method="post" action="/grn/{{ g.id }}/delete" class="d-inline"
+                    onsubmit="return confirm('Delete GRN {{ g.grn_number }}? It will be removed from the list (kept for audit).');">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                <input type="hidden" name="source" value="post_iqc">
+                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2"><i class="bi bi-trash3"></i> Delete</button>
+              </form>
             </td>
           </tr>
           {% else %}

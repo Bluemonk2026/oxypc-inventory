@@ -93,6 +93,12 @@
               <a href="/lots/new?grn_system_number={{ g.grn_number }}&grn_date={{ (g.invoice_date or '') | urlencode }}&supplier={{ (g.sender_name or '') | urlencode }}&lot_number={{ (g.lot_number or '') | urlencode }}" class="btn btn-sm btn-outline-primary py-0 px-2">
                 <i class="bi bi-plus-circle"></i> Add Lot
               </a>
+              <form method="post" action="/grn/{{ g.id }}/delete" class="d-inline"
+                    onsubmit="return confirm('Delete GRN {{ g.grn_number }}? It will be removed from the list (kept for audit).');">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                <input type="hidden" name="source" value="invoice">
+                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2"><i class="bi bi-trash3"></i> Delete</button>
+              </form>
             </td>
           </tr>
           {% else %}

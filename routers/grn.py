@@ -64,7 +64,8 @@ async def grn_import_list(request: Request, db: AsyncSession = Depends(get_db),
     # GRN with Invoice page → invoice-source GRNs only (legacy NULL treated as invoice)
     rows = (await db.execute(
         select(GRNImport)
-        .where(or_(GRNImport.source != "post_iqc", GRNImport.source.is_(None)))
+        .where(or_(GRNImport.source != "post_iqc", GRNImport.source.is_(None)),
+               GRNImport.is_deleted == False)
         .order_by(GRNImport.created_at.desc()).limit(500)
     )).scalars().all()
     return templates.TemplateResponse("grn/import.html", {
@@ -80,7 +81,8 @@ async def grn_post_iqc(request: Request, db: AsyncSession = Depends(get_db),
                        current_user: User = Depends(allowed),
                        error: str = "", success: str = "", highlight_tag: str = ""):
     grns = (await db.execute(
-        select(GRNImport).where(GRNImport.source == "post_iqc")
+        select(GRNImport).where(GRNImport.source == "post_iqc",
+                                GRNImport.is_deleted == False)
         .order_by(GRNImport.created_at.desc()).limit(500)
     )).scalars().all()
     # Pending = devices currently in IQC stage whose GRN field is still empty
@@ -171,13 +173,19 @@ async def grn_upload(
     if not data:
         return RedirectResponse(url=f"{base}?error=Empty+file", status_code=302)
     file_hash = hashlib.sha256(data).hexdigest()
+    from urllib.parse import quote
 
-    # Duplicate by exact file
-    dup = (await db.execute(
-        select(GRNImport.id).where(GRNImport.file_hash == file_hash)
+    # Duplicate by exact file (identical bytes already uploaded)
+    dup_grn = (await db.execute(
+        select(GRNImport.grn_number).where(GRNImport.file_hash == file_hash,
+                                           GRNImport.is_deleted == False)
     )).scalar_one_or_none()
-    if dup:
-        return RedirectResponse(url=f"{base}?error=Uploading+Duplicate+Data+is+Not+Allowed", status_code=302)
+    if dup_grn:
+        return RedirectResponse(
+            url=f"{base}?error=" + quote(
+                f"This exact invoice file was already uploaded as GRN {dup_grn}. "
+                f"Open it from the table below — or upload a different file."),
+            status_code=302)
 
     # Persist file
     os.makedirs(GRN_UPLOAD_DIR, exist_ok=True)
@@ -191,21 +199,24 @@ async def grn_upload(
     # Best-effort extract
     fields = extract_invoice_fields(path)
 
-    # Duplicate by all-fields-same (only when we actually extracted something)
-    if any([fields["invoice_number"], fields["sender_name"], fields["amount"], fields["quantity"]]):
-        same = (await db.execute(select(GRNImport).where(
-            GRNImport.invoice_number == fields["invoice_number"],
-            GRNImport.sender_name == fields["sender_name"],
-            GRNImport.invoice_date == fields["invoice_date"],
-            GRNImport.quantity == fields["quantity"],
-            GRNImport.amount == fields["amount"],
-        ))).scalars().first()
-        if same:
+    # Duplicate by invoice number (the real business key) — only when one was
+    # extracted. Anchored on a non-empty invoice number so a sparse/partial parse
+    # (e.g. only a vendor name) never false-positives as a duplicate.
+    inv_no = (fields.get("invoice_number") or "").strip()
+    if inv_no:
+        same_grn = (await db.execute(
+            select(GRNImport.grn_number).where(GRNImport.invoice_number == inv_no,
+                                               GRNImport.is_deleted == False)
+        )).scalar_one_or_none()
+        if same_grn:
             try:
                 os.remove(path)
             except OSError:
                 pass
-            return RedirectResponse(url=f"{base}?error=Uploading+Duplicate+Data+is+Not+Allowed", status_code=302)
+            return RedirectResponse(
+                url=f"{base}?error=" + quote(
+                    f"Invoice number {inv_no} already exists as GRN {same_grn}."),
+                status_code=302)
 
     db.add(GRNImport(
         grn_number=grn_number,
@@ -253,6 +264,32 @@ async def grn_validate(
     g.validated = True
     await db.commit()
     return RedirectResponse(url=f"/grn?success=GRN+{g.grn_number}+validated", status_code=302)
+
+
+@router.post("/{grn_id}/delete")
+async def grn_delete(
+    grn_id: str, request: Request,
+    source: str = Form("invoice"),
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(allowed),
+):
+    """Soft-delete a GRN (hidden from tables, file + row kept for audit/compliance)."""
+    base = "/grn/post-iqc" if source == "post_iqc" else "/grn"
+    try:
+        import uuid as _u
+        gid = _u.UUID(grn_id)
+    except ValueError:
+        raise HTTPException(404)
+    g = (await db.execute(select(GRNImport).where(GRNImport.id == gid))).scalar_one_or_none()
+    if not g:
+        raise HTTPException(404, "GRN not found")
+    g.is_deleted = True
+    g.deleted_at = app_now()
+    await audit(db, user=current_user, action="GRN_DELETED",
+                table_name="grn_imports", record_id=str(gid),
+                old_value={"grn_number": g.grn_number, "invoice_number": g.invoice_number},
+                request=request)
+    await db.commit()
+    return RedirectResponse(url=f"{base}?success=GRN+{g.grn_number}+deleted", status_code=302)
 
 
 @router.post("/{grn_id}/edit")

@@ -28,3 +28,7 @@ class GRNImport(Base):
 
     created_by = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=app_now)
+
+    # Soft delete (compliance: GRN docs are kept + audit-logged, just hidden)
+    is_deleted = Column(Boolean, nullable=False, default=False, server_default="false")
+    deleted_at = Column(DateTime, nullable=True)

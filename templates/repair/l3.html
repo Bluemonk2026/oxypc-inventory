@@ -118,10 +118,11 @@
           <div class="row g-2">
             <div class="col-12">
               <label class="form-label small fw-semibold">Open Job</label>
-              <select name="job_id" class="form-select" required>
+              <select name="job_id" id="l3JobSelect" class="form-select" required>
                 <option value="">-- Select open job --</option>
                 {% for job, barcode, brand, model in open_jobs %}
-                <option value="{{ job.id }}">{{ barcode }} — {{ brand }} {{ model }}</option>
+                <option value="{{ job.id }}"
+                        data-return="{{ 'yes' if (returned_job_ids is defined and job.id|string in returned_job_ids) else 'no' }}">{{ barcode }} — {{ brand }} {{ model }}</option>
                 {% endfor %}
               </select>
             </div>
@@ -177,6 +178,26 @@
                 <option>Internal</option><option>Customer Service</option>
               </select>
             </div>
+            <!-- Replace Device with (items 7 & 8) — only for returned devices -->
+            <div class="col-12 d-none" id="replaceWrap">
+              <label class="form-label small fw-semibold">Replace Device with</label>
+              <input type="text" name="replace_with_barcode" id="replaceBarcode"
+                     class="form-control form-control-sm font-monospace" placeholder="Scan replacement tag number">
+              <div id="replBrief" class="card border-0 bg-light mt-2 d-none">
+                <div class="card-body py-2 px-3 small">
+                  <div class="row g-1">
+                    <div class="col-6"><span class="text-muted">Make:</span> <strong id="rb_make">—</strong></div>
+                    <div class="col-6"><span class="text-muted">Model:</span> <strong id="rb_model">—</strong></div>
+                    <div class="col-6"><span class="text-muted">RAM:</span> <strong id="rb_ram">—</strong></div>
+                    <div class="col-6"><span class="text-muted">Storage:</span> <strong id="rb_storage">—</strong></div>
+                    <div class="col-6"><span class="text-muted">Location:</span> <strong id="rb_location">—</strong></div>
+                    <div class="col-6"><span class="text-muted">Status:</span> <strong id="rb_status">—</strong></div>
+                    <div class="col-12"><span class="text-muted">Warranty:</span> <strong id="rb_warranty">—</strong></div>
+                  </div>
+                </div>
+              </div>
+              <div id="replMiss" class="text-danger small mt-1 d-none">Tag not found.</div>
+            </div>
             <div class="col-12">
               <div class="form-check mt-2">
                 <input class="form-check-input" type="checkbox" name="move_to_next" value="yes" id="mn3" checked>
@@ -194,4 +215,45 @@
 {% endblock %}
 {% block scripts %}
 <script>$(document).ready(function(){ $('#l3Table').DataTable({paging:false}); });</script>
+<script>
+(function(){
+  var sel = document.getElementById('l3JobSelect');
+  var wrap = document.getElementById('replaceWrap');
+  var input = document.getElementById('replaceBarcode');
+  var brief = document.getElementById('replBrief');
+  var miss  = document.getElementById('replMiss');
+  if(!sel || !wrap) return;
+  function toggleWrap(){
+    var opt = sel.options[sel.selectedIndex];
+    var isRet = opt && opt.getAttribute('data-return') === 'yes';
+    wrap.classList.toggle('d-none', !isRet);
+    if(!isRet){ if(input) input.value=''; brief.classList.add('d-none'); miss.classList.add('d-none'); }
+  }
+  sel.addEventListener('change', toggleWrap);
+  toggleWrap();
+  var t=null;
+  function lookup(){
+    var bc = input.value.trim();
+    if(!bc){ brief.classList.add('d-none'); miss.classList.add('d-none'); return; }
+    fetch('/devices/api/brief?barcode='+encodeURIComponent(bc))
+      .then(function(r){ return r.ok ? r.json() : {found:false}; })
+      .then(function(d){
+        if(d && d.found){
+          document.getElementById('rb_make').textContent=d.make;
+          document.getElementById('rb_model').textContent=d.model;
+          document.getElementById('rb_ram').textContent=d.ram;
+          document.getElementById('rb_storage').textContent=d.storage;
+          document.getElementById('rb_location').textContent=d.location;
+          document.getElementById('rb_status').textContent=d.status;
+          document.getElementById('rb_warranty').textContent=d.warranty;
+          brief.classList.remove('d-none'); miss.classList.add('d-none');
+        } else { brief.classList.add('d-none'); miss.classList.remove('d-none'); }
+      }).catch(function(){ brief.classList.add('d-none'); });
+  }
+  if(input){
+    input.addEventListener('input', function(){ clearTimeout(t); t=setTimeout(lookup,350); });
+    input.addEventListener('change', lookup);
+  }
+})();
+</script>
 {% endblock %}

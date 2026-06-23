@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}GRN Records — OxyPC{% endblock %}
+{% block page_title %}GRN Records{% endblock %}
+{% block content %}
+
+{% macro tag_table(tid, rows, show_grn) %}
+<div class="table-responsive">
+  <table id="{{ tid }}" class="table table-hover mb-0 small align-middle">
+    <thead class="table-dark">
+      <tr>
+        <th class="ps-3">Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Grade</th><th>Stage</th>
+        {% if show_grn %}<th>GRN Number</th>{% endif %}<th>Updated</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d, lot_number in rows %}
+      <tr>
+        <td class="ps-3"><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
+        <td>{% if lot_number %}<span class="badge bg-info text-dark">{{ lot_number }}</span>{% else %}—{% endif %}</td>
+        <td>{{ d.brand or '—' }}</td>
+        <td>{{ d.model or '—' }}</td>
+        <td>
+          {% set gv = d.grade.value if d.grade else '' %}
+          <span class="badge bg-{{ 'success' if gv == 'A' else 'warning text-dark' if gv == 'B' else 'danger' if gv in ['C','D','scrap'] else 'secondary' }}">{{ gv or '—' }}</span>
+        </td>
+        <td><span class="badge bg-{{ d.stage_color }}">{{ d.stage_label }}</span></td>
+        {% if show_grn %}<td class="font-monospace">{{ d.grn_number }}</td>{% endif %}
+        <td class="small text-muted">{{ d.updated_at.strftime('%d %b %Y') if d.updated_at else '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="{{ 8 if show_grn else 7 }}" class="text-center text-muted py-4">No tag numbers.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent fw-semibold">
+    <i class="bi bi-check2-circle me-2"></i>GRN Assigned
+    <span class="badge bg-success ms-1">{{ assigned|length }}</span>
+    <span class="text-muted small ms-2">Tag numbers that have a GRN value</span>
+  </div>
+  <div class="card-body p-0">{{ tag_table('assignedTable', assigned, true) }}</div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold">
+    <i class="bi bi-exclamation-circle me-2"></i>GRN Not Mapped
+    <span class="badge bg-danger ms-1">{{ not_mapped|length }}</span>
+    <span class="text-muted small ms-2">Tag numbers with an empty GRN value</span>
+  </div>
+  <div class="card-body p-0">{{ tag_table('notMappedTable', not_mapped, false) }}</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){
+  if ($('#assignedTable tbody tr td').length > 1) { $('#assignedTable').DataTable({pageLength:10, lengthChange:false, order:[]}); }
+  if ($('#notMappedTable tbody tr td').length > 1) { $('#notMappedTable').DataTable({pageLength:10, lengthChange:false, order:[]}); }
+});
+</script>
+{% endblock %}

@@ -21,6 +21,10 @@
     {% if success %}
     <div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>{{ success | replace('+', ' ') }}</div>
     {% endif %}
+    {% set _err = request.query_params.get('error') %}
+    {% if _err %}
+    <div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ _err | replace('+', ' ') }}</div>
+    {% endif %}
 
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-transparent fw-semibold">
@@ -32,6 +36,13 @@
           <!-- ── Section 1: Identity ── -->
           <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Identity</p>
           <div class="row g-3 mb-3">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Tag Number <span class="text-danger">*</span></label>
+              <input type="text" name="barcode_new" id="editBarcode" maxlength="100"
+                     data-original="{{ device.barcode }}"
+                     class="form-control font-monospace" value="{{ device.barcode }}" required>
+              <div id="editBarcodeErr" class="text-danger small mt-1 d-none">Duplicate Tag Number — this tag already exists.</div>
+            </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">Lot <span class="text-danger">*</span></label>
               <select name="lot_id" id="lot_id" class="form-select" required>
@@ -204,7 +215,7 @@
               <select name="grade" class="form-select">
                 <option value="">Not graded</option>
                 {% set cur_grade = device.grade.value if device.grade else '' %}
-                {% for g in ['A','B','C','D','scrap'] %}
+                {% for g in ['A','B','C','scrap'] %}
                 <option value="{{ g }}" {% if cur_grade == g %}selected{% endif %}>{{ g }}</option>
                 {% endfor %}
               </select>
@@ -358,5 +369,31 @@ document.addEventListener('DOMContentLoaded', () => {
     plugins: ['clear_button'],
   });
 });
+</script>
+<script>
+/* ── Live duplicate Tag Number check on Edit (excludes the device's own tag) ── */
+(function(){
+  var inp = document.getElementById('editBarcode');
+  var err = document.getElementById('editBarcodeErr');
+  if(!inp) return;
+  var original = inp.getAttribute('data-original') || '';
+  var form = inp.closest('form');
+  var submitBtn = form ? form.querySelector('button[type="submit"]') : null;
+  var t=null;
+  function check(){
+    var v = inp.value.trim();
+    if(!v || v === original){ err.classList.add('d-none'); inp.classList.remove('is-invalid'); if(submitBtn) submitBtn.disabled=false; return; }
+    fetch('/devices/api/brief?barcode='+encodeURIComponent(v))
+      .then(function(r){ return r.ok ? r.json() : {found:false}; })
+      .then(function(d){
+        var dup = !!(d && d.found);
+        err.classList.toggle('d-none', !dup);
+        inp.classList.toggle('is-invalid', dup);
+        if(submitBtn) submitBtn.disabled = dup;
+      }).catch(function(){});
+  }
+  inp.addEventListener('input', function(){ clearTimeout(t); t=setTimeout(check, 350); });
+  inp.addEventListener('change', check);
+})();
 </script>
 {% endblock %}

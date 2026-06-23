@@ -9,9 +9,11 @@ import traceback as _tb
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy.exc import ProgrammingError, DataError, DBAPIError
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -164,6 +166,54 @@ app.include_router(settings_router)
 app.include_router(trash_router)
 
 
+# ── Error UI: per-code message + solution, JSON for API/AJAX else HTML modal ──
+_ERROR_INFO = {
+    400: ("Bad Request", "The request was invalid or some fields were missing/incorrect.",
+          "Go back, check the values you entered, and try again."),
+    401: ("Not Signed In", "Your session expired or you are not logged in.",
+          "Log in again to continue."),
+    403: ("Access Denied", "You don't have permission to open this page or action.",
+          "Ask an admin to enable it for your role in Master Data → Module Permissions, or go back."),
+    404: ("Not Found", "The page or record you requested doesn't exist or was moved.",
+          "Check the link, or go back and pick a valid item."),
+    405: ("Action Not Allowed", "This action isn't allowed on this page.",
+          "Go back and use the buttons/links provided on the page."),
+    422: ("Invalid Input", "Some values weren't in the expected format.",
+          "Correct the highlighted fields and submit again."),
+    429: ("Too Many Requests", "You've sent too many requests in a short time.",
+          "Wait a minute, then try again."),
+    500: ("Something Went Wrong", "An unexpected error occurred on the server.",
+          "Try again. If it keeps happening, note what you were doing and inform the admin."),
+}
+
+
+def _wants_json(request: Request) -> bool:
+    """API / AJAX callers get JSON, not the HTML error modal."""
+    p = request.url.path or ""
+    if "/api/" in p:
+        return True
+    if any(p.endswith(s) for s in ("/usb-import", "/exists", "/brief")) \
+       or any(s in p for s in ("/qr-poll", "/status-poll", "/sync-status",
+                               "/groups/messages", "/groups/analytics", "/lookup")):
+        return True
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept and "text/html" not in accept:
+        return True
+    return request.headers.get("x-requested-with", "").lower() == "xmlhttprequest"
+
+
+def _render_error(request: Request, code: int, message: str = None, detail: str = None):
+    title, default_msg, solution = _ERROR_INFO.get(
+        code, ("Error", "An error occurred.", "Go back and try again."))
+    msg = message or default_msg
+    if _wants_json(request):
+        return JSONResponse({"error": msg, "code": code, "solution": solution}, status_code=code)
+    return templates.TemplateResponse("error.html", {
+        "request": request, "code": code, "title": title,
+        "message": msg, "solution": solution, "detail": detail,
+    }, status_code=code)
+
+
 # Exception handlers
 @app.exception_handler(302)
 async def redirect_handler(request: Request, exc):
@@ -172,52 +222,60 @@ async def redirect_handler(request: Request, exc):
 
 @app.exception_handler(403)
 async def forbidden_handler(request: Request, exc):
-    return templates.TemplateResponse("error.html", {
-        "request": request, "code": 403, "message": "Access Denied"
-    }, status_code=403)
+    return _render_error(request, 403)
 
 
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc):
-    return templates.TemplateResponse("error.html", {
-        "request": request, "code": 404, "message": "Page Not Found"
-    }, status_code=404)
+    return _render_error(request, 404)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Catch-all for any HTTPException status not handled above (400/401/405/409/…)."""
+    code = exc.status_code or 500
+    if code in (301, 302, 307, 308):
+        return RedirectResponse(url=(exc.headers or {}).get("Location", "/auth/login"))
+    detail_msg = exc.detail if isinstance(exc.detail, str) and exc.detail.strip() else None
+    try:
+        import http as _http
+        generic_phrase = _http.HTTPStatus(code).phrase
+    except Exception:
+        generic_phrase = None
+    # Show the developer-supplied detail as the message only if it's not the bare HTTP phrase
+    message = detail_msg if (detail_msg and detail_msg != generic_phrase) else None
+    return _render_error(request, code, message=message)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return _render_error(request, 400,
+                         message="Some fields are missing or in the wrong format.",
+                         detail=(str(exc.errors()) if DEBUG else None))
 
 
 @app.exception_handler(DBAPIError)
 async def db_api_error_handler(request: Request, exc: DBAPIError):
     msg = str(exc).lower()
-    if "invalid input" in msg and "uuid" in msg or "invalid uuid" in msg:
-        return templates.TemplateResponse("error.html", {
-            "request": request, "code": 404, "message": "Record Not Found"
-        }, status_code=404)
-    return templates.TemplateResponse("error.html", {
-        "request": request, "code": 500, "message": "Database Error"
-    }, status_code=500)
+    if ("invalid input" in msg and "uuid" in msg) or "invalid uuid" in msg:
+        return _render_error(request, 404, message="The record you requested doesn't exist.")
+    return _render_error(request, 500, message="A database error occurred.")
 
 
 @app.exception_handler(ProgrammingError)
 async def db_programming_error_handler(request: Request, exc: ProgrammingError):
     msg = str(exc).lower()
-    if "invalid input" in msg and "uuid" in msg or "invalid uuid" in msg:
-        return templates.TemplateResponse("error.html", {
-            "request": request, "code": 404, "message": "Record Not Found"
-        }, status_code=404)
-    return templates.TemplateResponse("error.html", {
-        "request": request, "code": 500, "message": "Database Error"
-    }, status_code=500)
+    if ("invalid input" in msg and "uuid" in msg) or "invalid uuid" in msg:
+        return _render_error(request, 404, message="The record you requested doesn't exist.")
+    return _render_error(request, 500, message="A database error occurred.")
 
 
 @app.exception_handler(DataError)
 async def db_data_error_handler(request: Request, exc: DataError):
     msg = str(exc).lower()
-    if "invalid input" in msg and "uuid" in msg or "invalid uuid" in msg:
-        return templates.TemplateResponse("error.html", {
-            "request": request, "code": 422, "message": "Invalid identifier format"
-        }, status_code=422)
-    return templates.TemplateResponse("error.html", {
-        "request": request, "code": 500, "message": "Database Error"
-    }, status_code=500)
+    if ("invalid input" in msg and "uuid" in msg) or "invalid uuid" in msg:
+        return _render_error(request, 422, message="That identifier isn't in a valid format.")
+    return _render_error(request, 500, message="A database error occurred.")
 
 
 @app.exception_handler(Exception)
@@ -231,10 +289,8 @@ async def generic_exception_handler(request: Request, exc: Exception):
         _err_logger.error(msg)
     except Exception:
         pass
-    return templates.TemplateResponse("error.html", {
-        "request": request, "code": 500, "message": "An unexpected error occurred",
-        "detail": f"{type(exc).__name__}: {exc}" if DEBUG else None,
-    }, status_code=500)
+    return _render_error(request, 500, message="An unexpected error occurred.",
+                         detail=(f"{type(exc).__name__}: {exc}" if DEBUG else None))
 
 
 @app.on_event("startup")

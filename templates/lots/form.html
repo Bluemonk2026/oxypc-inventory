@@ -28,9 +28,12 @@
             <div class="row g-3">
               <div class="col-md-3">
                 <label class="form-label fw-semibold">Lot Number <span class="text-danger">*</span></label>
-                <input type="text" name="lot_number" class="form-control font-monospace {{ 'bg-light' if _from_grn and prefill_lot_number }}"
+                <input type="text" name="lot_number" id="lotNumberInput" data-exclude="{{ lot.id if lot else '' }}"
+                       maxlength="100"
+                       class="form-control font-monospace {{ 'bg-light' if _from_grn and prefill_lot_number }}"
                        value="{{ lot.lot_number if lot else ((prefill_lot_number if (prefill_lot_number is defined and prefill_lot_number) else next_lot_number)) }}" required
                        {% if _from_grn and prefill_lot_number is defined and prefill_lot_number %}readonly tabindex="-1"{% endif %}>
+                <div id="lotNumberErr" class="text-danger small mt-1 d-none">Duplicate Lot Number — this lot already exists.</div>
               </div>
               <div class="col-md-3">
                 <label class="form-label fw-semibold">GRN System Number</label>
@@ -194,4 +197,33 @@
     </div>
   </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+/* ── Item 13: live duplicate Lot Number detection ── */
+(function(){
+  var inp = document.getElementById('lotNumberInput');
+  var err = document.getElementById('lotNumberErr');
+  if(!inp) return;
+  var exclude = inp.getAttribute('data-exclude') || '';
+  var form = inp.closest('form');
+  var submitBtn = form ? form.querySelector('button[type="submit"]') : null;
+  var t=null;
+  function check(){
+    var v = inp.value.trim();
+    if(!v){ err.classList.add('d-none'); inp.classList.remove('is-invalid'); if(submitBtn) submitBtn.disabled=false; return; }
+    var url = '/lots/api/exists?lot_number='+encodeURIComponent(v);
+    if(exclude) url += '&exclude_id='+encodeURIComponent(exclude);
+    fetch(url).then(function(r){ return r.ok ? r.json() : {exists:false}; })
+      .then(function(d){
+        var dup = !!(d && d.exists);
+        err.classList.toggle('d-none', !dup);
+        inp.classList.toggle('is-invalid', dup);
+        if(submitBtn) submitBtn.disabled = dup;
+      }).catch(function(){});
+  }
+  inp.addEventListener('input', function(){ clearTimeout(t); t=setTimeout(check, 350); });
+  inp.addEventListener('change', check);
+})();
+</script>
 {% endblock %}

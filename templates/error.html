@@ -2,22 +2,57 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ code }} — OxyPC</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
-  <style>body{background:#f0f4f8;min-height:100vh;display:flex;align-items:center;justify-content:center;}</style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    body{background:rgba(15,23,42,.55);min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0;}
+    .err-card{max-width:520px;width:92%;border:0;border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.35);}
+    {% set _c = code|string %}
+    .err-head{
+      background:{{ '#b02a37' if _c.startswith('5') else ('#fd7e14' if _c == '404' else '#0d6efd') }};
+      color:#fff;border-radius:14px 14px 0 0;
+    }
+  </style>
 </head>
 <body>
-<div class="text-center">
-  <h1 class="display-1 fw-bold text-muted">{{ code }}</h1>
-  <h4>{{ message }}</h4>
-  {% if detail %}
-  <div class="alert alert-warning text-start mt-4 mx-auto" style="max-width:700px;font-size:.85rem">
-    <strong>Error detail (internal — not shown to public):</strong><br>
-    <pre class="mb-0 mt-2" style="white-space:pre-wrap;word-break:break-all">{{ detail }}</pre>
+  <div class="card err-card">
+    <div class="err-head px-4 py-3 d-flex align-items-center gap-3">
+      <i class="bi {{ 'bi-bug-fill' if _c.startswith('5') else ('bi-search' if _c == '404' else 'bi-exclamation-octagon-fill') }} fs-2"></i>
+      <div>
+        <div class="fw-bold fs-4 lh-1">{{ code }} — {{ title or 'Error' }}</div>
+        <div class="small opacity-75">OxyPC Inventory</div>
+      </div>
+    </div>
+    <div class="card-body px-4 py-4">
+      <div class="mb-3">
+        <div class="text-muted text-uppercase small fw-semibold mb-1"><i class="bi bi-info-circle me-1"></i>What happened</div>
+        <div>{{ message or 'An error occurred.' }}</div>
+      </div>
+      <div class="mb-2">
+        <div class="text-muted text-uppercase small fw-semibold mb-1"><i class="bi bi-lightbulb me-1"></i>What to do</div>
+        <div>{{ solution or 'Go back and try again.' }}</div>
+      </div>
+      {% if detail %}
+      <div class="alert alert-warning text-start mt-3 mb-0" style="font-size:.8rem">
+        <strong>Technical detail (debug only):</strong>
+        <pre class="mb-0 mt-2" style="white-space:pre-wrap;word-break:break-all">{{ detail }}</pre>
+      </div>
+      {% endif %}
+    </div>
+    <div class="card-footer bg-white border-0 px-4 pb-4 pt-0 d-flex flex-wrap gap-2 justify-content-end">
+      <a href="/" class="btn btn-outline-secondary"><i class="bi bi-house me-1"></i>Dashboard</a>
+      <a href="/auth/login" class="btn btn-outline-secondary"><i class="bi bi-box-arrow-in-right me-1"></i>Login</a>
+      <button type="button" id="errClose" class="btn btn-primary px-4"><i class="bi bi-arrow-left me-1"></i>Close</button>
+    </div>
   </div>
-  {% endif %}
-  <a href="/" class="btn btn-primary mt-3">Go to Dashboard</a>
-  <a href="/auth/login" class="btn btn-outline-secondary mt-3 ms-2">Login</a>
-</div>
+  <script>
+    // Close = go one step back to where the error occurred; fall back to Dashboard.
+    document.getElementById('errClose').addEventListener('click', function () {
+      if (window.history.length > 1) { window.history.back(); }
+      else { window.location.href = '/'; }
+    });
+  </script>
 </body>
 </html>

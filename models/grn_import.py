@@ -20,6 +20,7 @@ class GRNImport(Base):
     quantity = Column(Integer, nullable=True)
     amount = Column(Numeric(14, 2), nullable=True)
     validated = Column(Boolean, default=False, nullable=True)   # set via Validate GRN modal
+    source = Column(String(20), nullable=True, default="invoice")   # 'invoice' (GRN with Invoice) | 'post_iqc' (GRN post IQC)
 
     file_name = Column(String(255), nullable=True)
     file_path = Column(String(500), nullable=True)

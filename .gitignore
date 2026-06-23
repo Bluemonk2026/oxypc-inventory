@@ -47,3 +47,14 @@ logs/
 .DS_Store
 Thumbs.db
 *.swp
+
+# ─── Throwaway verification harnesses (not part of the app) ─────────
+/verify_sprint.py
+/_check2.py
+/_content_check.py
+/_grncheck.py
+/_navcheck.py
+/_perm2.py
+/_permcheck.py
+/_test_perm_enforce.py
+*.bak

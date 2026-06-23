@@ -46,17 +46,25 @@ WA_TIMEOUT     = 8.0   # seconds
 
 
 # ── Helper: call wa-service ────────────────────────────────────────────────
-async def _wa(method: str, path: str, json: dict = None, timeout: float = None):
-    """Call the Node wa-service. Returns (status_code, dict) or (0, {}) on error."""
+async def _wa(method: str, path: str, json: dict = None, timeout: float = None, user: str = None):
+    """Call the Node wa-service. Returns (status_code, dict) or (0, {}) on error.
+
+    `user` scopes the call to that user's WhatsApp session (per-user multi-session):
+    sent as ?user= for GET and injected into the JSON body for POST.
+    """
     if not _HTTPX_OK:
         return 0, {"error": "httpx not installed — run: pip install httpx"}
     try:
         t = timeout if timeout is not None else WA_TIMEOUT
+        params = {"user": user} if user else None
         async with httpx.AsyncClient(timeout=t) as c:
             if method == "GET":
-                r = await c.get(f"{WA_SERVICE_URL}{path}")
+                r = await c.get(f"{WA_SERVICE_URL}{path}", params=params)
             else:
-                r = await c.post(f"{WA_SERVICE_URL}{path}", json=json or {})
+                body = dict(json or {})
+                if user:
+                    body.setdefault("user", user)
+                r = await c.post(f"{WA_SERVICE_URL}{path}", json=body)
             return r.status_code, r.json()
     except Exception as e:
         return 0, {"error": str(e)}
@@ -133,7 +141,7 @@ async def index(
     session = await _sync_session(db, current_user.username)
 
     # Sync status from wa-service (non-blocking: if service offline, keep DB value)
-    _, wa_data = await _wa("GET", "/status")
+    _, wa_data = await _wa("GET", "/status", user=current_user.username)
     if wa_data.get("status") in ("connected", "scanning", "disconnected"):
         new_status = wa_data["status"]
         if session.status != new_status:
@@ -219,7 +227,7 @@ async def connect(
     current_user: User = Depends(get_current_user),
 ):
     session = await _sync_session(db, current_user.username)
-    _, data  = await _wa("POST", "/connect")
+    _, data  = await _wa("POST", "/connect", user=current_user.username)
 
     session.status = data.get("status", "scanning")
     await db.commit()
@@ -240,7 +248,7 @@ async def disconnect(
     current_user: User = Depends(get_current_user),
 ):
     session = await _sync_session(db, current_user.username)
-    await _wa("POST", "/disconnect")
+    await _wa("POST", "/disconnect", user=current_user.username)
 
     session.status       = "disconnected"
     session.session_data = None
@@ -255,7 +263,7 @@ async def qr_poll(
     request: Request,
     current_user: User = Depends(get_current_user),
 ):
-    code, data = await _wa("GET", "/qr")
+    code, data = await _wa("GET", "/qr", user=current_user.username)
     if code == 200 and data.get("qr_base64"):
         return JSONResponse({"qr_base64": data["qr_base64"]})
     return JSONResponse({"error": "no_qr"}, status_code=404)
@@ -268,7 +276,7 @@ async def status_poll(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _, data = await _wa("GET", "/status")
+    _, data = await _wa("GET", "/status", user=current_user.username)
     if data.get("status") in ("connected", "scanning", "disconnected"):
         session = await _sync_session(db, current_user.username)
         session.status = data["status"]
@@ -319,7 +327,7 @@ async def send_message(
         code, resp = await _wa("POST", "/send", json={
             "phone":   recipient_phone,
             "message": message_text,
-        })
+        }, user=current_user.username)
         if code == 200 and resp.get("success"):
             msg.status  = "sent"
             msg.sent_at = app_now()
@@ -378,7 +386,7 @@ async def send_payment_reminder(
     # Try immediate send
     session = await _sync_session(db, current_user.username)
     if session.status == "connected":
-        code, resp = await _wa("POST", "/send", json={"phone": phone, "message": text})
+        code, resp = await _wa("POST", "/send", json={"phone": phone, "message": text}, user=current_user.username)
         if code == 200 and resp.get("success"):
             msg.status  = "sent"
             msg.sent_at = app_now()
@@ -457,7 +465,7 @@ async def _do_sync_messages(group_ids: list, limit: int, username: str):
     async with AsyncSessionLocal() as db:
         for i in range(0, len(group_ids), BATCH):
             batch = group_ids[i:i+BATCH]
-            code, data = await _wa("POST", "/sync-group-messages", json={"group_ids": batch, "limit": limit}, timeout=120)
+            code, data = await _wa("POST", "/sync-group-messages", json={"group_ids": batch, "limit": limit}, timeout=120, user=username)
             if code != 200:
                 _sync_status["errors"] += len(batch)
                 err_msg = data.get("error", "")
@@ -562,7 +570,7 @@ async def sync_groups(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    code, data = await _wa("GET", "/groups", timeout=30)
+    code, data = await _wa("GET", "/groups", timeout=30, user=current_user.username)
     if code != 200 or "error" in data:
         err_raw = data.get("error", "WA offline")
         # Detect Puppeteer session errors — show friendly reconnect message
@@ -630,7 +638,7 @@ async def send_group_message(
         code, resp = await _wa("POST", "/send-group", json={
             "group_id": group_wa_id,
             "message":  message_text,
-        })
+        }, user=current_user.username)
         if code == 200 and resp.get("success"):
             msg.status  = "sent"
             msg.sent_at = app_now()
@@ -708,7 +716,7 @@ async def broadcast_message(
         )
         db.add(msg)
         if session.status == "connected":
-            code, resp = await _wa("POST", "/send", json={"phone": phone, "message": personalized})
+            code, resp = await _wa("POST", "/send", json={"phone": phone, "message": personalized}, user=current_user.username)
             if code == 200 and resp.get("success"):
                 msg.status  = "sent"
                 msg.sent_at = app_now()
@@ -767,7 +775,7 @@ async def send_multi_group(
         db.add(msg)
 
         if session.status == "connected":
-            code, resp = await _wa("POST", "/send-group", json={"group_id": gid, "message": msg_text})
+            code, resp = await _wa("POST", "/send-group", json={"group_id": gid, "message": msg_text}, user=current_user.username)
             if code == 200 and resp.get("success"):
                 msg.status  = "sent"
                 msg.sent_at = app_now()

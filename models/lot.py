@@ -11,7 +11,7 @@ class Lot(Base):
     __tablename__ = "lots"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    lot_number = Column(String(20), unique=True, nullable=False, index=True)
+    lot_number = Column(String(100), unique=True, nullable=False, index=True)
     supplier_name = Column(String(200), nullable=False)
 
     # ── GRN Details ───────────────────────────────────────────────────────────

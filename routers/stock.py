@@ -26,6 +26,26 @@ from models.stock_validation import StockValidation
 router = APIRouter(tags=["stock"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
 
+
+@router.get("/lots/api/exists")
+async def lot_number_exists(lot_number: str, exclude_id: str = "",
+                            db: AsyncSession = Depends(get_db),
+                            current_user: User = Depends(get_current_user)):
+    """Live duplicate check for Lot Number (item 13). Returns {"exists": bool}.
+    exclude_id lets the Edit Lot page ignore the lot being edited."""
+    ln = (lot_number or "").strip()
+    if not ln:
+        return JSONResponse({"exists": False})
+    q = select(Lot.id).where(Lot.lot_number == ln)
+    rows = (await db.execute(q)).all()
+    exists = False
+    for (rid,) in rows:
+        if exclude_id and str(rid) == str(exclude_id):
+            continue
+        exists = True
+        break
+    return JSONResponse({"exists": exists})
+
 STOCK_DEPARTMENTS = [
     "IQC Inspector", "L1 Engineer", "L2 Engineer", "L3 Engineer",
     "QC Inspector", "Inventory Manager", "Sales Manager", "Spare Parts Manager",

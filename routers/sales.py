@@ -26,6 +26,7 @@ from services.control_engine import validate_sale_allowed
 from services.cost_engine import check_below_cost_warning
 from services.audit_engine import audit
 from services.event_bus import EventType, publish
+from utils.warranty import warranty_from_sold_at, latest_sold_at_map
 
 router = APIRouter(tags=["sales"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.sales)
@@ -63,6 +64,14 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
             elif st == "requested":
                 requested_ids.add(str(did))
 
+    # ── Warranty (item 1): 30 days from most recent sale of this device ──────
+    sold_map = await latest_sold_at_map(db, device_ids)
+    warranty_map = {}
+    for did, sold_at in sold_map.items():
+        w = warranty_from_sold_at(sold_at)
+        if w:
+            warranty_map[did] = w
+
     # ── Interested dealers banner: open CRM sales opps matching ready device types ──
     ready_device_types = {d.device_type for d, *_ in devices if d.device_type}
     interested_dealers: list = []
@@ -97,6 +106,7 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
         "request": request, "devices": devices, "current_user": current_user,
         "interested_dealers": interested_dealers,
         "approved_ids": approved_ids, "requested_ids": requested_ids,
+        "warranty_map": warranty_map,
     })
 
 
@@ -534,6 +544,9 @@ async def process_return(
         approval_status='pending',
     )
     db.add(ret)
+
+    # Item 6: mark the device as returned (Device Profile "Return Status" → Yes)
+    device.return_status = True
 
     await audit(db, user=current_user, action="RETURN_SUBMITTED",
                 table_name="returns", record_id=str(device.id),

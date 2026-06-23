@@ -11,8 +11,23 @@
         <form action="/returns/new" method="post">
           <div class="mb-3">
             <label class="form-label fw-semibold">Device Tag Number</label>
-            <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan tag number" autofocus required>
+            <input type="text" name="barcode" id="returnBarcode" class="form-control barcode-field font-monospace" placeholder="Scan tag number" autofocus required>
           </div>
+          <!-- Auto product brief (item 2) -->
+          <div id="deviceBrief" class="card border-0 bg-light mb-3 d-none">
+            <div class="card-body py-2 px-3 small">
+              <div class="row g-2">
+                <div class="col-6"><span class="text-muted">Make:</span> <strong id="br_make">—</strong></div>
+                <div class="col-6"><span class="text-muted">Model:</span> <strong id="br_model">—</strong></div>
+                <div class="col-6"><span class="text-muted">RAM:</span> <strong id="br_ram">—</strong></div>
+                <div class="col-6"><span class="text-muted">Storage:</span> <strong id="br_storage">—</strong></div>
+                <div class="col-6"><span class="text-muted">Location:</span> <strong id="br_location">—</strong></div>
+                <div class="col-6"><span class="text-muted">Status:</span> <strong id="br_status">—</strong></div>
+                <div class="col-12"><span class="text-muted">Warranty:</span> <strong id="br_warranty">—</strong></div>
+              </div>
+            </div>
+          </div>
+          <div id="deviceBriefMiss" class="alert alert-warning py-2 px-3 small d-none">Tag not found.</div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Return Reason</label>
             <select name="reason" class="form-select">
@@ -47,4 +62,37 @@
     </div>
   </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var input = document.getElementById('returnBarcode');
+  var brief = document.getElementById('deviceBrief');
+  var miss  = document.getElementById('deviceBriefMiss');
+  if(!input) return;
+  var t=null;
+  function lookup(){
+    var bc = input.value.trim();
+    if(!bc){ brief.classList.add('d-none'); miss.classList.add('d-none'); return; }
+    fetch('/devices/api/brief?barcode='+encodeURIComponent(bc))
+      .then(function(r){ return r.ok ? r.json() : {found:false}; })
+      .then(function(d){
+        if(d && d.found){
+          document.getElementById('br_make').textContent = d.make;
+          document.getElementById('br_model').textContent = d.model;
+          document.getElementById('br_ram').textContent = d.ram;
+          document.getElementById('br_storage').textContent = d.storage;
+          document.getElementById('br_location').textContent = d.location;
+          document.getElementById('br_status').textContent = d.status;
+          document.getElementById('br_warranty').textContent = d.warranty;
+          brief.classList.remove('d-none'); miss.classList.add('d-none');
+        } else {
+          brief.classList.add('d-none'); miss.classList.remove('d-none');
+        }
+      }).catch(function(){ brief.classList.add('d-none'); });
+  }
+  input.addEventListener('input', function(){ clearTimeout(t); t=setTimeout(lookup, 350); });
+  input.addEventListener('change', lookup);
+})();
+</script>
 {% endblock %}

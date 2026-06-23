@@ -28,6 +28,13 @@
             <input type="text" name="full_name" class="form-control" value="{{ edit_user.full_name if edit_user else '' }}" placeholder="Full name" required>
           </div>
           <div class="mb-3">
+            <label class="form-label fw-semibold">WhatsApp Phone Number</label>
+            <input type="text" name="whatsapp_number" class="form-control font-monospace"
+                   value="{{ edit_user.whatsapp_number if edit_user and edit_user.whatsapp_number else '' }}"
+                   placeholder="e.g. 919876543210 (country code, no +)" maxlength="20">
+            <div class="form-text">Used by the WhatsApp module to verify &amp; sync this user's messages.</div>
+          </div>
+          <div class="mb-3">
             <label class="form-label fw-semibold">Role <span class="text-danger">*</span></label>
             <select name="role" class="form-select" required>
               {% for value, label in role_choices %}

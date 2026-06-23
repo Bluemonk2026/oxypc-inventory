@@ -9,12 +9,12 @@ from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, func, and_
+from sqlalchemy import select, or_, func, and_, update
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceGrade, DeviceStage, StageMovement, STAGE_LABELS
 from models.lot import Lot
-from models.repair import RepairJob
+from models.repair import RepairJob, RepairStatus
 from models.qc import QCCheck
 from models.spare_parts import SparePartConsumption, SparePart
 from models.location import DeviceLocationLog, StorageLocation, LocationAction
@@ -25,11 +25,53 @@ from models.engines import DeviceCosting
 from models.sales import Sale
 from services.parts_required import compute_required
 from auth.dependencies import get_current_user, require_roles, verify_csrf
+from utils.warranty import warranty_from_sold_at
 
 router = APIRouter(prefix="/devices", tags=["devices"], dependencies=[Depends(verify_csrf)])
 # All logged-in users can search/view; only admin+invmgr can edit
 view_allowed = get_current_user
 edit_allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
+
+
+@router.get("/api/brief")
+async def device_brief(barcode: str, db: AsyncSession = Depends(get_db),
+                       current_user: User = Depends(view_allowed)):
+    """Brief device info for live tag lookups (Process Return + L3 'Replace Device
+    with'). Returns Make/Model/RAM/Storage/Location/Status/Warranty as JSON."""
+    from fastapi.responses import JSONResponse
+    bc = (barcode or "").strip()
+    if not bc:
+        return JSONResponse({"found": False})
+    device = (await db.execute(select(Device).where(Device.barcode == bc))).scalar_one_or_none()
+    if not device:
+        return JSONResponse({"found": False})
+    sale = (await db.execute(
+        select(Sale).where(Sale.device_id == device.id).order_by(Sale.sold_at.desc()).limit(1)
+    )).scalars().first()
+    w = warranty_from_sold_at(sale.sold_at if sale else None)
+    loc = None
+    info = (await _build_location_map(db, [str(device.id)])).get(str(device.id))
+    if info and info.get("unit_id"):
+        loc = info["unit_id"]
+    if not loc:
+        loc = device.warehouse or device.floor or "—"
+    ram = f"{device.ram_gb} GB" if device.ram_gb else "—"
+    if device.storage_gb:
+        storage = f"{device.storage_gb} GB" + (f" {device.storage_type}" if device.storage_type else "")
+    else:
+        storage = "—"
+    return JSONResponse({
+        "found": True,
+        "barcode": device.barcode,
+        "make": device.brand or "—",
+        "model": device.model or "—",
+        "ram": ram,
+        "storage": storage,
+        "location": loc,
+        "status": str(device.stage_label),
+        "warranty": w["label"] if w else "No warranty",
+        "return_status": "Yes" if device.return_status else "No",
+    })
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -343,6 +385,20 @@ async def device_detail(
         .order_by(WorkOrder.assigned_at.desc())
     )).scalars().all()
 
+    # ── Repair Status (item 9): derived from current stage + repair jobs ──────
+    repair_status = None
+    _lvl = {DeviceStage.l1: 1, DeviceStage.l2: 2, DeviceStage.l3: 3}.get(device.current_stage)
+    if _lvl:
+        _REQ = ("Request to L2", "Request to L3", "Escalate to L2", "Escalate to L3")
+        in_prog = any(r.stage == f"L{_lvl}" and r.status == RepairStatus.in_progress for r in repairs)
+        latest = repairs[0] if repairs else None
+        if latest and (latest.final_status or "") in _REQ and not in_prog:
+            repair_status = f"Request to L{_lvl}"
+        elif in_prog:
+            repair_status = f"In Progress at L{_lvl}"
+        else:
+            repair_status = f"Pending at L{_lvl}"
+
     return templates.TemplateResponse("devices/detail.html", {
         "request": request, "current_user": current_user,
         "device": device, "lot": lot,
@@ -356,6 +412,7 @@ async def device_detail(
         "stress_data": stress_data,
         "parts_consumption": parts_consumption,
         "work_orders": work_orders,
+        "repair_status": repair_status,
     })
 
 
@@ -424,10 +481,27 @@ async def device_edit_save(
     notes: str = Form(""),
     qty: str = Form(""),
     device_price_input: str = Form(""),
+    barcode_new: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(edit_allowed),
 ):
     device = await _get_device_or_404(barcode, db)
+
+    # ── Editable Tag Number (up to 100 chars). Check uniqueness BEFORE mutating
+    #    anything, so a clash returns without a partial commit. ────────────────
+    new_bc = (barcode_new or "").strip()
+    if new_bc and new_bc != device.barcode:
+        clash = (await db.execute(
+            select(Device.id).where(Device.barcode == new_bc, Device.id != device.id)
+        )).scalar_one_or_none()
+        if clash:
+            import urllib.parse
+            return RedirectResponse(
+                url=f"/devices/{barcode}/edit?error=Tag+Number+{urllib.parse.quote(new_bc)}+already+exists",
+                status_code=302)
+        device.barcode = new_bc
+        # keep WorkOrder display snapshots consistent with the new tag
+        await db.execute(update(WorkOrder).where(WorkOrder.device_id == device.id).values(barcode=new_bc))
 
     device.lot_id = lot_id
     device.sub_category = sub_category or None
@@ -478,6 +552,6 @@ async def device_edit_save(
 
     await db.commit()
     return RedirectResponse(
-        url=f"/devices/{barcode}?success=Device+updated+successfully",
+        url=f"/devices/{device.barcode}?success=Device+updated+successfully",
         status_code=302
     )

@@ -139,6 +139,7 @@ async def create_user(
     full_name: str = Form(...),
     role: str = Form(...),
     password: str = Form(...),
+    whatsapp_number: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -153,6 +154,7 @@ async def create_user(
     user = User(
         username=username, full_name=full_name,
         role=role, password_hash=hash_password(password),
+        whatsapp_number=(whatsapp_number.strip() or None),
         created_by=current_user.username, status=True,
     )
     db.add(user)
@@ -184,6 +186,7 @@ async def update_user(
     full_name: str = Form(...),
     role: str = Form(...),
     status: str = Form("on"),
+    whatsapp_number: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -194,6 +197,7 @@ async def update_user(
     old_vals = {"full_name": user.full_name, "role": user.role.value, "status": user.status}
     user.full_name = full_name
     user.role = role
+    user.whatsapp_number = whatsapp_number.strip() or None
     new_status = (status == "on")
     user.status = new_status
     action = "USER_DISABLED" if not new_status and old_vals["status"] else "USER_UPDATED"

@@ -14,11 +14,11 @@
 <div class="d-flex" id="wrapper">
   <!-- Sidebar -->
   <nav id="sidebar" class="sidebar-nav d-flex flex-column flex-shrink-0 p-0">
-    <div class="sidebar-brand d-flex align-items-center px-3 py-3">
+    <div class="sidebar-brand d-flex align-items-center px-3 py-3" style="background:#006930;color:#fff;">
       <i class="bi bi-laptop me-2 fs-4"></i>
-      <span class="fs-5 fw-bold">OxyPC</span>
+      <span class="fs-6 fw-bold text-nowrap">Inventory Lifecycle</span>
     </div>
-    <ul class="nav nav-pills flex-column mb-auto px-2">
+    <ul class="nav nav-pills flex-column mb-auto px-2" style="padding-top:1rem;padding-bottom:1rem;">
       <li class="nav-item">
         <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">
           <i class="bi bi-speedometer2 me-2"></i> Dashboard
@@ -46,39 +46,52 @@
       {% if role in ['admin','inventory_manager','iqc_inspector'] %}
       <li class="nav-section">INTAKE</li>
       {% if role in ['admin','inventory_manager'] and has_perm(role,'grn','enable') %}
-      <li><a href="/grn" class="nav-link {% if '/grn' in request.url.path %}active{% endif %}">
-        <i class="bi bi-receipt me-2"></i> GRN Generation
+      <li><a href="/grn" class="nav-link {% if request.url.path == '/grn' %}active{% endif %}">
+        <i class="bi bi-receipt me-2"></i> GRN with Invoice
       </a></li>
       {% endif %}
       {% if has_perm(role,'lots','enable') %}
       <li><a href="/lots" class="nav-link {% if '/lots' in request.url.path %}active{% endif %}">
-        <i class="bi bi-box-seam me-2"></i> Lot Items
+        <i class="bi bi-box-seam me-2"></i> Lot Overview
       </a></li>
       {% endif %}
       {% if has_perm(role,'iqc','enable') %}
       <li><a href="/iqc" class="nav-link {% if '/iqc' in request.url.path %}active{% endif %}">
-        <i class="bi bi-clipboard-check me-2"></i> IQC Items
+        <i class="bi bi-clipboard-check me-2"></i> IQC Line Items
       </a></li>
+      {% endif %}
+      {% if role in ['admin','inventory_manager'] %}
+      {% if has_perm(role,'grn_post_iqc','enable') %}
+      <li><a href="/grn/post-iqc" class="nav-link {% if '/grn/post-iqc' in request.url.path %}active{% endif %}">
+        <i class="bi bi-clipboard2-check me-2"></i> GRN post IQC
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'grn_records','enable') %}
+      <li><a href="/grn/records" class="nav-link {% if '/grn/records' in request.url.path %}active{% endif %}">
+        <i class="bi bi-collection me-2"></i> GRN Records
+      </a></li>
+      {% endif %}
       {% endif %}
       {% endif %}
 
       {# ── INVENTORY ───────────────────────────────────────────────────── #}
       {% if role in ['admin','inventory_manager','l1_engineer','l2_engineer','l3_engineer','iqc_inspector','qc_inspector','sales','sales_manager','telecaller'] %}
       <li class="nav-section">INVENTORY</li>
-      {% if role in ['admin','inventory_manager'] and has_perm(role,'stock','enable') %}
+      {% if role in ['admin','inventory_manager'] %}
+      {% if has_perm(role,'stock','enable') %}
       <li><a href="/stock" class="nav-link {% if request.url.path == '/stock' %}active{% endif %}">
         <i class="bi bi-archive me-2"></i> Stock Inwards
       </a></li>
+      {% endif %}
+      {% if has_perm(role,'production_manager','enable') %}
       <li><a href="/trc-production" class="nav-link {% if '/trc-production' in request.url.path %}active{% endif %}">
-        <i class="bi bi-cpu me-2"></i> TRC Production
+        <i class="bi bi-cpu me-2"></i> Production Manager
       </a></li>
-      <li><a href="/scrap-products" class="nav-link {% if '/scrap-products' in request.url.path %}active{% endif %}">
-        <i class="bi bi-trash3 me-2"></i> Scrap Products
-      </a></li>
+      {% endif %}
       {% endif %}
       {% if role in ['admin','inventory_manager'] and has_perm(role,'transfers','enable') %}
       <li><a href="/transfers" class="nav-link {% if '/transfers' in request.url.path %}active{% endif %}">
-        <i class="bi bi-arrow-left-right me-2"></i> Move Tag to Any
+        <i class="bi bi-arrow-left-right me-2"></i> Move Device
       </a></li>
       {% endif %}
       {% if role in ['admin','inventory_manager','sales','sales_manager','telecaller'] and has_perm(role,'dispatch','enable') %}
@@ -113,11 +126,25 @@
       </a></li>
       {% endif %}
 
-      {# ── PARTS ───────────────────────────────────────────────────────── #}
+      {# ── COSMETIC REFURB (moved below Repair) ─────────────────────────── #}
+      {% if role in ['admin','inventory_manager','qc_inspector'] and has_perm(role,'cosmetic','enable') %}
+      <li class="nav-section">COSMETIC REFURB</li>
+      <li><a href="/cosmetic/cleaning" class="nav-link {% if request.url.path == '/cosmetic/cleaning' %}active{% endif %}">
+        <i class="bi bi-droplet me-2"></i> Stages
+      </a></li>
+      <li><a href="/cosmetic/final_qc" class="nav-link {% if request.url.path == '/cosmetic/final_qc' %}active{% endif %}">
+        <i class="bi bi-shield-check me-2"></i> Final QC
+      </a></li>
+      <li><a href="/workid-status" class="nav-link {% if request.url.path == '/workid-status' %}active{% endif %}">
+        <i class="bi bi-clipboard-check me-2"></i> WorkID Status
+      </a></li>
+      {% endif %}
+
+      {# ── STORE MANAGER ───────────────────────────────────────────────── #}
       {% if role in ['admin','spare_parts_manager'] and has_perm(role,'spare_parts','enable') %}
-      <li class="nav-section">PARTS</li>
+      <li class="nav-section">STORE MANAGER</li>
       <li><a href="/spare-parts" class="nav-link {% if request.url.path == '/spare-parts' %}active{% endif %}">
-        <i class="bi bi-gear me-2"></i> Part Master
+        <i class="bi bi-gear me-2"></i> Parts Dashboard
       </a></li>
       <li><a href="/spare-parts/purchase" class="nav-link {% if '/purchase' in request.url.path %}active{% endif %}">
         <i class="bi bi-bag-plus me-2"></i> Parts Purchased
@@ -131,21 +158,9 @@
         <i class="bi bi-dash-circle me-2"></i> Parts Consumption
       </a></li>
       {% endif %}
-
-      {# ── COSMETIC REFURB ─────────────────────────────────────────────── #}
-      {% if role in ['admin','inventory_manager','qc_inspector'] and has_perm(role,'cosmetic','enable') %}
-      <li class="nav-section">COSMETIC REFURB</li>
-      <li><a href="/cosmetic" class="nav-link {% if '/cosmetic' in request.url.path %}active{% endif %}">
-        <i class="bi bi-brush me-2"></i> Pipeline View
-      </a></li>
-      <li><a href="/cosmetic/cleaning" class="nav-link {% if request.url.path == '/cosmetic/cleaning' %}active{% endif %}">
-        <i class="bi bi-droplet me-2"></i> Stages
-      </a></li>
-      <li><a href="/cosmetic/final_qc" class="nav-link {% if request.url.path == '/cosmetic/final_qc' %}active{% endif %}">
-        <i class="bi bi-shield-check me-2"></i> Final QC
-      </a></li>
-      <li><a href="/workid-status" class="nav-link {% if request.url.path == '/workid-status' %}active{% endif %}">
-        <i class="bi bi-clipboard-check me-2"></i> WorkID Status
+      {% if role in ['admin','inventory_manager'] and has_perm(role,'scrap_products','enable') %}
+      <li><a href="/scrap-products" class="nav-link {% if '/scrap-products' in request.url.path %}active{% endif %}">
+        <i class="bi bi-trash3 me-2"></i> Scrap Products
       </a></li>
       {% endif %}
 

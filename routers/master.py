@@ -51,30 +51,33 @@ PERM_MODULES = [
     ("dashboard",       "Dashboard"),
     ("devices",         "Inventory Search"),
     ("attendance",      "Attendance"),
-    # INTAKE
-    ("grn",             "GRN Generation"),
-    ("lots",            "Lot Items"),
-    ("iqc",             "IQC"),
-    # INVENTORY
+    # INTAKE  (each GRN page has its own permission)
+    ("grn",             "GRN with Invoice"),
+    ("grn_post_iqc",    "GRN post IQC"),
+    ("grn_records",     "GRN Records"),
+    ("lots",            "Lot Overview"),
+    ("iqc",             "IQC Line Items"),
+    # INVENTORY  (each page has its own permission)
     ("stock",           "Stock Inwards"),
-    ("transfers",       "Stock Transfers"),
-    ("move_device",     "Move Device Internal"),
+    ("production_manager", "Production Manager"),
+    ("scrap_products",  "Scrap Products"),
+    ("transfers",       "Move Device"),
     ("dispatch",        "Ready to Dispatch"),
     # REPAIR
     ("repair_l1",       "L1 Repair"),
     ("repair_l2",       "L2 Repair"),
     ("repair_l3",       "L3 Repair"),
-    ("qc_check",        "QC Check"),
-    # COSMETIC
+    ("qc_check",        "Stress Test"),
+    # COSMETIC REFURB  (Stages + Final QC + WorkID Status)
     ("cosmetic",        "Cosmetic Refurb"),
-    # PARTS
-    ("spare_parts",     "Spare Parts"),
+    # STORE MANAGER  (Parts Dashboard + Parts Purchased + Parts Tracking)
+    ("spare_parts",     "Store Manager (Parts)"),
     # CRM
     ("crm_contacts",    "CRM Contacts"),
-    ("crm_sourcing",    "CRM Sourcing"),
+    ("crm_sourcing",    "CRM Sourcing Deals"),
     ("crm_sales_opp",   "CRM Sales Opportunities"),
     # SALES & CRM
-    ("sales",           "Sales / Ready to Sale"),
+    ("sales",           "Ready to Sale / Sales"),
     ("returns",         "Returns"),
     ("dealers",         "Dealers"),
     ("telecalling",     "Telecalling"),

@@ -50,6 +50,7 @@
               <a href="/devices/{{ device.barcode }}/edit" class="btn btn-sm btn-outline-primary py-0 px-2 me-1">
                 <i class="bi bi-pencil me-1"></i>Edit
               </a>
+              {% if device.grn_number %}
               <form action="/stock/move-to-stock" method="post" class="d-inline">
                 <input type="hidden" name="barcode" value="{{ device.barcode }}">
                 <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
@@ -57,6 +58,12 @@
                   <i class="bi bi-box-arrow-in-right me-1"></i>Move to Inventory
                 </button>
               </form>
+              {% else %}
+              <a href="/grn/post-iqc?highlight_tag={{ device.barcode|urlencode }}" class="btn btn-sm btn-warning py-0 px-2"
+                 title="No GRN assigned — assign one in GRN post IQC">
+                <i class="bi bi-link-45deg me-1"></i>Assign GRN
+              </a>
+              {% endif %}
               <button class="btn btn-sm btn-outline-danger py-0 px-1 ms-1"
                       onclick="if(confirm('Move {{ device.barcode }} to Trash?')) { document.getElementById('trashIQC_{{ loop.index }}').submit(); }"
                       title="Move to Trash">

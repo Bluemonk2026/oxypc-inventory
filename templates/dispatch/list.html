@@ -9,7 +9,7 @@
 <div class="row g-3 mb-3">
   {% for g, color in GRADES %}
   {% set st = (card_stats[g] if card_stats is defined else {'total':0,'dispatched':0,'pending':0,'sold':0}) %}
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body py-3">
         <div class="d-flex justify-content-between align-items-center mb-2">
@@ -25,13 +25,34 @@
     </div>
   </div>
   {% endfor %}
+  {# 5th card: Total Ready to Sale, split by age since moving to Ready to Sale #}
+  {% set rs = (ready_summary if ready_summary is defined else {'total':0,'d15':0,'d30':0,'d45':0,'d60':0,'d60plus':0}) %}
+  <div class="col-12 col-lg-4">
+    <div class="card border-0 shadow-sm h-100" style="background:#eef4ff">
+      <div class="card-body py-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="badge bg-primary">Total Ready to Sale</span>
+          <span class="fs-3 fw-bold">{{ rs.total }}</span>
+        </div>
+        <div class="d-flex justify-content-between text-center small" title="Days since the device moved to Ready to Sale">
+          <div><div class="text-muted">&le;15d</div><div class="fw-bold text-success">{{ rs.d15 }}</div></div>
+          <div><div class="text-muted">16&ndash;30d</div><div class="fw-bold text-success">{{ rs.d30 }}</div></div>
+          <div><div class="text-muted">31&ndash;45d</div><div class="fw-bold text-warning">{{ rs.d45 }}</div></div>
+          <div><div class="text-muted">46&ndash;60d</div><div class="fw-bold text-warning">{{ rs.d60 }}</div></div>
+          <div><div class="text-muted">&gt;60d</div><div class="fw-bold text-danger">{{ rs.d60plus }}</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 {% macro grade_rows(label, items) %}
+<div class="table-responsive">
 <table class="table table-hover mb-0 small">
   <thead class="table-light"><tr>
     <th class="ps-3">Tag Number</th><th>Model Name</th><th>Lot</th><th>Quantities</th>
     <th>Dispatched</th><th>Pending</th><th>Sold</th>
+    <th title="Days since the device became Ready to Sale">Timeline</th><th>Warranty</th>
   </tr></thead>
   <tbody>
     {% for it in items %}
@@ -43,12 +64,15 @@
       <td><span class="badge bg-success">{{ it.dispatched }}</span></td>
       <td><span class="badge bg-warning text-dark">{{ it.pending }}</span></td>
       <td>{{ it.sold }}</td>
+      <td>{% if it.timeline is not none %}<span class="badge bg-light text-dark border">{{ it.timeline }} day{{ 's' if it.timeline != 1 else '' }}</span>{% else %}—{% endif %}</td>
+      <td>{% if it.warranty %}<span class="badge bg-{{ 'success' if it.warranty_status == 'active' else 'secondary' }}">{{ it.warranty }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
     </tr>
     {% else %}
-    <tr><td colspan="7" class="text-center text-muted py-3">No {{ label }} grade devices.</td></tr>
+    <tr><td colspan="9" class="text-center text-muted py-3">No {{ label }} grade devices.</td></tr>
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% endmacro %}
 
 <!-- Telecaller Requests (moved above accordions) -->
@@ -103,26 +127,32 @@
   </div>
 </div>
 
-<!-- Grade tables in accordions (#8); first (A) open by default -->
-<div class="accordion mb-3" id="gradeAccordion">
-  {% for g, color in GRADES %}
+<!-- Grade tables split into two halves (1/2 + 1/2): A/B left, C/D right -->
+{% macro grade_accordion(parent_id, grades) %}
+<div class="accordion" id="{{ parent_id }}">
+  {% for g, color in grades %}
   {% set items = buckets[g] %}
   <div class="accordion-item">
     <h2 class="accordion-header">
-      <button class="accordion-button {{ '' if loop.first else 'collapsed' }}" type="button"
+      <button class="accordion-button collapsed" type="button"
               data-bs-toggle="collapse" data-bs-target="#grade{{ g }}"
-              aria-expanded="{{ 'true' if loop.first else 'false' }}" aria-controls="grade{{ g }}">
+              aria-expanded="false" aria-controls="grade{{ g }}">
         <span class="badge bg-{{ color }} me-2">{{ g }}</span> Grade Devices
         <span class="text-muted small ms-2">({{ items|length }})</span>
       </button>
     </h2>
-    <div id="grade{{ g }}" class="accordion-collapse collapse {{ 'show' if loop.first else '' }}" data-bs-parent="#gradeAccordion">
+    <div id="grade{{ g }}" class="accordion-collapse collapse" data-bs-parent="#{{ parent_id }}">
       <div class="accordion-body p-0">
         {{ grade_rows(g, items) }}
       </div>
     </div>
   </div>
   {% endfor %}
+</div>
+{% endmacro %}
+<div class="row g-3 mb-3">
+  <div class="col-lg-6">{{ grade_accordion('gradeAccordionL', GRADES[:2]) }}</div>
+  <div class="col-lg-6">{{ grade_accordion('gradeAccordionR', GRADES[2:]) }}</div>
 </div>
 
 {% endblock %}

@@ -129,7 +129,7 @@
             </div>
             <div class="col-12">
               <label class="form-label small fw-semibold d-block">Final Status</label>
-              {% for opt in ['Completed','Escalate to L2'] %}
+              {% for opt in ['Completed','Request to L2'] %}
               <div class="form-check">
                 <input class="form-check-input" type="radio" name="final_status" value="{{ opt }}" id="fs_l1_{{ loop.index }}">
                 <label class="form-check-label" for="fs_l1_{{ loop.index }}">{{ opt }}</label>

@@ -106,6 +106,8 @@ class Device(Base):
     floor = Column(String(50), nullable=True)
     warehouse = Column(String(100), nullable=True)     # TRC 1st Floor, Showroom, etc.
     grn_number = Column(String(50), nullable=True)     # Goods Receipt Note ref
+    return_status = Column(Boolean, nullable=False, default=False, server_default=text("false"))  # True once returned via Process Return
+    replaced = Column(String(120), nullable=True)      # "Replaced by <tag>" / "Replaced from <tag>" (L3 device swap)
     device_price = Column(Numeric(12, 2), nullable=True)  # Individual device buying price
     qty           = Column(Integer, nullable=True, server_default="1")  # Units this record covers (default 1)
     lot_line_item_id = Column(UUID(as_uuid=True), ForeignKey("lot_line_items.id"), nullable=True)

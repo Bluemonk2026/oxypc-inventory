@@ -11,14 +11,16 @@ from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_, update
 
 from database import get_db
 from models.user import User, UserRole
 from models.lot import Lot
+from models.device import Device, DeviceStage
 from models.engines import AuditLog
 from models.grn_import import GRNImport
 from services.invoice_parser import extract_invoice_fields
+from services.audit_engine import audit
 from config import UPLOADS_DIR
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 
@@ -59,8 +61,11 @@ async def _next_grn_12(db: AsyncSession) -> str:
 async def grn_import_list(request: Request, db: AsyncSession = Depends(get_db),
                           current_user: User = Depends(allowed),
                           error: str = "", success: str = ""):
+    # GRN with Invoice page → invoice-source GRNs only (legacy NULL treated as invoice)
     rows = (await db.execute(
-        select(GRNImport).order_by(GRNImport.created_at.desc()).limit(500)
+        select(GRNImport)
+        .where(or_(GRNImport.source != "post_iqc", GRNImport.source.is_(None)))
+        .order_by(GRNImport.created_at.desc()).limit(500)
     )).scalars().all()
     return templates.TemplateResponse("grn/import.html", {
         "request": request, "grns": rows, "current_user": current_user,
@@ -68,16 +73,103 @@ async def grn_import_list(request: Request, db: AsyncSession = Depends(get_db),
     })
 
 
+# ── GRN post IQC (item 14): same import/validate/edit, plus Map-to-Tag ─────────
+
+@router.get("/post-iqc", response_class=HTMLResponse)
+async def grn_post_iqc(request: Request, db: AsyncSession = Depends(get_db),
+                       current_user: User = Depends(allowed),
+                       error: str = "", success: str = "", highlight_tag: str = ""):
+    grns = (await db.execute(
+        select(GRNImport).where(GRNImport.source == "post_iqc")
+        .order_by(GRNImport.created_at.desc()).limit(500)
+    )).scalars().all()
+    # Pending = devices currently in IQC stage whose GRN field is still empty
+    pending = (await db.execute(
+        select(Device).where(
+            Device.current_stage == DeviceStage.iqc,
+            or_(Device.grn_number.is_(None), Device.grn_number == ""),
+            Device.is_active == True, Device.is_trashed == False,
+        ).order_by(Device.created_at.desc()).limit(1000)
+    )).scalars().all()
+    return templates.TemplateResponse("grn/post_iqc.html", {
+        "request": request, "grns": grns, "pending": pending,
+        "current_user": current_user, "error": error, "success": success,
+        "highlight_tag": highlight_tag,
+    })
+
+
+@router.post("/map")
+async def grn_map(request: Request, grn_id: str = Form(...),
+                  device_ids: list[str] = Form(default=[]),
+                  db: AsyncSession = Depends(get_db),
+                  current_user: User = Depends(allowed)):
+    import uuid as _u
+    try:
+        gid = _u.UUID(grn_id)
+    except ValueError:
+        raise HTTPException(404)
+    g = (await db.execute(select(GRNImport).where(GRNImport.id == gid))).scalar_one_or_none()
+    if not g:
+        raise HTTPException(404, "GRN not found")
+    valid_ids = []
+    for d in device_ids:
+        try:
+            valid_ids.append(_u.UUID(d))
+        except (ValueError, AttributeError):
+            pass
+    if not valid_ids:
+        return RedirectResponse(url="/grn/post-iqc?error=No+tag+numbers+selected", status_code=302)
+    await db.execute(
+        update(Device).where(Device.id.in_(valid_ids)).values(grn_number=g.grn_number)
+    )
+    await audit(db, user=current_user, action="GRN_MAPPED",
+                table_name="devices", record_id=str(gid),
+                new_value={"grn_number": g.grn_number, "tags": len(valid_ids)},
+                request=request)
+    await db.commit()
+    return RedirectResponse(
+        url=f"/grn/post-iqc?success=Mapped+GRN+{g.grn_number}+to+{len(valid_ids)}+tag(s)",
+        status_code=302)
+
+
+# ── GRN Records (item 16): two paginated tables by source ─────────────────────
+
+@router.get("/records", response_class=HTMLResponse)
+async def grn_records(request: Request, db: AsyncSession = Depends(get_db),
+                      current_user: User = Depends(allowed)):
+    base = (
+        select(Device, Lot.lot_number)
+        .join(Lot, Device.lot_id == Lot.id, isouter=True)
+        .where(Device.is_active == True, Device.is_trashed == False)
+    )
+    # GRN Assigned — tag numbers that already have a GRN value
+    assigned = (await db.execute(
+        base.where(Device.grn_number.isnot(None), Device.grn_number != "")
+        .order_by(Device.updated_at.desc()).limit(5000)
+    )).all()
+    # GRN Not Mapped — tag numbers whose GRN value is still empty
+    not_mapped = (await db.execute(
+        base.where(or_(Device.grn_number.is_(None), Device.grn_number == ""))
+        .order_by(Device.updated_at.desc()).limit(5000)
+    )).all()
+    return templates.TemplateResponse("grn/records.html", {
+        "request": request, "assigned": assigned, "not_mapped": not_mapped,
+        "current_user": current_user,
+    })
+
+
 @router.post("/upload")
 async def grn_upload(
     request: Request,
     invoice: UploadFile = File(...),
+    source: str = Form("invoice"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
 ):
+    base = "/grn/post-iqc" if source == "post_iqc" else "/grn"
     data = await invoice.read()
     if not data:
-        return RedirectResponse(url="/grn?error=Empty+file", status_code=302)
+        return RedirectResponse(url=f"{base}?error=Empty+file", status_code=302)
     file_hash = hashlib.sha256(data).hexdigest()
 
     # Duplicate by exact file
@@ -85,7 +177,7 @@ async def grn_upload(
         select(GRNImport.id).where(GRNImport.file_hash == file_hash)
     )).scalar_one_or_none()
     if dup:
-        return RedirectResponse(url="/grn?error=Uploading+Duplicate+Data+is+Not+Allowed", status_code=302)
+        return RedirectResponse(url=f"{base}?error=Uploading+Duplicate+Data+is+Not+Allowed", status_code=302)
 
     # Persist file
     os.makedirs(GRN_UPLOAD_DIR, exist_ok=True)
@@ -113,7 +205,7 @@ async def grn_upload(
                 os.remove(path)
             except OSError:
                 pass
-            return RedirectResponse(url="/grn?error=Uploading+Duplicate+Data+is+Not+Allowed", status_code=302)
+            return RedirectResponse(url=f"{base}?error=Uploading+Duplicate+Data+is+Not+Allowed", status_code=302)
 
     db.add(GRNImport(
         grn_number=grn_number,
@@ -121,10 +213,11 @@ async def grn_upload(
         invoice_number=fields["invoice_number"], invoice_date=fields["invoice_date"],
         sender_name=fields["sender_name"], quantity=fields["quantity"], amount=fields["amount"],
         file_name=safe_name, file_path=path, file_hash=file_hash,
+        source=("post_iqc" if source == "post_iqc" else "invoice"),
         created_by=current_user.username,
     ))
     await db.commit()
-    return RedirectResponse(url=f"/grn?success=GRN+{grn_number}+created", status_code=302)
+    return RedirectResponse(url=f"{base}?success=GRN+{grn_number}+created", status_code=302)
 
 
 @router.get("/download/{grn_id}")

@@ -1,47 +1,76 @@
 /**
- * OxyPC WhatsApp Service
- * ----------------------
- * Wraps whatsapp-web.js and exposes a simple REST API so the
- * FastAPI Python backend can generate QR codes, check status,
- * and send messages without any Python↔WA lib coupling.
+ * OxyPC WhatsApp Service — MULTI-SESSION
+ * --------------------------------------
+ * Wraps whatsapp-web.js and exposes a REST API so the FastAPI backend can
+ * generate QR codes, check status, and send messages.
+ *
+ * Each application user links their OWN WhatsApp number. Sessions are keyed by
+ * `clientId` (= the OxyPC username), each with its own whatsapp-web.js Client,
+ * its own LocalAuth folder (.wwebjs_auth/session-<user>), QR, status and phone.
+ *
+ * Every endpoint accepts a `user` parameter:
+ *   - GET  endpoints: ?user=<username>
+ *   - POST endpoints: { "user": "<username>", ... }
+ * If omitted, the session id falls back to "default" (backward compatible).
  *
  * Endpoints:
- *   GET  /status          → { status, phone_number, has_qr }
- *   GET  /qr              → { qr_base64 }  (404 if not scanning)
- *   POST /connect         → starts WA client, begins QR flow
- *   POST /disconnect      → destroys WA session
- *   POST /send            → { phone, message }  → sends text message
+ *   GET  /status?user=            → { status, phone_number, has_qr }
+ *   GET  /qr?user=                → { qr_base64 }  (404 if not scanning)
+ *   GET  /sessions                → { sessions: [{user,status,phone_number}] }
+ *   POST /connect      {user}     → starts WA client, begins QR flow
+ *   POST /disconnect   {user}     → destroys WA session
+ *   POST /send         {user,phone,message}
+ *   GET  /groups?user=
+ *   POST /send-group   {user,group_id,message}
+ *   GET  /group-messages/:group_id?user=&limit=
+ *   POST /sync-group-messages {user,group_ids,limit}
  *
- * Run:  node index.js
- * Port: 3001 (or WA_PORT env var)
+ * Run:  node index.js     Port: 3001 (or WA_PORT env var)
  */
 
 const express = require('express');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const QRCode   = require('qrcode');
 const path     = require('path');
+const fs       = require('fs');
 
 const app  = express();
 const PORT = process.env.WA_PORT || 3001;
+const AUTH_DIR = path.join(__dirname, '.wwebjs_auth');
 app.use(express.json());
 
-// ── Shared state ──────────────────────────────────────────────────────────
-const state = {
-  status:       'disconnected',   // 'disconnected' | 'scanning' | 'connected'
-  qr_base64:    null,
-  phone_number: null,
-  client:       null,
-};
+// ── Per-user session registry ─────────────────────────────────────────────
+// sessions[clientId] = { status, qr_base64, phone_number, client }
+const sessions = {};
 
-// ── Helper: create and initialize a WA client ────────────────────────────
-function createClient() {
-  if (state.client) {
-    try { state.client.destroy(); } catch (_) {}
+function sanitizeId(u) {
+  // whatsapp-web.js clientId must be [A-Za-z0-9_-]
+  return (String(u || 'default').replace(/[^A-Za-z0-9_-]/g, '_') || 'default');
+}
+
+function userOf(req) {
+  const raw = (req.query && req.query.user) || (req.body && req.body.user) || 'default';
+  return sanitizeId(raw);
+}
+
+function getSession(id) {
+  if (!sessions[id]) {
+    sessions[id] = { status: 'disconnected', qr_base64: null, phone_number: null, client: null };
+  }
+  return sessions[id];
+}
+
+// ── Helper: create and initialize a per-user WA client ────────────────────
+function createClient(id) {
+  const s = getSession(id);
+  if (s.client) {
+    try { s.client.destroy(); } catch (_) {}
   }
 
   const client = new Client({
     authStrategy: new LocalAuth({
-      dataPath: path.join(__dirname, '.wwebjs_auth'),
+      clientId: id,               // → .wwebjs_auth/session-<id>  (isolates each user)
+      dataPath: AUTH_DIR,
     }),
     webVersionCache: {
       type: 'remote',
@@ -65,26 +94,25 @@ function createClient() {
 
   client.on('qr', async (qr) => {
     try {
-      state.qr_base64 = await QRCode.toDataURL(qr);
-      state.status    = 'scanning';
-      console.log('[WA] QR code generated — waiting for scan');
+      s.qr_base64 = await QRCode.toDataURL(qr);
+      s.status    = 'scanning';
+      console.log(`[WA:${id}] QR code generated — waiting for scan`);
     } catch (err) {
-      console.error('[WA] QR generation error:', err.message);
+      console.error(`[WA:${id}] QR generation error:`, err.message);
     }
   });
 
   client.on('ready', () => {
-    state.status       = 'connected';
-    state.qr_base64    = null;
-    state.phone_number = client.info?.wid?.user || null;
-    console.log('[WA] Connected!  Number:', state.phone_number);
+    s.status       = 'connected';
+    s.qr_base64    = null;
+    s.phone_number = client.info?.wid?.user || null;
+    console.log(`[WA:${id}] Connected!  Number:`, s.phone_number);
 
-    // Attach frame-detach listener now that pupPage is available
     try {
       client.pupPage?.on('framedetached', (frame) => {
         if (!frame.parentFrame()) {
-          console.warn('[WA] Main frame detached — WA page reloading, marking reconnecting');
-          state.status = 'reconnecting';
+          console.warn(`[WA:${id}] Main frame detached — marking reconnecting`);
+          s.status = 'reconnecting';
         }
       });
     } catch (_) {}
@@ -98,6 +126,7 @@ function createClient() {
       const chat = await msg.getChat();
       const contact = await msg.getContact();
       const payload = {
+        user:         id,                          // which OxyPC user's session received it
         group_id:     msg.from,
         group_name:   chat.name || msg.from,
         sender_phone: contact.id?.user || msg.author || '',
@@ -106,7 +135,6 @@ function createClient() {
         message_type: msg.type || 'text',
         timestamp:    msg.timestamp,
       };
-      // Non-blocking POST to FastAPI
       fetch('http://localhost:8000/whatsapp/incoming-group-msg', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-WA-Secret': 'oxypc-wa-internal' },
@@ -116,32 +144,31 @@ function createClient() {
   });
 
   client.on('authenticated', () => {
-    console.log('[WA] Authenticated');
+    console.log(`[WA:${id}] Authenticated`);
   });
 
-  client.on('auth_failure', (msg) => {
-    console.error('[WA] Auth failure:', msg);
-    state.status    = 'disconnected';
-    state.qr_base64 = null;
-    state.client    = null;
+  client.on('auth_failure', (m) => {
+    console.error(`[WA:${id}] Auth failure:`, m);
+    s.status    = 'disconnected';
+    s.qr_base64 = null;
+    s.client    = null;
   });
 
   client.on('disconnected', (reason) => {
-    console.log('[WA] Disconnected:', reason);
-    state.status       = 'disconnected';
-    state.qr_base64    = null;
-    state.phone_number = null;
-    state.client       = null;
+    console.log(`[WA:${id}] Disconnected:`, reason);
+    s.status       = 'disconnected';
+    s.qr_base64    = null;
+    s.phone_number = null;
+    s.client       = null;
   });
 
-  // Detect WA state changes (CONFLICT, TOS_BLOCK, etc.)
-  client.on('change_state', (s) => {
-    console.log('[WA] State changed:', s);
+  client.on('change_state', (st) => {
+    console.log(`[WA:${id}] State changed:`, st);
   });
 
   client.initialize();
-  state.client = client;
-  state.status = 'scanning';
+  s.client = client;
+  s.status = 'scanning';
   return client;
 }
 
@@ -150,7 +177,7 @@ function isSessionBroken(err) {
   const msg = (err && err.message) ? err.message.toLowerCase() : '';
   return (
     msg.includes('detached frame') ||
-    msg.includes('detached') ||          // catches "Attempted to use detached Frame"
+    msg.includes('detached') ||
     msg.includes('execution context was destroyed') ||
     msg.includes('execution context') ||
     msg.includes('session closed') ||
@@ -158,147 +185,152 @@ function isSessionBroken(err) {
     msg.includes('protocol error') ||
     msg.includes('page has been closed') ||
     msg.includes('frame was detached') ||
-    msg.includes('attempted to use')     // Puppeteer prefix for detached/destroyed errors
+    msg.includes('attempted to use')
   );
+}
+
+function reconnectSoon(id) {
+  setTimeout(() => { console.log(`[WA:${id}] Auto-reconnecting…`); createClient(id); }, 3000);
 }
 
 // ── REST Endpoints ────────────────────────────────────────────────────────
 
-// GET /status
+// GET /status?user=
 app.get('/status', (req, res) => {
+  const s = getSession(userOf(req));
+  res.json({ status: s.status, phone_number: s.phone_number, has_qr: !!s.qr_base64 });
+});
+
+// GET /sessions — overview of every known session (admin)
+app.get('/sessions', (req, res) => {
   res.json({
-    status:       state.status,
-    phone_number: state.phone_number,
-    has_qr:       !!state.qr_base64,
+    sessions: Object.keys(sessions).map((id) => ({
+      user:         id,
+      status:       sessions[id].status,
+      phone_number: sessions[id].phone_number,
+      has_qr:       !!sessions[id].qr_base64,
+    })),
   });
 });
 
-// GET /qr  — returns base64 PNG data-URL
+// GET /qr?user=
 app.get('/qr', (req, res) => {
-  if (!state.qr_base64) {
-    return res.status(404).json({ error: 'No QR code available' });
-  }
-  res.json({ qr_base64: state.qr_base64 });
+  const s = getSession(userOf(req));
+  if (!s.qr_base64) return res.status(404).json({ error: 'No QR code available' });
+  res.json({ qr_base64: s.qr_base64 });
 });
 
-// POST /connect  — start WA client (or restart if disconnected)
+// POST /connect  {user}
 app.post('/connect', (req, res) => {
-  if (state.status === 'connected') {
-    return res.json({ status: 'connected', phone_number: state.phone_number });
+  const id = userOf(req);
+  const s  = getSession(id);
+  if (s.status === 'connected') {
+    return res.json({ status: 'connected', phone_number: s.phone_number });
   }
-  createClient();
+  createClient(id);
   res.json({ status: 'scanning', message: 'WhatsApp client starting — QR will be ready shortly' });
 });
 
-// POST /disconnect  — destroy session and delete saved auth
+// POST /disconnect  {user}
 app.post('/disconnect', async (req, res) => {
-  if (state.client) {
-    try { await state.client.destroy(); } catch (_) {}
-    state.client = null;
+  const id = userOf(req);
+  const s  = getSession(id);
+  if (s.client) {
+    try { await s.client.destroy(); } catch (_) {}
+    s.client = null;
   }
-  state.status       = 'disconnected';
-  state.qr_base64    = null;
-  state.phone_number = null;
+  s.status = 'disconnected';
+  s.qr_base64 = null;
+  s.phone_number = null;
   res.json({ status: 'disconnected' });
 });
 
-// POST /send  { phone: "91XXXXXXXXXX", message: "text" }
+// POST /send  { user, phone, message }
 app.post('/send', async (req, res) => {
+  const id = userOf(req);
+  const s  = getSession(id);
   const { phone, message } = req.body;
 
-  if (!phone || !message) {
-    return res.status(400).json({ error: 'phone and message are required' });
-  }
-  if (state.status === 'reconnecting') {
+  if (!phone || !message) return res.status(400).json({ error: 'phone and message are required' });
+  if (s.status === 'reconnecting') {
     return res.status(503).json({ error: 'WA session is reconnecting — please wait 15 seconds and try again.' });
   }
-  if (state.status !== 'connected' || !state.client) {
-    return res.status(400).json({ error: 'WhatsApp not connected' });
-  }
+  if (s.status !== 'connected' || !s.client) return res.status(400).json({ error: 'WhatsApp not connected' });
 
   try {
     const cleanPhone = phone.replace(/[^0-9]/g, '');
-    // Resolve proper WhatsApp ID — handles LID required for new/unknown contacts
-    const numberId = await state.client.getNumberId(cleanPhone);
-    if (!numberId) {
-      return res.status(400).json({ error: `${phone} is not registered on WhatsApp` });
-    }
-    await state.client.sendMessage(numberId._serialized, message);
-    console.log('[WA] Message sent to', numberId._serialized);
+    const numberId = await s.client.getNumberId(cleanPhone);
+    if (!numberId) return res.status(400).json({ error: `${phone} is not registered on WhatsApp` });
+    await s.client.sendMessage(numberId._serialized, message);
+    console.log(`[WA:${id}] Message sent to`, numberId._serialized);
     res.json({ success: true, chat_id: numberId._serialized });
   } catch (err) {
-    console.error('[WA] Send error:', err.message);
+    console.error(`[WA:${id}] Send error:`, err.message);
     if (isSessionBroken(err)) {
-      state.status = 'reconnecting';
-      setTimeout(() => { console.log('[WA] Auto-reconnecting…'); createClient(); }, 3000);
+      s.status = 'reconnecting';
+      reconnectSoon(id);
       return res.status(503).json({ error: 'WA session lost — reconnecting automatically. Please wait 15 seconds and try again.' });
     }
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /groups  — list all WhatsApp groups the connected account is in
+// GET /groups?user=
 app.get('/groups', async (req, res) => {
-  if (state.status !== 'connected' || !state.client) {
-    return res.status(400).json({ error: 'WhatsApp not connected' });
-  }
+  const id = userOf(req);
+  const s  = getSession(id);
+  if (s.status !== 'connected' || !s.client) return res.status(400).json({ error: 'WhatsApp not connected' });
   try {
-    const chats = await state.client.getChats();
-    const groups = chats
-      .filter(c => c.isGroup)
-      .map(c => ({
-        id:                c.id._serialized,
-        name:              c.name,
-        participant_count: c.participants ? c.participants.length : 0,
-      }));
+    const chats = await s.client.getChats();
+    const groups = chats.filter(c => c.isGroup).map(c => ({
+      id:                c.id._serialized,
+      name:              c.name,
+      participant_count: c.participants ? c.participants.length : 0,
+    }));
     res.json({ groups });
   } catch (err) {
-    console.error('[WA] Groups fetch error:', err.message);
+    console.error(`[WA:${id}] Groups fetch error:`, err.message);
     if (isSessionBroken(err)) {
-      state.status = 'reconnecting';
-      setTimeout(() => { console.log('[WA] Auto-reconnecting…'); createClient(); }, 3000);
+      s.status = 'reconnecting'; reconnectSoon(id);
       return res.status(503).json({ error: 'WA session lost — reconnecting automatically. Please wait 15 seconds and try again.' });
     }
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /send-group  { group_id, message }
+// POST /send-group  { user, group_id, message }
 app.post('/send-group', async (req, res) => {
+  const id = userOf(req);
+  const s  = getSession(id);
   const { group_id, message } = req.body;
-  if (!group_id || !message) {
-    return res.status(400).json({ error: 'group_id and message are required' });
-  }
-  if (state.status === 'reconnecting') {
+  if (!group_id || !message) return res.status(400).json({ error: 'group_id and message are required' });
+  if (s.status === 'reconnecting') {
     return res.status(503).json({ error: 'WA session is reconnecting — please wait 15 seconds and try again.' });
   }
-  if (state.status !== 'connected' || !state.client) {
-    return res.status(400).json({ error: 'WhatsApp not connected' });
-  }
+  if (s.status !== 'connected' || !s.client) return res.status(400).json({ error: 'WhatsApp not connected' });
   try {
-    await state.client.sendMessage(group_id, message);
-    console.log('[WA] Group message sent to', group_id);
+    await s.client.sendMessage(group_id, message);
+    console.log(`[WA:${id}] Group message sent to`, group_id);
     res.json({ success: true, group_id });
   } catch (err) {
-    console.error('[WA] Group send error:', err.message);
+    console.error(`[WA:${id}] Group send error:`, err.message);
     if (isSessionBroken(err)) {
-      state.status = 'reconnecting';
-      setTimeout(() => { console.log('[WA] Auto-reconnecting…'); createClient(); }, 3000);
+      s.status = 'reconnecting'; reconnectSoon(id);
       return res.status(503).json({ error: 'WA session lost — reconnecting automatically. Please wait 15 seconds and try again.' });
     }
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /group-messages/:group_id?limit=50  — fetch recent messages from one group
+// GET /group-messages/:group_id?user=&limit=50
 app.get('/group-messages/:group_id', async (req, res) => {
-  if (state.status !== 'connected' || !state.client) {
-    return res.status(400).json({ error: 'WhatsApp not connected' });
-  }
+  const id = userOf(req);
+  const s  = getSession(id);
+  if (s.status !== 'connected' || !s.client) return res.status(400).json({ error: 'WhatsApp not connected' });
   const groupId = decodeURIComponent(req.params.group_id);
   const limit   = Math.min(parseInt(req.query.limit) || 50, 200);
   try {
-    const chat = await state.client.getChatById(groupId);
+    const chat = await s.client.getChatById(groupId);
     if (!chat) return res.status(404).json({ error: 'Group not found' });
     const messages = await chat.fetchMessages({ limit });
     const result = [];
@@ -327,25 +359,22 @@ app.get('/group-messages/:group_id', async (req, res) => {
     }
     res.json({ messages: result, group_name: chat.name });
   } catch (err) {
-    console.error('[WA] group-messages error:', err.message);
+    console.error(`[WA:${id}] group-messages error:`, err.message);
     if (isSessionBroken(err)) {
-      state.status = 'reconnecting';
-      setTimeout(() => createClient(), 3000);
+      s.status = 'reconnecting'; reconnectSoon(id);
       return res.status(503).json({ error: 'WA session lost — reconnecting, try again in 15s' });
     }
     res.status(500).json({ error: err.message });
   }
 });
 
-// Helper: small delay to avoid overwhelming Puppeteer
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// POST /sync-group-messages  { group_ids: [...], limit: 50 }
-// Fetches messages from multiple groups and returns them all
+// POST /sync-group-messages  { user, group_ids: [...], limit: 50 }
 app.post('/sync-group-messages', async (req, res) => {
-  if (state.status !== 'connected' || !state.client) {
-    return res.status(400).json({ error: 'WhatsApp not connected' });
-  }
+  const id = userOf(req);
+  const s  = getSession(id);
+  if (s.status !== 'connected' || !s.client) return res.status(400).json({ error: 'WhatsApp not connected' });
   const { group_ids = [], limit = 50 } = req.body;
   if (!group_ids.length) return res.status(400).json({ error: 'group_ids required' });
 
@@ -354,41 +383,35 @@ app.post('/sync-group-messages', async (req, res) => {
   let   errorCount    = 0;
   let   sessionBroken = false;
 
-  // ── Step 1: Get all chats ONCE (1 Puppeteer call vs 305 getChatById calls) ──
   let chatMap = {};
   try {
-    const allChats = await state.client.getChats();
+    const allChats = await s.client.getChats();
     for (const c of allChats) {
       if (c.isGroup) chatMap[c.id._serialized] = c;
     }
-    console.log(`[WA] Loaded ${Object.keys(chatMap).length} groups into cache`);
+    console.log(`[WA:${id}] Loaded ${Object.keys(chatMap).length} groups into cache`);
   } catch (err) {
-    console.error('[WA] getChats failed:', err.message);
+    console.error(`[WA:${id}] getChats failed:`, err.message);
     if (isSessionBroken(err)) {
-      state.status = 'reconnecting';
-      setTimeout(() => { console.log('[WA] Auto-reconnecting...'); createClient(); }, 3000);
+      s.status = 'reconnecting'; reconnectSoon(id);
       return res.status(503).json({ error: 'WA session lost — reconnecting. Try again in 15 seconds.' });
     }
     return res.status(500).json({ error: err.message });
   }
 
-  // ── Step 2: Fetch messages per group with a small delay ───────────────────
   for (const gid of group_ids) {
     if (sessionBroken) { errorCount++; continue; }
-
     const chat = chatMap[gid];
     if (!chat) { errorCount++; continue; }
-
     try {
-      await sleep(150);   // breathe between groups — prevents WA page reload
+      await sleep(150);
       const messages = await chat.fetchMessages({ limit: cap });
       for (const msg of messages) {
         if (!msg.body) continue;
-        // Use msg.author directly — avoids 1 Puppeteer call per message
         const senderPhone = (msg.author || '').replace('@c.us', '').replace('@s.whatsapp.net', '');
         all.push({
           from_me:      msg.fromMe,
-          sender_name:  '',           // populated later by incoming-msg webhook
+          sender_name:  '',
           sender_phone: senderPhone,
           message_text: msg.body,
           message_type: msg.type || 'text',
@@ -397,31 +420,44 @@ app.post('/sync-group-messages', async (req, res) => {
           group_name:   chat.name,
         });
       }
-      console.log(`[WA] ${chat.name}: ${messages.length} msgs`);
+      console.log(`[WA:${id}] ${chat.name}: ${messages.length} msgs`);
     } catch (err) {
-      console.error(`[WA] fetchMessages error for ${gid}:`, err.message);
+      console.error(`[WA:${id}] fetchMessages error for ${gid}:`, err.message);
       errorCount++;
       if (isSessionBroken(err)) {
-        console.warn('[WA] Puppeteer session broken mid-sync — stopping, will reconnect');
+        console.warn(`[WA:${id}] Puppeteer session broken mid-sync — stopping, will reconnect`);
         sessionBroken = true;
-        state.status  = 'reconnecting';
-        setTimeout(() => { console.log('[WA] Auto-reconnecting...'); createClient(); }, 3000);
+        s.status      = 'reconnecting';
+        reconnectSoon(id);
       }
     }
   }
 
-  res.json({
-    total:          all.length,
-    messages:       all,
-    errors:         errorCount,
-    session_broken: sessionBroken,
-  });
+  res.json({ total: all.length, messages: all, errors: errorCount, session_broken: sessionBroken });
 });
+
+// ── Restore previously-linked sessions on startup ──────────────────────────
+function restoreSessions() {
+  let names = [];
+  try {
+    names = fs.readdirSync(AUTH_DIR)
+      .filter(n => n.startsWith('session-'))
+      .map(n => n.slice('session-'.length))
+      .filter(Boolean);
+  } catch (_) { /* dir may not exist yet */ }
+  if (!names.length) {
+    console.log('[WA] No saved per-user sessions to restore.');
+    return;
+  }
+  for (const id of names) {
+    console.log('[WA] Restoring session for user:', id);
+    createClient(id);
+  }
+}
 
 // ── Start server ──────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`\n[OxyPC WA Service] Running on http://localhost:${PORT}`);
-  console.log('[OxyPC WA Service] Auto-connecting on start...\n');
-  // Auto-try to restore a saved session on startup
-  createClient();
+  console.log(`\n[OxyPC WA Service] Running on http://localhost:${PORT}  (multi-session)`);
+  console.log('[OxyPC WA Service] Restoring saved sessions…\n');
+  restoreSessions();
 });

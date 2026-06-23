@@ -44,6 +44,7 @@
           <th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th>
           <th>RAM</th><th>Storage</th><th>Grade</th>
           <th title="Device-specific price if set, otherwise Lot Buying Price ÷ Lot Qty">Unit Cost</th>
+          <th>Warranty</th>
           <th>Action</th>
         </tr>
       </thead>
@@ -82,6 +83,14 @@
             {% if cost_source == 'lot' %}
             <span class="text-muted ms-1" style="font-size:.7rem" title="Avg lot cost (no device-specific price set)">avg</span>
             {% endif %}
+            {% endif %}
+          </td>
+          <td class="small">
+            {% set _w = warranty_map.get(device.id|string) if warranty_map is defined else None %}
+            {% if _w %}
+              <span class="badge bg-{{ 'success' if _w.status == 'active' else 'secondary' }}">{{ _w.label }}</span>
+            {% else %}
+              <span class="text-muted">—</span>
             {% endif %}
           </td>
           <td>

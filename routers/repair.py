@@ -184,9 +184,22 @@ async def repair_list(stage: str, request: Request,
         for did, cnt in pr_rows:
             parts_requested_map[str(did)] = cnt
 
+    # ── Returned-device job ids (item 7): L3 shows a "Replace Device with" field
+    #    only for jobs whose device has Return Status = Yes ─────────────────────
+    returned_job_ids: set = set()
+    open_dev_ids = [j.device_id for j, *_ in open_jobs]
+    if open_dev_ids:
+        ret_rows = (await db.execute(
+            select(Device.id).where(Device.id.in_(open_dev_ids),
+                                    Device.return_status == True)
+        )).all()
+        ret_dev = {str(r[0]) for r in ret_rows}
+        returned_job_ids = {str(j.id) for j, *_ in open_jobs if str(j.device_id) in ret_dev}
+
     return templates.TemplateResponse(f"repair/{stage}.html", {
         "request": request, "devices": devices, "open_jobs": open_jobs,
         "stage": stage.upper(), "current_user": current_user,
+        "returned_job_ids": returned_job_ids,
         "location_map": location_map,
         "scrap_warning_map": scrap_warning_map,
         "suggest_qc_ids": suggest_qc_ids,
@@ -284,6 +297,7 @@ async def complete_repair(
     scrap_reason: str = Form(""),
     received_from: str = Form(""),
     customer_internal: str = Form(""),
+    replace_with_barcode: str = Form(""),
     part_ids: list[str] = Form(default=[]),
     part_qtys: list[str] = Form(default=[]),
     db: AsyncSession = Depends(get_db),
@@ -320,6 +334,22 @@ async def complete_repair(
     if expected_stage:
         assert_device_in_stage(device, expected_stage)
 
+    # ── L3 device replacement (items 7 & 8) ──────────────────────────────────
+    # When a returned device is swapped for a good one, cross-reference both
+    # devices' "Replaced" field so the trail is traceable from either tag.
+    rwb = (replace_with_barcode or "").strip()
+    if stage == "l3" and rwb and rwb != device.barcode:
+        repl = (await db.execute(
+            select(Device).where(Device.barcode == rwb)
+        )).scalar_one_or_none()
+        if repl:
+            device.replaced = f"Replaced by {repl.barcode}"
+            repl.replaced = f"Replaced from {device.barcode}"
+            await audit(db, user=current_user, action="DEVICE_REPLACED",
+                        table_name="devices", record_id=str(device.id),
+                        new_value={"replaced_by": repl.barcode, "from": device.barcode},
+                        request=request)
+
     prev_att = (await db.execute(
         select(RepairAttempt).where(RepairAttempt.device_id == device.id, RepairAttempt.level == level)
     )).scalars().all()
@@ -354,7 +384,8 @@ async def complete_repair(
                     action="AUTO_SCRAP" if force_scrap else "MANUAL_SCRAP",
                     table_name="devices", record_id=str(device.id), notes=reason, request=request)
 
-    elif final_status in ("Escalate to L3", "Escalate to L2") and device:
+    elif final_status in ("Escalate to L3", "Escalate to L2",
+                          "Request to L3", "Request to L2") and device:
         from sqlalchemy import update as sa_update
         escalate_to = DeviceStage.l3 if "L3" in final_status else DeviceStage.l2
         is_admin    = current_user.role.value == "admin"

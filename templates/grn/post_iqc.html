@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}GRN — OxyPC{% endblock %}
-{% block page_title %}GRN — Invoice Import{% endblock %}
+{% block title %}GRN post IQC — OxyPC{% endblock %}
+{% block page_title %}GRN post IQC{% endblock %}
 {% block content %}
 
 {% if error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>{% endif %}
@@ -9,11 +9,12 @@
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
     <div>
-      <h6 class="fw-bold mb-1"><i class="bi bi-file-earmark-arrow-up me-2"></i>Upload Invoice</h6>
-      <span class="text-muted small">Upload an invoice PDF — a 12-digit GRN is generated and the fields are read from the file. Duplicates are rejected.</span>
+      <h6 class="fw-bold mb-1"><i class="bi bi-file-earmark-arrow-up me-2"></i>Upload Invoice (post IQC)</h6>
+      <span class="text-muted small">Upload an invoice PDF — a 12-digit GRN is generated. Then map it onto IQC'd tag numbers below.</span>
     </div>
     <form action="/grn/upload" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
       <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="source" value="post_iqc">
       <input type="file" name="invoice" accept="application/pdf,.pdf" class="form-control form-control-sm" style="min-width:260px" required>
       <button type="submit" class="btn btn-primary btn-sm text-nowrap"><i class="bi bi-cloud-upload me-1"></i>Upload Invoice</button>
     </form>
@@ -49,7 +50,8 @@
   </div>
 </div>
 
-<div class="card border-0 shadow-sm">
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-receipt me-2"></i>Uploaded GRNs (post IQC)</div>
   <div class="card-body p-0">
     <div class="table-responsive">
       <table id="grnTable" class="table table-hover mb-0 small align-middle">
@@ -60,11 +62,10 @@
           </tr>
         </thead>
         <tbody>
-          {% set _hl = request.query_params.get('highlight') %}
           {% for g in grns %}
-          <tr id="grn-{{ g.grn_number }}" class="{{ 'table-warning' if _hl and _hl == g.grn_number else '' }}">
+          <tr id="grn-{{ g.grn_number }}">
             <td class="ps-3"><span class="font-monospace fw-bold">{{ g.grn_number }}</span></td>
-            <td class="font-monospace">{% if g.lot_number %}<a href="/lots/new?grn_system_number={{ g.grn_number }}&grn_date={{ (g.invoice_date or '') | urlencode }}&supplier={{ (g.sender_name or '') | urlencode }}&lot_number={{ (g.lot_number or '') | urlencode }}" class="text-decoration-none" title="Create lot prefilled from this GRN">{{ g.lot_number }}</a>{% else %}—{% endif %}</td>
+            <td class="font-monospace">{{ g.lot_number or '—' }}</td>
             <td>{{ g.invoice_number or '—' }}</td>
             <td>{{ g.invoice_date or '—' }}</td>
             <td>{{ g.sender_name or '—' }}</td>
@@ -90,9 +91,10 @@
                       data-qty="{{ g.quantity if g.quantity is not none else '' }}">
                 <i class="bi bi-receipt-cutoff"></i> Validate GRN
               </button>
-              <a href="/lots/new?grn_system_number={{ g.grn_number }}&grn_date={{ (g.invoice_date or '') | urlencode }}&supplier={{ (g.sender_name or '') | urlencode }}&lot_number={{ (g.lot_number or '') | urlencode }}" class="btn btn-sm btn-outline-primary py-0 px-2">
-                <i class="bi bi-plus-circle"></i> Add Lot
-              </a>
+              <button type="button" class="btn btn-sm btn-warning py-0 px-2 map-grn-btn"
+                      data-id="{{ g.id }}" data-grn="{{ g.grn_number }}">
+                <i class="bi bi-link-45deg"></i> Map this GRN
+              </button>
             </td>
           </tr>
           {% else %}
@@ -103,6 +105,45 @@
     </div>
   </div>
 </div>
+
+<!-- GRN Pending for these Tag Numbers -->
+<form method="post" action="/grn/map" id="mapForm">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+  <input type="hidden" name="grn_id" id="mapGrnId">
+  <div class="card border-0 shadow-sm">
+    <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span class="fw-semibold"><i class="bi bi-upc me-2"></i>GRN Pending for these Tag Numbers
+        <span class="badge bg-secondary ms-1">{{ pending|length }}</span></span>
+      <span class="small text-muted">Tick tag numbers, then click <strong>Map this GRN</strong> on a GRN row above.</span>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table id="pendingTable" class="table table-hover mb-0 small align-middle">
+          <thead class="table-light"><tr>
+            <th class="ps-3" style="width:40px"><input type="checkbox" id="checkAll"></th>
+            <th>Tag Number</th><th>Brand</th><th>Model</th><th>RAM</th><th>Storage</th><th>Stage</th>
+          </tr></thead>
+          <tbody>
+            {% for d in pending %}
+            {% set _hl = highlight_tag is defined and highlight_tag and highlight_tag == d.barcode %}
+            <tr id="pend-{{ d.barcode }}" class="{{ 'table-warning' if _hl else '' }}">
+              <td class="ps-3"><input type="checkbox" class="pendChk" name="device_ids" value="{{ d.id }}" {{ 'checked' if _hl else '' }}></td>
+              <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
+              <td>{{ d.brand or '—' }}</td>
+              <td>{{ d.model or '—' }}</td>
+              <td>{{ (d.ram_gb|string ~ ' GB') if d.ram_gb else '—' }}</td>
+              <td>{{ (d.storage_gb|string ~ ' GB') if d.storage_gb else '—' }}</td>
+              <td><span class="badge bg-{{ d.stage_color }}">{{ d.stage_label }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="text-center text-muted py-4">No tag numbers pending a GRN.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</form>
 
 <!-- Edit GRN modal -->
 <div class="modal fade" id="editGrnModal" tabindex="-1" aria-hidden="true">
@@ -138,7 +179,7 @@
   </div>
 </div>
 
-<!-- Validate GRN modal (same fields as the Lot table's Validate GRN modal) -->
+<!-- Validate GRN modal -->
 <div class="modal fade" id="validateGrnModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <form method="post" id="validateGrnForm" class="modal-content">
@@ -179,45 +220,61 @@
 {% block scripts %}
 <script>
 $(document).ready(function(){
-  var dt = null;
   if ($('#grnTable tbody tr td').length > 1) {
-    dt = $('#grnTable').DataTable({pageLength:25, order:[]});
-
-    // Date-range custom filter on the "Date of Invoice" column (index 2, ISO yyyy-mm-dd)
+    var dt = $('#grnTable').DataTable({pageLength:25, order:[]});
     $.fn.dataTable.ext.search.push(function(settings, data){
       if (settings.nTable.id !== 'grnTable') return true;
       var from = document.getElementById('fFrom').value;
       var to   = document.getElementById('fTo').value;
       if (!from && !to) return true;
-      var d = (data[2] || '').trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;  // unparseable dates excluded when filtering
+      var d = (data[3] || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
       if (from && d < from) return false;
       if (to && d > to) return false;
       return true;
     });
-
-    // Per-column text searches
     document.getElementById('fGrn').addEventListener('input', function(){ dt.column(0).search(this.value).draw(); });
-    document.getElementById('fInvoice').addEventListener('input', function(){ dt.column(1).search(this.value).draw(); });
-    document.getElementById('fVendor').addEventListener('input', function(){ dt.column(3).search(this.value).draw(); });
+    document.getElementById('fInvoice').addEventListener('input', function(){ dt.column(2).search(this.value).draw(); });
+    document.getElementById('fVendor').addEventListener('input', function(){ dt.column(4).search(this.value).draw(); });
     document.getElementById('fFrom').addEventListener('change', function(){ dt.draw(); });
     document.getElementById('fTo').addEventListener('change', function(){ dt.draw(); });
     document.getElementById('fReset').addEventListener('click', function(){
       ['fGrn','fInvoice','fVendor','fFrom','fTo'].forEach(function(id){ document.getElementById(id).value=''; });
-      dt.column(0).search('').column(1).search('').column(3).search('').draw();
+      dt.column(0).search('').column(2).search('').column(4).search('').draw();
     });
   }
-
-  // Highlight + scroll to a GRN passed via ?highlight=
-  var hl = {{ (request.query_params.get('highlight') or '')|tojson }};
-  if (hl) {
-    var row = document.getElementById('grn-' + hl);
-    if (row) {
-      row.classList.add('table-warning');
-      if (row.scrollIntoView) row.scrollIntoView({behavior:'smooth', block:'center'});
-    }
+  if ($('#pendingTable tbody tr td').length > 1) {
+    $('#pendingTable').DataTable({pageLength:25, order:[], columnDefs:[{orderable:false, targets:0}]});
   }
 });
+
+// Scroll to + flash the highlighted tag (from "Assign GRN" on IQC Line Items)
+(function(){
+  var hl = {{ (highlight_tag or '')|tojson }};
+  if(!hl) return;
+  var row = document.getElementById('pend-' + hl);
+  if(row && row.scrollIntoView){ row.scrollIntoView({behavior:'smooth', block:'center'}); }
+})();
+
+// Select-all for pending tags
+var checkAll = document.getElementById('checkAll');
+if (checkAll) checkAll.addEventListener('change', function(){
+  document.querySelectorAll('.pendChk').forEach(function(c){ c.checked = checkAll.checked; });
+});
+
+// Map this GRN — set the chosen GRN id on the pending form and submit
+document.querySelectorAll('.map-grn-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var checked = document.querySelectorAll('.pendChk:checked');
+    if (!checked.length) { alert('Tick at least one tag number below first.'); return; }
+    document.getElementById('mapGrnId').value = btn.getAttribute('data-id');
+    if (confirm('Map GRN ' + btn.getAttribute('data-grn') + ' to ' + checked.length + ' selected tag(s)?')) {
+      document.getElementById('mapForm').submit();
+    }
+  });
+});
+
+// Edit modal wiring
 var em = document.getElementById('editGrnModal');
 if (em) { em.addEventListener('show.bs.modal', function(e){
   var b = e.relatedTarget;
@@ -228,11 +285,10 @@ if (em) { em.addEventListener('show.bs.modal', function(e){
   document.getElementById('e_sender').value = b.getAttribute('data-sender') || '';
   document.getElementById('e_qty').value = b.getAttribute('data-qty') || '';
   document.getElementById('e_amount').value = b.getAttribute('data-amount') || '';
-  // reset duplicate state when reopening
   var le = document.getElementById('e_lot_err'); if(le) le.classList.add('d-none');
   document.getElementById('e_lot').classList.remove('is-invalid');
 });}
-/* ── Item 13: live duplicate Lot Number check in Edit GRN modal ── */
+// Live duplicate Lot Number check (item 13)
 (function(){
   var inp = document.getElementById('e_lot');
   var err = document.getElementById('e_lot_err');
@@ -254,6 +310,7 @@ if (em) { em.addEventListener('show.bs.modal', function(e){
   }
   inp.addEventListener('input', function(){ clearTimeout(t); t=setTimeout(check, 350); });
 })();
+// Validate modal wiring
 var vgm = document.getElementById('validateGrnModal');
 if (vgm) { vgm.addEventListener('show.bs.modal', function(e){
   var b = e.relatedTarget;

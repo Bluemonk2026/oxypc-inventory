@@ -53,8 +53,8 @@
 
         {% else %}
         <i class="bi bi-whatsapp mb-3" style="font-size:3.5rem;color:#25D366"></i>
-        <div class="fw-bold fs-5 mb-2">Connect WhatsApp</div>
-        <p class="small text-muted mb-3">Link your WhatsApp Business number to send messages, invoices and reminders directly from OxyPC.</p>
+        <div class="fw-bold fs-5 mb-2">Connect Your WhatsApp</div>
+        <p class="small text-muted mb-3">Link <strong>your own</strong> WhatsApp number (this is <strong>{{ current_user.username }}</strong>'s private session). Scan the QR once from your phone — your number is captured automatically on linking, and only your messages &amp; groups sync. Each user links their own number.</p>
         <form method="post" action="/whatsapp/connect">
           <button class="btn btn-success w-100 py-2" {% if not service_online %}disabled{% endif %}>
             <i class="bi bi-qr-code-scan me-2"></i>Connect via QR Code

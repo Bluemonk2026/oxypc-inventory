@@ -128,6 +128,12 @@
             <tr><th class="ps-3 text-muted small">Serial No.</th><td class="font-monospace small">{{ device.serial_no or '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">Floor</th><td>{{ device.floor or '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">Warehouse</th><td>{{ device.warehouse or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Return Status</th>
+              <td><span class="badge bg-{{ 'warning text-dark' if device.return_status else 'secondary' }}">{{ 'Yes' if device.return_status else 'No' }}</span></td></tr>
+            <tr><th class="ps-3 text-muted small">Replaced</th>
+              <td>{% if device.replaced %}<span class="font-monospace small">{{ device.replaced }}</span>{% else %}—{% endif %}</td></tr>
+            <tr><th class="ps-3 text-muted small">Repair Status</th>
+              <td>{% if repair_status %}<span class="badge bg-info text-dark">{{ repair_status }}</span>{% else %}—{% endif %}</td></tr>
             <tr><th class="ps-3 text-muted small">Registered</th>
               <td>{{ device.created_at.strftime('%d %b %Y %H:%M') if device.created_at else '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">Last Updated</th>

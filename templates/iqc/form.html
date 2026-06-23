@@ -27,7 +27,8 @@
           <div class="row g-3 mb-3">
             <div class="col-md-3">
               <label class="form-label fw-semibold">Tag Number / Asset Tag <span class="text-danger">*</span></label>
-              <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan or type" autofocus required>
+              <input type="text" name="barcode" id="iqcBarcode" maxlength="100" class="form-control barcode-field font-monospace" placeholder="Scan or type" autofocus required>
+              <div id="iqcBarcodeErr" class="invalid-feedback d-block text-danger small d-none">Duplicate Tag Number — this tag already exists.</div>
             </div>
             <div class="col-md-3">
               <label class="form-label fw-semibold">Lot <span class="text-danger">*</span></label>
@@ -617,7 +618,7 @@
               <label class="form-label">IQC Grade</label>
               <select name="grade" id="iqc-grade-select" class="form-select">
                 <option value="">Not graded</option>
-                <option>A</option><option>B</option><option>C</option><option>D</option><option>scrap</option>
+                <option>A</option><option>B</option><option>C</option><option>scrap</option>
               </select>
             </div>
             <div class="col-md-3">
@@ -713,6 +714,32 @@ document.querySelector('[name="barcode"]').addEventListener('change', function()
     })
     .catch(() => {});
 });
+</script>
+
+<script>
+/* ── Item 12: live duplicate Tag Number detection ── */
+(function(){
+  var bc = document.getElementById('iqcBarcode');
+  var err = document.getElementById('iqcBarcodeErr');
+  if(!bc) return;
+  var form = bc.closest('form');
+  var submitBtn = form ? form.querySelector('button[type="submit"]') : null;
+  var t=null;
+  function check(){
+    var v = bc.value.trim();
+    if(!v){ err.classList.add('d-none'); bc.classList.remove('is-invalid'); if(submitBtn) submitBtn.disabled=false; return; }
+    fetch('/devices/api/brief?barcode='+encodeURIComponent(v))
+      .then(function(r){ return r.ok ? r.json() : {found:false}; })
+      .then(function(d){
+        var dup = !!(d && d.found);
+        err.classList.toggle('d-none', !dup);
+        bc.classList.toggle('is-invalid', dup);
+        if(submitBtn) submitBtn.disabled = dup;
+      }).catch(function(){});
+  }
+  bc.addEventListener('input', function(){ clearTimeout(t); t=setTimeout(check, 350); });
+  bc.addEventListener('change', check);
+})();
 </script>
 
 <script>

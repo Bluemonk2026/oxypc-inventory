@@ -15,12 +15,13 @@ from sqlalchemy import select, func
 from templates_config import templates
 from database import get_db
 from models.user import User, UserRole
-from models.device import Device, DeviceStage
+from models.device import Device, DeviceStage, StageMovement
 from models.lot import Lot
 from models.sales import Sale
 from models.dispatch_request import TelecallerDispatchRequest
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from services.audit_engine import audit
+from utils.warranty import warranty_from_sold_at, latest_sold_at_map
 
 router = APIRouter(tags=["dispatch"], dependencies=[Depends(verify_csrf)])
 
@@ -65,6 +66,29 @@ async def dispatch_list(request: Request, db: AsyncSession = Depends(get_db),
         for did, cnt in sold_rows:
             sold_by[str(did)] = cnt
 
+    # ── Timeline (item 10): days since device entered ready_to_sale stage ─────
+    ready_at_map = {}
+    if device_ids:
+        ready_rows = (await db.execute(
+            select(StageMovement.device_id, func.max(StageMovement.moved_at))
+            .where(StageMovement.device_id.in_(device_ids),
+                   StageMovement.to_stage == DeviceStage.ready_to_sale)
+            .group_by(StageMovement.device_id)
+        )).all()
+        for did, moved_at in ready_rows:
+            ready_at_map[str(did)] = moved_at
+    _now = app_now()
+
+    # ── Warranty (item 1): 30 days from most recent sale ─────────────────────
+    sold_map = await latest_sold_at_map(db, device_ids)
+    warranty_map = {}
+    for did, sold_at in sold_map.items():
+        w = warranty_from_sold_at(sold_at)
+        if w:
+            warranty_map[did] = w
+
+    total_ready = len(rows)
+    ready_d15 = ready_d30 = ready_d45 = ready_d60 = ready_d60plus = 0
     buckets = {"A": [], "B": [], "C": [], "D": []}
     for device, lot_number in rows:
         gv = device.grade.value if device.grade else None
@@ -78,10 +102,27 @@ async def dispatch_list(request: Request, db: AsyncSession = Depends(get_db),
             key = "C"  # C, scrap, ungraded → C
         qty = device.qty or 1
         disp = approved_qty.get(str(device.id), 0)
+        _ready_at = ready_at_map.get(str(device.id))
+        _timeline = (_now - _ready_at).days if _ready_at else None
+        if _timeline is not None:
+            if _timeline <= 15:
+                ready_d15 += 1
+            elif _timeline <= 30:
+                ready_d30 += 1
+            elif _timeline <= 45:
+                ready_d45 += 1
+            elif _timeline <= 60:
+                ready_d60 += 1
+            else:
+                ready_d60plus += 1
+        _w = warranty_map.get(str(device.id))
         buckets[key].append({
             "barcode": device.barcode, "model": device.model or device.brand or "—",
             "lot": lot_number, "qty": qty, "dispatched": disp,
             "pending": max(0, qty - disp), "sold": sold_by.get(str(device.id), 0),
+            "timeline": _timeline,
+            "warranty": _w["label"] if _w else None,
+            "warranty_status": _w["status"] if _w else None,
         })
 
     # Per-grade summary for the count cards (total + dispatched/pending/sold split)
@@ -93,6 +134,16 @@ async def dispatch_list(request: Request, db: AsyncSession = Depends(get_db),
             "pending": sum(i["pending"] for i in items),
             "sold": sum(i["sold"] for i in items),
         }
+
+    # Ready-to-Sale age summary card: total + split by days since ready_to_sale
+    ready_summary = {
+        "total": total_ready,
+        "d15": ready_d15,        # ≤15 days
+        "d30": ready_d30,        # 16–30 days
+        "d45": ready_d45,        # 31–45 days
+        "d60": ready_d60,        # 46–60 days
+        "d60plus": ready_d60plus,  # > 60 days
+    }
 
     # Distinct telecallers for the request-section filter dropdown
     _seen = {}
@@ -106,6 +157,7 @@ async def dispatch_list(request: Request, db: AsyncSession = Depends(get_db),
         "request": request, "current_user": current_user,
         "buckets": buckets, "card_stats": card_stats, "requests": dr,
         "telecaller_options": telecaller_options,
+        "ready_summary": ready_summary,
     })
 
 

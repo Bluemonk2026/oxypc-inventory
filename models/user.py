@@ -87,6 +87,9 @@ class User(Base):
     # Reporting hierarchy for sales_manager team rollups (used by mobile telecalling).
     manager_username = Column(String(50), ForeignKey("users.username"), nullable=True, index=True)
 
+    # WhatsApp number this user links in the WhatsApp module (per-user session verify/sync).
+    whatsapp_number = Column(String(20), nullable=True)
+
     login_logs = relationship("LoginLog", back_populates="user", lazy="select")
 
     @property

@@ -58,3 +58,5 @@ Thumbs.db
 /_permcheck.py
 /_test_perm_enforce.py
 *.bak
+/seed_qa_chat.py
+/seed_qa_30days.py

@@ -187,7 +187,7 @@
 $(document).ready(function(){
   var dt = null;
   if ($('#grnTable tbody tr td').length > 1) {
-    dt = $('#grnTable').DataTable({pageLength:25, order:[]});
+    dt = $('#grnTable').DataTable({pageLength:5, lengthChange:false, order:[]});
 
     // Date-range custom filter on the "Date of Invoice" column (index 2, ISO yyyy-mm-dd)
     $.fn.dataTable.ext.search.push(function(settings, data){

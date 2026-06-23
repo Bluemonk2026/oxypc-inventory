@@ -227,7 +227,7 @@
 <script>
 $(document).ready(function(){
   if ($('#grnTable tbody tr td').length > 1) {
-    var dt = $('#grnTable').DataTable({pageLength:25, order:[]});
+    var dt = $('#grnTable').DataTable({pageLength:5, lengthChange:false, order:[]});
     $.fn.dataTable.ext.search.push(function(settings, data){
       if (settings.nTable.id !== 'grnTable') return true;
       var from = document.getElementById('fFrom').value;

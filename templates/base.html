@@ -293,27 +293,54 @@
       {# ── ADMIN ───────────────────────────────────────────────────────── #}
       {% if role == 'admin' %}
       <li class="nav-section">ADMIN</li>
-      <li><a href="/admin/users" class="nav-link {% if '/admin/users' in request.url.path %}active{% endif %}">
-        <i class="bi bi-people me-2"></i> Users
-      </a></li>
-      <li><a href="/repair/move/form" class="nav-link {% if 'move' in request.url.path %}active{% endif %}">
-        <i class="bi bi-arrow-left-right me-2"></i> Move Device Internal
-      </a></li>
-      <li><a href="/admin/cost-config" class="nav-link {% if '/admin/cost-config' in request.url.path %}active{% endif %}">
-        <i class="bi bi-calculator me-2"></i> Cost Config
-      </a></li>
-      <li><a href="/admin/master" class="nav-link {% if '/admin/master' in request.url.path %}active{% endif %}">
-        <i class="bi bi-database-gear me-2"></i> Master Data
-      </a></li>
-      <li><a href="/whatsapp/audit" class="nav-link {% if '/whatsapp/audit' in request.url.path %}active{% endif %}">
-        <i class="bi bi-whatsapp me-2 text-success"></i> WA Audit Log
-      </a></li>
-      <li><a href="/settings" class="nav-link {% if request.url.path == '/settings' %}active{% endif %}">
-        <i class="bi bi-gear me-2"></i> Company Settings
-      </a></li>
 
-      {# Application Settings — collapsible group (replaces R-OS ENGINE section) #}
-      {% set app_settings_active = '/stage-control' in request.url.path or '/admin/audit-log' in request.url.path %}
+      {# User Settings — collapsible group #}
+      {% set user_settings_active = '/admin/users' in request.url.path or '/admin/master' in request.url.path or '/whatsapp/audit' in request.url.path %}
+      <li class="nav-item">
+        <a href="#userSettingsCollapse" class="nav-link d-flex align-items-center {% if user_settings_active %}active{% endif %}"
+           data-bs-toggle="collapse" role="button"
+           aria-expanded="{{ 'true' if user_settings_active else 'false' }}" aria-controls="userSettingsCollapse">
+          <i class="bi bi-people me-2"></i> User Settings
+          <i class="bi bi-chevron-down ms-auto small transition-icon"></i>
+        </a>
+        <div class="collapse {% if user_settings_active %}show{% endif %}" id="userSettingsCollapse">
+          <ul class="nav flex-column ps-3 pb-1">
+            <li><a href="/admin/users" class="nav-link py-1 small {% if '/admin/users' in request.url.path %}active{% endif %}">
+              <i class="bi bi-people me-2"></i> Users
+            </a></li>
+            <li><a href="/admin/master" class="nav-link py-1 small {% if '/admin/master' in request.url.path %}active{% endif %}">
+              <i class="bi bi-database-gear me-2"></i> Master Data
+            </a></li>
+            <li><a href="/whatsapp/audit" class="nav-link py-1 small {% if '/whatsapp/audit' in request.url.path %}active{% endif %}">
+              <i class="bi bi-whatsapp me-2 text-success"></i> WA Audit Log
+            </a></li>
+          </ul>
+        </div>
+      </li>
+
+      {# Company Settings — collapsible group #}
+      {% set company_settings_active = request.url.path == '/settings' or '/admin/cost-config' in request.url.path %}
+      <li class="nav-item">
+        <a href="#companySettingsCollapse" class="nav-link d-flex align-items-center {% if company_settings_active %}active{% endif %}"
+           data-bs-toggle="collapse" role="button"
+           aria-expanded="{{ 'true' if company_settings_active else 'false' }}" aria-controls="companySettingsCollapse">
+          <i class="bi bi-building me-2"></i> Company Settings
+          <i class="bi bi-chevron-down ms-auto small transition-icon"></i>
+        </a>
+        <div class="collapse {% if company_settings_active %}show{% endif %}" id="companySettingsCollapse">
+          <ul class="nav flex-column ps-3 pb-1">
+            <li><a href="/settings" class="nav-link py-1 small {% if request.url.path == '/settings' %}active{% endif %}">
+              <i class="bi bi-gear me-2"></i> Company Setting
+            </a></li>
+            <li><a href="/admin/cost-config" class="nav-link py-1 small {% if '/admin/cost-config' in request.url.path %}active{% endif %}">
+              <i class="bi bi-calculator me-2"></i> Cost Config
+            </a></li>
+          </ul>
+        </div>
+      </li>
+
+      {# Application Settings — collapsible group #}
+      {% set app_settings_active = '/stage-control' in request.url.path or '/admin/audit-log' in request.url.path or '/repair/move' in request.url.path %}
       <li class="nav-item">
         <a href="#appSettingsCollapse" class="nav-link d-flex align-items-center {% if app_settings_active %}active{% endif %}"
            data-bs-toggle="collapse" role="button"
@@ -325,6 +352,9 @@
         </a>
         <div class="collapse {% if app_settings_active %}show{% endif %}" id="appSettingsCollapse">
           <ul class="nav flex-column ps-3 pb-1">
+            <li><a href="/repair/move/form" class="nav-link py-1 small {% if '/repair/move' in request.url.path %}active{% endif %}">
+              <i class="bi bi-arrow-left-right me-2"></i> Move Device Internal
+            </a></li>
             <li><a href="/stage-control" class="nav-link py-1 small {% if request.url.path == '/stage-control' %}active{% endif %}">
               <i class="bi bi-diagram-3 me-2"></i> Stage Control
             </a></li>

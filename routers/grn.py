@@ -16,7 +16,7 @@ from sqlalchemy import select, func, or_, update
 from database import get_db
 from models.user import User, UserRole
 from models.lot import Lot
-from models.device import Device, DeviceStage
+from models.device import Device, DeviceStage, StageMovement
 from models.engines import AuditLog
 from models.grn_import import GRNImport
 from services.invoice_parser import extract_invoice_fields
@@ -121,16 +121,40 @@ async def grn_map(request: Request, grn_id: str = Form(...),
             pass
     if not valid_ids:
         return RedirectResponse(url="/grn/post-iqc?error=No+tag+numbers+selected", status_code=302)
-    await db.execute(
-        update(Device).where(Device.id.in_(valid_ids)).values(grn_number=g.grn_number)
-    )
+    devices = (await db.execute(
+        select(Device).where(Device.id.in_(valid_ids))
+    )).scalars().all()
+    now = app_now()
+    moved = 0
+    for d in devices:
+        d.grn_number = g.grn_number
+        # After GRN mapping the tag leaves IQC and enters the Stock Inward table
+        if d.current_stage == DeviceStage.iqc:
+            prev = (await db.execute(
+                select(StageMovement).where(
+                    StageMovement.device_id == d.id,
+                    StageMovement.to_stage == d.current_stage,
+                    StageMovement.exited_at.is_(None),
+                ).order_by(StageMovement.moved_at.desc())
+            )).scalars().first()
+            if prev:
+                prev.exited_at = now
+            db.add(StageMovement(
+                device_id=d.id, from_stage=DeviceStage.iqc, to_stage=DeviceStage.stock_in,
+                moved_by=current_user.username,
+                notes=f"GRN {g.grn_number} mapped — moved to Stock Inward"))
+            d.current_stage = DeviceStage.stock_in
+            d.updated_at = now
+            moved += 1
     await audit(db, user=current_user, action="GRN_MAPPED",
                 table_name="devices", record_id=str(gid),
-                new_value={"grn_number": g.grn_number, "tags": len(valid_ids)},
+                new_value={"grn_number": g.grn_number, "tags": len(valid_ids),
+                           "moved_to_stock_in": moved},
                 request=request)
     await db.commit()
     return RedirectResponse(
-        url=f"/grn/post-iqc?success=Mapped+GRN+{g.grn_number}+to+{len(valid_ids)}+tag(s)",
+        url=(f"/grn/post-iqc?success=Mapped+GRN+{g.grn_number}+to+{len(valid_ids)}+tag(s)"
+             f"+%E2%80%94+{moved}+moved+to+Stock+Inward"),
         status_code=302)
 
 

@@ -61,5 +61,7 @@ Thumbs.db
 /seed_qa_chat.py
 /seed_qa_30days.py
 
-# Agent installer bundle (binary, ~8MB)
-downloads/
+# Agent installer bundle — ignore the folder but TRACK the agent exe so the
+# IQC "Download & run the OxyQC Agent" link works on GitHub builds / deploys.
+downloads/*
+!downloads/OxyQC_Agent.exe

@@ -148,6 +148,7 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
 async def advance_stage(
     barcode: str = Form(...),
     notes: str = Form(""),
+    target: str = Form(""),
     final_qc_status: str = Form("pass"),
     failure_reason: str = Form(""),
     grade: str = Form(""),
@@ -172,6 +173,10 @@ async def advance_stage(
     next_stage = NEXT_COSMETIC.get(current)
     if not next_stage:
         raise HTTPException(400, f"Device {barcode} is not in a cosmetic pipeline stage")
+
+    # "Skip Cosmetic" — jump straight to Final QC from any cosmetic stage
+    if target == "final_qc" and current in COSMETIC_PIPELINE and current != DeviceStage.final_qc:
+        next_stage = DeviceStage.final_qc
 
     # Final QC: apply spec corrections + handle fail
     if current == DeviceStage.final_qc:

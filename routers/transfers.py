@@ -175,11 +175,15 @@ async def create_transfer(
     except Exception:
         t_date = app_now()
 
+    # from/to_warehouse are NOT NULL. For a department/engineer assignment the user
+    # picks no destination warehouse → fall back so we never insert NULL (was a 500).
+    _from_wh = from_warehouse or getattr(device, "warehouse", None) or "—"
+    _to_wh = to_warehouse or _from_wh
     transfer = StockTransfer(
         device_id=device.id,
         transfer_type=transfer_type,
-        from_warehouse=from_warehouse or (device.warehouse if hasattr(device, "warehouse") else None),
-        to_warehouse=to_warehouse or None,
+        from_warehouse=_from_wh,
+        to_warehouse=_to_wh,
         transferred_by=transferred_by or current_user.username,
         received_by=received_by or None,
         department=department or None,

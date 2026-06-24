@@ -58,6 +58,17 @@
                     ▶ {{ next_stage_label }}
                   </button>
                 </form>
+                {% if stage.value == 'cleaning' %}
+                <form action="/cosmetic/advance" method="post" class="d-inline ms-1">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+                  <input type="hidden" name="barcode" value="{{ device.barcode }}">
+                  <input type="hidden" name="target" value="final_qc">
+                  <input type="hidden" name="notes" value="Skipped cosmetic — moved to Final QC">
+                  <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2" title="Skip cosmetic stages and move to Final QC">
+                    <i class="bi bi-skip-forward me-1"></i>Skip Cosmetic
+                  </button>
+                </form>
+                {% endif %}
               </td>
             </tr>
             {% endfor %}

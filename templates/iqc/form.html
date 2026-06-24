@@ -62,6 +62,10 @@
               <label class="form-label">GRN Number</label>
               <input type="text" name="grn_number" class="form-control font-monospace bg-light" placeholder="e.g. GRN-2024-001" value="{{ prefill_grn if prefill_grn is defined else '' }}" readonly tabindex="-1">
             </div>
+            <div class="col-md-3">
+              <label class="form-label">Color</label>
+              <input type="text" name="color" class="form-control" placeholder="Black / Silver / Dark Grey">
+            </div>
             <div class="col-md-3 d-none">
               <label class="form-label">Sub-Category</label>
               <select name="sub_category" class="form-select">
@@ -224,9 +228,21 @@
               </select>
             </div>
             <div class="col-md-3">
+              <label class="form-label small">Click Function Working?</label>
+              <select name="touchpad_click_working" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option><option>Yes</option><option>No</option>
+              </select>
+            </div>
+            <div class="col-md-3">
               <label class="form-label small">Touchpad Working?</label>
               <select name="touchpad_working" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
                 <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Touchpad Missing</label>
+              <select name="touchpad_missing" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option><option>Yes</option><option>No</option>
               </select>
             </div>
             <div class="col-md-3">
@@ -306,18 +322,6 @@
 
           <!-- ── Section: Inspection Details (manual) ── -->
           <p class="fw-bold small text-uppercase mb-2 border-bottom pb-1 sec-hd">Inspection Details</p>
-          <div class="row g-3 mb-3">
-            <div class="col-md-3">
-              <label class="form-label">Color</label>
-              <input type="text" name="color" class="form-control" placeholder="Black / Silver / Dark Grey">
-            </div>
-            <div class="col-md-3 d-flex align-items-end">
-              <div class="form-check ms-2 mb-2">
-                <input type="checkbox" name="bios_password" value="yes" class="form-check-input" id="biosPwd">
-                <label class="form-check-label" for="biosPwd">BIOS Password Set?</label>
-              </div>
-            </div>
-          </div>
 
           <!-- Screen Condition (under Inspection Details) -->
           <div class="row g-2 mb-3">
@@ -427,12 +431,6 @@
             </div>
             <!-- Touchpad (cosmetic) -->
             <div class="col-md-2">
-              <label class="form-label small">Click Function Working?</label>
-              <select name="touchpad_click_working" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-2">
               <label class="form-label small">Touchpad Scratch</label>
               <select name="touchpad_scratch" class="form-select form-select-sm">
                 <option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}
@@ -441,12 +439,6 @@
             <div class="col-md-2">
               <label class="form-label small">Touchpad Colour Fade</label>
               <select name="touchpad_colour_fade" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label small">Touchpad Missing</label>
-              <select name="touchpad_missing" class="form-select form-select-sm">
                 <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
               </select>
             </div>
@@ -663,6 +655,12 @@
             <div class="col-md-6">
               <label class="form-label">Warehouse / Location</label>
               <input type="text" name="warehouse" class="form-control" placeholder="e.g. TRC 1st Floor, Rack A3">
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+              <div class="form-check ms-2 mb-2">
+                <input type="checkbox" name="bios_password" value="yes" class="form-check-input" id="biosPwd">
+                <label class="form-check-label" for="biosPwd">BIOS Password Set?</label>
+              </div>
             </div>
             <div class="col-12">
               <label class="form-label">Notes / Issues Found</label>

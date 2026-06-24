@@ -249,7 +249,7 @@
             <tr><th class="ps-3">Part Name</th><th>Required</th><th>Status</th><th>Action</th></tr>
           </thead>
           <tbody>
-            {% set _eng = current_user.role.value in ['l1_engineer','l2_engineer','l3_engineer','admin','inventory_manager'] %}
+            {% set _eng = True %}{# Parts Consumption actions visible to all roles #}
             {% for p in parts_consumption %}
             <tr>
               <td class="ps-3 small fw-semibold">{{ p.label }}</td>

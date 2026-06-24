@@ -23,7 +23,14 @@
       {% if has_perm(role,'dashboard','enable') %}
       <li class="nav-item">
         <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">
-          <i class="bi bi-speedometer2 me-2"></i> Dashboard
+          <i class="bi bi-speedometer2 me-2"></i> Admin Dashboard
+        </a>
+      </li>
+      {% endif %}
+      {% if has_perm(role,'dispatch','enable') %}
+      <li class="nav-item">
+        <a href="/dispatch" class="nav-link {% if '/dispatch' in request.url.path %}active{% endif %}">
+          <i class="bi bi-truck me-2"></i> TRC Dashboard
         </a>
       </li>
       {% endif %}
@@ -79,7 +86,7 @@
       {% endif %}
 
       {# ── INVENTORY ───────────────────────────────────────────────────── #}
-      {% if any_perm(role,'stock','production_manager','transfers','dispatch') %}
+      {% if any_perm(role,'stock','production_manager','transfers') %}
       <li class="nav-section">INVENTORY</li>
       {% if has_perm(role,'stock','enable') %}
       <li><a href="/stock" class="nav-link {% if request.url.path == '/stock' %}active{% endif %}">
@@ -94,11 +101,6 @@
       {% if has_perm(role,'transfers','enable') %}
       <li><a href="/transfers" class="nav-link {% if '/transfers' in request.url.path %}active{% endif %}">
         <i class="bi bi-arrow-left-right me-2"></i> Move Device
-      </a></li>
-      {% endif %}
-      {% if has_perm(role,'dispatch','enable') %}
-      <li><a href="/dispatch" class="nav-link {% if '/dispatch' in request.url.path %}active{% endif %}">
-        <i class="bi bi-truck me-2"></i> Ready to Dispatch
       </a></li>
       {% endif %}
       {% endif %}

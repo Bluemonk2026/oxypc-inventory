@@ -48,7 +48,7 @@ ACCORDION_SECTIONS = [
 # Keys MUST match the has_perm(role, '<key>', ...) checks used in templates/base.html
 # so that enabling/disabling here actually shows/hides the nav item.
 PERM_MODULES = [
-    ("dashboard",       "Dashboard"),
+    ("dashboard",       "Admin Dashboard"),
     ("devices",         "Inventory Search"),
     ("attendance",      "Attendance"),
     # INTAKE  (each GRN page has its own permission)
@@ -62,7 +62,7 @@ PERM_MODULES = [
     ("production_manager", "Production Manager"),
     ("scrap_products",  "Scrap Products"),
     ("transfers",       "Move Device"),
-    ("dispatch",        "Ready to Dispatch"),
+    ("dispatch",        "TRC Dashboard"),
     # REPAIR
     ("repair_l1",       "L1 Repair"),
     ("repair_l2",       "L2 Repair"),

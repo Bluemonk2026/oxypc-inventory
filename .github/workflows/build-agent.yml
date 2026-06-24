@@ -1,0 +1,46 @@
+name: Build Diagnose_Device_Agent EXE
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'oxyqc-agent/oxyqc_agent.py'
+      - 'oxyqc-agent/Diagnose_Device_Agent.spec'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build EXE
+        run: |
+          cd oxyqc-agent
+          pyinstaller --clean Diagnose_Device_Agent.spec
+
+      - name: Deploy EXE to tracked locations
+        run: |
+          copy oxyqc-agent\dist\Diagnose_Device_Agent.exe oxyqc-agent\Diagnose_Device_Agent.exe
+          copy oxyqc-agent\dist\Diagnose_Device_Agent.exe downloads\Diagnose_Device_Agent.exe
+
+      - name: Commit and push updated EXE
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add oxyqc-agent/Diagnose_Device_Agent.exe downloads/Diagnose_Device_Agent.exe
+          git diff --staged --quiet || git commit -m "ci: rebuild Diagnose_Device_Agent.exe [skip ci]"
+          git push

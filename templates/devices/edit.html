@@ -60,6 +60,10 @@
               <input type="text" name="grn_number" class="form-control font-monospace bg-light"
                      value="{{ device.grn_number or '' }}" placeholder="e.g. GRN-2024-001" readonly tabindex="-1">
             </div>
+            <div class="col-md-4">
+              <label class="form-label">Color</label>
+              <input type="text" name="color" class="form-control" value="{{ device.color or '' }}" placeholder="Black / Silver / Dark Grey">
+            </div>
             <div class="col-md-4 d-none">
               <label class="form-label">Sub-Category</label>
               <select name="sub_category" class="form-select">
@@ -167,7 +171,9 @@
             <div class="col-md-3"><label class="form-label small">Does the Laptop Switch On?</label>{{ isel('power_on', yn) }}</div>
             <div class="col-md-3"><label class="form-label small">Power Status</label>{{ isel('status', ['Power On','No Display','No Power/Power Cut(Motherboard)']) }}</div>
             <div class="col-md-3"><label class="form-label small">Keyboard Working?</label>{{ isel('keyboard_working', yn3) }}</div>
+            <div class="col-md-3"><label class="form-label small">Click Function Working?</label>{{ isel('touchpad_click_working', ['Yes','No']) }}</div>
             <div class="col-md-3"><label class="form-label small">Touchpad Working?</label>{{ isel('touchpad_working', yn3) }}</div>
+            <div class="col-md-3"><label class="form-label small">Touchpad Missing</label>{{ isel('touchpad_missing', ['Yes','No']) }}</div>
             <div class="col-md-3"><label class="form-label small">HDMI Port Working?</label>{{ isel('port_hdmi', yn3) }}</div>
             <div class="col-md-3"><label class="form-label small">USB Ports Working?</label>{{ isel('port_usb_working', yn3) }}</div>
             <div class="col-md-3"><label class="form-label small">Audio Jack Working?</label>{{ isel('port_audio_jack', yn3) }}</div>
@@ -191,44 +197,6 @@
             <div class="col-md-3"><label class="form-label small">DVD Drive</label>{{ isel('dvd_drive', ['Yes','No','NA']) }}</div>
           </div>
 
-          <!-- ── Inspection Details ── -->
-          <p class="fw-bold small text-uppercase mb-2 border-bottom pb-1 sec-hd">Inspection Details</p>
-          <div class="row g-2 mb-3">
-            <div class="col-md-3">
-              <label class="form-label small">Color</label>
-              <input type="text" name="color" class="form-control form-control-sm" value="{{ device.color or '' }}" placeholder="Black / Silver / Dark Grey">
-            </div>
-            <div class="col-md-3 d-flex align-items-end">
-              <div class="form-check ms-2 mb-2">
-                <input type="checkbox" name="bios_password" value="yes" class="form-check-input" id="biosPwd" {% if device.bios_password %}checked{% endif %}>
-                <label class="form-check-label" for="biosPwd">BIOS Password Set?</label>
-              </div>
-            </div>
-          </div>
-          <div class="row g-2 mb-3">
-            <div class="col-md-2"><label class="form-label small">Dot</label>{{ isel('screen_dot', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Line</label>{{ isel('screen_line', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Functional</label>{{ isel('screen_functional', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Colour Discoloration</label>{{ isel('screen_discoloration', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Patch</label>{{ isel('screen_patch', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Broken</label>{{ isel('screen_broken', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Flickering</label>{{ isel('screen_flickering', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Scratch</label>{{ isel('screen_scratch', scratch_opts) }}</div>
-            <div class="col-md-2"><label class="form-label small">Loose</label>{{ isel('screen_loose', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Missing</label>{{ isel('screen_missing', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Hinge Broken</label>{{ isel('screen_hinge_broken', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Colour Spread</label>{{ isel('screen_colour_spread', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Keyboard Mark</label>{{ isel('screen_keyboard_mark', yn) }}</div>
-          </div>
-          <div class="row g-2 mb-3">
-            <div class="col-md-2"><label class="form-label small">Keyboard Colour Fade</label>{{ isel('keyboard_colour_fade', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Key Missing</label>{{ isel('keyboard_key_missing', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Keyboard Hard Press</label>{{ isel('keyboard_hard_press', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Click Function Working?</label>{{ isel('touchpad_click_working', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Touchpad Scratch</label>{{ isel('touchpad_scratch', scratch_opts) }}</div>
-            <div class="col-md-2"><label class="form-label small">Touchpad Colour Fade</label>{{ isel('touchpad_colour_fade', yn) }}</div>
-            <div class="col-md-2"><label class="form-label small">Touchpad Missing</label>{{ isel('touchpad_missing', yn) }}</div>
-          </div>
 
           <!-- ── Body Panels ── -->
           <p class="fw-bold small text-uppercase mb-2 border-bottom pb-1 sec-hd">Body Panels</p>
@@ -273,6 +241,36 @@
             </div>
           </div></div>
 
+          <!-- Display card (panel-style) -->
+          <div class="card border bg-light mb-2"><div class="card-body py-2">
+            <p class="small fw-semibold text-uppercase mb-2 text-info">Display</p>
+            <div class="row g-2">
+              <div class="col-md-2"><label class="form-label small">Dot</label>{{ isel('screen_dot', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Line</label>{{ isel('screen_line', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Colour Discoloration</label>{{ isel('screen_discoloration', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Colour Spread</label>{{ isel('screen_colour_spread', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Patch</label>{{ isel('screen_patch', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Flickering</label>{{ isel('screen_flickering', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Functional</label>{{ isel('screen_functional', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Scratch</label>{{ isel('screen_scratch', scratch_opts) }}</div>
+              <div class="col-md-2"><label class="form-label small">Loose</label>{{ isel('screen_loose', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Missing</label>{{ isel('screen_missing', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Broken</label>{{ isel('screen_broken', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Hinge Broken</label>{{ isel('screen_hinge_broken', yn) }}</div>
+            </div>
+          </div></div>
+          <div class="card border bg-light mb-3"><div class="card-body py-2">
+            <p class="small fw-semibold text-uppercase mb-2 text-secondary">Keyboard &amp; Touchpad</p>
+            <div class="row g-2">
+              <div class="col-md-2"><label class="form-label small">Touchpad Scratch</label>{{ isel('touchpad_scratch', scratch_opts) }}</div>
+              <div class="col-md-2"><label class="form-label small">Touchpad Colour Fade</label>{{ isel('touchpad_colour_fade', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Keyboard Mark</label>{{ isel('screen_keyboard_mark', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Keyboard Colour Fade</label>{{ isel('keyboard_colour_fade', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Key Missing</label>{{ isel('keyboard_key_missing', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Keyboard Hard Press</label>{{ isel('keyboard_hard_press', yn) }}</div>
+            </div>
+          </div></div>
+
           <!-- ── Section: Condition & Location ── -->
           <p class="fw-bold small text-uppercase mb-2 border-bottom pb-1 sec-hd">Condition &amp; Location</p>
           <div class="row g-3 mb-3">
@@ -314,7 +312,7 @@
                 {% endfor %}
               </select>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-3">
               <label class="form-label">Warehouse / Area</label>
               <select name="warehouse" class="form-select">
                 <option value="">— Select —</option>
@@ -322,6 +320,12 @@
                 <option {% if device.warehouse == w %}selected{% endif %}>{{ w }}</option>
                 {% endfor %}
               </select>
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+              <div class="form-check ms-2 mb-2">
+                <input type="checkbox" name="bios_password" value="yes" class="form-check-input" id="biosPwd" {% if device.bios_password %}checked{% endif %}>
+                <label class="form-check-label" for="biosPwd">BIOS Password Set?</label>
+              </div>
             </div>
 
             <!-- Tracked storage location (new system) -->

@@ -76,7 +76,7 @@ if(-not $bh -and $batt){$fc=$batt.FullChargeCapacity;$dc=$batt.DesignCapacity;if
 if(-not $bh -and $batt){try{$rf=[System.IO.Path]::Combine($env:TEMP,'bh_'+[guid]::NewGuid().ToString('N').Substring(0,8)+'.html');$null=powercfg /batteryreport /output $rf 2>&1;if(Test-Path $rf){$h=Get-Content $rf -Raw;Remove-Item $rf -Force -EA SilentlyContinue;$m1=$null;$m2=$null;if($h -match '(?si)DESIGN CAPACITY.{0,200}?([\d,]+)\s*mWh'){$m1=[int64]($matches[1]-replace',','')};if($h -match '(?si)FULL CHARGE CAPACITY.{0,200}?([\d,]+)\s*mWh'){$m2=[int64]($matches[1]-replace',','')};if($m1 -gt 0 -and $m2 -gt 0){$bh=[math]::Round($m2/$m1*100)}}}catch{}}
 $scr=$null
 $mons=@(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorBasicDisplayParams -EA SilentlyContinue)
-if($mons.Count -eq 1){$mn=$mons[0];$dd=[math]::Round([math]::Sqrt(($mn.MaxHorizontalImageSize*$mn.MaxHorizontalImageSize)+($mn.MaxVerticalImageSize*$mn.MaxVerticalImageSize))/2.54,1);if($dd -gt 5 -and $dd -lt 40){$scr=$dd}}
+foreach($mn in $mons){if($mn.MaxHorizontalImageSize -gt 0 -and $mn.MaxVerticalImageSize -gt 0){$dd=[math]::Round([math]::Sqrt(($mn.MaxHorizontalImageSize*$mn.MaxHorizontalImageSize)+($mn.MaxVerticalImageSize*$mn.MaxVerticalImageSize))/2.54,1);if($dd -gt 5 -and $dd -lt 40){if(-not $scr -or $dd -lt $scr){$scr=$dd}}}}
 [ordered]@{
  manufacturer="$($cs.Manufacturer)";model="$($cs.Model)";serial="$($bios.SerialNumber)";
  cpu="$(($cpu.Name).Trim())";cores=$cpu.NumberOfCores;ram_gb=[math]::Round($cs.TotalPhysicalMemory/1GB);

@@ -17,7 +17,7 @@
           <div class="row g-2 mb-3">
             <div class="col-md-6">
               <div class="h-100 bg-light border rounded p-2 d-flex flex-column">
-                <div class="small text-muted mb-2"><i class="bi bi-cpu me-1"></i>Diagnose <strong>this station's</strong> hardware and auto-fill the form (needs the Diagnose_Device_Agent running on this PC).</div>
+                <div class="small text-muted mb-2"><i class="bi bi-cpu me-1"></i>Diagnose and auto-fill <strong>this station's</strong> hardware from Diagnose_Device_Agent.</div>
                 <div class="mt-auto d-flex align-items-center justify-content-between gap-2">
                   <span id="diagnoseStatus" class="small"></span>
                   <button type="button" id="diagnoseBtn" class="btn btn-sm btn-outline-success text-nowrap" title="Detect this station's hardware and auto-fill the form"><i class="bi bi-cpu me-1"></i>Diagnose this Device</button>
@@ -73,7 +73,7 @@
           </div>
 
           {% set yn = ['Yes','No'] %}
-          {% set yn3 = ['Yes','Not Working','No'] %}
+          {% set yn3 = ['Yes','No'] %}
           {% set scratch_opts = ['No','Minor Scratch','Major Scratch'] %}
           <style>
             .hw-lock{ background-color:#eef1f4 !important; }
@@ -316,7 +316,7 @@
           <!-- Screen Condition (under Inspection Details) -->
           <div class="row g-2 mb-3">
             {% set yn = ['Yes','No'] %}
-            {% set yn3 = ['Yes','Not Working','No'] %}
+            {% set yn3 = ['Yes','No'] %}
             {% set scratch_opts = ['No','Minor Scratch','Major Scratch'] %}
             <div class="col-md-2">
               <label class="form-label small">Dot</label>

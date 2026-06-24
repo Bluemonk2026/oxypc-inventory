@@ -63,6 +63,12 @@ def set_cached_perms(role_name: str, perms: dict) -> None:
 def has_perm(role_name: str, module: str, action: str = "enable") -> bool:
     """Check if role_name has the given action on module.
     Admin always returns True. Unknown roles/modules default to True (permissive).
+
+    "enable" is the MASTER SWITCH for a module: if a role has the module enabled,
+    it may fully use it (view + add + edit + upload). A disabled module blocks
+    everything. The finer Add/Edit/Upload bits do NOT further restrict an enabled
+    module — this avoids surprising 403s where an admin enabled a module for a role
+    but left the Add/Edit boxes unchecked, then the role got 403 on create/edit.
     """
     if role_name == "admin":
         return True
@@ -72,4 +78,4 @@ def has_perm(role_name: str, module: str, action: str = "enable") -> bool:
     mod_perms = role_perms.get(module)
     if not mod_perms:
         return True   # module not in matrix → allow
-    return bool(mod_perms.get(action, True))
+    return bool(mod_perms.get("enable", True))

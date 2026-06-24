@@ -140,8 +140,6 @@
               </div>
             </td>
           </tr>
-          {% else %}
-          <tr><td colspan="10" class="text-center text-muted py-4">No parts registered.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -188,8 +186,6 @@
             <td>{{ purchase.purchase_date.strftime('%d-%m-%Y') if purchase.purchase_date else '—' }}</td>
             <td class="text-muted">{{ purchase.purchased_by or '—' }}</td>
           </tr>
-          {% else %}
-          <tr><td colspan="10" class="text-center text-muted py-4">No purchases recorded.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -247,8 +243,6 @@
             <td class="text-muted">{{ consumption.used_by or '—' }}</td>
             <td>{{ consumption.used_at.strftime('%d-%m-%Y') if consumption.used_at else '—' }}</td>
           </tr>
-          {% else %}
-          <tr><td colspan="10" class="text-center text-muted py-4">No consumptions recorded.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -388,11 +382,11 @@
 $(document).ready(function() {
   var cdNone = {orderable: false, targets: 0};
   if (!$.fn.dataTable.isDataTable('#partsTable'))
-    $('#partsTable').DataTable({ pageLength: 25, order: [[3, 'asc']], columnDefs: [cdNone] });
+    $('#partsTable').DataTable({ pageLength: 25, order: [[3, 'asc']], columnDefs: [cdNone], language: { emptyTable: 'No parts registered.' } });
   if (!$.fn.dataTable.isDataTable('#purchasesTable'))
-    $('#purchasesTable').DataTable({ pageLength: 25, order: [[8, 'desc']], columnDefs: [cdNone] });
+    $('#purchasesTable').DataTable({ pageLength: 25, order: [[8, 'desc']], columnDefs: [cdNone], language: { emptyTable: 'No purchases recorded.' } });
   if (!$.fn.dataTable.isDataTable('#consumptionTable'))
-    $('#consumptionTable').DataTable({ pageLength: 25, order: [[9, 'desc']], columnDefs: [cdNone] });
+    $('#consumptionTable').DataTable({ pageLength: 25, order: [[9, 'desc']], columnDefs: [cdNone], language: { emptyTable: 'No consumptions recorded.' } });
   if (!$.fn.dataTable.isDataTable('#partReqTable') && $('#partReqTable tbody tr td').length > 1)
     $('#partReqTable').DataTable({ pageLength: 25, order: [], columnDefs: [cdNone] });
   if (!$.fn.dataTable.isDataTable('#sourcingTable') && $('#sourcingTable tbody tr td').length > 1)

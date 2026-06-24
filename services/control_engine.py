@@ -84,6 +84,10 @@ async def validate_transition(
     from_stage = device.current_stage.value if hasattr(device.current_stage, "value") else str(device.current_stage)
     to_stage_val = to_stage.value if hasattr(to_stage, "value") else str(to_stage)
 
+    if from_stage == to_stage_val:
+        return  # staying in the same stage is a no-op, not a transition to validate
+                # (e.g. Start Repair on a device already in the L1/L2/L3 stage)
+
     result = await db.execute(
         select(AllowedTransition).where(
             AllowedTransition.from_stage == from_stage,

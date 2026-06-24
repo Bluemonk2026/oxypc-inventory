@@ -50,9 +50,6 @@
     <button type="button" class="btn btn-outline-success btn-sm" id="exportSelectedBtn" onclick="submitExportSelected()" disabled>
       <i class="bi bi-download me-1"></i>Export Selected
     </button>
-    <a href="/bulk-upload/template/lots" class="btn btn-outline-secondary btn-sm">
-      <i class="bi bi-download me-1"></i>CSV Template
-    </a>
     <a href="/bulk-upload?type=lots" class="btn btn-outline-success btn-sm">
       <i class="bi bi-cloud-upload me-1"></i>Bulk Upload Lots
     </a>
@@ -115,7 +112,6 @@
             <td class="text-center"><span class="badge bg-success">{{ stat.sold }}</span></td>
             <td class="fw-semibold text-danger">₹{{ "{:,.0f}".format(lot.buying_price) }}</td>
             <td class="text-nowrap">
-              <a href="/lots/{{ lot.id }}" class="btn btn-sm btn-outline-primary py-0">View</a>
               <a href="/lots/{{ lot.id }}/edit" class="btn btn-sm btn-outline-secondary py-0">Edit</a>
               <button type="button" class="btn btn-sm btn-outline-success py-0"
                       data-bs-toggle="modal" data-bs-target="#grnModal"

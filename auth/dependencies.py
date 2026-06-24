@@ -79,9 +79,20 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
 
 def require_roles(*roles: UserRole):
     async def checker(current_user: User = Depends(get_current_user)):
-        if current_user.role not in roles and current_user.role != UserRole.admin:
-            raise HTTPException(status_code=403, detail="Access denied")
-        return current_user
+        role = current_user.role
+        if role == UserRole.admin or role in roles:
+            return current_user
+        # Custom (admin-created) roles are NOT part of the UserRole enum; they are
+        # governed by the Module Permission matrix (left-nav visibility + per-action
+        # require_module_perm), not these built-in role allow-lists. Let a custom
+        # role through any NON-admin-only gate so a module enabled for it in the
+        # matrix actually works. Admin-only gates — require_roles(UserRole.admin)
+        # alone — still block custom roles.
+        role_val = getattr(role, "value", None) or str(role)
+        builtin = {r.value for r in UserRole}
+        if role_val not in builtin and set(roles) != {UserRole.admin}:
+            return current_user
+        raise HTTPException(status_code=403, detail="Access denied")
     return checker
 
 

@@ -71,7 +71,9 @@ $pd=@(Get-PhysicalDisk|Where-Object {$_.Size -gt 30GB}|ForEach-Object{[ordered]@
 $bh=$null
 $full=(Get-CimInstance -Namespace root\wmi -ClassName BatteryFullChargedCapacity -EA SilentlyContinue|Select-Object -First 1).FullChargedCapacity
 $des=(Get-CimInstance -Namespace root\wmi -ClassName BatteryStaticData -EA SilentlyContinue|Select-Object -First 1).DesignedCapacity
-if($des -gt 0){$bh=[math]::Round(($full/$des)*100)}
+if($des -and $des -gt 0 -and $full -and $full -gt 0){$bh=[math]::Round(($full/$des)*100)}
+if(-not $bh -and $batt){$fc=$batt.FullChargeCapacity;$dc=$batt.DesignCapacity;if($fc -gt 0 -and $dc -gt 0){$bh=[math]::Round($fc/$dc*100)}}
+if(-not $bh -and $batt){try{$rf=[System.IO.Path]::Combine($env:TEMP,'bh_'+[guid]::NewGuid().ToString('N').Substring(0,8)+'.html');$null=powercfg /batteryreport /output $rf 2>&1;if(Test-Path $rf){$h=Get-Content $rf -Raw;Remove-Item $rf -Force -EA SilentlyContinue;$m1=$null;$m2=$null;if($h -match '(?si)DESIGN CAPACITY.{0,200}?([\d,]+)\s*mWh'){$m1=[int64]($matches[1]-replace',','')};if($h -match '(?si)FULL CHARGE CAPACITY.{0,200}?([\d,]+)\s*mWh'){$m2=[int64]($matches[1]-replace',','')};if($m1 -gt 0 -and $m2 -gt 0){$bh=[math]::Round($m2/$m1*100)}}}catch{}}
 $scr=$null
 $mons=@(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorBasicDisplayParams -EA SilentlyContinue)
 if($mons.Count -eq 1){$mn=$mons[0];$dd=[math]::Round([math]::Sqrt(($mn.MaxHorizontalImageSize*$mn.MaxHorizontalImageSize)+($mn.MaxVerticalImageSize*$mn.MaxVerticalImageSize))/2.54,1);if($dd -gt 5 -and $dd -lt 40){$scr=$dd}}
@@ -178,8 +180,8 @@ def _detect_host_hardware():
     if info.get("screen_in"):
         f["screen_size"] = str(info["screen_in"])
     bh = info.get("battery_health")
-    if isinstance(bh, (int, float)) and 0 < bh <= 100:
-        f["battery_health_pct"] = int(round(bh))
+    if isinstance(bh, (int, float)) and bh > 0:
+        f["battery_health_pct"] = min(int(round(bh)), 100)
 
     diag = [f"Auto-diagnosed on {info.get('os', 'host')}."]
     if info.get("cpu"):

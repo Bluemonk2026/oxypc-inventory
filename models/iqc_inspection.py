@@ -72,7 +72,7 @@ class IQCInspection(Base):
     panel_d_missing = Column(String(10), nullable=True)      # No / Yes
 
     # ── Keyboard ──────────────────────────────────────────────────────────────
-    keyboard_working = Column(String(10), nullable=True)     # Yes / No
+    keyboard_working = Column(String(20), nullable=True)     # Yes / Not Working / No
     keyboard_colour_fade = Column(String(10), nullable=True) # No / Yes
     keyboard_key_missing = Column(String(10), nullable=True) # No / Yes
     keyboard_hard_press = Column(String(10), nullable=True)  # No / Yes
@@ -82,24 +82,27 @@ class IQCInspection(Base):
     # Both speakers working / Both speakers faulty / Left speaker faulty / Right speaker faulty
 
     # ── Touchpad ──────────────────────────────────────────────────────────────
-    touchpad_working = Column(String(10), nullable=True)     # Yes / No
+    touchpad_working = Column(String(20), nullable=True)     # Yes / Not Working / No
     touchpad_click_working = Column(String(10), nullable=True) # Yes / No
     touchpad_scratch = Column(String(20), nullable=True)     # No / Minor Scratch / Major Scratch
     touchpad_colour_fade = Column(String(10), nullable=True) # No / Yes
     touchpad_missing = Column(String(10), nullable=True)     # No / Yes
 
     # ── Ports ─────────────────────────────────────────────────────────────────
-    port_hdmi = Column(String(10), nullable=True)            # Yes / No (working)
-    port_usb_working = Column(String(10), nullable=True)     # Yes / No
-    port_audio_jack = Column(String(10), nullable=True)      # Yes / No
+    port_hdmi = Column(String(20), nullable=True)            # Yes / Not Working / No
+    port_usb_working = Column(String(20), nullable=True)     # Yes / Not Working / No
+    port_audio_jack = Column(String(20), nullable=True)      # Yes / Not Working / No
+    usb_a_ports = Column(Integer, nullable=True)             # count (agent-fillable)
+    usb_c_ports = Column(Integer, nullable=True)             # count (manual)
+    ethernet_ports = Column(Integer, nullable=True)          # count (agent-fillable)
 
     # ── Other Components ──────────────────────────────────────────────────────
     wifi_status = Column(String(20), nullable=True)          # Working / Faulty / Not Checked
     webcam_status = Column(String(20), nullable=True)        # Ok / Faulty / Not Checked
-    hdd_connector = Column(String(10), nullable=True)        # Yes / No (present)
-    hdd_casing = Column(String(10), nullable=True)           # Yes / No
+    hdd_connector = Column(String(20), nullable=True)        # Yes / Not Working / No
+    hdd_casing = Column(String(20), nullable=True)           # Yes / Not Working / No
     battery_present = Column(String(10), nullable=True)      # Yes / No
-    battery_cable = Column(String(10), nullable=True)        # Yes / No
+    battery_cable = Column(String(20), nullable=True)        # Yes / Not Working / No
     dvd_drive = Column(String(10), nullable=True)            # Yes / No / NA
 
     # ── Overall Assessment ────────────────────────────────────────────────────

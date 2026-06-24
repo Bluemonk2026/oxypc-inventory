@@ -60,3 +60,6 @@ Thumbs.db
 *.bak
 /seed_qa_chat.py
 /seed_qa_30days.py
+
+# Agent installer bundle (binary, ~8MB)
+downloads/

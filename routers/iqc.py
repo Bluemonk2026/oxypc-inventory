@@ -55,6 +55,178 @@ def _find_usb_iqc_file():
     return best
 
 
+# ── "Diagnose this Device": read the HOST machine's hardware via WMI/CIM and
+#    map it to the IQC form fields. NOTE: this detects the machine running the
+#    web app (server / local inspection station), not a remote browser client.
+_PS_DIAGNOSE = r'''
+$ErrorActionPreference='SilentlyContinue'
+$cpu=Get-CimInstance Win32_Processor|Select-Object -First 1
+$cs=Get-CimInstance Win32_ComputerSystem
+$bios=Get-CimInstance Win32_BIOS|Select-Object -First 1
+$os=Get-CimInstance Win32_OperatingSystem
+$encl=Get-CimInstance Win32_SystemEnclosure|Select-Object -First 1
+$batt=Get-CimInstance Win32_Battery|Select-Object -First 1
+$gpu=Get-CimInstance Win32_VideoController|Where-Object {$_.Name -notmatch 'Basic|Remote|Meta|Mirror|DisplayLink|USB'}|Select-Object -First 1
+$pd=@(Get-PhysicalDisk|Where-Object {$_.Size -gt 30GB}|ForEach-Object{[ordered]@{type="$($_.MediaType)";sizeGB=[math]::Round($_.Size/1GB)}})
+$bh=$null
+$full=(Get-CimInstance -Namespace root\wmi -ClassName BatteryFullChargedCapacity -EA SilentlyContinue|Select-Object -First 1).FullChargedCapacity
+$des=(Get-CimInstance -Namespace root\wmi -ClassName BatteryStaticData -EA SilentlyContinue|Select-Object -First 1).DesignedCapacity
+if($des -gt 0){$bh=[math]::Round(($full/$des)*100)}
+$scr=$null
+$mons=@(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorBasicDisplayParams -EA SilentlyContinue)
+if($mons.Count -eq 1){$mn=$mons[0];$dd=[math]::Round([math]::Sqrt(($mn.MaxHorizontalImageSize*$mn.MaxHorizontalImageSize)+($mn.MaxVerticalImageSize*$mn.MaxVerticalImageSize))/2.54,1);if($dd -gt 5 -and $dd -lt 40){$scr=$dd}}
+[ordered]@{
+ manufacturer="$($cs.Manufacturer)";model="$($cs.Model)";serial="$($bios.SerialNumber)";
+ cpu="$(($cpu.Name).Trim())";cores=$cpu.NumberOfCores;ram_gb=[math]::Round($cs.TotalPhysicalMemory/1GB);
+ chassis=@($encl.ChassisTypes);has_battery=[bool]$batt;battery_pct=$batt.EstimatedChargeRemaining;battery_health=$bh;
+ screen_in=$scr;gpu="$($gpu.Name)";os="$($os.Caption)";disks=$pd
+} | ConvertTo-Json -Depth 5 -Compress
+'''
+
+_STD_CAPACITIES = [32, 64, 120, 128, 240, 256, 320, 480, 500, 512, 640, 750, 1000, 1024, 2000, 2048, 4000, 4096]
+
+
+def _snap_capacity(gb):
+    try:
+        gb = int(gb)
+    except (TypeError, ValueError):
+        return None
+    if gb <= 0:
+        return None
+    return min(_STD_CAPACITIES, key=lambda s: abs(s - gb))
+
+
+def _intel_gen(cpu):
+    import re
+    if not cpu:
+        return None
+    if "Core Ultra" in cpu:
+        return "Core Ultra"
+    m = re.search(r"i[3579][- ]?(\d{3,5})", cpu)
+    if m:
+        n = m.group(1)
+        g = n[:2] if len(n) >= 5 else (n[:1] if len(n) == 4 else None)
+        if g:
+            return f"{int(g)}th Gen"
+    return None
+
+
+def _detect_host_hardware():
+    """Run the WMI/CIM probe and map it to IQC form-field keys. Returns (fields, error)."""
+    import subprocess, json as _json, shutil, platform
+    ps = shutil.which("powershell") or "powershell"
+    kw = {}
+    if platform.system() == "Windows":
+        kw["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+    try:
+        r = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-Command", _PS_DIAGNOSE],
+                           capture_output=True, text=True, timeout=45, **kw)
+    except Exception as e:
+        return None, f"hardware probe failed: {e}"
+    raw = (r.stdout or "").strip()
+    if not raw:
+        return None, ((r.stderr or "no output from hardware probe").strip()[:200])
+    try:
+        info = _json.loads(raw)
+    except Exception:
+        return None, "could not parse hardware probe output"
+
+    chassis = info.get("chassis") or []
+    if isinstance(chassis, int):
+        chassis = [chassis]
+    laptop_codes = {8, 9, 10, 11, 12, 14, 18, 21, 30, 31, 32}
+    is_laptop = bool(info.get("has_battery")) or any(
+        str(c).isdigit() and int(c) in laptop_codes for c in chassis)
+    sub = "Laptop" if is_laptop else "Desktop"
+
+    disks = info.get("disks") or []
+    if isinstance(disks, dict):
+        disks = [disks]
+    ssd = [d for d in disks if str(d.get("type", "")).upper().startswith("SSD")]
+    hdd = [d for d in disks if str(d.get("type", "")).upper().startswith("HDD")]
+
+    f = {}
+    if info.get("manufacturer"):
+        f["brand"] = str(info["manufacturer"]).split()[0].title()
+    if info.get("model"):
+        f["model"] = info["model"]
+    serial = str(info.get("serial") or "").strip()
+    if serial and serial not in ("To Be Filled By O.E.M.", "Default string", "System Serial Number", "None"):
+        f["serial_no"] = serial
+    if info.get("cpu"):
+        f["cpu"] = info["cpu"]
+    gen = _intel_gen(info.get("cpu"))
+    if gen:
+        f["generation"] = gen
+    if info.get("ram_gb"):
+        try:
+            f["ram_gb"] = int(info["ram_gb"])
+        except (TypeError, ValueError):
+            pass
+    f["sub_category"] = sub
+    f["device_type"] = sub
+    prim = (ssd or hdd or disks)
+    if prim:
+        psz = _snap_capacity(prim[0].get("sizeGB"))
+        if psz:
+            f["storage_gb"] = psz
+        f["storage_type"] = "SSD" if ssd else ("HDD" if hdd else "SSD")
+    if ssd and hdd:
+        hsz = _snap_capacity(hdd[0].get("sizeGB"))
+        if hsz:
+            f["hdd_capacity_gb"] = hsz
+    if info.get("screen_in"):
+        f["screen_size"] = str(info["screen_in"])
+    bh = info.get("battery_health")
+    if isinstance(bh, (int, float)) and 0 < bh <= 100:
+        f["battery_health_pct"] = int(round(bh))
+
+    diag = [f"Auto-diagnosed on {info.get('os', 'host')}."]
+    if info.get("cpu"):
+        diag.append(f"CPU: {info['cpu']} ({info.get('cores', '?')}C).")
+    if info.get("ram_gb"):
+        diag.append(f"RAM: {info['ram_gb']} GB.")
+    if disks:
+        diag.append("Storage: " + ", ".join(
+            (f"{d.get('sizeGB', '?')}GB {d.get('type', '')}").strip() for d in disks) + ".")
+    if info.get("gpu"):
+        diag.append(f"GPU: {info['gpu']}.")
+    if info.get("has_battery"):
+        b = f"Battery: {info.get('battery_pct', '?')}% charge"
+        if f.get("battery_health_pct") is not None:
+            b += f", design health ~{f['battery_health_pct']}%"
+        diag.append(b + ".")
+    summary = " ".join(diag)
+    f["notes"] = summary
+    f["_summary"] = summary
+    return f, None
+
+
+@router.get("/diagnose")
+async def diagnose_device(current_user: User = Depends(allowed)):
+    """Detect the host machine's hardware (WMI/CIM) and return values mapped to
+    the IQC form fields. Detects the machine running the web app."""
+    import asyncio
+    fields, err = await asyncio.to_thread(_detect_host_hardware)
+    if err:
+        return JSONResponse({"ok": False, "error": err})
+    summary = fields.pop("_summary", "")
+    return JSONResponse({"ok": True, "data": fields, "summary": summary})
+
+
+@router.get("/agent-installer")
+async def agent_installer(current_user: User = Depends(allowed)):
+    """Download the single self-installing OxyQC Diagnose Agent exe. Running it
+    once (no admin) copies it to %LOCALAPPDATA%, registers per-user autostart, and
+    starts serving — so the 'Diagnose this Device' button works from then on."""
+    import os
+    from fastapi.responses import FileResponse
+    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "downloads", "OxyQC_Agent.exe")
+    if not os.path.exists(path):
+        raise HTTPException(404, "Agent exe not packaged on this server")
+    return FileResponse(path, filename="OxyQC_Agent.exe", media_type="application/octet-stream")
+
+
 @router.get("/usb-import")
 async def usb_import(current_user: User = Depends(allowed)):
     """Auto-pick the latest IQC data file from a connected OxyQC USB drive and
@@ -249,6 +421,9 @@ async def iqc_create(
     port_hdmi: str = Form(""),
     port_usb_working: str = Form(""),
     port_audio_jack: str = Form(""),
+    usb_a_ports: str = Form(""),
+    usb_c_ports: str = Form(""),
+    ethernet_ports: str = Form(""),
     # ── Other components ─────────────────────────────────────────────────────
     wifi_status: str = Form(""),
     webcam_status: str = Form(""),
@@ -341,6 +516,11 @@ async def iqc_create(
 
     # Save physical inspection data
     def _v(s): return s or None
+    def _iv(s):
+        try:
+            return int(s) if s not in (None, "") else None
+        except (ValueError, TypeError):
+            return None
     inspection = IQCInspection(
         device_id=device.id,
         inspector_name=current_user.full_name,
@@ -374,6 +554,8 @@ async def iqc_create(
         touchpad_missing=_v(touchpad_missing),
         port_hdmi=_v(port_hdmi), port_usb_working=_v(port_usb_working),
         port_audio_jack=_v(port_audio_jack),
+        usb_a_ports=_iv(usb_a_ports), usb_c_ports=_iv(usb_c_ports),
+        ethernet_ports=_iv(ethernet_ports),
         wifi_status=_v(wifi_status), webcam_status=_v(webcam_status),
         hdd_connector=_v(hdd_connector), hdd_casing=_v(hdd_casing),
         battery_present=_v(battery_present), battery_cable=_v(battery_cable),

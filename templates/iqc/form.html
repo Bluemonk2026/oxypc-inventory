@@ -13,12 +13,25 @@
         {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
         <form action="/iqc/new" method="post">
 
-          <!-- ── USB auto-import bar ── -->
-          <div class="d-flex align-items-center justify-content-between bg-light border rounded p-2 mb-3">
-            <span class="small text-muted"><i class="bi bi-usb-drive me-1"></i>OxyQC USB: boot a laptop from the USB to capture specs, then plug it into this PC and import.</span>
-            <div class="d-flex align-items-center gap-2">
-              <span id="usbStatus" class="small"></span>
-              <button type="button" id="usbImportBtn" class="btn btn-sm btn-outline-primary"><i class="bi bi-download me-1"></i>Import from USB</button>
+          <!-- ── Auto-fill helpers: Diagnose (this station) | Import (from USB) ── -->
+          <div class="row g-2 mb-3">
+            <div class="col-md-6">
+              <div class="h-100 bg-light border rounded p-2 d-flex flex-column">
+                <div class="small text-muted mb-2"><i class="bi bi-cpu me-1"></i>Diagnose <strong>this station's</strong> hardware and auto-fill the form (needs the OxyQC Agent running on this PC).</div>
+                <div class="mt-auto d-flex align-items-center justify-content-between gap-2">
+                  <span id="diagnoseStatus" class="small"></span>
+                  <button type="button" id="diagnoseBtn" class="btn btn-sm btn-outline-success text-nowrap" title="Detect this station's hardware and auto-fill the form"><i class="bi bi-cpu me-1"></i>Diagnose this Device</button>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="h-100 bg-light border rounded p-2 d-flex flex-column">
+                <div class="small text-muted mb-2"><i class="bi bi-usb-drive me-1"></i>Boot a laptop from the OxyQC USB to capture specs, plug it into this PC, then import.</div>
+                <div class="mt-auto d-flex align-items-center justify-content-between gap-2">
+                  <span id="usbStatus" class="small"></span>
+                  <button type="button" id="usbImportBtn" class="btn btn-sm btn-outline-primary text-nowrap"><i class="bi bi-download me-1"></i>Import from USB</button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -49,10 +62,6 @@
               <label class="form-label">GRN Number</label>
               <input type="text" name="grn_number" class="form-control font-monospace bg-light" placeholder="e.g. GRN-2024-001" value="{{ prefill_grn if prefill_grn is defined else '' }}" readonly tabindex="-1">
             </div>
-            <div class="col-md-3">
-              <label class="form-label">Serial No.</label>
-              <input type="text" name="serial_no" class="form-control font-monospace" placeholder="Serial number">
-            </div>
             <div class="col-md-3 d-none">
               <label class="form-label">Sub-Category</label>
               <select name="sub_category" class="form-select">
@@ -63,53 +72,61 @@
             </div>
           </div>
 
-          <!-- ── Section 2: Brand & Model ── -->
-          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Brand &amp; Model</p>
-          <div class="row g-3 mb-3">
+          {% set yn = ['Yes','No'] %}
+          {% set yn3 = ['Yes','Not Working','No'] %}
+          {% set scratch_opts = ['No','Minor Scratch','Major Scratch'] %}
+          <style>
+            .hw-lock{ background-color:#eef1f4 !important; }
+            select.hw-lock{ pointer-events:none; }
+            input.hw-lock{ cursor:not-allowed; }
+            .hw-spec-head .badge{ font-weight:500; }
+          </style>
+
+          <!-- ── Section: HARDWARE SPECIFICATION (auto-detected — read only) ── -->
+          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1 hw-spec-head">
+            <i class="bi bi-cpu me-1"></i>Hardware Specification
+            <span class="badge bg-secondary-subtle text-secondary border ms-2">auto-detected · read only</span>
+          </p>
+          <div class="row g-2 mb-3">
             <div class="col-md-3">
-              <label class="form-label">Device Type</label>
-              <select name="device_type" class="form-select">
-                <option value="">-- Select --</option>
+              <label class="form-label small">Serial Number</label>
+              <input type="text" name="serial_no" class="form-control form-control-sm hw-lock font-monospace" readonly tabindex="-1" placeholder="—">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Device Type</label>
+              <select name="device_type" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>
                 <option>Laptop</option><option>Desktop</option><option>AIO</option>
                 <option>Workstation</option><option>Mini PC</option><option>Server</option><option>Tablet</option>
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Brand / Make</label>
-              <select name="brand" id="iqc-brand-select" class="form-select">
-                <option value="">-- Select --</option>
+              <label class="form-label small">Brand / Make</label>
+              <select name="brand" id="iqc-brand-select" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>
                 <option>HP</option><option>Dell</option><option>Lenovo</option><option>Acer</option>
                 <option>Asus</option><option>Apple</option><option>Samsung</option><option>Toshiba</option>
                 <option>MSI</option><option>Microsoft</option><option>LG</option><option>Compaq</option><option>Other</option>
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Model</label>
-              <input type="text" name="model" class="form-control" placeholder="e.g. ThinkPad T480">
+              <label class="form-label small">Model</label>
+              <input type="text" name="model" class="form-control form-control-sm hw-lock" readonly tabindex="-1" placeholder="—">
             </div>
             <div class="col-md-3">
-              <label class="form-label">Color</label>
-              <input type="text" name="color" class="form-control" placeholder="Black / Silver / Dark Grey">
-            </div>
-          </div>
-
-          <!-- ── Section 3: Hardware Specs ── -->
-          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Hardware Specifications</p>
-          <div class="row g-3 mb-3">
-            <div class="col-md-4">
-              <label class="form-label">CPU / Processor</label>
+              <label class="form-label small">CPU / Processor</label>
               {% set cpu_opts = ['Intel Core i3','Intel Core i5','Intel Core i7','Intel Core i9','Intel Core Ultra 5','Intel Core Ultra 7','Intel Celeron','Intel Pentium','AMD Ryzen 3','AMD Ryzen 5','AMD Ryzen 7','AMD Ryzen 9','Apple M1','Apple M2','Apple M3','Apple M4','Other'] %}
               {% set cur_cpu = device.cpu if device else '' %}
-              <select name="cpu" class="form-select">
-                <option value="">Not Available</option>
+              <select name="cpu" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>
                 {% if cur_cpu and cur_cpu not in cpu_opts %}<option value="{{ cur_cpu }}" selected>{{ cur_cpu }}</option>{% endif %}
                 {% for o in cpu_opts %}<option value="{{ o }}" {% if cur_cpu == o %}selected{% endif %}>{{ o }}</option>{% endfor %}
               </select>
             </div>
-            <div class="col-md-4">
-              <label class="form-label">Generation</label>
-              <select name="generation" class="form-select">
-                <option value="">Not Available</option>
+            <div class="col-md-3">
+              <label class="form-label small">Generation</label>
+              <select name="generation" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>
                 <option>4th Gen</option><option>5th Gen</option><option>6th Gen</option>
                 <option>7th Gen</option><option>8th Gen</option><option>9th Gen</option>
                 <option>10th Gen</option><option>11th Gen</option><option>12th Gen</option>
@@ -121,56 +138,171 @@
                 <option value="Apple M4" {% if device and device.generation == 'Apple M4' %}selected{% endif %}>Apple M4</option>
               </select>
             </div>
-            <div class="col-md-4">
-              <label class="form-label">RAM (GB)</label>
-              <select name="ram_gb" class="form-select">
-                <option value="">Not Available</option>
+            <div class="col-md-3">
+              <label class="form-label small">RAM (GB)</label>
+              <select name="ram_gb" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>
                 <option>2</option><option>4</option><option>8</option><option>12</option>
                 <option>16</option><option>24</option><option>32</option><option>64</option>
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">SSD Capacity (GB)</label>
-              <select name="storage_gb" class="form-select">
-                <option value="">Not Available</option>
+              <label class="form-label small">SSD Capacity (GB)</label>
+              <select name="storage_gb" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>
                 <option>128</option><option>240</option><option>256</option><option>320</option><option>480</option>
                 <option>512</option><option>960</option><option>1000</option><option>2000</option>
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Storage Type</label>
-              <select name="storage_type" class="form-select">
-                <option value="">Not Available</option>
+              <label class="form-label small">Storage Type</label>
+              <select name="storage_type" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>
                 <option>SSD</option><option>NVMe SSD</option><option>HDD</option>
                 <option>eMMC</option><option>SSHD (Hybrid)</option>
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">HDD Capacity (GB) <small class="text-muted">if dual</small></label>
-              <select name="hdd_capacity_gb" class="form-select">
-                <option value="">Not Available</option>
+              <label class="form-label small">HDD Capacity (GB)</label>
+              <select name="hdd_capacity_gb" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>
                 <option>320</option><option>500</option><option>750</option>
                 <option>1000</option><option>2000</option>
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Screen Size</label>
-              <select name="screen_size" class="form-select">
-                <option value="">Unknown</option>
+              <label class="form-label small">Screen Size</label>
+              <select name="screen_size" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>
                 <option>11.6"</option><option>12.5"</option><option>13.3"</option><option>14.0"</option>
                 <option>14.0" FHD</option><option>15.6"</option><option>15.6" FHD</option>
                 <option>17.3"</option><option>18.5"</option><option>21.5"</option><option>24"</option>
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Battery Health % <small class="text-muted">Laptops</small></label>
-              <input type="number" name="battery_health_pct" class="form-control" placeholder="e.g. 85" min="0" max="100">
+              <label class="form-label small">Battery Health %</label>
+              <input type="number" name="battery_health_pct" class="form-control form-control-sm hw-lock" readonly tabindex="-1" min="0" max="100" placeholder="—">
             </div>
             <div class="col-md-3">
-              <label class="form-label">Internal Battery</label>
-              <select name="battery_present" class="form-select">
-                <option value="">—</option>{% for o in ['Yes','No'] %}<option>{{o}}</option>{% endfor %}
+              <label class="form-label small">Internal Battery</label>
+              <select name="battery_present" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
               </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Battery Cable</label>
+              <select name="battery_cable" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Does the Laptop Switch On?</label>
+              <select name="power_on" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>
+                <option>Yes</option><option>No</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Power Status</label>
+              <select name="status" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>
+                <option>Power On</option><option>No Display</option>
+                <option>No Power/Power Cut(Motherboard)</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Keyboard Working?</label>
+              <select name="keyboard_working" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Touchpad Working?</label>
+              <select name="touchpad_working" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">HDMI Port Working?</label>
+              <select name="port_hdmi" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">USB Ports Working?</label>
+              <select name="port_usb_working" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Audio Jack Working?</label>
+              <select name="port_audio_jack" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">USB-A Ports</label>
+              <input type="number" name="usb_a_ports" class="form-control form-control-sm hw-lock" readonly tabindex="-1" min="0" max="20" placeholder="—">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">USB-C Ports</label>
+              <input type="number" name="usb_c_ports" class="form-control form-control-sm hw-lock" readonly tabindex="-1" min="0" max="20" placeholder="—">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Ethernet Ports</label>
+              <input type="number" name="ethernet_ports" class="form-control form-control-sm hw-lock" readonly tabindex="-1" min="0" max="8" placeholder="—">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Speaker Status</label>
+              <select name="speaker_status" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>
+                <option>Both speakers working</option>
+                <option>Both speakers faulty</option>
+                <option>Left speaker faulty</option>
+                <option>Right speaker faulty</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Wi-Fi</label>
+              <select name="wifi_status" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>
+                <option>Working</option><option>Faulty</option><option>Not Checked</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Web Cam</label>
+              <select name="webcam_status" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>
+                <option>Ok</option><option>Faulty</option><option>Not Checked</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">HDD Connector</label>
+              <select name="hdd_connector" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">HDD Casing</label>
+              <select name="hdd_casing" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">DVD Drive</label>
+              <select name="dvd_drive" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>
+                <option>Yes</option><option>No</option><option>NA</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- ── Section: Inspection Details (manual) ── -->
+          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Inspection Details</p>
+          <div class="row g-3 mb-3">
+            <div class="col-md-3">
+              <label class="form-label">Color</label>
+              <input type="text" name="color" class="form-control" placeholder="Black / Silver / Dark Grey">
             </div>
             <div class="col-md-3 d-flex align-items-end">
               <div class="form-check ms-2 mb-2">
@@ -180,46 +312,11 @@
             </div>
           </div>
 
-          <!-- ── Section 4: Functional Status ── -->
-          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Functional Status</p>
-          <div class="row g-3 mb-3">
-            <div class="col-md-3">
-              <label class="form-label">Does the Laptop Switch On?</label>
-              <select name="power_on" class="form-select">
-                <option value="">-- Select --</option>
-                <option>Yes</option><option>No</option>
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Power Status</label>
-              <select name="status" class="form-select">
-                <option value="">-- Select --</option>
-                <option>Power On</option><option>No Display</option>
-                <option>No Power/Power Cut(Motherboard)</option>
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">All OK?</label>
-              <select name="all_ok" class="form-select">
-                <option value="">-- Select --</option>
-                <option>Yes</option><option>No</option>
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">R2V3 Grade Category</label>
-              <select name="r2v3_grade_category" class="form-select">
-                <option value="">-- Select --</option>
-                <option>C0</option><option>C3</option><option>C4</option><option>C5</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- ── Section 5: Screen Condition ── -->
-          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">
-            Screen Condition
-          </p>
+          <!-- Screen Condition (under Inspection Details) -->
+          <p class="small fw-semibold text-uppercase mb-2 text-secondary">Screen Condition</p>
           <div class="row g-2 mb-3">
             {% set yn = ['Yes','No'] %}
+            {% set yn3 = ['Yes','Not Working','No'] %}
             {% set scratch_opts = ['No','Minor Scratch','Major Scratch'] %}
             <div class="col-md-2">
               <label class="form-label small">Dot</label>
@@ -296,6 +393,55 @@
             <div class="col-md-2">
               <label class="form-label small">Keyboard Mark</label>
               <select name="screen_keyboard_mark" class="form-select form-select-sm">
+                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <!-- Keyboard & Touchpad (under Inspection Details) -->
+          <p class="small fw-semibold text-uppercase mb-2 text-secondary">Keyboard &amp; Touchpad</p>
+          <div class="row g-2 mb-3">
+            <!-- Keyboard (cosmetic) -->
+            <div class="col-md-2">
+              <label class="form-label small">Keyboard Colour Fade</label>
+              <select name="keyboard_colour_fade" class="form-select form-select-sm">
+                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small">Key Missing</label>
+              <select name="keyboard_key_missing" class="form-select form-select-sm">
+                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small">Keyboard Hard Press</label>
+              <select name="keyboard_hard_press" class="form-select form-select-sm">
+                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <!-- Touchpad (cosmetic) -->
+            <div class="col-md-2">
+              <label class="form-label small">Click Function Working?</label>
+              <select name="touchpad_click_working" class="form-select form-select-sm">
+                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small">Touchpad Scratch</label>
+              <select name="touchpad_scratch" class="form-select form-select-sm">
+                <option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small">Touchpad Colour Fade</label>
+              <select name="touchpad_colour_fade" class="form-select form-select-sm">
+                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small">Touchpad Missing</label>
+              <select name="touchpad_missing" class="form-select form-select-sm">
                 <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
               </select>
             </div>
@@ -463,146 +609,25 @@
             </div>
           </div>
 
-          <!-- ── Section 7: Keyboard / Touchpad / Speaker / Ports ── -->
-          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">
-            Keyboard, Touchpad, Speaker &amp; Ports
-          </p>
-          <div class="row g-2 mb-3">
-            <!-- Keyboard -->
-            <div class="col-md-2">
-              <label class="form-label small fw-semibold">Keyboard Working?</label>
-              <select name="keyboard_working" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label small">Keyboard Colour Fade</label>
-              <select name="keyboard_colour_fade" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label small">Key Missing</label>
-              <select name="keyboard_key_missing" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label small">Keyboard Hard Press</label>
-              <select name="keyboard_hard_press" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <!-- Speaker -->
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold">Speaker Status</label>
-              <select name="speaker_status" class="form-select form-select-sm">
-                <option value="">— Select —</option>
-                <option>Both speakers working</option>
-                <option>Both speakers faulty</option>
-                <option>Left speaker faulty</option>
-                <option>Right speaker faulty</option>
-              </select>
-            </div>
-            <!-- Touchpad -->
-            <div class="col-md-2">
-              <label class="form-label small fw-semibold">Touchpad Working?</label>
-              <select name="touchpad_working" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label small">Click Function Working?</label>
-              <select name="touchpad_click_working" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label small">Touchpad Scratch</label>
-              <select name="touchpad_scratch" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label small">Touchpad Colour Fade</label>
-              <select name="touchpad_colour_fade" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label small">Touchpad Missing</label>
-              <select name="touchpad_missing" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <!-- Ports -->
-            <div class="col-md-2">
-              <label class="form-label small fw-semibold">HDMI Port Working?</label>
-              <select name="port_hdmi" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label small">USB Ports Working?</label>
-              <select name="port_usb_working" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label small">Audio Jack Working?</label>
-              <select name="port_audio_jack" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-          </div>
-
-          <!-- ── Section 8: Other Components ── -->
-          <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Other Components</p>
-          <div class="row g-2 mb-3">
-            <div class="col-md-2">
-              <label class="form-label small">Wi-Fi</label>
-              <select name="wifi_status" class="form-select form-select-sm">
-                <option value="">—</option>
-                <option>Working</option><option>Faulty</option><option>Not Checked</option>
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label small">Web Cam</label>
-              <select name="webcam_status" class="form-select form-select-sm">
-                <option value="">—</option>
-                <option>Ok</option><option>Faulty</option><option>Not Checked</option>
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label small">HDD Connector</label>
-              <select name="hdd_connector" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label small">HDD Casing</label>
-              <select name="hdd_casing" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label small">Battery Cable</label>
-              <select name="battery_cable" class="form-select form-select-sm">
-                <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label small">DVD Drive</label>
-              <select name="dvd_drive" class="form-select form-select-sm">
-                <option value="">—</option>
-                <option>Yes</option><option>No</option><option>NA</option>
-              </select>
-            </div>
-          </div>
+          <!-- (Keyboard & Touchpad moved up under Inspection Details) -->
 
           <!-- ── Section 9: Condition & Location ── -->
           <p class="text-muted fw-semibold small text-uppercase mb-2 border-bottom pb-1">Condition &amp; Location</p>
           <div class="row g-3 mb-3">
+            <div class="col-md-2">
+              <label class="form-label">All OK?</label>
+              <select name="all_ok" class="form-select">
+                <option value="">-- Select --</option>
+                <option>Yes</option><option>No</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">R2V3 Grade Category</label>
+              <select name="r2v3_grade_category" class="form-select">
+                <option value="">-- Select --</option>
+                <option>C0</option><option>C3</option><option>C4</option><option>C5</option>
+              </select>
+            </div>
             <div class="col-md-2">
               <label class="form-label">Quantity</label>
               <input type="number" name="qty" class="form-control" min="1" value="1"
@@ -845,7 +870,7 @@ document.getElementById('lot_line_item_id').addEventListener('change', async fun
             el.value = el.options[i].value; matched = true; break;
           }
         }
-        if (!matched && key === 'cpu' && want) { el.add(new Option(want, want, true, true)); matched = true; }
+        if (!matched && (key === 'cpu' || key === 'brand') && want) { el.add(new Option(want, want, true, true)); matched = true; }
         if (matched) filled++;
         return;
       }
@@ -853,6 +878,7 @@ document.getElementById('lot_line_item_id').addEventListener('change', async fun
     });
     return filled;
   }
+  window.oxyqcPrefill = prefill;   // shared with "Diagnose this Device"
 
   function doImport(manual){
     var status = document.getElementById('usbStatus');
@@ -871,8 +897,57 @@ document.getElementById('lot_line_item_id').addEventListener('change', async fun
 
   var btn = document.getElementById('usbImportBtn');
   if (btn) btn.addEventListener('click', function(){ doImport(true); });
-  // Auto-attempt once on load (silent if no USB present)
-  document.addEventListener('DOMContentLoaded', function(){ setTimeout(function(){ doImport(false); }, 600); });
+  // No auto-fill on load — the form fills only when the user clicks Import.
+})();
+</script>
+
+<script>
+/* ── "Diagnose this Device": reads THIS station's hardware via the local OxyQC
+      Agent (http://127.0.0.1:8765) — 127.0.0.1 in the browser is always the
+      machine the technician is using, so it never reads the server's specs. ── */
+(function(){
+  var AGENT = 'http://127.0.0.1:8765/diagnose';
+  var PING  = 'http://127.0.0.1:8765/ping';
+  var btn = document.getElementById('diagnoseBtn');
+  var status = document.getElementById('diagnoseStatus');
+  if (!btn) return;
+  var pollTimer = null;
+  function stopPoll(){ if (pollTimer){ clearInterval(pollTimer); pollTimer = null; } }
+  function watchForAgent(){           // poll the cheap /ping until the agent comes up
+    if (pollTimer) return;
+    var tries = 0;
+    pollTimer = setInterval(function(){
+      tries++;
+      if (tries > 40) { stopPoll(); return; }   // give up after ~2 min
+      fetch(PING, {cache:'no-store'})
+        .then(function(r){
+          if (r && r.ok) {
+            stopPoll();
+            if (status) status.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Agent is running now — run the Diagnose.</span>';
+          }
+        })
+        .catch(function(){});
+    }, 3000);
+  }
+  btn.addEventListener('click', function(){
+    stopPoll();
+    btn.disabled = true;
+    if (status) status.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Diagnosing this station…</span>';
+    var ctrl = new AbortController();
+    var t = setTimeout(function(){ ctrl.abort(); }, 12000);
+    fetch(AGENT, {headers: {'Accept':'application/json'}, signal: ctrl.signal})
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (!j.ok) { if (status) status.innerHTML = '<span class="text-danger">Diagnose failed: ' + (j.error || 'unknown') + '</span>'; return; }
+        var n = (window.oxyqcPrefill ? window.oxyqcPrefill(j.data || {}) : 0);
+        if (status) status.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Diagnosed this station &amp; filled ' + n + ' field(s)</span>';
+      })
+      .catch(function(){
+        if (status) status.innerHTML = '<span class="text-danger">Agent not running on this station. <a href="/iqc/agent-installer" class="fw-semibold text-decoration-underline">Download &amp; run the OxyQC Agent</a> once (no admin needed) — this will update when it starts.</span>';
+        watchForAgent();
+      })
+      .finally(function(){ clearTimeout(t); btn.disabled = false; });
+  });
 })();
 </script>
 {% endblock %}

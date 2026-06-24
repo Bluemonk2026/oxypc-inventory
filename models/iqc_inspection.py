@@ -102,7 +102,8 @@ class IQCInspection(Base):
     hdd_connector = Column(String(20), nullable=True)        # Yes / Not Working / No
     hdd_casing = Column(String(20), nullable=True)           # Yes / Not Working / No
     battery_present = Column(String(10), nullable=True)      # Yes / No
-    battery_cable = Column(String(20), nullable=True)        # Yes / Not Working / No
+    battery_cable = Column(String(20), nullable=True)        # Yes / No
+    charging_port = Column(String(20), nullable=True)        # Yes / No (works if charging)
     dvd_drive = Column(String(10), nullable=True)            # Yes / No / NA
 
     # ── Overall Assessment ────────────────────────────────────────────────────

@@ -555,7 +555,7 @@ async def device_edit_save(
         db.add(iqc_inspection)
     _form = await request.form()
     _IQC_STR_FIELDS = [
-        "battery_present", "battery_cable", "power_on", "status", "all_ok", "r2v3_grade_category",
+        "battery_present", "battery_cable", "charging_port", "power_on", "status", "all_ok", "r2v3_grade_category",
         "keyboard_working", "touchpad_working", "port_hdmi", "port_usb_working", "port_audio_jack",
         "speaker_status", "wifi_status", "webcam_status", "hdd_connector", "hdd_casing", "dvd_drive",
         "screen_dot", "screen_line", "screen_functional", "screen_discoloration", "screen_patch",

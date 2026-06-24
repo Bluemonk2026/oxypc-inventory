@@ -437,6 +437,7 @@ async def iqc_create(
     hdd_casing: str = Form(""),
     battery_present: str = Form(""),
     battery_cable: str = Form(""),
+    charging_port: str = Form(""),
     dvd_drive: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
@@ -565,6 +566,7 @@ async def iqc_create(
         wifi_status=_v(wifi_status), webcam_status=_v(webcam_status),
         hdd_connector=_v(hdd_connector), hdd_casing=_v(hdd_casing),
         battery_present=_v(battery_present), battery_cable=_v(battery_cable),
+        charging_port=_v(charging_port),
         dvd_drive=_v(dvd_drive),
     )
     db.add(inspection)

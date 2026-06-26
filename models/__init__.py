@@ -41,3 +41,4 @@ from .api_key import APIKey
 from .webhook import Webhook
 from .event_log import EventLog
 from .cost_config import CostConfig
+from .notification import Notification

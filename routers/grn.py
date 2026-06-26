@@ -9,7 +9,7 @@ from templates_config import templates
 from datetime import datetime
 from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, update
 
@@ -287,7 +287,7 @@ async def grn_validate(
         raise HTTPException(404, "GRN not found")
     g.validated = True
     await db.commit()
-    return RedirectResponse(url=f"/grn?success=GRN+{g.grn_number}+validated", status_code=302)
+    return JSONResponse({"ok": True, "grn_number": g.grn_number})
 
 
 @router.post("/{grn_id}/delete")

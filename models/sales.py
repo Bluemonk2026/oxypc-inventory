@@ -30,6 +30,8 @@ class Sale(Base):
     tracking_number   = Column(String(100), nullable=True)   # AWB / tracking number
     dispatch_date     = Column(DateTime, nullable=True)      # when dispatched
     delivery_status   = Column(String(30), nullable=True)    # pending / dispatched / delivered
+    # ── Invoice / PO upload ──────────────────────────────────────────────────────
+    invoice_file_path = Column(String(500), nullable=True)   # relative path to uploaded PDF
 
     device = relationship("Device", back_populates="sales")
     returns = relationship("Return", back_populates="sale", lazy="select")

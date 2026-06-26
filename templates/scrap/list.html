@@ -11,7 +11,8 @@
       <table id="scrapTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark"><tr>
           <th>Tag Number</th><th>Brand</th><th>Model</th><th>Grade</th>
-          <th>Received User</th><th>Amount</th><th>Updated On</th><th>Notes</th><th>Action</th>
+          <th>Received User</th><th>Amount</th><th>Updated On</th><th>Notes</th>
+          <th>Received</th><th>Action</th>
         </tr></thead>
         <tbody>
           {% for it in items %}
@@ -24,20 +25,113 @@
             <td>{% if it.amount is not none %}₹{{ "{:,.2f}".format(it.amount) }}{% else %}—{% endif %}</td>
             <td class="text-muted small">{{ it.updated_at.strftime('%d-%m-%Y %H:%M') if it.updated_at else '—' }}</td>
             <td class="text-muted">{{ it.notes }}</td>
+            <td>
+              {% if it.scrap_verified %}
+              <span class="badge bg-success">Yes</span>
+              {% else %}
+              <span class="badge bg-danger">No</span>
+              {% endif %}
+            </td>
             <td class="text-nowrap">
+              {% if not it.scrap_verified %}
+              <button type="button" class="btn btn-sm btn-warning py-0 px-2"
+                      onclick="openVerifyModal('{{ it.barcode }}', '{{ it.brand }} {{ it.model }}')"
+                      title="Verify received quantity">
+                <i class="bi bi-clipboard-check"></i> Verify
+              </button>
+              {% else %}
               <a href="/sales/new?barcode={{ it.barcode }}" class="btn btn-sm btn-success py-0 px-2"><i class="bi bi-cart-plus"></i> Sell</a>
+              {% endif %}
               <a href="/devices/{{ it.barcode }}" class="btn btn-sm btn-outline-primary py-0 px-2"><i class="bi bi-eye"></i> View</a>
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="9" class="text-center text-muted py-4">No scrapped products.</td></tr>
+          <tr><td colspan="10" class="text-center text-muted py-4">No scrapped products.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
   </div>
 </div>
+
+<!-- Verify Scrap Modal -->
+<div class="modal fade" id="verifyScrapModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-warning bg-opacity-10">
+        <h5 class="modal-title"><i class="bi bi-clipboard-check me-2"></i>Verify Scrap — <span id="vModal_device"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="verifyScrapForm">
+        <input type="hidden" id="vModal_barcode" name="barcode">
+        <input type="hidden" name="csrf_token" id="vModal_csrf">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Verified Quantity</label>
+            <input type="number" name="verified_qty" class="form-control" min="1" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Notes</label>
+            <textarea name="notes" class="form-control" rows="2" placeholder="Condition, remarks..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-warning"><i class="bi bi-check2-circle me-1"></i>Submit</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
-<script>$(document).ready(function(){ if ($('#scrapTable tbody tr td').length > 1) $('#scrapTable').DataTable({pageLength:25, order:[]}); });</script>
+<script>
+$(document).ready(function(){
+  if ($('#scrapTable tbody tr td').length > 1) $('#scrapTable').DataTable({pageLength:25, order:[]});
+});
+
+function openVerifyModal(barcode, name) {
+  document.getElementById('vModal_barcode').value = barcode;
+  document.getElementById('vModal_device').textContent = name;
+  var csrfEl = document.querySelector('[name="csrf_token"]');
+  document.getElementById('vModal_csrf').value = csrfEl ? csrfEl.value : '';
+  new bootstrap.Modal(document.getElementById('verifyScrapModal')).show();
+}
+
+document.getElementById('verifyScrapForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var fd = new FormData(this);
+  var barcode = fd.get('barcode');
+  fetch('/scrap/' + barcode + '/verify', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: new URLSearchParams(fd)
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.ok) {
+      // Update the row in the table without page reload
+      document.querySelectorAll('#scrapTable tbody tr').forEach(function(row) {
+        var tagCell = row.querySelector('td:first-child a');
+        if (tagCell && tagCell.href.endsWith('/' + barcode)) {
+          // Update Received badge (2nd-to-last cell)
+          var receivedCell = row.querySelector('td:nth-last-child(2)');
+          if (receivedCell) receivedCell.innerHTML = '<span class="badge bg-success">Yes</span>';
+          // Update Action cell (last cell)
+          var actionCell = row.querySelector('td:last-child');
+          if (actionCell) {
+            actionCell.innerHTML =
+              '<a href="/sales/new?barcode=' + barcode + '" class="btn btn-sm btn-success py-0 px-2"><i class="bi bi-cart-plus"></i> Sell</a> ' +
+              '<a href="/devices/' + barcode + '" class="btn btn-sm btn-outline-primary py-0 px-2"><i class="bi bi-eye"></i> View</a>';
+          }
+        }
+      });
+      bootstrap.Modal.getInstance(document.getElementById('verifyScrapModal')).hide();
+    } else {
+      alert('Verification failed: ' + (d.error || 'Unknown error'));
+    }
+  })
+  .catch(function() { alert('Network error — please try again.'); });
+});
+</script>
 {% endblock %}

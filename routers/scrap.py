@@ -2,8 +2,8 @@
 Scrap Products — devices that were scrapped (typically from L3). Shows the L3
 engineer who sent it to scrap, the device's P&L total cost, and Sell / View actions.
 """
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -71,8 +71,32 @@ async def scrap_products(request: Request, db: AsyncSession = Depends(get_db),
             "amount": amount,
             "updated_at": device.updated_at,
             "notes": device.notes or "",
+            "scrap_verified": device.scrap_verified,
         })
 
     return templates.TemplateResponse("scrap/list.html", {
         "request": request, "current_user": current_user, "items": items,
     })
+
+
+@router.post("/scrap/{barcode}/verify")
+async def verify_scrap(
+    barcode: str,
+    verified_qty: int = Form(...),
+    notes: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Mark a scrapped device as quantity-verified. Enables the Sell button."""
+    result = await db.execute(select(Device).where(Device.barcode == barcode))
+    device = result.scalar_one_or_none()
+    if device is None:
+        return JSONResponse({"ok": False, "error": "Device not found"}, status_code=404)
+
+    device.scrap_verified = True
+    if notes:
+        existing = device.notes or ""
+        device.notes = (existing + "\n[Verify] " + notes).strip()
+
+    await db.commit()
+    return JSONResponse({"ok": True})

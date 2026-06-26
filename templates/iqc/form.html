@@ -188,19 +188,25 @@
               </select>
             </div>
             <div class="col-md-3">
+              <label class="form-label small">Battery Cable</label>
+              <select name="battery_cable" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
               <label class="form-label small">Battery Health %</label>
               <input type="number" name="battery_health_pct" class="form-control form-control-sm hw-lock" readonly tabindex="-1" min="0" max="100" placeholder="—">
+            </div>
+            <input type="hidden" name="battery_capacity_wh" id="battery_capacity_wh" value="">
+            <input type="hidden" name="battery_power_w" id="battery_power_w" value="">
+            <div class="col-md-3">
+              <label class="form-label small">Battery Life (days) <span class="text-muted small">(auto)</span></label>
+              <input type="number" name="battery_life_days" id="battery_life_days" class="form-control form-control-sm hw-lock" readonly tabindex="-1" placeholder="—">
             </div>
             <div class="col-md-3">
               <label class="form-label small">Internal Battery</label>
               <select name="battery_present" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
                 <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small">Battery Cable</label>
-              <select name="battery_cable" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
-                <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
               </select>
             </div>
             <div class="col-md-3">
@@ -321,22 +327,71 @@
                 <option>Yes</option><option>No</option><option>NA</option>
               </select>
             </div>
+            <div class="col-md-3">
+              <label class="form-label small">Storage Health (%)</label>
+              <input type="number" name="storage_health_pct" id="storage_health_pct" class="form-control form-control-sm hw-lock" readonly tabindex="-1" min="0" max="100" placeholder="—">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Fan Sound (in dBA)</label>
+              <input type="number" name="fan_sound_dba" id="fan_sound_dba" class="form-control form-control-sm hw-lock" readonly tabindex="-1" min="0" max="100" placeholder="—">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Fan Working</label>
+              <select name="fan_working" id="fan_working" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+                <option value="">—</option><option>Yes</option><option>No</option>
+              </select>
+            </div>
           </div>
 
           {% set yn = ['Yes','No'] %}
           {% set scratch_opts = ['No','Minor Scratch','Major Scratch'] %}
+          {% set dent_opts = ['No','Yes','Major Dent'] %}
+          {% set broken_opts = ['No','Yes','Major Broken'] %}
 
-          <!-- ── Section 6: Panels A / B / C / D ── -->
+          <!-- ── Section 6: Body Panels ── -->
           <p class="fw-bold small text-uppercase mb-2 border-bottom pb-1 sec-hd">
             Body Panels
           </p>
-          <!-- Panel A — LCD Lid / Top Cover -->
+
+          <!-- 1. Covers and Casing (new) -->
           <div class="card border bg-light mb-2">
             <div class="card-body py-2">
-              <p class="small fw-semibold text-uppercase mb-2 text-primary">Panel A — LCD Lid / Top Cover</p>
+              <p class="small fw-semibold text-uppercase mb-2" style="color:#6f42c1">Covers and Casing</p>
               <div class="row g-2">
-                {% set dent_opts = ['No','Yes','Major Dent'] %}
-                {% set broken_opts = ['No','Yes','Major Broken'] %}
+                {% set cover_opts = ['Yes','No'] %}
+                <div class="col-md-3">
+                  <label class="form-label small">RAM Cover</label>
+                  <select name="cover_ram" class="form-select form-select-sm">
+                    <option value="">—</option>{% for o in cover_opts %}<option>{{o}}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small">DVD Cover</label>
+                  <select name="cover_dvd" class="form-select form-select-sm">
+                    <option value="">—</option>{% for o in cover_opts %}<option>{{o}}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small">Storage Cover</label>
+                  <select name="cover_storage" class="form-select form-select-sm">
+                    <option value="">—</option>{% for o in cover_opts %}<option>{{o}}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small">USB Cover</label>
+                  <select name="cover_usb" class="form-select form-select-sm">
+                    <option value="">—</option>{% for o in cover_opts %}<option>{{o}}</option>{% endfor %}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. Display Panel (was: Panel A — LCD Lid / Top Cover) -->
+          <div class="card border bg-light mb-2">
+            <div class="card-body py-2">
+              <p class="small fw-semibold text-uppercase mb-2 text-primary">Display Panel</p>
+              <div class="row g-2">
                 <div class="col-md-2">
                   <label class="form-label small">Scratch</label>
                   <select name="panel_a_scratch" class="form-select form-select-sm">
@@ -371,49 +426,10 @@
             </div>
           </div>
 
-          <!-- Panel B — Bottom Base -->
+          <!-- 3. Bezel Frame (Panel C) -->
           <div class="card border bg-light mb-2">
             <div class="card-body py-2">
-              <p class="small fw-semibold text-uppercase mb-2 text-success">Panel B — Bottom Base</p>
-              <div class="row g-2">
-                <div class="col-md-2">
-                  <label class="form-label small">Scratch</label>
-                  <select name="panel_b_scratch" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}
-                  </select>
-                </div>
-                <div class="col-md-2">
-                  <label class="form-label small">Broken / Crack</label>
-                  <select name="panel_b_broken" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in broken_opts %}<option>{{o}}</option>{% endfor %}
-                  </select>
-                </div>
-                <div class="col-md-2">
-                  <label class="form-label small">Missing</label>
-                  <select name="panel_b_missing" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-                  </select>
-                </div>
-                <div class="col-md-2">
-                  <label class="form-label small">Colour Fade</label>
-                  <select name="panel_b_colour_fade" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-                  </select>
-                </div>
-                <div class="col-md-2">
-                  <label class="form-label small">Rubber Cut</label>
-                  <select name="panel_b_rubber_cut" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Panel C — Bezel / Frame -->
-          <div class="card border bg-light mb-2">
-            <div class="card-body py-2">
-              <p class="small fw-semibold text-uppercase mb-2 text-warning">Panel C — Bezel / Frame</p>
+              <p class="small fw-semibold text-uppercase mb-2 text-warning">Bezel Frame</p>
               <div class="row g-2">
                 <div class="col-md-2">
                   <label class="form-label small">Scratch</label>
@@ -449,10 +465,116 @@
             </div>
           </div>
 
-          <!-- Panel D — Palmrest -->
+          <!-- 4. Screen/Display (was: Display) -->
+          <div class="card border bg-light mb-2">
+            <div class="card-body py-2">
+              <p class="small fw-semibold text-uppercase mb-2 text-info">Screen/Display</p>
+              <div class="row g-2">
+                <div class="col-md-2"><label class="form-label small">Dot</label><select name="screen_dot" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Line</label><select name="screen_line" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Colour Discoloration</label><select name="screen_discoloration" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Colour Spread</label><select name="screen_colour_spread" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Patch</label><select name="screen_patch" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Flickering</label><select name="screen_flickering" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Functional</label><select name="screen_functional" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Scratch</label><select name="screen_scratch" class="form-select form-select-sm"><option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Loose</label><select name="screen_loose" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Missing</label><select name="screen_missing" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Broken</label><select name="screen_broken" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Hinge Broken</label><select name="screen_hinge_broken" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 5. Hinge (new) -->
+          <div class="card border bg-light mb-2">
+            <div class="card-body py-2">
+              <p class="small fw-semibold text-uppercase mb-2 text-dark">Hinge</p>
+              <div class="row g-2">
+                <div class="col-md-3">
+                  <label class="form-label small">Hinge</label>
+                  <select name="hinge_condition" class="form-select form-select-sm">
+                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small">Hinge Cover</label>
+                  <select name="hinge_cover" class="form-select form-select-sm">
+                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 6. Touchpad (split from Keyboard & Touchpad) -->
+          <div class="card border bg-light mb-2">
+            <div class="card-body py-2">
+              <p class="small fw-semibold text-uppercase mb-2 text-secondary">Touchpad</p>
+              <div class="row g-2">
+                <div class="col-md-2"><label class="form-label small">Touchpad Scratch</label><select name="touchpad_scratch" class="form-select form-select-sm"><option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Touchpad Colour Fade</label><select name="touchpad_colour_fade" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Touchpad Logicboard</label><select name="touchpad_logicboard" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 7. Bottom Base (Panel B) -->
+          <div class="card border bg-light mb-2">
+            <div class="card-body py-2">
+              <p class="small fw-semibold text-uppercase mb-2 text-success">Bottom Base</p>
+              <div class="row g-2">
+                <div class="col-md-2">
+                  <label class="form-label small">Scratch</label>
+                  <select name="panel_b_scratch" class="form-select form-select-sm">
+                    <option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label small">Broken / Crack</label>
+                  <select name="panel_b_broken" class="form-select form-select-sm">
+                    <option value="">—</option>{% for o in broken_opts %}<option>{{o}}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label small">Missing</label>
+                  <select name="panel_b_missing" class="form-select form-select-sm">
+                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label small">Colour Fade</label>
+                  <select name="panel_b_colour_fade" class="form-select form-select-sm">
+                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label small">Rubber Cut</label>
+                  <select name="panel_b_rubber_cut" class="form-select form-select-sm">
+                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 8. Keyboard (split from Keyboard & Touchpad) -->
+          <div class="card border bg-light mb-2">
+            <div class="card-body py-2">
+              <p class="small fw-semibold text-uppercase mb-2 text-secondary">Keyboard</p>
+              <div class="row g-2">
+                <div class="col-md-2"><label class="form-label small">Keyboard Mark</label><select name="screen_keyboard_mark" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Keyboard Colour Fade</label><select name="keyboard_colour_fade" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Keyboard Hard Press</label><select name="keyboard_hard_press" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Key Missing</label><select name="keyboard_key_missing" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 9. Palmrest (Panel D) -->
           <div class="card border bg-light mb-3">
             <div class="card-body py-2">
-              <p class="small fw-semibold text-uppercase mb-2 text-danger">Panel D — Palmrest</p>
+              <p class="small fw-semibold text-uppercase mb-2 text-danger">Palmrest</p>
               <div class="row g-2">
                 <div class="col-md-2">
                   <label class="form-label small">Scratch</label>
@@ -484,42 +606,6 @@
                     <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
                   </select>
                 </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Display card (panel-style) -->
-          <div class="card border bg-light mb-2">
-            <div class="card-body py-2">
-              <p class="small fw-semibold text-uppercase mb-2 text-info">Display</p>
-              <div class="row g-2">
-                <div class="col-md-2"><label class="form-label small">Dot</label><select name="screen_dot" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Line</label><select name="screen_line" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Colour Discoloration</label><select name="screen_discoloration" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Colour Spread</label><select name="screen_colour_spread" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Patch</label><select name="screen_patch" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Flickering</label><select name="screen_flickering" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Functional</label><select name="screen_functional" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Scratch</label><select name="screen_scratch" class="form-select form-select-sm"><option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Loose</label><select name="screen_loose" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Missing</label><select name="screen_missing" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Broken</label><select name="screen_broken" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Hinge Broken</label><select name="screen_hinge_broken" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Keyboard & Touchpad card (panel-style) -->
-          <div class="card border bg-light mb-3">
-            <div class="card-body py-2">
-              <p class="small fw-semibold text-uppercase mb-2 text-secondary">Keyboard &amp; Touchpad</p>
-              <div class="row g-2">
-                <div class="col-md-2"><label class="form-label small">Touchpad Scratch</label><select name="touchpad_scratch" class="form-select form-select-sm"><option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Touchpad Colour Fade</label><select name="touchpad_colour_fade" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Keyboard Mark</label><select name="screen_keyboard_mark" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Keyboard Colour Fade</label><select name="keyboard_colour_fade" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Key Missing</label><select name="keyboard_key_missing" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Keyboard Hard Press</label><select name="keyboard_hard_press" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
               </div>
             </div>
           </div>
@@ -821,6 +907,31 @@ document.getElementById('lot_line_item_id').addEventListener('change', async fun
 </script>
 
 <script>
+/* ── Battery life calculation ── */
+function calcBatteryLife() {
+  var wh = parseFloat(document.getElementById('battery_capacity_wh').value) || 0;
+  var pw = parseFloat(document.getElementById('battery_power_w').value) || 0;
+  var el = document.getElementById('battery_life_days');
+  if (wh > 0 && pw > 0) {
+    el.value = Math.round(wh / pw / 24 * 10) / 10;
+  } else {
+    el.value = '';
+  }
+}
+
+/* ── Estimate power consumption from CPU name ── */
+function estimatePowerW(cpuName) {
+  if (!cpuName) return 20;
+  var n = cpuName.toLowerCase();
+  if (n.includes('m1') || n.includes('m2') || n.includes('m3') || n.includes('m4')) return 10;
+  if (n.includes('i9') || n.includes('ryzen 9')) return 45;
+  if (n.includes('i7') || n.includes('ryzen 7')) return 35;
+  if (n.includes('i5') || n.includes('ryzen 5')) return 25;
+  if (n.includes('i3') || n.includes('ryzen 3')) return 20;
+  if (n.includes('celeron') || n.includes('pentium') || n.includes('atom')) return 12;
+  return 20;
+}
+
 /* ── "Diagnose this Device": reads THIS station's hardware via the local OxyQC
       Agent (http://127.0.0.1:8765) — 127.0.0.1 in the browser is always the
       machine the technician is using, so it never reads the server's specs. ── */
@@ -868,6 +979,46 @@ document.getElementById('lot_line_item_id').addEventListener('change', async fun
     .then(function(r){ if (r && r.ok){ setAgentRunning(); } })
     .catch(function(){ watchForAgent(); });   // not running yet — start polling
 
+  /* Extra field mappings for new features — applied after oxyqcPrefill */
+  function applyDiagnoseExtras(d) {
+    function setInput(name, val) {
+      if (val === null || val === undefined || val === '') return;
+      var el = document.querySelector('[name="' + name + '"]');
+      if (el) el.value = val;
+    }
+    function setSelect(name, val) {
+      if (val === null || val === undefined || val === '') return;
+      var el = document.querySelector('[name="' + name + '"]');
+      if (!el) return;
+      var want = String(val);
+      for (var i = 0; i < el.options.length; i++) {
+        if (el.options[i].value === want || el.options[i].text.trim() === want) {
+          el.value = el.options[i].value; break;
+        }
+      }
+    }
+    // Battery Wh → battery_capacity_wh; estimate power from CPU
+    setInput('battery_capacity_wh', d.battery_wh || d.battery_capacity_wh || '');
+    var cpuName = d.cpu || '';
+    if (cpuName) {
+      document.getElementById('battery_power_w').value = estimatePowerW(cpuName);
+    }
+    calcBatteryLife();
+    // Storage health
+    setInput('storage_health_pct', d.storage_health_pct || d.storage_health || '');
+    // Fan
+    setSelect('fan_working', d.fan_working || '');
+    if (d.fan_rpm) {
+      setInput('fan_sound_dba', Math.round(d.fan_rpm / 400));
+    }
+    // USB-C — use usbc_hint directly as a number
+    if (d.usbc_hint !== undefined && d.usbc_hint !== null) {
+      setInput('usb_c_ports', Math.max(0, Math.round(d.usbc_hint)));
+    }
+    // Touchpad logicboard
+    setSelect('touchpad_logicboard', d.touchpad_logicboard || '');
+  }
+
   btn.addEventListener('click', function(){
     stopPoll();
     btn.disabled = true;
@@ -882,7 +1033,9 @@ document.getElementById('lot_line_item_id').addEventListener('change', async fun
       .then(function(j){
         reached = true;
         if (!j.ok){ if (status) status.innerHTML = '<span class="text-danger">Diagnose failed: ' + (j.error || 'unknown') + '</span>'; return; }
-        var n = (window.oxyqcPrefill ? window.oxyqcPrefill(j.data || {}) : 0);
+        var d = j.data || {};
+        var n = (window.oxyqcPrefill ? window.oxyqcPrefill(d) : 0);
+        applyDiagnoseExtras(d);
         if (status) status.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Diagnosed &amp; filled ' + n + ' field(s).</span>';
       })
       .catch(function(){

@@ -85,6 +85,13 @@ $des=(Get-CimInstance -Namespace root\wmi -ClassName BatteryStaticData -EA Silen
 if($des -and $des -gt 0 -and $full -and $full -gt 0){$bh=[math]::Round(($full/$des)*100)}
 if(-not $bh -and $batt){$fc=$batt.FullChargeCapacity;$dc=$batt.DesignCapacity;if($fc -gt 0 -and $dc -gt 0){$bh=[math]::Round($fc/$dc*100)}}
 if(-not $bh -and $batt){try{$rf=[System.IO.Path]::Combine($env:TEMP,'bh_'+[guid]::NewGuid().ToString('N').Substring(0,8)+'.html');$null=powercfg /batteryreport /output $rf 2>&1;if(Test-Path $rf){$h=Get-Content $rf -Raw;Remove-Item $rf -Force -EA SilentlyContinue;$m1=$null;$m2=$null;if($h -match '(?si)DESIGN CAPACITY.{0,200}?([\d,]+)\s*mWh'){$m1=[int64]($matches[1]-replace',','')};if($h -match '(?si)FULL CHARGE CAPACITY.{0,200}?([\d,]+)\s*mWh'){$m2=[int64]($matches[1]-replace',','')};if($m1 -gt 0 -and $m2 -gt 0){$bh=[math]::Round($m2/$m1*100)}}}catch{}}
+$batt_wh=$null
+if($full -gt 0){$batt_wh=[math]::Round($full/1000.0, 1)}
+$storage_health=$null
+try{$disksHealth=@(Get-PhysicalDisk|Where-Object{$_.Size -gt 30GB}|Select-Object HealthStatus,MediaType,OperationalStatus);if($disksHealth.Count -gt 0){$h2=$disksHealth|Where-Object{$_.HealthStatus -eq 'Healthy'};$storage_health=[math]::Round(($h2.Count/$disksHealth.Count)*100)}}catch{}
+$fan_working=$null;$fan_rpm=$null
+try{$fans=@(Get-CimInstance -Namespace root\wmi -ClassName Win32_Fan -EA SilentlyContinue|Where-Object{$_.DesiredSpeed -gt 0 -or $_.ActiveCooling -eq $true});if($fans.Count -gt 0){$fan_working='Yes';$fan_rpm=$fans[0].DesiredSpeed}}catch{}
+if(-not $fan_working){$fan_working='No'}
 $scr=$null
 $mons=@(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorBasicDisplayParams -EA SilentlyContinue)
 foreach($mn in $mons){if($mn.MaxHorizontalImageSize -gt 0 -and $mn.MaxVerticalImageSize -gt 0){$dd=[math]::Round([math]::Sqrt(($mn.MaxHorizontalImageSize*$mn.MaxHorizontalImageSize)+($mn.MaxVerticalImageSize*$mn.MaxVerticalImageSize))/2.54,1);if($dd -gt 5 -and $dd -lt 40){if(-not $scr -or $dd -lt $scr){$scr=$dd}}}}
@@ -108,7 +115,8 @@ $onAC=$true; if($batt -and $batt.BatteryStatus -eq 1){$onAC=$false}
  chassis=@($encl.ChassisTypes);has_battery=[bool]$batt;battery_pct=$batt.EstimatedChargeRemaining;battery_health=$bh;on_ac=$onAC;
  screen_in=$scr;gpu="$($gpu.Name)";os="$($os.Caption)";disks=$pd;
  kbd=(st $kbd);touchpad=(st $ptr);sound=(st $snd);camera=(st $cam);wifi=(st $wifi);usbctrl=(st $usb);
- dvd_present=[bool]$dvd.Count;ethernet_count=$eth.Count;usbc_hint=$ucm.Count;has_gpu=[bool]$gpu;mons_count=$mons.Count
+ dvd_present=[bool]$dvd.Count;ethernet_count=$eth.Count;usbc_hint=$ucm.Count;has_gpu=[bool]$gpu;mons_count=$mons.Count;
+ battery_wh=$batt_wh;storage_health=$storage_health;fan_working=$fan_working;fan_rpm=$fan_rpm
 } | ConvertTo-Json -Depth 5 -Compress
 '''
 
@@ -271,6 +279,9 @@ def detect():
     if isinstance(bh, (int, float)) and bh > 0:
         # cap at 100 — a new/healthy pack can report full-charge > design (>100%)
         f["battery_health_pct"] = min(int(round(bh)), 100)
+    batt_wh = info.get("battery_wh")
+    if isinstance(batt_wh, (int, float)) and batt_wh > 0:
+        f["battery_wh"] = round(float(batt_wh), 1)
 
     # ── Screen / display ──────────────────────────────────────────────────────
     # Screen Functional = a display is connected & active (genuinely detectable).
@@ -348,7 +359,19 @@ def detect():
     #   USB-A → form-factor estimate (laptop 2 / desktop 4); technician verifies
     uch = info.get("usbc_hint")
     f["usb_c_ports"] = min(int(uch), 4) if isinstance(uch, int) and uch >= 0 else 0
+    f["usbc_hint"] = int(uch) if isinstance(uch, int) else 0  # pass raw hint to JS
     f["usb_a_ports"] = 2 if is_laptop else 4
+    # Storage health
+    sh = info.get("storage_health")
+    if isinstance(sh, (int, float)) and sh >= 0:
+        f["storage_health_pct"] = int(sh)
+    # Fan
+    fw = info.get("fan_working")
+    if fw:
+        f["fan_working"] = fw
+    fr = info.get("fan_rpm")
+    if isinstance(fr, (int, float)) and fr > 0:
+        f["fan_rpm"] = int(fr)
 
     diag = [f"Auto-diagnosed on {info.get('os', 'this station')}."]
     if info.get("cpu"):

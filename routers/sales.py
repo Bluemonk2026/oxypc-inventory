@@ -3,11 +3,16 @@ Sales Router — sale block enforcement + return re-entry to IQC + audit
 """
 from templates_config import templates
 import uuid as _uuid
+import os
+import re
+import shutil
+import time
 from datetime import datetime
+from pathlib import Path
 from utils.timezone import app_now
 from decimal import Decimal
-from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query, BackgroundTasks
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Form, File, Request, HTTPException, Query, BackgroundTasks, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import csv
 import io
@@ -156,6 +161,7 @@ async def create_sale(
     payment_mode: str = Form("cash"),
     notes: str = Form(""),
     qty: int = Form(1),
+    invoice_file_path: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("sales", "add")),
@@ -203,6 +209,7 @@ async def create_sale(
         customer_state=customer_state or None,
         invoice_no=invoice_no or None, payment_mode=payment_mode,
         sold_by=current_user.username, notes=notes or None,
+        invoice_file_path=invoice_file_path or None,
     )
     db.add(sale)
 
@@ -291,6 +298,49 @@ async def export_selected_sales(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=sales_selected.csv"},
     )
+
+
+@router.post("/sales/parse-invoice-pdf")
+async def parse_invoice_pdf(
+    pdf: UploadFile = File(...),
+    current_user=Depends(allowed),
+):
+    """Accept a PDF upload, save it, and attempt best-effort field extraction."""
+    upload_dir = Path("uploads/sale_invoices")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = f"inv_{int(time.time())}_{pdf.filename}"
+    dest = upload_dir / safe_name
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(pdf.file, f)
+
+    result: dict = {"file_path": str(dest).replace("\\", "/")}
+
+    # Best-effort text extraction — works if pdfplumber is installed
+    try:
+        import pdfplumber
+        with pdfplumber.open(dest) as doc:
+            text_content = " ".join(p.extract_text() or "" for p in doc.pages)
+
+        # Total / sale price
+        m = re.search(r"(?i)total\s*[:\s]+(?:INR|Rs\.?|₹)?\s*([\d,]+\.?\d*)", text_content)
+        if m:
+            result["sale_price"] = m.group(1).replace(",", "")
+
+        # Customer / bill-to name
+        m = re.search(r"(?i)(?:customer|bill\s*to|sold\s*to)\s*[:\s]+([A-Z][^\n]{2,50})", text_content)
+        if m:
+            result["customer_name"] = m.group(1).strip()
+
+        # Invoice / PO number
+        m = re.search(r"(?i)(?:invoice\s*no|inv\.?\s*no|po\s*number)\s*[.:\s]+([A-Z0-9/_-]+)", text_content)
+        if m:
+            result["invoice_no"] = m.group(1).strip()
+    except ImportError:
+        pass  # pdfplumber not installed — file is saved, fields will be empty
+    except Exception:
+        pass  # extraction failed — still return file_path
+
+    return JSONResponse(result)
 
 
 @router.get("/sales/{sale_id}", response_class=HTMLResponse)

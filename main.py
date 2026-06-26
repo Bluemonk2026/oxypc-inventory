@@ -113,6 +113,7 @@ from routers.accounts import router as accounts_router
 from routers.crm_reports import router as crm_reports_router
 from routers.settings import router as settings_router
 from routers.trash import router as trash_router
+from routers.notifications import router as notifications_router
 from routers.api import router as api_router
 from routers.api_v1 import router as api_v1_router
 from services.event_bus import subscribe, EventType
@@ -164,6 +165,7 @@ app.include_router(accounts_router)
 app.include_router(crm_reports_router)
 app.include_router(settings_router)
 app.include_router(trash_router)
+app.include_router(notifications_router)
 
 
 # ── Error UI: per-code message + solution, JSON for API/AJAX else HTML modal ──

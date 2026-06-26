@@ -23,6 +23,7 @@ from models.role_permissions import has_perm
 from services.control_engine import validate_transition, validate_repair_level, get_allowed_next_stages, assert_device_in_stage
 from services.cost_engine import check_scrap_decision, auto_scrap_device, refresh_parts_cost, SCRAP_WARNING_RATIO
 from services.audit_engine import audit
+from services.notifications import create_notification
 from models.spare_parts import SparePartConsumption as SPC, SparePart
 from models.work_order import WorkOrder
 from models.part_request import PartRequest
@@ -454,6 +455,20 @@ async def complete_repair(
                              notes=f"{job.stage} completed — moved back to Stock Inward"))
         device.current_stage = DeviceStage.stock_in
         device.updated_at    = app_now()
+        await create_notification(
+            db,
+            user_id=None,
+            title="Device Returned to Stock Inward",
+            message=(
+                f"{device.barcode} was moved back to Stock Inward from {current.value} "
+                f"by {current_user.full_name or current_user.username}."
+            ),
+            notification_type="warning",
+            barcode=device.barcode,
+            brand=device.brand,
+            model=device.model,
+            stage=DeviceStage.stock_in.value,
+        )
 
     elif (move_to_next == "yes"
           or final_status.strip().lower() in ("completed", "ok")) and device:
@@ -491,6 +506,21 @@ async def complete_repair(
                                  moved_by=current_user.username,
                                  notes=f"{job.stage} completed — {final_status or 'OK'}"))
             device.current_stage = next_s; device.updated_at = app_now()
+            # Broadcast stage-change alert to all managers/admins (user_id=None = all users)
+            await create_notification(
+                db,
+                user_id=None,
+                title="Device Stage Changed",
+                message=(
+                    f"{device.barcode} moved from {current.value} to {next_s.value} "
+                    f"by {current_user.full_name or current_user.username}."
+                ),
+                notification_type="alert",
+                barcode=device.barcode,
+                brand=device.brand,
+                model=device.model,
+                stage=next_s.value,
+            )
 
     await audit(db, user=current_user, action="REPAIR_COMPLETE",
                 table_name="repair_jobs", record_id=str(job.id),

@@ -86,9 +86,12 @@
           <th style="width:36px">
             <input type="checkbox" id="selectAll" title="Select all visible rows">
           </th>
-          <th>Sale#</th><th>Date</th><th>Tag Number</th><th>Brand/Model</th>
-          <th>Lot</th><th>Grade</th><th>Cost/Unit</th><th>Price</th><th>Margin</th><th>Customer</th>
-          <th>Payment</th><th>By</th><th></th>
+          <th>Sale#</th><th>Date</th><th>Tag Number</th>
+          <th class="d-none">Brand/Model</th>
+          <th class="d-none">Lot</th>
+          <th>Grade</th><th>Cost/Unit</th><th>Price</th><th>Margin</th>
+          <th class="d-none">Customer</th>
+          <th>Payment</th><th>By</th><th>Download</th><th></th>
         </tr>
       </thead>
       <tbody>
@@ -102,8 +105,8 @@
           </td>
           <td>{{ row.Sale.sold_at.strftime('%d-%m-%Y') }}</td>
           <td><a href="/devices/{{ row.barcode }}" class="text-decoration-none"><code>{{ row.barcode }}</code></a></td>
-          <td>{{ row.brand }} {{ row.model }}</td>
-          <td><a href="/devices?lot={{ row.lot_number }}" class="text-decoration-none">
+          <td class="d-none">{{ row.brand }} {{ row.model }}</td>
+          <td class="d-none"><a href="/devices?lot={{ row.lot_number }}" class="text-decoration-none">
             <span class="badge bg-info text-dark">{{ row.lot_number }}</span></a>
           </td>
           <td>{{ row.grade.value if row.grade else '—' }}</td>
@@ -114,9 +117,10 @@
           <td class="fw-semibold {% if margin > 0 %}text-success{% elif margin < 0 %}text-danger{% else %}text-muted{% endif %}">
             {% if cost_unit %}{% if margin >= 0 %}+{% endif %}₹{{ "{:,.0f}".format(margin) }}{% else %}—{% endif %}
           </td>
-          <td>{{ row.Sale.customer_name or '—' }}</td>
+          <td class="d-none">{{ row.Sale.customer_name or '—' }}</td>
           <td><span class="badge bg-secondary">{{ row.Sale.payment_mode or '—' }}</span></td>
           <td class="text-muted">{{ row.Sale.sold_by }}</td>
+          <td><span class="text-muted small">—</span></td>
           <td>
             <div class="d-flex gap-1">
               <a href="/sales/{{ row.Sale.id }}" class="btn btn-outline-info btn-sm py-0 px-1" title="View Detail"><i class="bi bi-eye"></i></a>
@@ -126,16 +130,16 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="14" class="text-center text-muted py-4">No sales match your filters.</td></tr>
+        <tr><td colspan="15" class="text-center text-muted py-4">No sales match your filters.</td></tr>
         {% endfor %}
       </tbody>
       {% if sales %}
       <tfoot class="table-light">
         <tr>
           <td></td>
-          <td colspan="6" class="text-end fw-semibold">Total Revenue (this page):</td>
+          <td colspan="7" class="text-end fw-semibold">Total Revenue (this page):</td>
           <td class="fw-bold text-success">₹{{ "{:,.0f}".format(ns.total) }}</td>
-          <td colspan="4"></td>
+          <td colspan="6"></td>
         </tr>
       </tfoot>
       {% endif %}
@@ -198,7 +202,7 @@ $(document).ready(function() {
     pageLength: 25,
     order: [[1, 'desc']],
     columnDefs: [
-      { orderable: false, targets: [0, 11] }  // checkbox and actions not sortable
+      { orderable: false, targets: [0, 13, 14] }  // checkbox, download and actions not sortable
     ]
   });
 });

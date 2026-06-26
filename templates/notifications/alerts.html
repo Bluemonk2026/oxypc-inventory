@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Alerts — OxyPC{% endblock %}
+{% block page_title %}Alert Notifications{% endblock %}
+{% block content %}
+
+<!-- Filter bar -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2">
+    <form method="get" action="/notifications/alerts" class="d-flex flex-wrap gap-2 align-items-end">
+      <div>
+        <label class="form-label small fw-semibold mb-1">Tag Number</label>
+        <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm font-monospace" placeholder="Search tag…" style="width:140px">
+      </div>
+      <div>
+        <label class="form-label small fw-semibold mb-1">Brand / Model</label>
+        <input type="text" name="brand" value="{{ brand }}" class="form-control form-control-sm" placeholder="Brand or model…" style="width:160px">
+      </div>
+      <div>
+        <label class="form-label small fw-semibold mb-1">Stage</label>
+        <input type="text" name="stage" value="{{ stage }}" class="form-control form-control-sm" placeholder="Stage…" style="width:130px">
+      </div>
+      <div>
+        <label class="form-label small fw-semibold mb-1">From</label>
+        <input type="date" name="date_from" value="{{ date_from }}" class="form-control form-control-sm" style="width:140px">
+      </div>
+      <div>
+        <label class="form-label small fw-semibold mb-1">To</label>
+        <input type="date" name="date_to" value="{{ date_to }}" class="form-control form-control-sm" style="width:140px">
+      </div>
+      <button type="submit" class="btn btn-sm btn-primary">
+        <i class="bi bi-funnel me-1"></i>Filter
+      </button>
+      <a href="/notifications/alerts" class="btn btn-sm btn-outline-secondary">Clear</a>
+    </form>
+  </div>
+</div>
+
+<!-- Alerts table -->
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold d-flex align-items-center gap-2">
+    <i class="bi bi-bell"></i> Alerts
+    <span class="badge bg-secondary ms-1">Last 30 days — {{ notifications|length }}</span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small align-middle">
+        <thead class="table-dark">
+          <tr>
+            <th class="ps-3">Date / Time</th>
+            <th>Type</th>
+            <th>Title</th>
+            <th>Message</th>
+            <th>Tag</th>
+            <th>Stage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for n in notifications %}
+          <tr class="{{ 'fw-semibold' if not n.is_read else '' }}">
+            <td class="ps-3 text-muted text-nowrap">
+              {{ n.created_at.strftime('%d-%m-%Y %H:%M') if n.created_at else '—' }}
+            </td>
+            <td>
+              {% if n.notification_type == 'alert' %}
+                <span class="badge bg-danger">Alert</span>
+              {% elif n.notification_type == 'success' %}
+                <span class="badge bg-success">Success</span>
+              {% elif n.notification_type == 'warning' %}
+                <span class="badge bg-warning text-dark">Warning</span>
+              {% else %}
+                <span class="badge bg-info text-dark">Info</span>
+              {% endif %}
+            </td>
+            <td class="fw-semibold">{{ n.title }}</td>
+            <td>{{ n.message }}</td>
+            <td>
+              {% if n.barcode %}
+                <a href="/devices/{{ n.barcode }}" class="font-monospace text-decoration-none">{{ n.barcode }}</a>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td class="text-muted small">{{ n.stage or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6" class="text-center text-muted py-5">
+              <i class="bi bi-bell-slash fs-2 d-block mb-2"></i>
+              No alerts in the last 30 days.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

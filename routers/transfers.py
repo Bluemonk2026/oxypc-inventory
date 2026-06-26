@@ -16,6 +16,7 @@ from models.work_order import WorkOrder
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from models.master import MasterData
 from services.audit_engine import audit
+from services.notifications import create_notification
 
 router = APIRouter(tags=["transfers"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
@@ -247,6 +248,23 @@ async def create_transfer(
                 assigned_name=u.full_name, status="pending",
                 source_transfer_id=transfer.id, created_by=current_user.username,
             ))
+            # Notify the assigned engineer
+            _device_label = f"{device.brand or ''} {device.model or ''}".strip()
+            await create_notification(
+                db,
+                user_id=u.id,
+                title="Device Assigned to You",
+                message=(
+                    f"{device.barcode}"
+                    + (f" ({_device_label})" if _device_label else "")
+                    + f" has been assigned to you for {department} (WorkID: {work_id})."
+                ),
+                notification_type="info",
+                barcode=device.barcode,
+                brand=device.brand,
+                model=device.model,
+                stage=new_stage.value if hasattr(new_stage, "value") else str(new_stage),
+            )
 
     await audit(db, user=current_user, action="STOCK_TRANSFER",
                 table_name="stock_transfers",

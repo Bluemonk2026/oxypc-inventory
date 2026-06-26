@@ -246,7 +246,7 @@
       <div class="card-body p-0">
         <table class="table table-sm mb-0 align-middle">
           <thead class="table-light">
-            <tr><th class="ps-3">Part Name</th><th>Required</th><th>Status</th><th>Action</th></tr>
+            <tr><th class="ps-3">Part Name</th><th>Required</th><th>Action</th></tr>
           </thead>
           <tbody>
             {% set _eng = True %}{# Parts Consumption actions visible to all roles #}
@@ -254,7 +254,6 @@
             <tr>
               <td class="ps-3 small fw-semibold">{{ p.label }}</td>
               <td>{% if p.required %}<span class="badge bg-warning text-dark">Yes</span>{% else %}<span class="badge bg-light text-muted border">No</span>{% endif %}</td>
-              <td>{% if p.in_stock %}<span class="badge bg-success">In Stock ({{ p.stock_qty }})</span>{% else %}<span class="badge bg-danger">Out of Stock</span>{% endif %}</td>
               <td>
                 {% set r = p.request %}
                 {% if r %}
@@ -270,14 +269,28 @@
                   {% elif r.status == 'procure' %}<span class="badge bg-info text-dark">Sent for Sourcing</span>
                   {% else %}<span class="badge bg-secondary">{{ r.status }}</span>{% endif %}
                 {% elif _eng %}
-                <form method="post" action="/part-requests/create" class="d-flex align-items-center gap-1">
-                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-                  <input type="hidden" name="barcode" value="{{ device.barcode }}">
-                  <input type="hidden" name="part_name" value="{{ p.label }}">
-                  <input type="hidden" name="part_id" value="{{ p.part_id }}">
-                  <input type="number" name="qty" value="1" min="1" class="form-control form-control-sm" style="width:64px" {% if not p.required %}disabled{% endif %}>
-                  <button type="submit" class="btn btn-sm btn-outline-primary" {% if not p.required %}disabled title="Part not required for this device"{% endif %}><i class="bi bi-bag-plus"></i> Request</button>
-                </form>
+                <div class="d-flex align-items-center gap-1 flex-wrap">
+                  <input type="number" id="qty_ref_{{ loop.index }}" value="1" min="1" class="form-control form-control-sm" style="width:56px" {% if not p.required %}disabled{% endif %}>
+                  <form method="post" action="/part-requests/create" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                    <input type="hidden" name="barcode" value="{{ device.barcode }}">
+                    <input type="hidden" name="part_name" value="{{ p.label }}">
+                    <input type="hidden" name="part_id" value="{{ p.part_id }}">
+                    <input type="number" name="qty" value="1" min="1" class="d-none">
+                    <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2" {% if not p.required %}disabled{% endif %}
+                            onclick="this.form.querySelector('[name=qty]').value=document.getElementById('qty_ref_{{ loop.index }}').value"><i class="bi bi-bag-plus"></i> Request</button>
+                  </form>
+                  <form method="post" action="/part-requests/create" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                    <input type="hidden" name="barcode" value="{{ device.barcode }}">
+                    <input type="hidden" name="part_name" value="{{ p.label }}">
+                    <input type="hidden" name="part_id" value="{{ p.part_id }}">
+                    <input type="hidden" name="request_type" value="replace">
+                    <input type="number" name="qty" value="1" min="1" class="d-none">
+                    <button type="submit" class="btn btn-sm btn-outline-warning py-0 px-2" {% if not p.required %}disabled{% endif %}
+                            onclick="this.form.querySelector('[name=qty]').value=document.getElementById('qty_ref_{{ loop.index }}').value"><i class="bi bi-arrow-repeat"></i> Replace</button>
+                  </form>
+                </div>
                 {% else %}<span class="text-muted">—</span>{% endif %}
               </td>
             </tr>

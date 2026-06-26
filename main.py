@@ -98,6 +98,7 @@ from routers.grn import router as grn_router
 from routers.stage_control import router as stage_control_router
 from routers.market import router as market_router
 from routers.inventory_location import router as inventory_location_router
+from routers.stress_api import router as stress_api_router
 from routers.iqc_api import router as iqc_api_router
 from routers.qa_uat import router as qa_uat_router
 from routers.crm_dashboard import router as crm_dashboard_router
@@ -166,6 +167,7 @@ app.include_router(crm_reports_router)
 app.include_router(settings_router)
 app.include_router(trash_router)
 app.include_router(notifications_router)
+app.include_router(stress_api_router)
 
 
 # ── Error UI: per-code message + solution, JSON for API/AJAX else HTML modal ──

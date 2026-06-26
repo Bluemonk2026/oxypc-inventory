@@ -8,8 +8,9 @@ from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, desc
 from models.location import DeviceLocationLog, StorageLocation
+from models.stress import StressTestResult
 
 from database import get_db
 from models.user import User, UserRole
@@ -73,9 +74,33 @@ async def qc_list(request: Request, db: AsyncSession = Depends(get_db),
         for did, unit_id, action in loc_rows.all():
             location_map[str(did)] = {"unit_id": unit_id, "action": action.value if action else None}
 
+    # ── Stress result status for each device ─────────────────────────────────
+    barcodes = [d.barcode for d, _ in devices]
+    stress_map: dict[str, dict] = {}
+    if barcodes:
+        # Latest stress result per barcode
+        sub_st = (
+            select(StressTestResult.barcode, func.max(StressTestResult.id).label("latest_id"))
+            .where(StressTestResult.barcode.in_(barcodes))
+            .group_by(StressTestResult.barcode)
+            .subquery()
+        )
+        st_rows = await db.execute(
+            select(StressTestResult.barcode, StressTestResult.id,
+                   StressTestResult.overall_status, StressTestResult.run_at)
+            .join(sub_st, and_(StressTestResult.barcode == sub_st.c.barcode,
+                               StressTestResult.id == sub_st.c.latest_id))
+        )
+        for bc, rid, ov_status, run_at in st_rows.all():
+            stress_map[bc] = {
+                "result_id":     rid,
+                "overall_status": ov_status,
+                "run_at":        run_at.strftime("%d %b %Y %H:%M") if run_at else "",
+            }
+
     return templates.TemplateResponse("qc/list.html", {
         "request": request, "devices": devices, "current_user": current_user,
-        "location_map": location_map,
+        "location_map": location_map, "stress_map": stress_map,
         "page": page, "page_size": page_size,
         "total": total, "total_pages": total_pages,
     })

@@ -997,7 +997,8 @@ function estimatePowerW(cpuName) {
         }
       }
     }
-    // Battery Wh → battery_capacity_wh; estimate power from CPU
+    // Battery health + Wh
+    setInput('battery_health_pct', d.battery_health_pct || '');
     setInput('battery_capacity_wh', d.battery_wh || d.battery_capacity_wh || '');
     var cpuName = d.cpu || '';
     if (cpuName) {

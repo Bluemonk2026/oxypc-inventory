@@ -90,8 +90,8 @@ if($full -gt 0){$batt_wh=[math]::Round($full/1000.0, 1)}
 $storage_health=$null
 try{$disksHealth=@(Get-PhysicalDisk|Where-Object{$_.Size -gt 30GB}|Select-Object HealthStatus,MediaType,OperationalStatus);if($disksHealth.Count -gt 0){$h2=$disksHealth|Where-Object{$_.HealthStatus -eq 'Healthy'};$storage_health=[math]::Round(($h2.Count/$disksHealth.Count)*100)}}catch{}
 $fan_working=$null;$fan_rpm=$null
-try{$fans=@(Get-CimInstance -Namespace root\wmi -ClassName Win32_Fan -EA SilentlyContinue|Where-Object{$_.DesiredSpeed -gt 0 -or $_.ActiveCooling -eq $true});if($fans.Count -gt 0){$fan_working='Yes';$fan_rpm=$fans[0].DesiredSpeed}}catch{}
-if(-not $fan_working){$fan_working='No'}
+try{$allFans=@(Get-CimInstance -Namespace root\wmi -ClassName Win32_Fan -EA SilentlyContinue);if($allFans.Count -gt 0){$fan_working='Yes';$spd=$allFans|Where-Object{$_.DesiredSpeed -gt 0};if($spd){$fan_rpm=[int]$spd[0].DesiredSpeed}}}catch{}
+if(-not $fan_working){try{$fd=@(Get-CimInstance Win32_PnPEntity -EA SilentlyContinue|Where-Object{$_.DeviceID -match 'ACPI\\PNP0C0B'});if($fd.Count -gt 0){$ok=$fd|Where-Object{$_.ConfigManagerErrorCode -eq 0 -or $_.ConfigManagerErrorCode -eq $null};$fan_working=if($ok){'Yes'}else{'No'}}}catch{}}
 $scr=$null
 $mons=@(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorBasicDisplayParams -EA SilentlyContinue)
 foreach($mn in $mons){if($mn.MaxHorizontalImageSize -gt 0 -and $mn.MaxVerticalImageSize -gt 0){$dd=[math]::Round([math]::Sqrt(($mn.MaxHorizontalImageSize*$mn.MaxHorizontalImageSize)+($mn.MaxVerticalImageSize*$mn.MaxVerticalImageSize))/2.54,1);if($dd -gt 5 -and $dd -lt 40){if(-not $scr -or $dd -lt $scr){$scr=$dd}}}}
@@ -313,10 +313,13 @@ def detect():
         # touchpad cosmetic fields (Yes / No)
         f["touchpad_click_working"] = "Yes" if tp == "ok" else "No"
         f["touchpad_missing"] = "No" if tp in ("ok", "error") else "Yes"
+        # Logicboard exists if Win32_PointingDevice detected any device (ok or error)
+        f["touchpad_logicboard"] = "Yes" if tp in ("ok", "error") else "No"
     else:
         f["touchpad_working"] = "No"            # desktops have no touchpad
         f["touchpad_click_working"] = "No"
         f["touchpad_missing"] = "Yes"
+        f["touchpad_logicboard"] = "No"
     snd = info.get("sound")
     if snd == "ok":
         f["speaker_status"] = "Both speakers working"

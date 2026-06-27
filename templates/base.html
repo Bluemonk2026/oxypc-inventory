@@ -426,7 +426,7 @@
       <span class="navbar-brand mb-0 h1 fw-bold text-primary">{% block page_title %}{% endblock %}</span>
       <div class="ms-auto d-flex align-items-center gap-3">
         <span class="badge bg-primary">{{ current_user.role_label }}</span>
-        <span class="text-muted small">{{ current_user.full_name }}</span>
+        <a href="/auth/profile" class="text-decoration-none fw-bold text-dark" style="font-size:0.95rem">{{ current_user.full_name }}</a>
         <!-- Notification Bell -->
         <div class="position-relative d-inline-block">
           <a href="/notifications/alerts" class="btn btn-link text-dark p-1 text-decoration-none" title="Alerts">

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
 from database import get_db
 from models.user import User, LoginLog
-from auth.dependencies import verify_password, create_access_token, get_current_user, verify_csrf
+from auth.dependencies import verify_password, hash_password, create_access_token, get_current_user, verify_csrf
 from config import ACCESS_TOKEN_EXPIRE_MINUTES, COOKIE_SECURE
 from limiter import limiter
 
@@ -108,6 +108,64 @@ async def logout(request: Request, _csrf=Depends(verify_csrf), db: AsyncSession 
     response.delete_cookie("access_token")
     response.delete_cookie("csrf_token")
     return response
+
+
+@router.get("/profile", response_class=HTMLResponse)
+async def profile_page(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    return templates.TemplateResponse("profile.html", {"request": request, "current_user": current_user})
+
+
+@router.post("/profile", response_class=HTMLResponse)
+async def profile_update(
+    request: Request,
+    full_name: str = Form(...),
+    whatsapp_number: str = Form(""),
+    _csrf=Depends(verify_csrf),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await db.execute(
+        update(User).where(User.id == current_user.id).values(
+            full_name=full_name.strip(),
+            whatsapp_number=whatsapp_number.strip() or None,
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url="/auth/profile?success=Profile+updated", status_code=302)
+
+
+@router.post("/change-password", response_class=HTMLResponse)
+async def change_password(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+    _csrf=Depends(verify_csrf),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not verify_password(current_password, current_user.password_hash):
+        return templates.TemplateResponse("profile.html", {
+            "request": request, "current_user": current_user,
+            "pw_error": "Current password is incorrect",
+        })
+    if new_password != confirm_password:
+        return templates.TemplateResponse("profile.html", {
+            "request": request, "current_user": current_user,
+            "pw_error": "New passwords do not match",
+        })
+    if len(new_password) < 6:
+        return templates.TemplateResponse("profile.html", {
+            "request": request, "current_user": current_user,
+            "pw_error": "New password must be at least 6 characters",
+        })
+    await db.execute(
+        update(User).where(User.id == current_user.id).values(
+            password_hash=hash_password(new_password)
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url="/auth/profile?success=Password+changed+successfully", status_code=302)
 
 
 @router.get("/extend-session")

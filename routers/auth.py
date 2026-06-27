@@ -120,6 +120,7 @@ async def profile_update(
     request: Request,
     full_name: str = Form(...),
     whatsapp_number: str = Form(""),
+    email: str = Form(""),
     _csrf=Depends(verify_csrf),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -128,6 +129,7 @@ async def profile_update(
         update(User).where(User.id == current_user.id).values(
             full_name=full_name.strip(),
             whatsapp_number=whatsapp_number.strip() or None,
+            email=email.strip() or None,
         )
     )
     await db.commit()

@@ -28,6 +28,12 @@
             <input type="text" name="full_name" class="form-control" value="{{ edit_user.full_name if edit_user else '' }}" placeholder="Full name" required>
           </div>
           <div class="mb-3">
+            <label class="form-label fw-semibold">Email Address</label>
+            <input type="email" name="email" class="form-control"
+                   value="{{ edit_user.email if edit_user and edit_user.email else '' }}"
+                   placeholder="user@example.com">
+          </div>
+          <div class="mb-3">
             <label class="form-label fw-semibold">WhatsApp Phone Number</label>
             <input type="text" name="whatsapp_number" class="form-control font-monospace"
                    value="{{ edit_user.whatsapp_number if edit_user and edit_user.whatsapp_number else '' }}"

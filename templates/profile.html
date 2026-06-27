@@ -33,6 +33,13 @@
             <input type="text" name="full_name" class="form-control" value="{{ current_user.full_name }}" required>
           </div>
           <div class="mb-3">
+            <label class="form-label fw-semibold">Email Address</label>
+            <div class="input-group">
+              <span class="input-group-text"><i class="bi bi-envelope"></i></span>
+              <input type="email" name="email" class="form-control" value="{{ current_user.email or '' }}" placeholder="you@example.com">
+            </div>
+          </div>
+          <div class="mb-3">
             <label class="form-label fw-semibold">WhatsApp Number</label>
             <div class="input-group">
               <span class="input-group-text"><i class="bi bi-whatsapp text-success"></i></span>

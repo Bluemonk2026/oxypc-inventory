@@ -90,6 +90,8 @@ class User(Base):
     # WhatsApp number this user links in the WhatsApp module (per-user session verify/sync).
     whatsapp_number = Column(String(20), nullable=True)
 
+    email = Column(String(150), nullable=True)
+
     login_logs = relationship("LoginLog", back_populates="user", lazy="select")
 
     @property

@@ -24,7 +24,10 @@ from templates_config import templates
 router = APIRouter(prefix="/manuals", tags=["manuals"])
 
 _MANUALS_DIR = Path(__file__).resolve().parent.parent / "static" / "manuals"
-_MANUALS_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    _MANUALS_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
 
 
 # ── Manual content definitions ────────────────────────────────────────────────

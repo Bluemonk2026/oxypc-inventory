@@ -12,10 +12,26 @@ document.addEventListener('DOMContentLoaded', function () {
   // Sidebar toggle
   var toggleBtn = document.getElementById('sidebarToggle');
   var sidebar = document.getElementById('sidebar');
+  var overlay = document.getElementById('sidebar-overlay');
+
+  function closeMobileSidebar() {
+    sidebar.classList.remove('show');
+    if (overlay) overlay.classList.remove('show');
+  }
+
   if (toggleBtn && sidebar) {
     toggleBtn.addEventListener('click', function () {
-      sidebar.classList.toggle('collapsed');
+      if (window.innerWidth <= 768) {
+        sidebar.classList.toggle('show');
+        if (overlay) overlay.classList.toggle('show');
+      } else {
+        sidebar.classList.toggle('collapsed');
+      }
     });
+  }
+
+  if (overlay) {
+    overlay.addEventListener('click', closeMobileSidebar);
   }
 
   // Currency formatting helper (Indian Rupees)

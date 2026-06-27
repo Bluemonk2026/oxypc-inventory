@@ -129,8 +129,26 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f4f8; }
 
 /* Responsive */
 @media (max-width: 768px) {
-  #sidebar { width: 0; }
+  #sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1040;
+    height: 100vh !important;
+    width: 0;
+    overflow: hidden;
+    transition: width 0.25s ease;
+  }
   #sidebar.show { width: var(--sidebar-width); }
+
+  #sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 1039;
+  }
+  #sidebar-overlay.show { display: block; }
 }
 
 /* Alert auto-dismiss animation */

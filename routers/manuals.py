@@ -553,7 +553,7 @@ def _generate_pdf(manual: dict) -> bytes:
     try:
         from fpdf import FPDF
         return _pdf_fpdf(manual)
-    except ImportError:
+    except Exception:
         return _pdf_text(manual)
 
 
@@ -607,7 +607,7 @@ def _pdf_fpdf(manual: dict) -> bytes:
                 pdf.multi_cell(0, 6, item.strip())
             else:
                 pdf.set_x(20)
-                pdf.cell(4, 6, chr(149), border=0)  # bullet •
+                pdf.cell(4, 6, "-", border=0)
                 pdf.multi_cell(0, 6, item)
         pdf.ln(3)
 

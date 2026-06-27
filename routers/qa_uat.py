@@ -58,14 +58,53 @@ _admin = require_roles(UserRole.admin, UserRole.inventory_manager)
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+_HARDCODED_COMMITS = [
+    {"date": "2026-06-27", "msg": "TRC Dashboard title; Devices Returned section (Within/Out of Warranty); Parts hover; QA changelog", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-27", "msg": "IQC Storage Health + Fan Sound fields editable; Battery Life removed; Stress Test 500 errors fixed", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-27", "msg": "QC table — 'QC' → 'Verify QC'; 'Cosmetic' → 'Go Cleaning' (icon removed); Tag Number clickable", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-27", "msg": "Final QC — first device open, rest collapsed (accordion); device count shown as yellow warning badge", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-27", "msg": "Add email field to users — profile page + user management form", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-27", "msg": "Rename login title; clickable username in topbar opens profile page", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-27", "msg": "Escape % in DATABASE_URL when writing to configparser (config.ini fix)", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-26", "msg": "Sprint 31 — IQC overhaul, GRN AJAX, Assign Stock defaults, Parts Replace, Scrap Verify, Sale PDF import, Notifications", "category": "Sprint Release", "badge": "primary"},
+    {"date": "2026-06-26", "msg": "Server-side stress testing — removes dependency on standalone OxyQC desktop app", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-26", "msg": "Redesign Stress Test page with live 2/3+1/3 split panel (tests left, results right)", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-26", "msg": "Add web-based installer wizard (WordPress-style first-time setup at /setup)", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-26", "msg": "Register StressTestResult in models __init__ for Alembic discovery", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-26", "msg": "Stress panel — clear default agent URL; add help text for server-side setup", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-26", "msg": "IQC diagnose: touchpad logic-board detection, fan detection, battery health explicit fill", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-26", "msg": "Sales table DataTables column count error fixed; Download invoice link fixed", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-24", "msg": "Editable IQC fields on Edit Device; matrix-driven nav; dropdown polish; agent rename", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "Battery health fallbacks added to PowerShell diagnose probe", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "Parts tabs — export + checkboxes; column hides; stage layout; TRC cleanup", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "Optional nav accordion + TRC telecaller filter row + sticky Stage Timeline", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "Rename nav labels + move TRC Dashboard; Parts Consumption actions for all roles", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "Final QC: 3-column card — full IQC details, repair history + parts, decision form", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "IQC: Display + Keyboard & Touchpad panel-style cards; one-row grade/floor/warehouse/bios", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "IQC: Screen-functional/defect detection + Charging Port field added", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "Dispatch: drop Grade D; A|B side-by-side + C full width; 6-row pagination", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "Control engine: allow same-stage no-op transitions (fixes Start Repair 403 error)", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-24", "msg": "Permissions: custom roles pass non-admin route gates (fixes 403 on enabled modules)", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-24", "msg": "Permissions: Enable is master switch — no more blanket 403; 'Not Working' option removed", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-24", "msg": "Transfers: never insert NULL warehouse; Cosmetic: Skip Cosmetic → Final QC shortcut", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-24", "msg": "DataTables incorrect column count warning fixed on Parts Dashboard", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-24", "msg": "IQC: OxyQC_Agent.exe shipped in repo so Diagnose download works on production builds", "category": "Bug Fix", "badge": "danger"},
+]
+
+
 def _get_recent_commits(days: int = 15) -> list[dict]:
-    """Return git commits from the last N days, categorised for the QA dashboard."""
+    """Return git commits from the last N days, categorised for the QA dashboard.
+    Falls back to a hardcoded list when git is unavailable (e.g. Railway production).
+    """
     try:
         since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         result = subprocess.run(
             ["git", "log", f"--since={since}", "--pretty=format:%ad|%s", "--date=short"],
             capture_output=True, text=True, timeout=5, cwd=str(_PROJECT_ROOT),
         )
+        if not result.stdout.strip():
+            return _HARDCODED_COMMITS
+
         commits = []
         for line in result.stdout.strip().splitlines():
             if "|" not in line:
@@ -82,9 +121,9 @@ def _get_recent_commits(days: int = 15) -> list[dict]:
                 continue  # skip ci/deploy/merge/docs
             clean = msg.split(":", 1)[-1].strip() if ":" in msg else msg
             commits.append({"date": date, "msg": clean, "category": category, "badge": badge})
-        return commits
+        return commits if commits else _HARDCODED_COMMITS
     except Exception:
-        return []
+        return _HARDCODED_COMMITS
 
 
 def _s(v: Optional[str]) -> Optional[str]:

@@ -22,7 +22,9 @@ Routes:
 """
 from __future__ import annotations
 
-from datetime import datetime
+import subprocess
+from datetime import datetime, timedelta
+from pathlib import Path
 from utils.timezone import app_now
 from typing import Optional
 
@@ -46,6 +48,8 @@ from templates_config import templates
 
 router = APIRouter(prefix="/qa", tags=["qa-uat"])
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 # Any logged-in user can view; admin + inventory_manager + qc_inspector can edit
 _view  = get_current_user
 _edit  = require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.qc_inspector)
@@ -53,6 +57,35 @@ _admin = require_roles(UserRole.admin, UserRole.inventory_manager)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+def _get_recent_commits(days: int = 15) -> list[dict]:
+    """Return git commits from the last N days, categorised for the QA dashboard."""
+    try:
+        since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        result = subprocess.run(
+            ["git", "log", f"--since={since}", "--pretty=format:%ad|%s", "--date=short"],
+            capture_output=True, text=True, timeout=5, cwd=str(_PROJECT_ROOT),
+        )
+        commits = []
+        for line in result.stdout.strip().splitlines():
+            if "|" not in line:
+                continue
+            date, msg = line.split("|", 1)
+            ml = msg.lower()
+            if ml.startswith("fix"):
+                category, badge = "Bug Fix", "danger"
+            elif ml.startswith("feat"):
+                category, badge = "Enhancement", "success"
+            elif ml.startswith("sprint"):
+                category, badge = "Sprint Release", "primary"
+            else:
+                continue  # skip ci/deploy/merge/docs
+            clean = msg.split(":", 1)[-1].strip() if ":" in msg else msg
+            commits.append({"date": date, "msg": clean, "category": category, "badge": badge})
+        return commits
+    except Exception:
+        return []
+
 
 def _s(v: Optional[str]) -> Optional[str]:
     """Return None for blank strings."""
@@ -135,6 +168,7 @@ async def qa_dashboard(
     critical_defects = recent_def_res.scalars().all()
 
     pass_rate = round(exec_pass / exec_total * 100, 1) if exec_total else 0
+    recent_commits = _get_recent_commits(days=15)
 
     return templates.TemplateResponse("qa/dashboard.html", {
         "request": request, "current_user": current_user,
@@ -147,6 +181,7 @@ async def qa_dashboard(
         "uat_total": uat_total, "uat_pass": uat_pass, "uat_pending": uat_pending,
         "active_releases": active_releases,
         "critical_defects": critical_defects,
+        "recent_commits": recent_commits,
     })
 
 

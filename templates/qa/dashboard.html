@@ -177,7 +177,7 @@
 {% endif %}
 
 <!-- Quick links -->
-<div class="row g-2">
+<div class="row g-2 mb-4">
   {% set links = [
     ('/qa/requirements', 'bi-list-check', 'Requirements', 'primary'),
     ('/qa/test-cases',   'bi-clipboard-data', 'Test Cases', 'info'),
@@ -194,6 +194,44 @@
     </a>
   </div>
   {% endfor %}
+</div>
+
+<!-- Recent Changes (last 15 days) -->
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+    <span class="fw-semibold small text-uppercase">
+      <i class="bi bi-clock-history me-2"></i>Recent Changes — Last 15 Days
+    </span>
+    {% if recent_commits %}
+    <span class="badge bg-light text-dark border">{{ recent_commits|length }} change{{ 's' if recent_commits|length != 1 else '' }}</span>
+    {% endif %}
+  </div>
+  <div class="card-body p-0">
+    {% if recent_commits %}
+    <table class="table table-sm mb-0 small">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3" style="width:100px">Date</th>
+          <th style="width:130px">Type</th>
+          <th>Change Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in recent_commits %}
+        <tr>
+          <td class="ps-3 text-muted">{{ c.date }}</td>
+          <td>
+            <span class="badge bg-{{ c.badge }}">{{ c.category }}</span>
+          </td>
+          <td>{{ c.msg }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center text-muted py-4 small">No changes recorded in the last 15 days.</div>
+    {% endif %}
+  </div>
 </div>
 
 {% endblock %}

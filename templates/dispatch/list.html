@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Ready to Dispatch — OxyPC{% endblock %}
-{% block page_title %}Ready to Dispatch{% endblock %}
+{% block title %}TRC Dashboard — OxyPC{% endblock %}
+{% block page_title %}TRC Dashboard{% endblock %}
 {% block content %}
 
 {% set GRADES = [('A','success'),('B','warning text-dark'),('C','danger')] %}
@@ -151,6 +151,49 @@
 </div>
 <div class="row g-3 mb-3">
   <div class="col-12">{{ grade_accordion('gradeAccordionC', GRADES[2:3]) }}</div>
+</div>
+
+<!-- Devices Returned -->
+<div class="mt-4">
+  <h6 class="fw-semibold text-uppercase small text-muted mb-2"><i class="bi bi-box-arrow-in-left me-2"></i>Devices Returned</h6>
+  <div class="row g-3">
+    <div class="col-md-6">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-header bg-transparent fw-semibold small d-flex align-items-center gap-2">
+          <span class="badge bg-success">Within Warranty</span>
+          <span class="text-muted fw-normal">Returned within warranty period</span>
+        </div>
+        <div class="card-body p-0">
+          <table class="table table-sm mb-0 small">
+            <thead class="table-light"><tr>
+              <th class="ps-3">Tag Number</th><th>Model</th><th>Returned On</th><th>Customer</th><th>User</th><th>Reason</th>
+            </tr></thead>
+            <tbody>
+              <tr><td colspan="6" class="text-center text-muted py-4 small">No warranty returns recorded.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-header bg-transparent fw-semibold small d-flex align-items-center gap-2">
+          <span class="badge bg-secondary">Out of Warranty</span>
+          <span class="text-muted fw-normal">Returned after warranty expiry</span>
+        </div>
+        <div class="card-body p-0">
+          <table class="table table-sm mb-0 small">
+            <thead class="table-light"><tr>
+              <th class="ps-3">Tag Number</th><th>Model</th><th>Returned On</th><th>Customer</th><th>User</th><th>Reason</th>
+            </tr></thead>
+            <tbody>
+              <tr><td colspan="6" class="text-center text-muted py-4 small">No out-of-warranty returns recorded.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 {% endblock %}

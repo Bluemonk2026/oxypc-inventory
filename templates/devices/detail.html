@@ -278,7 +278,7 @@
                     <input type="hidden" name="part_id" value="{{ p.part_id }}">
                     <input type="number" name="qty" value="1" min="1" class="d-none">
                     <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2" {% if not p.required %}disabled{% endif %}
-                            onclick="this.form.querySelector('[name=qty]').value=document.getElementById('qty_ref_{{ loop.index }}').value"><i class="bi bi-bag-plus"></i> Request</button>
+                            onclick="this.form.querySelector('[name=qty]').value=document.getElementById('qty_ref_{{ loop.index }}').value"><i class="bi bi-bag-plus"></i> New Request</button>
                   </form>
                   <form method="post" action="/part-requests/create" class="d-inline">
                     <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
@@ -287,7 +287,9 @@
                     <input type="hidden" name="part_id" value="{{ p.part_id }}">
                     <input type="hidden" name="request_type" value="replace">
                     <input type="number" name="qty" value="1" min="1" class="d-none">
-                    <button type="submit" class="btn btn-sm btn-outline-warning py-0 px-2" {% if not p.required %}disabled{% endif %}
+                    <button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-2" {% if not p.required %}disabled{% endif %}
+                            onmouseenter="if(!this.disabled)this.classList.replace('btn-outline-secondary','btn-outline-warning')"
+                            onmouseleave="this.classList.replace('btn-outline-warning','btn-outline-secondary')"
                             onclick="this.form.querySelector('[name=qty]').value=document.getElementById('qty_ref_{{ loop.index }}').value"><i class="bi bi-arrow-repeat"></i> Replace</button>
                   </form>
                 </div>

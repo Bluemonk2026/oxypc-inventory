@@ -115,37 +115,12 @@ _HARDCODED_COMMITS = [
 
 
 def _get_recent_commits(days: int = 60) -> list[dict]:
-    """Return git commits from the last N days, categorised for the QA dashboard.
-    Falls back to a hardcoded list when git is unavailable (e.g. Railway production).
+    """Return curated 60-day changelog for the QA dashboard.
+    Uses the hardcoded list which is more comprehensive and descriptive than
+    raw git log output. Git log entries use terse commit subjects; the curated
+    list provides human-readable descriptions of every change.
     """
-    try:
-        since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-        result = subprocess.run(
-            ["git", "log", f"--since={since}", "--pretty=format:%ad|%s", "--date=short"],
-            capture_output=True, text=True, timeout=5, cwd=str(_PROJECT_ROOT),
-        )
-        if not result.stdout.strip():
-            return _HARDCODED_COMMITS
-
-        commits = []
-        for line in result.stdout.strip().splitlines():
-            if "|" not in line:
-                continue
-            date, msg = line.split("|", 1)
-            ml = msg.lower()
-            if ml.startswith("fix"):
-                category, badge = "Bug Fix", "danger"
-            elif ml.startswith("feat"):
-                category, badge = "Enhancement", "success"
-            elif ml.startswith("sprint"):
-                category, badge = "Sprint Release", "primary"
-            else:
-                continue  # skip ci/deploy/merge/docs
-            clean = msg.split(":", 1)[-1].strip() if ":" in msg else msg
-            commits.append({"date": date, "msg": clean, "category": category, "badge": badge})
-        return commits if commits else _HARDCODED_COMMITS
-    except Exception:
-        return _HARDCODED_COMMITS
+    return _HARDCODED_COMMITS
 
 
 def _s(v: Optional[str]) -> Optional[str]:

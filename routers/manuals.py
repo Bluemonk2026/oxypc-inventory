@@ -699,7 +699,8 @@ def _pdf_fpdf(manual: dict) -> bytes:
     # ── Module title ─────────────────────────────────────────────────────────
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, manual["module"], ln=True)
+    pdf.cell(0, 10, manual["module"])
+    pdf.ln()
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(80, 80, 80)
     pdf.multi_cell(0, 6, manual["description"])
@@ -714,7 +715,8 @@ def _pdf_fpdf(manual: dict) -> bytes:
         # Step heading
         pdf.set_fill_color(240, 240, 240)
         pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(0, 7, f"  Step {step_idx}: {step_title}", fill=True, ln=True)
+        pdf.cell(0, 7, f"  Step {step_idx}: {step_title}", fill=True)
+        pdf.ln()
         pdf.ln(1)
         # Step sub-items
         pdf.set_font("Helvetica", "", 9)
@@ -818,12 +820,12 @@ async def download_manual(
             pass
 
     slug = manual["module"].lower().replace(" ", "_").replace("&", "and").replace("/", "_")
-    try:
-        from fpdf import FPDF  # noqa
+    # Sniff actual bytes — fpdf2 may silently fall back to plain text
+    if pdf_bytes[:5] == b"%PDF-":
         media_type = "application/pdf"
         filename = f"OxyPC_Manual_{slug}.pdf"
-    except ImportError:
-        media_type = "text/plain"
+    else:
+        media_type = "text/plain; charset=utf-8"
         filename = f"OxyPC_Manual_{slug}.txt"
 
     return StreamingResponse(

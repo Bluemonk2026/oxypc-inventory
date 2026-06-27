@@ -25,7 +25,7 @@
             {% for device, lot_number in devices %}
             {% set sr = stress_map.get(device.barcode) %}
             <tr id="row-{{ device.barcode }}" class="{% if sr %}table-light{% endif %}">
-              <td><code>{{ device.barcode }}</code></td>
+              <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none text-dark" title="View device details">{{ device.barcode }}</a></td>
               <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
               <td>{{ device.brand or '—' }}</td>
               <td>{{ device.model or '—' }}</td>
@@ -54,12 +54,10 @@
               </td>
               <td>
                 <div class="d-flex gap-1 flex-wrap">
-                  <a href="/qc/new?barcode={{ device.barcode }}" class="btn btn-sm btn-primary py-0">QC</a>
+                  <a href="/qc/new?barcode={{ device.barcode }}" class="btn btn-sm btn-primary py-0">Verify QC</a>
                   <form action="/cosmetic/send-to-cosmetic" method="post" class="d-inline">
                     <input type="hidden" name="barcode" value="{{ device.barcode }}">
-                    <button type="submit" class="btn btn-sm btn-outline-secondary py-0" title="Send to Cosmetic Refurb">
-                      <i class="bi bi-brush"></i>
-                    </button>
+                    <button type="submit" class="btn btn-sm btn-outline-secondary py-0" title="Send to Cosmetic Refurb">Go Cleaning</button>
                   </form>
                   <button type="button"
                     class="btn btn-sm btn-outline-warning py-0 start-test-btn"

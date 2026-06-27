@@ -18,22 +18,40 @@
   {% endfor %}
 </div>
 
-<p class="text-muted small">{{ devices|length }} device(s) awaiting Final QC. Review IQC details + parts (read-only), assign grade, then move to Ready to Sale.</p>
+<div class="mb-3">
+  <span class="badge bg-warning text-dark fs-6 px-3 py-2">{{ devices|length }} device(s) awaiting Final QC</span>
+  <span class="text-muted small ms-2">Review IQC details + parts (read-only), assign grade, then move to Ready to Sale.</span>
+</div>
 
 {% macro fld(label, value) %}<tr><th class="text-muted fw-normal" style="width:52%">{{ label }}</th><td>{{ value if (value is not none and value != '') else '—' }}</td></tr>{% endmacro %}
 
+<div class="accordion" id="fqcAccordion">
 {% for device, lot_number in devices %}
 {% set iqc = iqc_map.get(device.id|string) %}
 {% set rjs = repairs_map.get(device.id|string, []) %}
-<div class="card border-0 shadow-sm mb-3" style="max-height:460px">
-  <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
-    <span><a href="/devices/{{ device.barcode }}" class="font-monospace small text-decoration-none" title="View device detail">{{ device.barcode }}</a> — <span class="fw-semibold fs-6">{{ device.brand or '' }} {{ device.model or '' }}</span>
-      <span class="badge bg-secondary ms-1">{{ lot_number }}</span></span>
-    <span class="small">Current Grade:
-      {% if device.grade %}<span class="badge bg-info text-dark">{{ device.grade.value }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
-    </span>
-  </div>
-  <div class="card-body" style="overflow-y:auto">
+<div class="accordion-item border-0 shadow-sm mb-2">
+  <h2 class="accordion-header" id="hd-{{ loop.index }}">
+    <button class="accordion-button {% if not loop.first %}collapsed{% endif %} py-2"
+            type="button" data-bs-toggle="collapse"
+            data-bs-target="#col-{{ loop.index }}"
+            aria-expanded="{{ 'true' if loop.first else 'false' }}">
+      <span class="d-flex align-items-center gap-3 w-100 me-3">
+        <span>
+          <a href="/devices/{{ device.barcode }}" class="font-monospace small text-decoration-none" title="View device detail" onclick="event.stopPropagation()">{{ device.barcode }}</a> —
+          <span class="fw-semibold">{{ device.brand or '' }} {{ device.model or '' }}</span>
+          <span class="badge bg-secondary ms-1">{{ lot_number }}</span>
+        </span>
+        <span class="ms-auto small">Grade:
+          {% if device.grade %}<span class="badge bg-info text-dark">{{ device.grade.value }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+        </span>
+      </span>
+    </button>
+  </h2>
+  <div id="col-{{ loop.index }}"
+       class="accordion-collapse collapse {% if loop.first %}show{% endif %}"
+       aria-labelledby="hd-{{ loop.index }}">
+    <div class="accordion-body p-0">
+    <div style="max-height:430px; overflow-y:auto; padding:1rem">
     <div class="row g-3">
 
       <!-- Column 1: all device fields from IQC Entry (read-only) -->
@@ -190,9 +208,12 @@
       </div>
 
     </div>
+    </div>
+    </div>
   </div>
 </div>
 {% else %}
 <div class="card border-0 shadow-sm"><div class="card-body text-center text-muted py-5">No devices awaiting Final QC.</div></div>
 {% endfor %}
+</div>
 {% endblock %}

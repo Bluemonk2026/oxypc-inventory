@@ -200,10 +200,6 @@
             <input type="hidden" name="battery_capacity_wh" id="battery_capacity_wh" value="">
             <input type="hidden" name="battery_power_w" id="battery_power_w" value="">
             <div class="col-md-3">
-              <label class="form-label small">Battery Life (days) <span class="text-muted small">(auto)</span></label>
-              <input type="number" name="battery_life_days" id="battery_life_days" class="form-control form-control-sm hw-lock" readonly tabindex="-1" placeholder="—">
-            </div>
-            <div class="col-md-3">
               <label class="form-label small">Internal Battery</label>
               <select name="battery_present" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
                 <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
@@ -329,11 +325,11 @@
             </div>
             <div class="col-md-3">
               <label class="form-label small">Storage Health (%)</label>
-              <input type="number" name="storage_health_pct" id="storage_health_pct" class="form-control form-control-sm hw-lock" readonly tabindex="-1" min="0" max="100" placeholder="—">
+              <input type="number" name="storage_health_pct" id="storage_health_pct" class="form-control form-control-sm" min="0" max="100" placeholder="—">
             </div>
             <div class="col-md-3">
               <label class="form-label small">Fan Sound (in dBA)</label>
-              <input type="number" name="fan_sound_dba" id="fan_sound_dba" class="form-control form-control-sm hw-lock" readonly tabindex="-1" min="0" max="100" placeholder="—">
+              <input type="number" name="fan_sound_dba" id="fan_sound_dba" class="form-control form-control-sm" min="0" max="100" placeholder="—">
             </div>
             <div class="col-md-3">
               <label class="form-label small">Fan Working</label>

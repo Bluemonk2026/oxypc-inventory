@@ -258,39 +258,46 @@ async def save_results(
     if session.running:
         raise HTTPException(409, "Tests still running — wait for completion before saving")
 
-    full = session.to_full_dict()
-    run_at = datetime.fromtimestamp(session.finished_at or session.started_at, tz=timezone.utc)
-
-    record = StressTestResult(
-        barcode=barcode,
-        brand=session.brand,
-        model_name=session.model,
-        run_at=run_at,
-        duration=session.duration,
-        overall_status=session.overall_status(),
-        results_json=full["results"],
-        run_by=session.run_by,
-    )
-    db.add(record)
-    await db.flush()  # get the id
-
-    # Generate PDF
     try:
-        pdf_bytes = _generate_pdf(record)
-        fname     = _pdf_filename(barcode, record.id)
-        fpath     = REPORTS_DIR / fname
-        fpath.write_bytes(pdf_bytes)
-        record.pdf_path = str(fpath)
-    except Exception as e:
-        record.pdf_path = None
+        full = session.to_full_dict()
+        ts = session.finished_at or session.started_at or 0
+        run_at = datetime.fromtimestamp(ts, tz=timezone.utc)
 
-    await db.commit()
-    return {
-        "saved": True,
-        "result_id": record.id,
-        "overall_status": record.overall_status,
-        "pdf_available": record.pdf_path is not None,
-    }
+        record = StressTestResult(
+            barcode=barcode,
+            brand=session.brand,
+            model_name=session.model,
+            run_at=run_at,
+            duration=session.duration,
+            overall_status=session.overall_status(),
+            results_json=full["results"],
+            run_by=session.run_by,
+        )
+        db.add(record)
+        await db.flush()
+
+        # Generate PDF (failure is non-fatal — record still saved)
+        try:
+            pdf_bytes = _generate_pdf(record)
+            fname     = _pdf_filename(barcode, record.id)
+            fpath     = REPORTS_DIR / fname
+            fpath.write_bytes(pdf_bytes)
+            record.pdf_path = str(fpath)
+        except Exception:
+            record.pdf_path = None
+
+        await db.commit()
+        return {
+            "saved": True,
+            "result_id": record.id,
+            "overall_status": record.overall_status,
+            "pdf_available": record.pdf_path is not None,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(500, f"Save failed: {exc}")
 
 
 @router.get("/{barcode}/report")
@@ -319,15 +326,17 @@ async def download_report(
         raise HTTPException(404, "No saved stress report found for this device")
 
     # Try to serve stored PDF first
-    if record.pdf_path and Path(record.pdf_path).exists():
-        pdf_bytes = Path(record.pdf_path).read_bytes()
-    else:
-        # Regenerate on-the-fly
-        pdf_bytes = _generate_pdf(record)
+    try:
+        if record.pdf_path and Path(record.pdf_path).exists():
+            pdf_bytes = Path(record.pdf_path).read_bytes()
+        else:
+            pdf_bytes = _generate_pdf(record)
+    except Exception as exc:
+        raise HTTPException(500, f"Report generation failed: {exc}")
 
     filename = f"stress_report_{barcode}.pdf"
     try:
-        from fpdf import FPDF
+        from fpdf import FPDF  # noqa
         media_type = "application/pdf"
         cd_name    = filename
     except ImportError:

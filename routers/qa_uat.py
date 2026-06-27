@@ -59,40 +59,62 @@ _admin = require_roles(UserRole.admin, UserRole.inventory_manager)
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 _HARDCODED_COMMITS = [
-    {"date": "2026-06-27", "msg": "TRC Dashboard title; Devices Returned section (Within/Out of Warranty); Parts hover; QA changelog", "category": "Enhancement", "badge": "success"},
-    {"date": "2026-06-27", "msg": "IQC Storage Health + Fan Sound fields editable; Battery Life removed; Stress Test 500 errors fixed", "category": "Bug Fix", "badge": "danger"},
-    {"date": "2026-06-27", "msg": "QC table — 'QC' → 'Verify QC'; 'Cosmetic' → 'Go Cleaning' (icon removed); Tag Number clickable", "category": "Enhancement", "badge": "success"},
-    {"date": "2026-06-27", "msg": "Final QC — first device open, rest collapsed (accordion); device count shown as yellow warning badge", "category": "Enhancement", "badge": "success"},
-    {"date": "2026-06-27", "msg": "Add email field to users — profile page + user management form", "category": "Enhancement", "badge": "success"},
-    {"date": "2026-06-27", "msg": "Rename login title; clickable username in topbar opens profile page", "category": "Enhancement", "badge": "success"},
+    # ── 2026-06-27 ──────────────────────────────────────────────────────────────
+    {"date": "2026-06-27", "msg": "Mobile sidebar vertical scroll; Manuals dir safety on restricted filesystems", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-27", "msg": "PDF download 500 error — invalid Latin-1 character in Helvetica font", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-27", "msg": "Manuals module: 15 downloadable PDF learning manuals with Share-to-user notification", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-27", "msg": "Mobile navigation: hamburger opens fixed sidebar overlay with backdrop", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-27", "msg": "TRC Dashboard title + Devices Returned section (Within/Out of Warranty tables)", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-27", "msg": "QA Dashboard: Recent Changes 60-day changelog section", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-27", "msg": "User Management: email field added to profile page and user form", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-27", "msg": "Login: renamed title; clickable username in topbar opens profile page", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-27", "msg": "IQC Storage Health + Fan Sound fields editable; Stress Test 500 errors fixed", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-27", "msg": "QC table: 'Verify QC' + 'Go Cleaning' buttons renamed; Tag Number clickable", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-27", "msg": "Final QC: first device accordion open, rest collapsed; device count badge", "category": "Enhancement", "badge": "success"},
     {"date": "2026-06-27", "msg": "Escape % in DATABASE_URL when writing to configparser (config.ini fix)", "category": "Bug Fix", "badge": "danger"},
+    # ── 2026-06-26 ──────────────────────────────────────────────────────────────
     {"date": "2026-06-26", "msg": "Sprint 31 — IQC overhaul, GRN AJAX, Assign Stock defaults, Parts Replace, Scrap Verify, Sale PDF import, Notifications", "category": "Sprint Release", "badge": "primary"},
     {"date": "2026-06-26", "msg": "Server-side stress testing — removes dependency on standalone OxyQC desktop app", "category": "Enhancement", "badge": "success"},
-    {"date": "2026-06-26", "msg": "Redesign Stress Test page with live 2/3+1/3 split panel (tests left, results right)", "category": "Enhancement", "badge": "success"},
-    {"date": "2026-06-26", "msg": "Add web-based installer wizard (WordPress-style first-time setup at /setup)", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-26", "msg": "Stress Test page redesign — live 2/3 + 1/3 split panel layout", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-26", "msg": "Web-based installer wizard (WordPress-style first-time setup at /setup)", "category": "Enhancement", "badge": "success"},
     {"date": "2026-06-26", "msg": "Register StressTestResult in models __init__ for Alembic discovery", "category": "Bug Fix", "badge": "danger"},
-    {"date": "2026-06-26", "msg": "Stress panel — clear default agent URL; add help text for server-side setup", "category": "Bug Fix", "badge": "danger"},
-    {"date": "2026-06-26", "msg": "IQC diagnose: touchpad logic-board detection, fan detection, battery health explicit fill", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-26", "msg": "Stress panel: clear default agent URL; help text for server-side setup", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-26", "msg": "IQC diagnose: touchpad logic-board detection, fan detection, battery health fill", "category": "Bug Fix", "badge": "danger"},
     {"date": "2026-06-26", "msg": "Sales table DataTables column count error fixed; Download invoice link fixed", "category": "Bug Fix", "badge": "danger"},
-    {"date": "2026-06-24", "msg": "Editable IQC fields on Edit Device; matrix-driven nav; dropdown polish; agent rename", "category": "Enhancement", "badge": "success"},
-    {"date": "2026-06-24", "msg": "Battery health fallbacks added to PowerShell diagnose probe", "category": "Enhancement", "badge": "success"},
-    {"date": "2026-06-24", "msg": "Parts tabs — export + checkboxes; column hides; stage layout; TRC cleanup", "category": "Enhancement", "badge": "success"},
-    {"date": "2026-06-24", "msg": "Optional nav accordion + TRC telecaller filter row + sticky Stage Timeline", "category": "Enhancement", "badge": "success"},
-    {"date": "2026-06-24", "msg": "Rename nav labels + move TRC Dashboard; Parts Consumption actions for all roles", "category": "Enhancement", "badge": "success"},
-    {"date": "2026-06-24", "msg": "Final QC: 3-column card — full IQC details, repair history + parts, decision form", "category": "Enhancement", "badge": "success"},
-    {"date": "2026-06-24", "msg": "IQC: Display + Keyboard & Touchpad panel-style cards; one-row grade/floor/warehouse/bios", "category": "Enhancement", "badge": "success"},
+    # ── 2026-06-24 ──────────────────────────────────────────────────────────────
+    {"date": "2026-06-24", "msg": "Edit Device: replicates IQC Entry layout; all IQC fields editable", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "IQC: per-station OxyQC Diagnose agent + expanded hardware auto-detection", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "IQC: Download Agent button + agent button states (blue/grey/green)", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "IQC: Battery health fallbacks added to PowerShell diagnose probe", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "IQC: Display + Keyboard & Touchpad panel-style cards; one-row grade/floor/warehouse", "category": "Enhancement", "badge": "success"},
     {"date": "2026-06-24", "msg": "IQC: Screen-functional/defect detection + Charging Port field added", "category": "Enhancement", "badge": "success"},
-    {"date": "2026-06-24", "msg": "Dispatch: drop Grade D; A|B side-by-side + C full width; 6-row pagination", "category": "Enhancement", "badge": "success"},
-    {"date": "2026-06-24", "msg": "Control engine: allow same-stage no-op transitions (fixes Start Repair 403 error)", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-24", "msg": "Dispatch (TRC): Grade D removed; A|B side-by-side + C full-width; 6-row pagination", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "Final QC: 3-column card — IQC details, repair history + parts, decision form", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "Nav: optional accordion + TRC telecaller filter row + sticky Stage Timeline", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "Nav: renamed labels + moved TRC Dashboard; Parts Consumption for all roles", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "Parts tabs: export + checkboxes; column hides; stage layout improvements", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-24", "msg": "IQC screen size detection + HDD field rename and reorder", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-24", "msg": "IQC battery-health cap; touchpad missing/click + speaker Not-Checked fixed", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-24", "msg": "Control engine: same-stage no-op transitions allowed (fixes Start Repair 403)", "category": "Bug Fix", "badge": "danger"},
     {"date": "2026-06-24", "msg": "Permissions: custom roles pass non-admin route gates (fixes 403 on enabled modules)", "category": "Bug Fix", "badge": "danger"},
-    {"date": "2026-06-24", "msg": "Permissions: Enable is master switch — no more blanket 403; 'Not Working' option removed", "category": "Bug Fix", "badge": "danger"},
-    {"date": "2026-06-24", "msg": "Transfers: never insert NULL warehouse; Cosmetic: Skip Cosmetic → Final QC shortcut", "category": "Bug Fix", "badge": "danger"},
-    {"date": "2026-06-24", "msg": "DataTables incorrect column count warning fixed on Parts Dashboard", "category": "Bug Fix", "badge": "danger"},
-    {"date": "2026-06-24", "msg": "IQC: OxyQC_Agent.exe shipped in repo so Diagnose download works on production builds", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-24", "msg": "Permissions: Enable is master switch; 'Not Working' option removed", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-24", "msg": "Transfers: never insert NULL warehouse; Cosmetic Skip to Final QC shortcut", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-24", "msg": "DataTables column count warning fixed on Parts Dashboard", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-24", "msg": "IQC: OxyQC_Agent.exe shipped in repo so Diagnose download works on production", "category": "Bug Fix", "badge": "danger"},
+    # ── 2026-06-23 ──────────────────────────────────────────────────────────────
+    {"date": "2026-06-23", "msg": "Sprint 30 — warranty/returns/GRN-post-IQC + per-user WhatsApp + global error modal", "category": "Sprint Release", "badge": "primary"},
+    {"date": "2026-06-23", "msg": "GRN: map records to Stock Inward; tables 5/page recent-first; admin nav accordions", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-23", "msg": "GRN: soft-delete on both GRN pages + clearer duplicate messages", "category": "Enhancement", "badge": "success"},
+    # ── 2026-06-22 ──────────────────────────────────────────────────────────────
+    {"date": "2026-06-22", "msg": "Sprint 31 — TRC Production, Scrap Products, WorkID Status, GRN validate, repair routing, OxyQC USB import", "category": "Sprint Release", "badge": "primary"},
+    {"date": "2026-06-22", "msg": "Database migration fixed for empty database", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-22", "msg": "Database password setup fixed", "category": "Bug Fix", "badge": "danger"},
+    # ── 2026-06-13 ──────────────────────────────────────────────────────────────
+    {"date": "2026-06-13", "msg": "Sprint 29 — work-order/parts/dispatch workflow + 21 feature enhancements", "category": "Sprint Release", "badge": "primary"},
 ]
 
 
-def _get_recent_commits(days: int = 15) -> list[dict]:
+def _get_recent_commits(days: int = 60) -> list[dict]:
     """Return git commits from the last N days, categorised for the QA dashboard.
     Falls back to a hardcoded list when git is unavailable (e.g. Railway production).
     """
@@ -207,7 +229,7 @@ async def qa_dashboard(
     critical_defects = recent_def_res.scalars().all()
 
     pass_rate = round(exec_pass / exec_total * 100, 1) if exec_total else 0
-    recent_commits = _get_recent_commits(days=15)
+    recent_commits = _get_recent_commits(days=60)
 
     return templates.TemplateResponse("qa/dashboard.html", {
         "request": request, "current_user": current_user,

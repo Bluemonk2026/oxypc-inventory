@@ -53,7 +53,7 @@ ALLOWED_ORIGINS: list[str] = [
 
 def write_default_config():
     cfg = configparser.ConfigParser()
-    cfg["database"] = {"url": DATABASE_URL}
+    cfg["database"] = {"url": DATABASE_URL.replace("%", "%%")}
     cfg["security"] = {
         "secret_key": SECRET_KEY,
         "access_token_expire_minutes": str(ACCESS_TOKEN_EXPIRE_MINUTES),

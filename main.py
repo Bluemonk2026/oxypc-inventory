@@ -48,6 +48,16 @@ app.add_middleware(
     max_age=600,
 )
 
+# ── HTTPS redirect — Railway terminates SSL at the edge and sets
+# X-Forwarded-Proto: http for plain-HTTP requests.  Redirect them to HTTPS.
+# Does not fire on local dev because the header is absent. ───────────────────
+@app.middleware("http")
+async def _force_https(request: Request, call_next):
+    if request.headers.get("x-forwarded-proto") == "http":
+        url = str(request.url).replace("http://", "https://", 1)
+        return RedirectResponse(url=url, status_code=301)
+    return await call_next(request)
+
 # ── Error logger (writes to errors.log next to main.py) ───────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _err_logger = logging.getLogger("oxypc.errors")

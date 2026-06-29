@@ -938,6 +938,14 @@ function estimatePowerW(cpuName) {
   var dlBtn = document.getElementById('downloadAgentBtn');
   var status = document.getElementById('diagnoseStatus');
   if (!btn) return;
+
+  // On HTTPS (production), browsers block http://127.0.0.1 as mixed content.
+  // Skip agent detection; technicians must use the local LAN server for Diagnose.
+  if (location.protocol === 'https:') {
+    if (status) status.innerHTML = '<span class="text-muted small"><i class="bi bi-info-circle me-1"></i>Diagnose available on local network only.</span>';
+    return;
+  }
+
   var pollTimer = null;
 
   function stopPoll(){ if (pollTimer){ clearInterval(pollTimer); pollTimer = null; } }

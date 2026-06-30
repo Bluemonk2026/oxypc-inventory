@@ -385,6 +385,9 @@ class CustomerReceipt(Base):
     created_by       = Column(String(50), nullable=True)
     created_at       = Column(DateTime, default=app_now)
 
+    contact = relationship("CRMContact", foreign_keys=[contact_id])
+    dealer  = relationship("Dealer",     foreign_keys=[dealer_id])
+
 
 # ── ASSIGN LEADS MODULE ───────────────────────────────────────────────────────
 LEAD_PLATFORMS = [

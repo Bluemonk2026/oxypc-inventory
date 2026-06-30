@@ -2,10 +2,21 @@
 {% block title %}Sales Report — OxyPC{% endblock %}
 {% block page_title %}Sales Report{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <span class="fw-bold text-success">Total: ₹{{ "{:,.0f}".format(total) }}</span>
-  <a href="/reports/export/sales" class="btn btn-outline-success btn-sm"><i class="bi bi-download me-1"></i>Export CSV</a>
-</div>
+<form method="get" class="row g-2 align-items-end mb-3">
+  <div class="col-auto">
+    <label class="form-label small mb-1">From</label>
+    <input type="date" name="from_date" value="{{ from_date }}" class="form-control form-control-sm">
+  </div>
+  <div class="col-auto">
+    <label class="form-label small mb-1">To</label>
+    <input type="date" name="to_date" value="{{ to_date }}" class="form-control form-control-sm">
+  </div>
+  <div class="col-auto"><button type="submit" class="btn btn-primary btn-sm">Filter</button></div>
+  <div class="col-auto ms-auto d-flex align-items-center gap-2">
+    <span class="fw-bold text-success">Total: ₹{{ "{:,.0f}".format(total) }}</span>
+    <a href="/reports/export/sales" class="btn btn-outline-success btn-sm"><i class="bi bi-download me-1"></i>Export CSV</a>
+  </div>
+</form>
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
     <table id="srTable" class="table table-hover mb-0 small">

@@ -134,14 +134,24 @@ async def stage_movement_report(request: Request, db: AsyncSession = Depends(get
 async def sales_report(request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     # Default: last 90 days; override with ?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD
     default_from = (datetime.now() - timedelta(days=90)).date()
-    from_date = request.query_params.get("from_date", str(default_from))
-    to_date = request.query_params.get("to_date", str(datetime.now().date()))
+    from_date_str = request.query_params.get("from_date", str(default_from))
+    to_date_str   = request.query_params.get("to_date",   str(datetime.now().date()))
+
+    # asyncpg requires datetime objects — parse strings before binding
+    try:
+        from_dt = datetime.strptime(from_date_str, "%Y-%m-%d")
+        to_dt   = datetime.strptime(to_date_str,   "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+    except ValueError:
+        from_dt = datetime.now() - timedelta(days=90)
+        to_dt   = datetime.now()
+        from_date_str = from_dt.strftime("%Y-%m-%d")
+        to_date_str   = to_dt.strftime("%Y-%m-%d")
 
     result = await db.execute(
         select(Sale, Device.barcode, Device.brand, Device.model, Device.grade, Lot.lot_number)
         .join(Device, Sale.device_id == Device.id)
         .join(Lot, Device.lot_id == Lot.id)
-        .where(Sale.sold_at >= from_date, Sale.sold_at <= to_date)
+        .where(Sale.sold_at >= from_dt, Sale.sold_at <= to_dt)
         .order_by(Sale.sold_at.desc())
         .limit(1000)
     )
@@ -149,7 +159,7 @@ async def sales_report(request: Request, db: AsyncSession = Depends(get_db), cur
     total = sum(float(s.Sale.sale_price or 0) for s in sales)
     return templates.TemplateResponse("reports/sales_report.html", {
         "request": request, "sales": sales, "total": total, "current_user": current_user,
-        "from_date": from_date, "to_date": to_date,
+        "from_date": from_date_str, "to_date": to_date_str,
     })
 
 

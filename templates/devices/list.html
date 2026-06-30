@@ -151,8 +151,11 @@
               {{ device.updated_at.strftime('%d-%m-%Y') if device.updated_at else '—' }}
             </td>
             <td class="text-nowrap">
-              <a href="/devices/{{ device.barcode }}" class="btn btn-xs btn-outline-primary py-0 px-1 small">
+              <a href="/devices/{{ device.barcode }}" class="btn btn-xs btn-outline-primary py-0 px-1 small" title="View">
                 <i class="bi bi-eye"></i>
+              </a>
+              <a href="/devices/{{ device.barcode }}/edit" class="btn btn-xs btn-outline-warning py-0 px-1 small" title="Edit">
+                <i class="bi bi-pencil"></i>
               </a>
               <button class="btn btn-xs btn-outline-danger py-0 px-1 small"
                       onclick="if(confirm('Move {{ device.barcode }} to Trash?')) { document.getElementById('trashDev_{{ loop.index }}').submit(); }"

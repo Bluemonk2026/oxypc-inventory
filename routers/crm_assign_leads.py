@@ -122,6 +122,7 @@ async def list_assign_leads(
 
     return templates.TemplateResponse("crm/assign_leads.html", {
         "request":          request,
+        "current_user":     current_user,
         "groups":           groups,
         "leads_by_group":   leads_by_group,
         "all_users":        all_users,

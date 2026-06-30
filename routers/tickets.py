@@ -69,6 +69,7 @@ async def list_tickets(
     tickets = [_ticket_ctx(t) for t in result.scalars().all()]
     return templates.TemplateResponse("tickets/list.html", {
         "request": request,
+        "current_user": current_user,
         "tickets": tickets,
     })
 

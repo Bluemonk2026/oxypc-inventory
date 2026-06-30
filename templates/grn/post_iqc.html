@@ -85,19 +85,10 @@
                       data-amount="{{ g.amount if g.amount is not none else '' }}">
                 <i class="bi bi-pencil"></i> Edit
               </button>
-              {% if not g.validated %}
-              <button type="button" class="btn btn-sm btn-outline-success py-0 px-2 validate-grn-btn"
-                      data-bs-toggle="modal" data-bs-target="#validateGrnModal"
-                      data-id="{{ g.id }}" data-grn="{{ g.grn_number }}"
-                      data-qty="{{ g.quantity if g.quantity is not none else '' }}">
-                <i class="bi bi-receipt-cutoff"></i> Validate GRN
-              </button>
-              {% else %}
               <button type="button" class="btn btn-sm btn-warning py-0 px-2 map-grn-btn"
                       data-id="{{ g.id }}" data-grn="{{ g.grn_number }}">
                 <i class="bi bi-link-45deg"></i> Map this GRN
               </button>
-              {% endif %}
               <form method="post" action="/grn/{{ g.id }}/delete" class="d-inline"
                     onsubmit="return confirm('Delete GRN {{ g.grn_number }}?');">
                 <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
@@ -123,7 +114,11 @@
     <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
       <span class="fw-semibold"><i class="bi bi-upc me-2"></i>GRN Pending for these Tag Numbers
         <span class="badge bg-secondary ms-1">{{ pending|length }}</span></span>
-      <span class="small text-muted">Tick tag numbers, then click <strong>Map this GRN</strong> on a GRN row above.</span>
+      <div class="d-flex align-items-center gap-2">
+        <span class="badge bg-success" id="pendSelCount">0 selected</span>
+        <input type="text" id="pendScan" class="form-control form-control-sm font-monospace"
+               placeholder="Scan / type tag number…" style="width:220px" autocomplete="off">
+      </div>
     </div>
     <div class="card-body p-0">
       <div class="table-responsive">
@@ -136,7 +131,7 @@
             {% for d in pending %}
             {% set _hl = highlight_tag is defined and highlight_tag and highlight_tag == d.barcode %}
             <tr id="pend-{{ d.barcode }}" class="{{ 'table-warning' if _hl else '' }}">
-              <td class="ps-3"><input type="checkbox" class="pendChk" name="device_ids" value="{{ d.id }}" {{ 'checked' if _hl else '' }}></td>
+              <td class="ps-3"><input type="checkbox" class="pendChk" name="device_ids" value="{{ d.id }}" data-barcode="{{ d.barcode }}" {{ 'checked' if _hl else '' }}></td>
               <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
               <td>{{ d.brand or '—' }}</td>
               <td>{{ d.model or '—' }}</td>
@@ -267,9 +262,35 @@ $(document).ready(function(){
 
 // Select-all for pending tags
 var checkAll = document.getElementById('checkAll');
+function updatePendCount(){
+  var n = document.querySelectorAll('.pendChk:checked').length;
+  var el = document.getElementById('pendSelCount');
+  if(el) el.textContent = n + ' selected';
+}
 if (checkAll) checkAll.addEventListener('change', function(){
   document.querySelectorAll('.pendChk').forEach(function(c){ c.checked = checkAll.checked; });
+  updatePendCount();
 });
+document.addEventListener('change', function(e){
+  if(e.target && e.target.classList.contains('pendChk')){ updatePendCount(); }
+});
+updatePendCount();
+
+// Scan-to-select: match barcode in pending table → auto-check
+var pendScan = document.getElementById('pendScan');
+if(pendScan){
+  pendScan.addEventListener('input', function(){
+    var val = this.value.trim();
+    if(!val) return;
+    var chk = document.querySelector('.pendChk[data-barcode="' + val + '"]');
+    if(chk){
+      chk.checked = true;
+      updatePendCount();
+      this.value = '';
+      chk.closest('tr').scrollIntoView({behavior:'smooth', block:'center'});
+    }
+  });
+}
 
 // Map this GRN — handler (used for both initial buttons and dynamically added ones)
 function mapGrnHandler(){

@@ -136,7 +136,7 @@ async def create_part(
 ):
     part = SparePart(part_code=part_code, name=name, category=category,
                      unit_price=float(unit_price), min_stock_alert=min_stock_alert,
-                     supplier=supplier or None, notes=notes or None)
+                     supplier=supplier or None, notes=notes or None, source='new')
     db.add(part)
     await db.commit()
     return RedirectResponse(url="/spare-parts?success=Part+added", status_code=302)

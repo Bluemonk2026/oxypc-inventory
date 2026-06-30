@@ -19,6 +19,7 @@ class SparePart(Base):
     min_stock_alert = Column(Integer, nullable=False, default=5)
     supplier = Column(String(100), nullable=True)
     notes = Column(Text, nullable=True)
+    source = Column(String(10), nullable=True)
     created_at = Column(DateTime, default=app_now)
 
     purchases = relationship("SparePartPurchase", back_populates="part", lazy="select")

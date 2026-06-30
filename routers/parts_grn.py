@@ -16,6 +16,7 @@ from sqlalchemy import select, func
 from database import get_db
 from models.user import User, UserRole
 from models.parts_grn import PartsGRN, PartsGRNLineItem
+from models.spare_parts import SparePart
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from services.audit_engine import audit
 from config import UPLOADS_DIR
@@ -94,7 +95,7 @@ async def grn_list(request: Request, db: AsyncSession = Depends(get_db),
     )
     grns = result.scalars().all()
     return templates.TemplateResponse("spare_parts/parts_grn_list.html", {
-        "request": request, "user": current_user, "grns": grns,
+        "request": request, "current_user": current_user, "grns": grns,
     })
 
 
@@ -103,7 +104,7 @@ async def grn_new_form(request: Request, db: AsyncSession = Depends(get_db),
                        current_user: User = Depends(allowed)):
     grn_number = await _next_grn_number(db)
     return templates.TemplateResponse("spare_parts/parts_grn_form.html", {
-        "request": request, "user": current_user,
+        "request": request, "current_user": current_user,
         "grn": None, "grn_number": grn_number, "line_items": [],
         "main_categories": MAIN_CATEGORIES, "categories": CATEGORIES,
     })
@@ -226,7 +227,7 @@ async def grn_detail(grn_id: str, request: Request, db: AsyncSession = Depends(g
     )
     line_items = items_res.scalars().all()
     return templates.TemplateResponse("spare_parts/parts_grn_form.html", {
-        "request": request, "user": current_user,
+        "request": request, "current_user": current_user,
         "grn": grn, "grn_number": grn.grn_number, "line_items": line_items,
         "main_categories": MAIN_CATEGORIES, "categories": CATEGORIES,
     })
@@ -284,6 +285,21 @@ async def harvest_part(
         invoice_ref=_f(invoice_ref),
         remarks=_f(remarks),
         is_harvest=True,
+    ))
+    # Mirror into Part Master so harvest parts appear in Parts Dashboard
+    sp_name = _f(part_name) or _f(product_description) or "Harvest Part"
+    sp_cat = _f(category) if _f(category) else "Other"
+    sp_price = _d(price)
+    db.add(SparePart(
+        part_code=part_id,
+        name=sp_name,
+        category=sp_cat,
+        unit_price=float(sp_price) if sp_price is not None else 0.0,
+        qty_in_stock=qty,
+        min_stock_alert=5,
+        supplier="Internal",
+        notes=_f(product_description),
+        source="harvest",
     ))
     await db.commit()
     await audit(db, action="HARVEST_PART_ADD", user=current_user,

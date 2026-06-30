@@ -105,6 +105,7 @@
             <th>Code</th><th>Name</th><th>Category</th>
             <th>Unit Price</th><th>In Stock</th><th>Min Alert</th>
             <th>Stock Value</th><th>Supplier</th>
+            <th>Added As</th>
             <th>Invoice</th><th>PO</th><th>E-way Bill</th>
             <th>Actions</th>
           </tr>
@@ -125,6 +126,13 @@
             <td>{{ part.min_stock_alert }}</td>
             <td>&#8377;{{ "{:,.0f}".format(part.unit_price * part.qty_in_stock) }}</td>
             <td class="text-muted">{{ part.supplier or '—' }}</td>
+            <td>
+              {% if part.source == 'harvest' %}
+              <span class="badge bg-warning text-dark">Harvest</span>
+              {% else %}
+              <span class="badge bg-success">New</span>
+              {% endif %}
+            </td>
             {% set gdoc = grn_docs.get(part.id|string, {}) %}
             <td>{% if gdoc.get('invoice_file') %}<a href="/uploads/parts_grn/{{ gdoc.invoice_file }}" target="_blank" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1"><i class="bi bi-file-earmark"></i></a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td>{% if gdoc.get('po_file') %}<a href="/uploads/parts_grn/{{ gdoc.po_file }}" target="_blank" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1"><i class="bi bi-file-earmark"></i></a>{% else %}<span class="text-muted">—</span>{% endif %}</td>

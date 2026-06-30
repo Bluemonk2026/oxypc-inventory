@@ -1,4 +1,5 @@
 import logging
+import time as _time
 from templates_config import templates
 from datetime import datetime, date
 from utils.timezone import app_now
@@ -37,6 +38,13 @@ KEY_STAGES = [
 
 _OUTSTANDING_STATUSES = ("pending", "confirmed", "delivered")
 
+# ── 30-second aggregate cache (stage counts + category counts) ────────────────
+# These two GROUP-BY queries are the dashboard's most expensive and identical
+# for every logged-in user. Cache the result for 30 s to avoid hammering the DB
+# on every page refresh.
+_AGG_CACHE: dict = {"stage": None, "cat": None, "ts": 0.0}
+_AGG_TTL = 30  # seconds
+
 
 async def _count(db: AsyncSession, *filters) -> int:
     result = await db.execute(select(func.count(Device.id)).where(*filters))
@@ -54,37 +62,43 @@ async def dashboard(
 ):
     today = app_now().date()
 
-    # ── Stage counts (GROUP BY — null-guarded) ────────────────────────────────
-    try:
-        stage_result = await db.execute(
-            select(Device.current_stage, func.count(Device.id))
-            .group_by(Device.current_stage)
-        )
-        stage_counts = {
-            row[0].value: row[1]
-            for row in stage_result.fetchall()
-            if row[0] is not None
-        }
-        for stage in DeviceStage:
-            stage_counts.setdefault(stage.value, 0)
-    except Exception:
-        _log.exception("stage_counts failed")
-        stage_counts = {stage.value: 0 for stage in DeviceStage}
+    # ── Stage + category counts (cached 30 s) ────────────────────────────────
+    _now = _time.monotonic()
+    if _AGG_CACHE["ts"] and (_now - _AGG_CACHE["ts"]) < _AGG_TTL and _AGG_CACHE["stage"]:
+        stage_counts = _AGG_CACHE["stage"]
+        category_counts = _AGG_CACHE["cat"]
+    else:
+        try:
+            stage_result = await db.execute(
+                select(Device.current_stage, func.count(Device.id))
+                .group_by(Device.current_stage)
+            )
+            stage_counts = {
+                row[0].value: row[1]
+                for row in stage_result.fetchall()
+                if row[0] is not None
+            }
+            for stage in DeviceStage:
+                stage_counts.setdefault(stage.value, 0)
+        except Exception:
+            _log.exception("stage_counts failed")
+            stage_counts = {stage.value: 0 for stage in DeviceStage}
 
-    # ── Category × stage (GROUP BY — null-guarded) ────────────────────────────
-    try:
-        cat_stage_result = await db.execute(
-            select(Device.sub_category, Device.current_stage, func.count(Device.id))
-            .group_by(Device.sub_category, Device.current_stage)
-        )
-        category_counts: dict = {cat: {"total": 0} for cat in CATEGORIES}
-        for sub_cat, stage, cnt in cat_stage_result.fetchall():
-            if sub_cat in category_counts and stage is not None:
-                category_counts[sub_cat]["total"] += cnt
-                category_counts[sub_cat][stage.value] = cnt
-    except Exception:
-        _log.exception("category_counts failed")
-        category_counts = {cat: {"total": 0} for cat in CATEGORIES}
+        try:
+            cat_stage_result = await db.execute(
+                select(Device.sub_category, Device.current_stage, func.count(Device.id))
+                .group_by(Device.sub_category, Device.current_stage)
+            )
+            category_counts: dict = {cat: {"total": 0} for cat in CATEGORIES}
+            for sub_cat, stage, cnt in cat_stage_result.fetchall():
+                if sub_cat in category_counts and stage is not None:
+                    category_counts[sub_cat]["total"] += cnt
+                    category_counts[sub_cat][stage.value] = cnt
+        except Exception:
+            _log.exception("category_counts failed")
+            category_counts = {cat: {"total": 0} for cat in CATEGORIES}
+
+        _AGG_CACHE.update({"stage": stage_counts, "cat": category_counts, "ts": _now})
 
     total_devices = sum(stage_counts.values())
     laptops_available = category_counts.get("Laptop", {}).get("ready_to_sale", 0)

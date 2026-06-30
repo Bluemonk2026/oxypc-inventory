@@ -36,6 +36,9 @@ app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 # ── CORS — ecosystem apps (Customer Portal, AI Layer, ESG, Finance) ───────────
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(

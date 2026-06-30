@@ -59,6 +59,29 @@ _admin = require_roles(UserRole.admin, UserRole.inventory_manager)
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 _HARDCODED_COMMITS = [
+    # ── 2026-06-30 ──────────────────────────────────────────────────────────────
+    {"date": "2026-06-30", "msg": "Speed: GZip compression added (1 KB+ responses); role-based post-login redirect — non-admin users land on their first accessible nav item, not Admin Dashboard", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-30", "msg": "Nav: Inventory Locations moved to INVENTORY section below Scrap Products; QA Dashboard + Manuals added to Landing Pages admin and Permission Matrix", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-30", "msg": "GRN post IQC: scan-to-select barcode input with selected-count badge; Map this GRN always visible (Validate GRN removed)", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-30", "msg": "Role badge: unknown/custom roles prettified in global header (e.g. 'trc_manager' → 'TRC Manager')", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-30", "msg": "L1/L2/L3 Repair tables: Bucket column added showing bucket mapped to each Tag Number", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-30", "msg": "Role label in global header badge via Jinja2 global helper (e.g. 'inventory_manager' → 'Cosmetic Manager')", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-30", "msg": "Device Detail: Edit button always visible; Edit icon alongside View on Inventory Search list", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-30", "msg": "Stock Inward: Move-to-Stock section + Transfer button removed; Assign Bucket in table toolbar; 8-row pagination on both tables", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-30", "msg": "Invoice Number on Device Detail + Inventory Search; Devices Returned (In/Out of Warranty) on TRC Dashboard", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-30", "msg": "Bucket/Carton system: Stock Inward grouping workflow + TRC Production bucket allocation", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-30", "msg": "Parts GRN: 500 error fix (wrong session key); Source + Added As columns; Parts Dashboard tab/column/action fixes", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-30", "msg": "IQC: form field reorganisation + Parts GRN module (record parts received from suppliers)", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-30", "msg": "Finance: CustomerReceipt missing Contact + Dealer relationships added (was causing 500 on Accounts pages)", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-30", "msg": "Sales Report: date string → datetime parse fix; date range filter UI added to report page", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-30", "msg": "IQC Diagnose Agent: HTTPS detection enabled for app.oxypc.com (was blocked by mixed-content check)", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-30", "msg": "Permission Matrix expanded; Landing Pages admin module added; nav restructured with collapsible sections", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-30", "msg": "Role renames across system; warranty status in Device Detail; Return form Check button added", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-30", "msg": "CRM Lead Call: stray relationship removed (was causing startup crash preventing all logins)", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-06-30", "msg": "CRM Assign Leads: new module for ad-campaign lead management with funnel stage tracking", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-06-30", "msg": "Global Raise Ticket system: any user can raise a support ticket; per-user Tickets Raised page", "category": "Enhancement", "badge": "success"},
+    # ── 2026-06-29 ──────────────────────────────────────────────────────────────
+    {"date": "2026-06-29", "msg": "HTTPS force-redirect loop fix on Railway; IQC Diagnose Agent ping suppressed on HTTPS (was causing browser mixed-content console errors)", "category": "Bug Fix", "badge": "danger"},
     # ── 2026-06-27 ──────────────────────────────────────────────────────────────
     {"date": "2026-06-27", "msg": "Mobile sidebar vertical scroll; Manuals dir safety on restricted filesystems", "category": "Bug Fix", "badge": "danger"},
     {"date": "2026-06-27", "msg": "PDF download 500 error — invalid Latin-1 character in Helvetica font", "category": "Bug Fix", "badge": "danger"},

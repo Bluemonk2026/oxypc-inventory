@@ -12,6 +12,20 @@ from models.user import User, LoginLog
 from auth.dependencies import verify_password, hash_password, create_access_token, get_current_user, verify_csrf
 from config import ACCESS_TOKEN_EXPIRE_MINUTES, COOKIE_SECURE
 from limiter import limiter
+from models.role_permissions import has_perm
+from routers.landing_pages import NAV_PAGE_TITLES
+
+
+def _first_landing(role_value: str) -> str:
+    """Return the first nav URL the role can access. Admin gets / (Admin Dashboard)."""
+    if role_value == "admin":
+        return "/"
+    for key, _, _, url in NAV_PAGE_TITLES:
+        if key == "dashboard":
+            continue  # Admin Dashboard — not shown to non-admin roles
+        if has_perm(role_value, key, "enable"):
+            return url
+    return "/"
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -89,7 +103,8 @@ async def login(
     await db.commit()
 
     csrf_tok = secrets.token_hex(32)
-    response = RedirectResponse(url="/", status_code=302)
+    landing = _first_landing(user.role.value)
+    response = RedirectResponse(url=landing, status_code=302)
     _max_age = ACCESS_TOKEN_EXPIRE_MINUTES * 60
     _expires_epoch = int(time.time()) + _max_age
     response.set_cookie("access_token", token, httponly=True, samesite="strict",

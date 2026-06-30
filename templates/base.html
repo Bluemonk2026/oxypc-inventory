@@ -419,6 +419,14 @@
           <span id="sidebarNotifBadge" class="badge rounded-pill bg-danger ms-auto d-none" style="font-size:0.65rem">0</span>
         </a>
       </li>
+
+      {# ── SUPPORT — visible to all roles ──────────────────────────────── #}
+      <li class="nav-section">SUPPORT</li>
+      <li>
+        <a href="/tickets" class="nav-link {% if request.url.path.startswith('/tickets') %}active{% endif %}">
+          <i class="bi bi-ticket-detailed me-2"></i> Tickets Raised
+        </a>
+      </li>
     </ul>
     <div class="sidebar-footer px-3 py-2">
       <small class="text-muted">v1.0 &bull; OxyPC</small>
@@ -441,6 +449,11 @@
             <span id="notifBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none" style="font-size:0.65rem;min-width:1.2rem">0</span>
           </a>
         </div>
+        <button type="button" class="btn btn-warning btn-sm fw-semibold"
+                data-bs-toggle="modal" data-bs-target="#raiseTicketModal"
+                title="Raise a support ticket">
+          <i class="bi bi-ticket-detailed me-1"></i>Raise Ticket
+        </button>
         <form action="/auth/logout" method="post" class="m-0">
           <button class="btn btn-outline-secondary btn-sm"><i class="bi bi-box-arrow-right me-1"></i>Logout</button>
         </form>
@@ -498,6 +511,91 @@
   });
 })();
 </script>
+<!-- Raise Ticket Modal (global — available on every page) -->
+<div class="modal fade" id="raiseTicketModal" tabindex="-1" aria-labelledby="raiseTicketModalLabel">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-warning bg-opacity-25">
+        <h6 class="modal-title fw-semibold" id="raiseTicketModalLabel">
+          <i class="bi bi-ticket-detailed me-2 text-warning"></i>Raise Support Ticket
+        </h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Raised By</label>
+          <input type="text" class="form-control form-control-sm bg-light"
+                 value="{{ current_user.username }}" readonly>
+        </div>
+        <div class="mb-1">
+          <label class="form-label small fw-semibold">Feedback / Issue Description <span class="text-danger">*</span></label>
+          <textarea id="ticketFeedback" class="form-control" rows="6"
+                    placeholder="Describe the issue, feature request, or feedback in detail…"></textarea>
+        </div>
+        <div id="ticketError" class="text-danger small mt-1"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-sm btn-warning fw-semibold" onclick="submitRaiseTicket()">
+          <i class="bi bi-send me-1"></i>Submit Ticket
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  function csrfToken() {
+    return document.cookie.split('; ').find(function(c){ return c.startsWith('csrf_token='); })?.split('=')[1] || '';
+  }
+
+  // Clear modal state each time it opens
+  document.getElementById('raiseTicketModal')?.addEventListener('show.bs.modal', function () {
+    document.getElementById('ticketFeedback').value = '';
+    document.getElementById('ticketError').textContent = '';
+  });
+  // Focus textarea after animation completes
+  document.getElementById('raiseTicketModal')?.addEventListener('shown.bs.modal', function () {
+    document.getElementById('ticketFeedback').focus();
+  });
+
+  window.submitRaiseTicket = async function () {
+    var feedback = (document.getElementById('ticketFeedback').value || '').trim();
+    var errEl = document.getElementById('ticketError');
+    errEl.textContent = '';
+    if (!feedback) {
+      errEl.textContent = 'Please enter feedback before submitting.';
+      return;
+    }
+    var fd = new FormData();
+    fd.append('feedback', feedback);
+    fd.append('csrf_token', csrfToken());
+    try {
+      var resp = await fetch('/tickets/raise', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': csrfToken() },
+        body: fd,
+      });
+      var data = await resp.json();
+      if (resp.ok && data.ok) {
+        bootstrap.Modal.getInstance(document.getElementById('raiseTicketModal'))?.hide();
+        // Show a brief success toast
+        var toast = document.createElement('div');
+        toast.className = 'position-fixed bottom-0 end-0 m-3 toast align-items-center text-bg-success border-0 show';
+        toast.setAttribute('role', 'alert');
+        toast.innerHTML = '<div class="d-flex"><div class="toast-body"><i class="bi bi-check-circle me-2"></i>Ticket <strong>' + data.ticket_id + '</strong> raised successfully.</div><button type="button" class="btn-close btn-close-white me-2 m-auto" onclick="this.closest(\'.toast\').remove()"></button></div>';
+        document.body.appendChild(toast);
+        setTimeout(function(){ toast.remove(); }, 4000);
+      } else {
+        errEl.textContent = data.error || 'Failed to submit ticket. Please try again.';
+      }
+    } catch (e) {
+      errEl.textContent = 'Network error. Please try again.';
+    }
+  };
+})();
+</script>
+
 <!-- Session Expiry Warning Modal -->
 <div class="modal fade" id="sessionModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
   <div class="modal-dialog modal-sm">

@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Tickets Raised — OxyPC{% endblock %}
+{% block page_title %}Tickets Raised{% endblock %}
+{% block content %}
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    {% if not tickets %}
+    <div class="text-center text-muted py-5">
+      <i class="bi bi-ticket-detailed fs-1 d-block mb-2 opacity-25"></i>
+      <p class="mb-1">No tickets raised yet.</p>
+      <p class="small">Click <strong>Raise Ticket</strong> in the top bar to log a new feedback.</p>
+    </div>
+    {% else %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.84rem">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3" style="width:110px">Ticket ID</th>
+            <th style="width:90px">Status</th>
+            <th style="width:170px">Raised On</th>
+            <th style="width:120px">Raised By</th>
+            <th>Feedback</th>
+            <th style="min-width:160px">Notes</th>
+            <th style="width:80px">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in tickets %}
+          <tr id="row-{{ t.ticket_id }}">
+            <td class="ps-3 font-monospace fw-semibold text-secondary">{{ t.ticket_id }}</td>
+            <td>
+              {% if t.status == 'Open' %}
+              <span class="badge bg-success">Open</span>
+              {% else %}
+              <span class="badge bg-secondary">Closed</span>
+              {% endif %}
+            </td>
+            <td>
+              {{ t.raised_on }}
+              <span class="badge bg-{{ t.age_cls }} ms-1 small">{{ t.age_label }}</span>
+            </td>
+            <td>{{ t.raised_by }}</td>
+            <td style="max-width:320px">
+              <div style="white-space:pre-wrap;word-break:break-word;max-height:80px;overflow-y:auto">{{ t.feedback }}</div>
+            </td>
+            <td style="max-width:180px">
+              {% if t.notes %}
+              <span class="text-muted small" style="white-space:pre-wrap;word-break:break-word">{{ t.notes }}</span>
+              {% else %}
+              <span class="text-muted small fst-italic">No notes yet</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if t.status == 'Open' %}
+              <button class="btn btn-sm btn-outline-danger py-0 px-2"
+                      onclick="closeTicket('{{ t.ticket_id }}')"
+                      title="Mark as Closed">
+                <i class="bi bi-x-circle me-1"></i>Close
+              </button>
+              {% else %}
+              <span class="text-muted small">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+function csrfToken() {
+  return document.cookie.split('; ').find(c => c.startsWith('csrf_token='))?.split('=')[1] || '';
+}
+
+async function closeTicket(ticketId) {
+  if (!confirm('Mark ticket ' + ticketId + ' as Closed?')) return;
+  const fd = new FormData();
+  fd.append('csrf_token', csrfToken());
+  const resp = await fetch(`/tickets/${ticketId}/close`, {
+    method: 'POST',
+    headers: { 'X-CSRF-Token': csrfToken() },
+    body: fd,
+  });
+  if (resp.ok) {
+    location.reload();
+  } else {
+    const data = await resp.json().catch(() => ({}));
+    alert(data.error || 'Failed to close ticket.');
+  }
+}
+</script>
+{% endblock %}

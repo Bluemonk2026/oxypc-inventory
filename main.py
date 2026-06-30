@@ -91,6 +91,7 @@ from routers.spare_parts import router as spare_parts_router
 from routers.reports import router as reports_router
 from routers.master import router as master_router
 import models.role_permissions  # ensures tables are in Base.metadata for db_validator
+import models.ticket  # ensures tickets table is created on startup
 from routers.bulk_upload import router as bulk_upload_router
 from routers.cosmetic import router as cosmetic_router
 from routers.workid_status import router as workid_status_router
@@ -123,6 +124,7 @@ from routers.crm_purchase_orders import router as crm_purchase_orders_router
 from routers.accounts import router as accounts_router
 from routers.crm_reports import router as crm_reports_router
 from routers.crm_assign_leads import router as crm_assign_leads_router
+from routers.tickets import router as tickets_router
 from routers.settings import router as settings_router
 from routers.trash import router as trash_router
 from routers.notifications import router as notifications_router
@@ -177,6 +179,7 @@ app.include_router(crm_purchase_orders_router)
 app.include_router(accounts_router)
 app.include_router(crm_reports_router)
 app.include_router(crm_assign_leads_router)
+app.include_router(tickets_router)
 app.include_router(settings_router)
 app.include_router(trash_router)
 app.include_router(notifications_router)

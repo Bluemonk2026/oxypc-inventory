@@ -138,11 +138,8 @@
             <td>{% if gdoc.get('eway_file') %}<a href="/uploads/parts_grn/{{ gdoc.eway_file }}" target="_blank" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1"><i class="bi bi-file-earmark"></i></a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td>
               <div class="d-flex gap-1 flex-wrap">
-                <a href="/spare-parts/purchase?part_id={{ part.id }}"
-                   class="btn btn-xs btn-outline-success btn-sm py-0 px-2"
-                   title="Record Purchase">
-                  <i class="bi bi-box-arrow-in-down"></i> Buy
-                </a>
+                <a href="/spare-parts/{{ part.id }}/edit"
+                   class="btn btn-xs btn-outline-primary btn-sm py-0 px-2">View</a>
                 <form method="post" action="/spare-parts/{{ part.id }}/procure" class="d-inline">
                   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                   <button class="btn btn-xs btn-outline-info btn-sm py-0 px-2" title="Send to Sourcing">Procure</button>

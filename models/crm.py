@@ -451,6 +451,3 @@ class CRMLeadCall(Base):
     created_at        = Column(DateTime,    default=app_now)
 
     lead = relationship("CRMLead", back_populates="calls")
-
-    contact = relationship("CRMContact", foreign_keys=[contact_id])
-    dealer  = relationship("Dealer",     foreign_keys=[dealer_id])

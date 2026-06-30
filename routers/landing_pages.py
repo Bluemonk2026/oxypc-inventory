@@ -70,6 +70,9 @@ NAV_PAGE_TITLES = [
     ("report_overdue",       "Overdue Devices",               "Overdue Devices",               "/reports/overdue"),
     ("report_receivables",   "Receivables",                   "Receivables",                   "/reports/receivables"),
     ("market",               "Market Intel",                  "Market Intel",                  "/market"),
+    # ── ADMIN (admin-only) ─────────────────────────────────────────────────
+    ("qa",                   "QA Dashboard",                  "QA Dashboard",                  "/qa/"),
+    ("manuals",              "Manuals",                       "Manuals",                       "/manuals/"),
 ]
 
 

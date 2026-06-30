@@ -169,6 +169,47 @@
       </a></li>
       {% endif %}
 
+      {# ── INVENTORY LOCATIONS ──────────────────────────────────────────── #}
+      {% set inv_loc_active = '/locations/' in request.url.path or request.url.path.startswith('/trash') %}
+      {% if has_perm(role,'locations','enable') or has_perm(role,'location_gaps','enable') or has_perm(role,'location_audit','enable') or has_perm(role,'location_master','enable') or has_perm(role,'location_trash','enable') %}
+      <li class="nav-item">
+        <a href="#invLocCollapse" class="nav-link d-flex align-items-center {% if inv_loc_active %}active{% endif %}"
+           data-bs-toggle="collapse" role="button"
+           aria-expanded="{{ 'true' if inv_loc_active else 'false' }}" aria-controls="invLocCollapse">
+          <i class="bi bi-geo-alt me-2"></i> Inventory Locations
+          <i class="bi bi-chevron-down ms-auto small transition-icon"></i>
+        </a>
+        <div class="collapse {% if inv_loc_active %}show{% endif %}" id="invLocCollapse">
+          <ul class="nav flex-column ps-3 pb-1">
+            {% if has_perm(role,'locations','enable') %}
+            <li><a href="/locations/dashboard" class="nav-link py-1 small {% if '/locations/dashboard' in request.url.path %}active{% endif %}">
+              <i class="bi bi-boxes me-2"></i> Location Map
+            </a></li>
+            {% endif %}
+            {% if has_perm(role,'location_gaps','enable') %}
+            <li><a href="/locations/gaps" class="nav-link py-1 small {% if '/locations/gaps' in request.url.path %}active{% endif %}">
+              <i class="bi bi-exclamation-triangle me-2"></i> Gap Alerts
+            </a></li>
+            {% endif %}
+            {% if has_perm(role,'location_audit','enable') %}
+            <li><a href="/locations/audit" class="nav-link py-1 small {% if '/locations/audit' in request.url.path %}active{% endif %}">
+              <i class="bi bi-clipboard-check me-2"></i> Physical Audit
+            </a></li>
+            {% endif %}
+            {% if has_perm(role,'location_master','enable') %}
+            <li><a href="/locations/master" class="nav-link py-1 small {% if '/locations/master' in request.url.path %}active{% endif %}">
+              <i class="bi bi-geo-alt me-2"></i> Manage Locations
+            </a></li>
+            {% endif %}
+            {% if has_perm(role,'location_trash','enable') %}
+            <li><a href="/trash" class="nav-link py-1 small {% if request.url.path.startswith('/trash') %}active{% endif %}">
+              <i class="bi bi-trash3 me-2 text-danger"></i> Trash
+            </a></li>
+            {% endif %}
+          </ul>
+        </div>
+      </li>
+      {% endif %}
 
       {# ── CRM ─────────────────────────────────────────────────────────── #}
       {% if any_perm(role,'crm_contacts','crm_sourcing','crm_sales_opp','crm_price_matrix','crm_purchase_orders','crm_analytics','crm_assign_leads') %}
@@ -405,49 +446,7 @@
       </a></li>
       {% endif %}
 
-      {# ── INVENTORY LOCATIONS accordion (moved below Application Settings) #}
-      {% set inv_loc_active = '/locations/' in request.url.path or request.url.path.startswith('/trash') %}
-      {% if has_perm(role,'locations','enable') or has_perm(role,'location_gaps','enable') or has_perm(role,'location_audit','enable') or has_perm(role,'location_master','enable') or has_perm(role,'location_trash','enable') %}
-      <li class="nav-item">
-        <a href="#invLocCollapse" class="nav-link d-flex align-items-center {% if inv_loc_active %}active{% endif %}"
-           data-bs-toggle="collapse" role="button"
-           aria-expanded="{{ 'true' if inv_loc_active else 'false' }}" aria-controls="invLocCollapse">
-          <i class="bi bi-geo-alt me-2"></i> Inventory Locations
-          <i class="bi bi-chevron-down ms-auto small transition-icon"></i>
-        </a>
-        <div class="collapse {% if inv_loc_active %}show{% endif %}" id="invLocCollapse">
-          <ul class="nav flex-column ps-3 pb-1">
-            {% if has_perm(role,'locations','enable') %}
-            <li><a href="/locations/dashboard" class="nav-link py-1 small {% if '/locations/dashboard' in request.url.path %}active{% endif %}">
-              <i class="bi bi-boxes me-2"></i> Location Map
-            </a></li>
-            {% endif %}
-            {% if has_perm(role,'location_gaps','enable') %}
-            <li><a href="/locations/gaps" class="nav-link py-1 small {% if '/locations/gaps' in request.url.path %}active{% endif %}">
-              <i class="bi bi-exclamation-triangle me-2"></i> Gap Alerts
-            </a></li>
-            {% endif %}
-            {% if has_perm(role,'location_audit','enable') %}
-            <li><a href="/locations/audit" class="nav-link py-1 small {% if '/locations/audit' in request.url.path %}active{% endif %}">
-              <i class="bi bi-clipboard-check me-2"></i> Physical Audit
-            </a></li>
-            {% endif %}
-            {% if has_perm(role,'location_master','enable') %}
-            <li><a href="/locations/master" class="nav-link py-1 small {% if '/locations/master' in request.url.path %}active{% endif %}">
-              <i class="bi bi-geo-alt me-2"></i> Manage Locations
-            </a></li>
-            {% endif %}
-            {% if has_perm(role,'location_trash','enable') %}
-            <li><a href="/trash" class="nav-link py-1 small {% if request.url.path.startswith('/trash') %}active{% endif %}">
-              <i class="bi bi-trash3 me-2 text-danger"></i> Trash
-            </a></li>
-            {% endif %}
-          </ul>
-        </div>
-      </li>
-      {% endif %}
-
-      {# ── OPTIONAL accordion (moved below Inventory Locations) ─────────── #}
+      {# ── OPTIONAL accordion ───────────────────────────────────────────── #}
       {% set optional_active = '/purchase' in request.url.path or '/ram' in request.url.path or '/consume' in request.url.path %}
       {% if has_perm(role,'spare_parts_purchase','enable') or has_perm(role,'parts_tracking','enable') or has_perm(role,'parts_consumption','enable') %}
       <li class="nav-item">

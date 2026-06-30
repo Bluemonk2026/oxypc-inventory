@@ -113,6 +113,9 @@ PERM_MODULES = [
     ("report_overdue",       "Overdue Devices"),
     ("report_receivables",   "Receivables"),
     ("market",               "Market Intel"),
+    # ── ADMIN (admin-only) ────────────────────────────────────────────────
+    ("qa",                   "QA Dashboard"),
+    ("manuals",              "Manuals"),
 ]
 
 PERM_ACTIONS = [

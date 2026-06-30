@@ -66,9 +66,14 @@ _ROLE_DISPLAY = {
 }
 
 
+def _prettify_role(val: str) -> str:
+    """'trc_manager' → 'TRC Manager': words ≤3 chars uppercased, longer words title-cased."""
+    return " ".join(w.upper() if len(w) <= 3 else w.capitalize() for w in val.replace("_", " ").split())
+
+
 def _role_display(role):
     val = str(getattr(role, "value", role))
-    return _ROLE_DISPLAY.get(val, val)
+    return _ROLE_DISPLAY.get(val, _prettify_role(val))
 
 
 templates.env.globals["role_display"] = _role_display

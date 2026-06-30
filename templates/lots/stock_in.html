@@ -43,16 +43,22 @@
 </div>
 <div class="d-flex justify-content-between align-items-center mb-2">
   <span class="text-muted small">{{ devices|length }} device(s) in Stock In</span>
-  <button type="button" id="bulkTransferBtn" class="btn btn-sm btn-primary" disabled
-          data-bs-toggle="modal" data-bs-target="#bulkTransferModal">
-    <i class="bi bi-arrow-left-right me-1"></i>Stock Transfer (<span id="selCount">0</span>)
-  </button>
+  <div class="d-flex gap-2">
+    <button type="button" id="assignBucketBtn" class="btn btn-sm btn-success" disabled
+            data-bs-toggle="modal" data-bs-target="#addToBucketModal">
+      <i class="bi bi-box me-1"></i>Assign Bucket/Carton (<span id="bktSelCount">0</span>)
+    </button>
+    <button type="button" id="bulkTransferBtn" class="btn btn-sm btn-primary" disabled
+            data-bs-toggle="modal" data-bs-target="#bulkTransferModal">
+      <i class="bi bi-arrow-left-right me-1"></i>Stock Transfer (<span id="selCount">0</span>)
+    </button>
+  </div>
 </div>
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
     <div class="table-responsive">
       <table id="stockTable" class="table table-hover mb-0 small">
-        <thead class="table-dark"><tr><th style="width:32px"><input type="checkbox" id="selectAllStock" class="form-check-input"></th><th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Assigned User</th><th>Action</th></tr></thead>
+        <thead class="table-dark"><tr><th style="width:32px"><input type="checkbox" id="selectAllStock" class="form-check-input"></th><th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Inside Bucket</th><th>Assigned User</th><th>Action</th></tr></thead>
         <tbody>
           {% for device, lot_number in devices %}
           <tr>
@@ -64,6 +70,7 @@
             <td>{{ (device.ram_gb|string ~ 'GB') if device.ram_gb else '—' }}</td>
             <td>{{ (device.storage_gb|string ~ 'GB') if device.storage_gb else '—' }}</td>
             <td>{{ device.grade or '—' }}</td>
+            <td class="bkt-cell" data-barcode="{{ device.barcode }}"><span class="text-muted">—</span></td>
             <td>{% set dept = assigned_dept_map.get(device.id|string) if assigned_dept_map is defined else None %}{% if dept %}<span class="badge bg-secondary">{{ dept }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td class="text-nowrap">
               <form method="post" action="/stock/move-to-trc" class="d-inline">
@@ -101,6 +108,25 @@
   <p class="text-center text-muted small mt-1">{{ total }} device(s) in stage &bull; Page {{ page }} of {{ total_pages }}</p>
 </nav>
 {% endif %}
+<!-- Bucket / Carton table -->
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+  <h6 class="fw-bold mb-0"><i class="bi bi-box me-2"></i>Buckets / Cartons</h6>
+</div>
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small">
+        <thead class="table-secondary">
+          <tr><th>Bucket Number</th><th>Name</th><th>Location</th><th>Category</th><th>Qty</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="bucketTbody">
+          <tr><td colspan="6" class="text-center text-muted py-3">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <!-- Stock Validate modal (#1) -->
 <div class="modal fade" id="validateModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
@@ -180,16 +206,99 @@
     </form>
   </div>
 </div>
+<!-- Add to Bucket modal -->
+<div class="modal fade" id="addToBucketModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-box me-2"></i>Add to Bucket / Carton</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold small text-muted">Selected Tag Numbers</label>
+          <div id="bktTagList" class="border rounded p-2 bg-light font-monospace small" style="max-height:140px;overflow-y:auto;"></div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Bucket Quantity</label>
+          <input type="number" id="bktQty" class="form-control" readonly>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Bucket Name</label>
+          <input type="text" id="bktName" class="form-control" placeholder="e.g. Carton A1">
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Bucket Location</label>
+          <select id="bktLocation" class="form-select">
+            <option value="">— Select Location —</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" id="bktSubmitBtn" class="btn btn-success"><i class="bi bi-check-lg me-1"></i>Create Bucket</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bucket Tags modal -->
+<div class="modal fade" id="bucketTagsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-tags me-2"></i>Tags in Bucket <span id="bktTagsNum"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="bktTagsBody" class="font-monospace small">Loading…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Bucket modal -->
+<div class="modal fade" id="editBucketModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Edit Bucket</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editBktId">
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Name</label>
+          <input type="text" id="editBktName" class="form-control">
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Location</label>
+          <select id="editBktLocation" class="form-select">
+            <option value="">— Select Location —</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" id="editBktSubmit" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 {% block scripts %}
 <script>
 $(document).ready(function(){ $('#stockTable').DataTable({paging:false}); });
 
+function getCsrf(){ var c=document.cookie.split('; ').find(function(r){return r.startsWith('csrf_token=');}); return c ? c.split('=')[1] : ''; }
+
 function selectedStockBarcodes(){ return Array.from(document.querySelectorAll('.stockChk:checked')).map(function(c){return c.value;}); }
 function updateStockSel(){
   var n = selectedStockBarcodes().length;
-  $('#selCount').text(n);
+  $('#selCount').text(n); $('#bktSelCount').text(n);
   $('#bulkTransferBtn').prop('disabled', n === 0);
+  $('#assignBucketBtn').prop('disabled', n === 0);
 }
 $('#stockTable').on('change', '#selectAllStock', function(){
   var ck = this.checked;
@@ -215,5 +324,140 @@ if (btm) { btm.addEventListener('show.bs.modal', function(){
     var inp = document.createElement('input'); inp.type='hidden'; inp.name='barcodes'; inp.value=bc; wrap.appendChild(inp);
   });
 });}
+
+// ── Bucket feature ───────────────────────────────────────────────────────────
+
+var _warehouses = [];
+fetch('/api/bucket-warehouses').then(function(r){return r.json();}).then(function(list){
+  _warehouses = list;
+  var sel = document.getElementById('bktLocation');
+  var sel2 = document.getElementById('editBktLocation');
+  list.forEach(function(w){
+    var o = new Option(w, w); sel.add(o.cloneNode(true));
+    if(sel2){ sel2.add(new Option(w, w)); }
+  });
+});
+
+// Populate "Inside Bucket" column on load
+fetch('/api/buckets/device-map?status=stock_in').then(function(r){return r.json();}).then(function(map){
+  document.querySelectorAll('.bkt-cell').forEach(function(cell){
+    var bc = cell.dataset.barcode;
+    if(map[bc]){ cell.innerHTML = '<span class="badge bg-warning text-dark">'+map[bc]+'</span>'; }
+  });
+});
+
+// Load bucket table
+function loadBucketTable(){
+  fetch('/api/buckets?status=stock_in').then(function(r){return r.json();}).then(function(buckets){
+    var tbody = document.getElementById('bucketTbody');
+    if(!buckets.length){
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No buckets created yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = buckets.map(function(b){
+      return '<tr>'+
+        '<td><a href="#" class="font-monospace fw-bold text-decoration-none view-bkt-tags" data-id="'+b.id+'" data-number="'+b.bucket_number+'">'+b.bucket_number+'</a></td>'+
+        '<td>'+(b.name||'—')+'</td>'+
+        '<td>'+(b.location||'—')+'</td>'+
+        '<td>'+(b.category||'—')+'</td>'+
+        '<td><span class="badge bg-secondary">'+b.device_count+'</span></td>'+
+        '<td class="text-nowrap">'+
+          '<button class="btn btn-xs btn-outline-secondary btn-sm py-0 px-2 me-1 edit-bkt" data-id="'+b.id+'" data-name="'+(b.name||'')+'" data-location="'+(b.location||'')+'"><i class="bi bi-pencil"></i></button>'+
+          '<button class="btn btn-xs btn-outline-warning btn-sm py-0 px-2 move-bkt-trc" data-id="'+b.id+'" data-number="'+b.bucket_number+'">Move to TRC</button>'+
+        '</td>'+
+      '</tr>';
+    }).join('');
+
+    // View tags
+    tbody.querySelectorAll('.view-bkt-tags').forEach(function(el){
+      el.addEventListener('click', function(e){
+        e.preventDefault();
+        var id=this.dataset.id, num=this.dataset.number;
+        document.getElementById('bktTagsNum').textContent = num;
+        document.getElementById('bktTagsBody').textContent = 'Loading…';
+        new bootstrap.Modal(document.getElementById('bucketTagsModal')).show();
+        fetch('/api/buckets/'+id+'/tags').then(function(r){return r.json();}).then(function(tags){
+          if(!tags.length){ document.getElementById('bktTagsBody').textContent='No devices.'; return; }
+          document.getElementById('bktTagsBody').innerHTML = tags.map(function(t){
+            return '<div class="py-1 border-bottom"><code>'+t.barcode+'</code> <span class="text-muted">'+t.brand+' '+t.model+'</span> <span class="badge bg-light text-dark">'+t.grade+'</span></div>';
+          }).join('');
+        });
+      });
+    });
+
+    // Edit bucket
+    tbody.querySelectorAll('.edit-bkt').forEach(function(el){
+      el.addEventListener('click', function(){
+        document.getElementById('editBktId').value = this.dataset.id;
+        document.getElementById('editBktName').value = this.dataset.name;
+        document.getElementById('editBktLocation').value = this.dataset.location;
+        new bootstrap.Modal(document.getElementById('editBucketModal')).show();
+      });
+    });
+
+    // Move to TRC
+    tbody.querySelectorAll('.move-bkt-trc').forEach(function(el){
+      el.addEventListener('click', function(){
+        var id=this.dataset.id, num=this.dataset.number;
+        if(!confirm('Move Bucket '+num+' to TRC Production?')) return;
+        var fd=new FormData(); fd.append('csrf_token', getCsrf());
+        fetch('/buckets/'+id+'/move-to-trc',{method:'POST',body:fd})
+          .then(function(r){return r.json();})
+          .then(function(d){
+            if(d.ok){ loadBucketTable(); fetch('/api/buckets/device-map?status=stock_in').then(function(r){return r.json();}).then(function(map){ document.querySelectorAll('.bkt-cell').forEach(function(cell){ if(!map[cell.dataset.barcode]) cell.innerHTML='<span class="text-muted">—</span>'; }); }); }
+          });
+      });
+    });
+  });
+}
+loadBucketTable();
+
+// Add to Bucket modal — populate on open
+document.getElementById('addToBucketModal').addEventListener('show.bs.modal', function(){
+  var bcs = selectedStockBarcodes();
+  document.getElementById('bktQty').value = bcs.length;
+  document.getElementById('bktTagList').innerHTML = bcs.map(function(bc){ return '<div>'+bc+'</div>'; }).join('');
+  document.getElementById('bktName').value = '';
+  document.getElementById('bktLocation').value = '';
+});
+
+// Submit create bucket
+document.getElementById('bktSubmitBtn').addEventListener('click', function(){
+  var bcs = selectedStockBarcodes();
+  var name = document.getElementById('bktName').value.trim();
+  var location = document.getElementById('bktLocation').value;
+  if(!bcs.length){ alert('No devices selected.'); return; }
+  var fd = new FormData();
+  fd.append('csrf_token', getCsrf());
+  fd.append('barcodes', bcs.join(','));
+  fd.append('name', name);
+  fd.append('location', location);
+  fetch('/buckets/create', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
+    if(d.ok){
+      bootstrap.Modal.getInstance(document.getElementById('addToBucketModal')).hide();
+      loadBucketTable();
+      // Update Inside Bucket cells
+      bcs.forEach(function(bc){
+        var cell = document.querySelector('.bkt-cell[data-barcode="'+bc+'"]');
+        if(cell) cell.innerHTML = '<span class="badge bg-warning text-dark">'+d.bucket_number+'</span>';
+      });
+    }
+  });
+});
+
+// Submit edit bucket
+document.getElementById('editBktSubmit').addEventListener('click', function(){
+  var id = document.getElementById('editBktId').value;
+  var fd = new FormData();
+  fd.append('csrf_token', getCsrf());
+  fd.append('name', document.getElementById('editBktName').value);
+  fd.append('location', document.getElementById('editBktLocation').value);
+  fetch('/buckets/'+id+'/edit', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
+    if(d.ok){
+      bootstrap.Modal.getInstance(document.getElementById('editBucketModal')).hide();
+      loadBucketTable();
+    }
+  });
+});
 </script>
 {% endblock %}

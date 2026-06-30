@@ -132,6 +132,7 @@ from routers.trash import router as trash_router
 from routers.notifications import router as notifications_router
 from routers.manuals import router as manuals_router
 from routers.landing_pages import router as landing_pages_router
+from routers.buckets import router as buckets_router
 from routers.api import router as api_router
 from routers.api_v1 import router as api_v1_router
 from services.event_bus import subscribe, EventType
@@ -190,6 +191,7 @@ app.include_router(notifications_router)
 app.include_router(manuals_router)
 app.include_router(landing_pages_router)
 app.include_router(stress_api_router)
+app.include_router(buckets_router)
 
 
 # ── Error UI: per-code message + solution, JSON for API/AJAX else HTML modal ──

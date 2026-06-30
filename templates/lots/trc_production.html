@@ -52,6 +52,112 @@
 </ul></nav>
 {% endif %}
 
+<!-- Bucket Allocation section -->
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+  <h6 class="fw-bold mb-0"><i class="bi bi-box me-2"></i>Bucket Allocation</h6>
+</div>
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small">
+        <thead class="table-secondary">
+          <tr><th>Bucket Number</th><th>Location</th><th>Category</th><th>Bucket Qty</th><th>Received Qty</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="trcBucketTbody">
+          <tr><td colspan="7" class="text-center text-muted py-3">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Bucket Tags modal (TRC) -->
+<div class="modal fade" id="trcBktTagsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-tags me-2"></i>Tags in Bucket <span id="trcBktTagsNum"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="trcBktTagsBody" class="font-monospace small">Loading…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Validate Bucket modal -->
+<div class="modal fade" id="bktValidateModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-check2-square me-2"></i>Validate Bucket</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="valBktId">
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Bucket Number</label>
+          <input type="text" id="valBktNum" class="form-control" readonly>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Quantity in Bucket</label>
+          <input type="number" id="valBktQty" class="form-control" readonly>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Quantity Received</label>
+          <input type="number" id="valQtyReceived" class="form-control" min="0" placeholder="Enter received count">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" id="valBktSubmit" class="btn btn-success"><i class="bi bi-check-lg me-1"></i>Submit</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Assign Bucket modal -->
+<div class="modal fade" id="bktAssignModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-person-check me-2"></i>Assign Bucket</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="asgBktId">
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Bucket Number</label>
+          <input type="text" id="asgBktNum" class="form-control" readonly>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Total Tag Numbers</label>
+          <input type="number" id="asgBktCount" class="form-control" readonly>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Select Repair Level</label>
+          <select id="asgRepairLevel" class="form-select">
+            <option value="">— Select Level —</option>
+            <option value="L1 Engineer">L1 Engineer</option>
+            <option value="L2 Engineer">L2 Engineer</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Select Engineer</label>
+          <select id="asgEngineer" class="form-select" disabled>
+            <option value="">— Select Level first —</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" id="asgBktSubmit" class="btn btn-primary"><i class="bi bi-send me-1"></i>Assign</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Stock Validate modal (same as Stock Inward) -->
 <div class="modal fade" id="validateModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
@@ -106,5 +212,125 @@ if (vm) { vm.addEventListener('show.bs.modal', function(e){
   document.getElementById('v_bc').textContent = b.getAttribute('data-barcode');
   document.getElementById('v_model').textContent = b.getAttribute('data-model') || '—';
 });}
+
+// ── Bucket Allocation ────────────────────────────────────────────────────────
+
+function getCsrf(){ var c=document.cookie.split('; ').find(function(r){return r.startsWith('csrf_token=');}); return c ? c.split('=')[1] : ''; }
+
+var _engineers = [];
+fetch('/api/bucket-engineers').then(function(r){return r.json();}).then(function(list){ _engineers = list; });
+
+function loadTrcBuckets(){
+  fetch('/api/buckets?status=trc_pending,validated').then(function(r){return r.json();}).then(function(buckets){
+    var tbody = document.getElementById('trcBucketTbody');
+    if(!buckets.length){
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No buckets received from Stock In yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = buckets.map(function(b){
+      var statusBadge = b.status === 'validated'
+        ? '<span class="badge bg-success">Validated</span>'
+        : '<span class="badge bg-secondary">Not Validated</span>';
+      var receivedQty = b.received_qty !== null && b.received_qty !== undefined ? b.received_qty : '—';
+      return '<tr>'+
+        '<td><a href="#" class="font-monospace fw-bold text-decoration-none trc-view-tags" data-id="'+b.id+'" data-number="'+b.bucket_number+'">'+b.bucket_number+'</a></td>'+
+        '<td>'+(b.location||'—')+'</td>'+
+        '<td>'+(b.category||'—')+'</td>'+
+        '<td><span class="badge bg-secondary">'+b.device_count+'</span></td>'+
+        '<td>'+receivedQty+'</td>'+
+        '<td>'+statusBadge+'</td>'+
+        '<td class="text-nowrap">'+
+          '<button class="btn btn-xs btn-outline-success btn-sm py-0 px-2 me-1 trc-validate-bkt" data-id="'+b.id+'" data-number="'+b.bucket_number+'" data-qty="'+b.device_count+'">Validate</button>'+
+          '<button class="btn btn-xs btn-outline-primary btn-sm py-0 px-2 trc-assign-bkt" data-id="'+b.id+'" data-number="'+b.bucket_number+'" data-count="'+b.device_count+'">Assign</button>'+
+        '</td>'+
+      '</tr>';
+    }).join('');
+
+    // View tags
+    tbody.querySelectorAll('.trc-view-tags').forEach(function(el){
+      el.addEventListener('click', function(e){
+        e.preventDefault();
+        var id=this.dataset.id, num=this.dataset.number;
+        document.getElementById('trcBktTagsNum').textContent = num;
+        document.getElementById('trcBktTagsBody').textContent = 'Loading…';
+        new bootstrap.Modal(document.getElementById('trcBktTagsModal')).show();
+        fetch('/api/buckets/'+id+'/tags').then(function(r){return r.json();}).then(function(tags){
+          if(!tags.length){ document.getElementById('trcBktTagsBody').textContent='No devices.'; return; }
+          document.getElementById('trcBktTagsBody').innerHTML = tags.map(function(t){
+            return '<div class="py-1 border-bottom"><code>'+t.barcode+'</code> <span class="text-muted">'+t.brand+' '+t.model+'</span> <span class="badge bg-light text-dark">'+t.grade+'</span></div>';
+          }).join('');
+        });
+      });
+    });
+
+    // Validate bucket
+    tbody.querySelectorAll('.trc-validate-bkt').forEach(function(el){
+      el.addEventListener('click', function(){
+        document.getElementById('valBktId').value = this.dataset.id;
+        document.getElementById('valBktNum').value = this.dataset.number;
+        document.getElementById('valBktQty').value = this.dataset.qty;
+        document.getElementById('valQtyReceived').value = '';
+        new bootstrap.Modal(document.getElementById('bktValidateModal')).show();
+      });
+    });
+
+    // Assign bucket
+    tbody.querySelectorAll('.trc-assign-bkt').forEach(function(el){
+      el.addEventListener('click', function(){
+        document.getElementById('asgBktId').value = this.dataset.id;
+        document.getElementById('asgBktNum').value = this.dataset.number;
+        document.getElementById('asgBktCount').value = this.dataset.count;
+        document.getElementById('asgRepairLevel').value = '';
+        document.getElementById('asgEngineer').innerHTML = '<option value="">— Select Level first —</option>';
+        document.getElementById('asgEngineer').disabled = true;
+        new bootstrap.Modal(document.getElementById('bktAssignModal')).show();
+      });
+    });
+  });
+}
+loadTrcBuckets();
+
+// Validate submit
+document.getElementById('valBktSubmit').addEventListener('click', function(){
+  var id = document.getElementById('valBktId').value;
+  var qty = document.getElementById('valQtyReceived').value;
+  if(!qty){ alert('Please enter quantity received.'); return; }
+  var fd = new FormData(); fd.append('csrf_token', getCsrf()); fd.append('qty_received', qty);
+  fetch('/buckets/'+id+'/validate', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
+    if(d.ok){ bootstrap.Modal.getInstance(document.getElementById('bktValidateModal')).hide(); loadTrcBuckets(); }
+  });
+});
+
+// Repair level → filter engineers
+document.getElementById('asgRepairLevel').addEventListener('change', function(){
+  var level = this.value;
+  var roleKey = level === 'L1 Engineer' ? 'l1_engineer' : level === 'L2 Engineer' ? 'l2_engineer' : '';
+  var sel = document.getElementById('asgEngineer');
+  sel.innerHTML = '<option value="">— Select Engineer —</option>';
+  if(!roleKey){ sel.disabled=true; return; }
+  var filtered = _engineers.filter(function(e){ return e.role === roleKey; });
+  filtered.forEach(function(e){ sel.add(new Option(e.name, e.id)); });
+  sel.disabled = filtered.length === 0;
+});
+
+// Assign submit
+document.getElementById('asgBktSubmit').addEventListener('click', function(){
+  var id = document.getElementById('asgBktId').value;
+  var dept = document.getElementById('asgRepairLevel').value;
+  var engId = document.getElementById('asgEngineer').value;
+  if(!dept){ alert('Please select repair level.'); return; }
+  if(!engId){ alert('Please select an engineer.'); return; }
+  var fd = new FormData();
+  fd.append('csrf_token', getCsrf());
+  fd.append('department', dept);
+  fd.append('assigned_user_id', engId);
+  fetch('/buckets/'+id+'/assign', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
+    if(d.ok){
+      bootstrap.Modal.getInstance(document.getElementById('bktAssignModal')).hide();
+      alert('Assigned '+d.assigned+' device(s) successfully.');
+      loadTrcBuckets();
+    }
+  });
+});
 </script>
 {% endblock %}

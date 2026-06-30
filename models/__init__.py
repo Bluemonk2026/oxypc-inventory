@@ -43,3 +43,4 @@ from .event_log import EventLog
 from .cost_config import CostConfig
 from .notification import Notification
 from .stress import StressTestResult
+from .bucket import Bucket

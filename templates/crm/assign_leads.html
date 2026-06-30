@@ -1,0 +1,798 @@
+{% extends "base.html" %}
+{% block title %}Assign Leads — OxyPC{% endblock %}
+{% block page_title %}Assign Leads{% endblock %}
+{% block content %}
+
+{# ── Filter bar ──────────────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2 px-3">
+    <form method="get" action="/crm/assign-leads" class="row g-2 align-items-end">
+      <div class="col-sm-3">
+        <input type="text" name="q" class="form-control form-control-sm"
+               placeholder="Search Ad Name" value="{{ q }}">
+      </div>
+      <div class="col-sm-3">
+        <input type="text" name="customer" class="form-control form-control-sm"
+               placeholder="Search Customer (name/phone/email)" value="{{ customer }}">
+      </div>
+      <div class="col-sm-3">
+        <select name="assigned" class="form-select form-select-sm">
+          <option value="">All Assigned Users</option>
+          {% for u in all_users %}
+          <option value="{{ u.username }}" {% if assigned == u.username %}selected{% endif %}>
+            {{ u.full_name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-3 d-flex gap-2 align-items-center">
+        <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+        <a href="/crm/assign-leads" class="btn btn-sm btn-outline-secondary">Clear</a>
+        <button type="button" class="btn btn-sm btn-success ms-auto"
+                onclick="showAddGroupModal()">
+          <i class="bi bi-plus-lg me-1"></i>Add Lead Group
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Empty state ─────────────────────────────────────────────────────────── #}
+{% if not groups %}
+<div class="text-center text-muted py-5">
+  <i class="bi bi-megaphone fs-1 d-block mb-2 opacity-25"></i>
+  <p class="mb-0">No lead groups yet.</p>
+  <p class="small">Click <strong>Add Lead Group</strong> to create your first ad campaign group.</p>
+</div>
+{% endif %}
+
+{# ── Accordions ──────────────────────────────────────────────────────────── #}
+<div class="accordion" id="leadsAccordion">
+{% for group in groups %}
+{% set gid = group.id | string %}
+{% set group_leads = leads_by_group.get(gid, []) %}
+
+<div class="accordion-item border rounded mb-2 shadow-sm" id="grp-{{ gid }}">
+  {# Header row: expand toggle (left) + action buttons (right) #}
+  <h2 class="accordion-header d-flex align-items-center" id="gh-{{ gid }}">
+    <button class="accordion-button collapsed py-2 fw-semibold flex-grow-1"
+            type="button" data-bs-toggle="collapse" data-bs-target="#gc-{{ gid }}"
+            aria-expanded="false" aria-controls="gc-{{ gid }}">
+      {{ group.name }}
+      <span class="badge bg-secondary fw-normal ms-2">{{ group_leads | length }} lead{{ 's' if group_leads | length != 1 else '' }}</span>
+    </button>
+    <div class="d-flex align-items-center gap-1 pe-2 flex-shrink-0">
+      <a href="/crm/assign-leads/sample"
+         class="btn btn-outline-teal py-0 px-2" style="font-size:.75rem;line-height:1.6">
+        Sample
+      </a>
+      <button type="button"
+              class="btn btn-outline-primary py-0 px-2" style="font-size:.75rem;line-height:1.6"
+              onclick="showImportModal('{{ gid }}')">
+        Import
+      </button>
+      <button type="button"
+              class="btn btn-sm btn-outline-success py-0 px-1"
+              onclick="showAddLeadModal('{{ gid }}', '{{ group.name | e }}')"
+              title="Add Lead">
+        <i class="bi bi-plus-lg"></i>
+      </button>
+      <button type="button"
+              class="btn btn-sm btn-outline-secondary py-0 px-1"
+              onclick="showEditGroupModal('{{ gid }}', '{{ group.name | e }}')"
+              title="Edit Group Name">
+        <i class="bi bi-pencil"></i>
+      </button>
+    </div>
+  </h2>
+
+  <div id="gc-{{ gid }}" class="accordion-collapse collapse" data-bs-parent="">
+    <div class="accordion-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.82rem">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">Lead ID</th>
+              <th>Date</th>
+              <th>Platform</th>
+              <th>Category</th>
+              <th class="text-center">Units</th>
+              <th>Planning</th>
+              <th>Mode</th>
+              <th>Name</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th>Status</th>
+              <th style="min-width:120px">Remark</th>
+              <th>Assigned</th>
+              <th style="width:110px">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if not group_leads %}
+            <tr>
+              <td colspan="14" class="text-center text-muted py-3 small">
+                No leads yet — click <i class="bi bi-plus-lg"></i> to add one
+              </td>
+            </tr>
+            {% endif %}
+            {% for ld in group_leads %}
+            <tr id="lr-{{ ld.id }}">
+              <td class="ps-3 font-monospace text-muted small">{{ ld.lead_id }}</td>
+              <td>{{ ld.lead_date_display }}</td>
+              <td>{{ ld.platform or '—' }}</td>
+              <td>{{ ld.device_categories_display }}</td>
+              <td class="text-center">{{ ld.units_expected if ld.units_expected else '—' }}</td>
+              <td>{{ ld.planning_to_buy or '—' }}</td>
+              <td>{{ ld.contact_mode or '—' }}</td>
+              <td class="fw-semibold">{{ ld.name or '—' }}</td>
+              <td>{{ ld.phone or '—' }}</td>
+              <td class="text-muted small">{{ ld.email or '—' }}</td>
+              <td>
+                {% if ld.call_status %}
+                <span class="badge bg-{{ ld.status_badge }} small">
+                  {{ ld.call_status | replace('_', ' ') | title }}
+                </span>
+                {% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                  title="{{ ld.full_remark }}">
+                {{ ld.full_remark or '—' }}
+              </td>
+              <td>{{ ld.assigned_to or '—' }}</td>
+              <td>
+                <div class="btn-group btn-group-sm">
+                  <button class="btn btn-outline-primary py-0 px-1"
+                          data-lead='{{ ld | tojson }}'
+                          onclick="showEditLeadModal(this)" title="Edit">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <button class="btn btn-outline-success py-0 px-1"
+                          onclick="showCallModal('{{ ld.id }}', '{{ ld.name | e }}')"
+                          title="Log Call">
+                    <i class="bi bi-telephone"></i>
+                  </button>
+                  <button class="btn btn-outline-info py-0 px-1"
+                          onclick="showHistoryModal('{{ ld.id }}', '{{ ld.name | e }}')"
+                          title="Call History">
+                    <i class="bi bi-clock-history"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endfor %}
+</div>{# /accordion #}
+
+
+{# ═══════════════════════════ MODALS ═══════════════════════════════════════ #}
+
+{# Add Group #}
+<div class="modal fade" id="addGroupModal" tabindex="-1" aria-labelledby="addGroupModalLabel">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title fw-semibold" id="addGroupModalLabel">
+          <i class="bi bi-megaphone me-2"></i>Add Lead Group
+        </h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label small">Group / Ad Name</label>
+        <input type="text" id="newGroupName" class="form-control"
+               placeholder="e.g. Facebook June Campaign" maxlength="200">
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-sm btn-success" onclick="submitAddGroup()">
+          <i class="bi bi-check-lg me-1"></i>Create Group
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Edit Group Name #}
+<div class="modal fade" id="editGroupModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title fw-semibold"><i class="bi bi-pencil me-2"></i>Edit Group Name</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editGroupId">
+        <label class="form-label small">Group / Ad Name</label>
+        <input type="text" id="editGroupName" class="form-control" maxlength="200">
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-sm btn-primary" onclick="submitEditGroup()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Import #}
+<div class="modal fade" id="importModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title fw-semibold"><i class="bi bi-upload me-2"></i>Import Leads</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="importGroupId">
+        <p class="small text-muted mb-3">
+          Download the <a href="/crm/assign-leads/sample">sample CSV</a> to see the correct format,
+          fill it in, then upload here.
+        </p>
+        <input type="file" id="importFile" class="form-control" accept=".csv">
+        <div id="importResult" class="mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-sm btn-primary" onclick="submitImport()">
+          <i class="bi bi-upload me-1"></i>Import
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Add Lead #}
+<div class="modal fade" id="addLeadModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title fw-semibold"><i class="bi bi-person-plus me-2"></i>Add Lead</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="addLeadGroupId">
+        <div class="row g-2">
+          <div class="col-md-6">
+            <label class="form-label form-label-sm mb-1">Lead Group</label>
+            <input type="text" id="addLeadGroupName" class="form-control form-control-sm bg-light" readonly>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm mb-1">Lead Date</label>
+            <input type="date" id="addLeadDate" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm mb-1">Platform</label>
+            <select id="addPlatform" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              {% for p in platforms %}
+              <option value="{{ p }}">{{ p }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm mb-1">Device Category</label>
+            <div class="d-flex gap-3 flex-wrap pt-1">
+              {% for cat in device_categories %}
+              <div class="form-check form-check-sm mb-0">
+                <input class="form-check-input addCat" type="checkbox"
+                       value="{{ cat }}" id="addCat{{ cat | replace(' ','') }}">
+                <label class="form-check-label small" for="addCat{{ cat | replace(' ','') }}">{{ cat }}</label>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Units Expected</label>
+            <input type="number" id="addUnits" class="form-control form-control-sm" min="1">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Planning to Buy</label>
+            <input type="text" id="addPlanning" class="form-control form-control-sm"
+                   placeholder="e.g. This week, July 2026">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Contact Mode</label>
+            <select id="addContactMode" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              {% for m in contact_modes %}
+              <option value="{{ m }}">{{ m }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Customer Name</label>
+            <input type="text" id="addName" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Phone</label>
+            <input type="tel" id="addPhone" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Email</label>
+            <input type="email" id="addEmail" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm mb-1">Assign To</label>
+            <select id="addAssigned" class="form-select form-select-sm">
+              <option value="">— Unassigned —</option>
+              {% for u in all_users %}
+              <option value="{{ u.username }}">{{ u.full_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label form-label-sm mb-1">Full Remark</label>
+            <textarea id="addRemark" class="form-control form-control-sm" rows="2"></textarea>
+          </div>
+        </div>
+        <div id="addLeadError" class="text-danger small mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-sm btn-success" onclick="submitAddLead()">
+          <i class="bi bi-plus-lg me-1"></i>Add Lead
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Edit Lead #}
+<div class="modal fade" id="editLeadModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title fw-semibold"><i class="bi bi-pencil-square me-2"></i>Edit Lead</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editLeadId">
+        <div class="row g-2">
+          <div class="col-md-6">
+            <label class="form-label form-label-sm mb-1">Lead Date</label>
+            <input type="date" id="editLeadDate" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm mb-1">Platform</label>
+            <select id="editPlatform" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              {% for p in platforms %}
+              <option value="{{ p }}">{{ p }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label form-label-sm mb-1">Device Category</label>
+            <div class="d-flex gap-3 flex-wrap pt-1">
+              {% for cat in device_categories %}
+              <div class="form-check form-check-sm mb-0">
+                <input class="form-check-input editCat" type="checkbox"
+                       value="{{ cat }}" id="editCat{{ cat | replace(' ','') }}">
+                <label class="form-check-label small" for="editCat{{ cat | replace(' ','') }}">{{ cat }}</label>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Units Expected</label>
+            <input type="number" id="editUnits" class="form-control form-control-sm" min="1">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Planning to Buy</label>
+            <input type="text" id="editPlanning" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Contact Mode</label>
+            <select id="editContactMode" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              {% for m in contact_modes %}
+              <option value="{{ m }}">{{ m }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Customer Name</label>
+            <input type="text" id="editName" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Phone</label>
+            <input type="tel" id="editPhone" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Email</label>
+            <input type="email" id="editEmail" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm mb-1">Assign To</label>
+            <select id="editAssigned" class="form-select form-select-sm">
+              <option value="">— Unassigned —</option>
+              {% for u in all_users %}
+              <option value="{{ u.username }}">{{ u.full_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label form-label-sm mb-1">Full Remark</label>
+            <textarea id="editRemark" class="form-control form-control-sm" rows="2"></textarea>
+          </div>
+        </div>
+        <div id="editLeadError" class="text-danger small mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-sm btn-primary" onclick="submitEditLead()">
+          <i class="bi bi-check-lg me-1"></i>Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Log Call #}
+<div class="modal fade" id="callModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title fw-semibold">
+          <i class="bi bi-telephone me-2"></i>Log Call —
+          <span id="callLeadName" class="text-primary"></span>
+        </h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="callLeadId">
+        <div class="row g-2">
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Calling Date</label>
+            <input type="date" id="callingDate" class="form-control form-control-sm bg-light" readonly>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Follow-up Date</label>
+            <input type="date" id="followupDate" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Outcome</label>
+            <select id="callOutcome" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              {% for o in outcomes %}
+              <option value="{{ o }}">{{ o | replace('_',' ') | title }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label form-label-sm mb-1">Device Category</label>
+            <div class="d-flex gap-3 flex-wrap pt-1">
+              {% for cat in device_categories %}
+              <div class="form-check form-check-sm mb-0">
+                <input class="form-check-input callCat" type="checkbox"
+                       value="{{ cat }}" id="callCat{{ cat | replace(' ','') }}">
+                <label class="form-check-label small" for="callCat{{ cat | replace(' ','') }}">{{ cat }}</label>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm mb-1">Quantity</label>
+            <input type="number" id="callQty" class="form-control form-control-sm" min="1">
+          </div>
+          <div class="col-12">
+            <label class="form-label form-label-sm mb-1">Full Remarks</label>
+            <textarea id="callRemarks" class="form-control form-control-sm" rows="3"></textarea>
+          </div>
+        </div>
+        <div id="callError" class="text-danger small mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-sm btn-success" onclick="submitCall()">
+          <i class="bi bi-check-lg me-1"></i>Submit
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Call History #}
+<div class="modal fade" id="historyModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title fw-semibold">
+          <i class="bi bi-clock-history me-2"></i>Call History —
+          <span id="historyLeadName" class="text-primary"></span>
+        </h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0" id="historyContent">
+        <div class="text-center py-4">
+          <span class="spinner-border spinner-border-sm text-secondary"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+{# ══════════════════════════════ JAVASCRIPT ═══════════════════════════════ #}
+<script>
+/* ── helpers ── */
+function csrfToken() {
+  return document.cookie.split('; ').find(c => c.startsWith('csrf_token='))?.split('=')[1] || '';
+}
+
+async function apiFetch(url, opts = {}) {
+  const resp = await fetch(url, {
+    headers: { 'X-CSRF-Token': csrfToken(), ...(opts.headers || {}) },
+    ...opts,
+  });
+  if (!resp.ok) throw new Error((await resp.text()) || resp.statusText);
+  return resp.json();
+}
+
+function todayISO() {
+  return new Date().toISOString().split('T')[0];
+}
+
+/* ── Add Group ── */
+function showAddGroupModal() {
+  document.getElementById('newGroupName').value = '';
+  new bootstrap.Modal(document.getElementById('addGroupModal')).show();
+  setTimeout(() => document.getElementById('newGroupName').focus(), 300);
+}
+
+async function submitAddGroup() {
+  const name = document.getElementById('newGroupName').value.trim();
+  if (!name) { alert('Please enter a group name.'); return; }
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('csrf_token', csrfToken());
+  try {
+    await apiFetch('/crm/assign-leads/group', { method: 'POST', body: fd });
+    bootstrap.Modal.getInstance(document.getElementById('addGroupModal'))?.hide();
+    location.reload();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+document.getElementById('newGroupName')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter') submitAddGroup();
+});
+
+/* ── Edit Group ── */
+function showEditGroupModal(id, name) {
+  document.getElementById('editGroupId').value = id;
+  document.getElementById('editGroupName').value = name;
+  new bootstrap.Modal(document.getElementById('editGroupModal')).show();
+  setTimeout(() => document.getElementById('editGroupName').focus(), 300);
+}
+
+async function submitEditGroup() {
+  const id   = document.getElementById('editGroupId').value;
+  const name = document.getElementById('editGroupName').value.trim();
+  if (!name) { alert('Please enter a name.'); return; }
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('csrf_token', csrfToken());
+  try {
+    await apiFetch(`/crm/assign-leads/group/${id}/edit`, { method: 'POST', body: fd });
+    bootstrap.Modal.getInstance(document.getElementById('editGroupModal'))?.hide();
+    location.reload();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+/* ── Import ── */
+function showImportModal(groupId) {
+  document.getElementById('importGroupId').value = groupId;
+  document.getElementById('importFile').value = '';
+  document.getElementById('importResult').innerHTML = '';
+  new bootstrap.Modal(document.getElementById('importModal')).show();
+}
+
+async function submitImport() {
+  const groupId = document.getElementById('importGroupId').value;
+  const fileEl  = document.getElementById('importFile');
+  if (!fileEl.files.length) { alert('Please select a file.'); return; }
+  const fd = new FormData();
+  fd.append('file', fileEl.files[0]);
+  fd.append('csrf_token', csrfToken());
+  document.getElementById('importResult').innerHTML =
+    '<span class="spinner-border spinner-border-sm text-primary"></span> Importing…';
+  try {
+    const data = await apiFetch(`/crm/assign-leads/import/${groupId}`, { method: 'POST', body: fd });
+    const errs = data.errors?.length ? `; ${data.errors.length} error(s)` : '.';
+    document.getElementById('importResult').innerHTML =
+      `<div class="alert alert-success py-1 small mb-0">Imported ${data.imported} lead(s)${errs}</div>`;
+    setTimeout(() => location.reload(), 1600);
+  } catch (e) {
+    document.getElementById('importResult').innerHTML =
+      `<div class="alert alert-danger py-1 small mb-0">${e.message}</div>`;
+  }
+}
+
+/* ── Add Lead ── */
+function showAddLeadModal(groupId, groupName) {
+  document.getElementById('addLeadGroupId').value   = groupId;
+  document.getElementById('addLeadGroupName').value = groupName;
+  ['addLeadDate','addPlatform','addUnits','addPlanning','addContactMode',
+   'addName','addPhone','addEmail','addAssigned','addRemark'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.querySelectorAll('.addCat').forEach(cb => cb.checked = false);
+  document.getElementById('addLeadError').textContent = '';
+  document.getElementById('addLeadDate').value = todayISO();
+  new bootstrap.Modal(document.getElementById('addLeadModal')).show();
+}
+
+async function submitAddLead() {
+  const fd = new FormData();
+  fd.append('group_id',        document.getElementById('addLeadGroupId').value);
+  fd.append('lead_date',       document.getElementById('addLeadDate').value);
+  fd.append('platform',        document.getElementById('addPlatform').value);
+  fd.append('device_categories', JSON.stringify(
+    [...document.querySelectorAll('.addCat:checked')].map(c => c.value)
+  ));
+  fd.append('units_expected',  document.getElementById('addUnits').value);
+  fd.append('planning_to_buy', document.getElementById('addPlanning').value);
+  fd.append('contact_mode',    document.getElementById('addContactMode').value);
+  fd.append('name',            document.getElementById('addName').value);
+  fd.append('phone',           document.getElementById('addPhone').value);
+  fd.append('email',           document.getElementById('addEmail').value);
+  fd.append('assigned_to',     document.getElementById('addAssigned').value);
+  fd.append('full_remark',     document.getElementById('addRemark').value);
+  fd.append('csrf_token',      csrfToken());
+  try {
+    await apiFetch('/crm/assign-leads/lead', { method: 'POST', body: fd });
+    bootstrap.Modal.getInstance(document.getElementById('addLeadModal'))?.hide();
+    location.reload();
+  } catch (e) {
+    document.getElementById('addLeadError').textContent = 'Error: ' + e.message;
+  }
+}
+
+/* ── Edit Lead ── */
+function showEditLeadModal(btn) {
+  const lead = JSON.parse(btn.dataset.lead);
+  document.getElementById('editLeadId').value        = lead.id;
+  document.getElementById('editLeadDate').value      = lead.lead_date || '';
+  document.getElementById('editPlatform').value      = lead.platform || '';
+  const cats = Array.isArray(lead.device_categories) ? lead.device_categories : [];
+  document.querySelectorAll('.editCat').forEach(cb => { cb.checked = cats.includes(cb.value); });
+  document.getElementById('editUnits').value         = lead.units_expected || '';
+  document.getElementById('editPlanning').value      = lead.planning_to_buy || '';
+  document.getElementById('editContactMode').value   = lead.contact_mode || '';
+  document.getElementById('editName').value          = lead.name || '';
+  document.getElementById('editPhone').value         = lead.phone || '';
+  document.getElementById('editEmail').value         = lead.email || '';
+  document.getElementById('editAssigned').value      = lead.assigned_to || '';
+  document.getElementById('editRemark').value        = lead.full_remark || '';
+  document.getElementById('editLeadError').textContent = '';
+  new bootstrap.Modal(document.getElementById('editLeadModal')).show();
+}
+
+async function submitEditLead() {
+  const id = document.getElementById('editLeadId').value;
+  const fd = new FormData();
+  fd.append('lead_date',       document.getElementById('editLeadDate').value);
+  fd.append('platform',        document.getElementById('editPlatform').value);
+  fd.append('device_categories', JSON.stringify(
+    [...document.querySelectorAll('.editCat:checked')].map(c => c.value)
+  ));
+  fd.append('units_expected',  document.getElementById('editUnits').value);
+  fd.append('planning_to_buy', document.getElementById('editPlanning').value);
+  fd.append('contact_mode',    document.getElementById('editContactMode').value);
+  fd.append('name',            document.getElementById('editName').value);
+  fd.append('phone',           document.getElementById('editPhone').value);
+  fd.append('email',           document.getElementById('editEmail').value);
+  fd.append('assigned_to',     document.getElementById('editAssigned').value);
+  fd.append('full_remark',     document.getElementById('editRemark').value);
+  fd.append('csrf_token',      csrfToken());
+  try {
+    await apiFetch(`/crm/assign-leads/lead/${id}/edit`, { method: 'POST', body: fd });
+    bootstrap.Modal.getInstance(document.getElementById('editLeadModal'))?.hide();
+    location.reload();
+  } catch (e) {
+    document.getElementById('editLeadError').textContent = 'Error: ' + e.message;
+  }
+}
+
+/* ── Log Call ── */
+function showCallModal(leadId, leadName) {
+  document.getElementById('callLeadId').value = leadId;
+  document.getElementById('callLeadName').textContent = leadName || leadId;
+  document.getElementById('callingDate').value  = todayISO();
+  document.getElementById('followupDate').value = '';
+  document.getElementById('callOutcome').value  = '';
+  document.querySelectorAll('.callCat').forEach(cb => cb.checked = false);
+  document.getElementById('callQty').value      = '';
+  document.getElementById('callRemarks').value  = '';
+  document.getElementById('callError').textContent = '';
+  new bootstrap.Modal(document.getElementById('callModal')).show();
+}
+
+async function submitCall() {
+  const id = document.getElementById('callLeadId').value;
+  const fd = new FormData();
+  fd.append('calling_date',    document.getElementById('callingDate').value);
+  fd.append('followup_date',   document.getElementById('followupDate').value);
+  fd.append('outcome',         document.getElementById('callOutcome').value);
+  fd.append('device_categories', JSON.stringify(
+    [...document.querySelectorAll('.callCat:checked')].map(c => c.value)
+  ));
+  fd.append('quantity',        document.getElementById('callQty').value);
+  fd.append('full_remarks',    document.getElementById('callRemarks').value);
+  fd.append('csrf_token',      csrfToken());
+  try {
+    await apiFetch(`/crm/assign-leads/lead/${id}/call`, { method: 'POST', body: fd });
+    bootstrap.Modal.getInstance(document.getElementById('callModal'))?.hide();
+    location.reload();
+  } catch (e) {
+    document.getElementById('callError').textContent = 'Error: ' + e.message;
+  }
+}
+
+/* ── Call History ── */
+async function showHistoryModal(leadId, leadName) {
+  document.getElementById('historyLeadName').textContent = leadName || leadId;
+  document.getElementById('historyContent').innerHTML =
+    '<div class="text-center py-4"><span class="spinner-border spinner-border-sm text-secondary"></span></div>';
+  new bootstrap.Modal(document.getElementById('historyModal')).show();
+  try {
+    const data = await apiFetch(`/crm/assign-leads/lead/${leadId}/history`);
+    if (!data.calls?.length) {
+      document.getElementById('historyContent').innerHTML =
+        '<p class="text-center text-muted py-4 small">No call history yet.</p>';
+      return;
+    }
+    const _badge = {
+      interested:'success', not_interested:'danger', callback:'warning text-dark',
+      order_placed:'primary', no_answer:'secondary', followup:'info text-dark',
+      done:'dark', rescheduled:'light text-dark border'
+    };
+    let rows = '';
+    data.calls.forEach(c => {
+      const outcome = c.outcome
+        ? c.outcome.replace(/_/g,' ').replace(/\b\w/g, l => l.toUpperCase())
+        : '—';
+      const badge   = c.outcome ? (_badge[c.outcome] || 'secondary') : 'secondary';
+      const cats    = c.device_categories?.join(', ') || '—';
+      rows += `<tr>
+        <td class="ps-3">${c.calling_date || '—'}</td>
+        <td><span class="badge bg-${badge} small">${outcome}</span></td>
+        <td>${cats}</td>
+        <td class="text-center">${c.quantity ?? '—'}</td>
+        <td>${c.followup_date || '—'}</td>
+        <td>${c.full_remarks || '—'}</td>
+      </tr>`;
+    });
+    document.getElementById('historyContent').innerHTML = `
+      <div class="table-responsive">
+        <table class="table table-sm mb-0 small">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">Calling Date</th>
+              <th>Outcome</th>
+              <th>Device Category</th>
+              <th class="text-center">Qty</th>
+              <th>Follow-up Date</th>
+              <th>Full Remarks</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  } catch (e) {
+    document.getElementById('historyContent').innerHTML =
+      `<p class="text-danger text-center py-3 small">${e.message}</p>`;
+  }
+}
+</script>
+
+{% endblock %}

@@ -385,5 +385,72 @@ class CustomerReceipt(Base):
     created_by       = Column(String(50), nullable=True)
     created_at       = Column(DateTime, default=app_now)
 
+
+# ── ASSIGN LEADS MODULE ───────────────────────────────────────────────────────
+LEAD_PLATFORMS = [
+    "Facebook", "Instagram", "Google Ads", "LinkedIn",
+    "JustDial", "Indiamart", "WhatsApp", "OLX", "Amazon", "Other",
+]
+LEAD_CONTACT_MODES = ["Phone Call", "WhatsApp", "Email", "In-Person", "Video Call", "SMS"]
+LEAD_DEVICE_CATEGORIES = ["Laptop", "Desktop", "Monitor", "Mini PC"]
+
+
+class CRMLeadGroup(Base):
+    """Ad-campaign / lead-group accordion headers for Assign Leads."""
+    __tablename__ = "crm_lead_groups"
+
+    id         = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name       = Column(String(200), nullable=False, index=True)
+    created_by = Column(String(50),  nullable=False)
+    created_at = Column(DateTime,    default=app_now)
+    updated_at = Column(DateTime,    default=app_now, onupdate=app_now)
+
+    leads = relationship("CRMLead", back_populates="group", lazy="select")
+
+
+class CRMLead(Base):
+    """Individual prospect inside a lead group."""
+    __tablename__ = "crm_leads"
+
+    id                = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    lead_id           = Column(String(20),  unique=True, nullable=False, index=True)  # 12-digit
+    group_id          = Column(UUID(as_uuid=True), ForeignKey("crm_lead_groups.id"), nullable=False, index=True)
+    lead_date         = Column(Date,        nullable=True)
+    platform          = Column(String(100), nullable=True)
+    device_categories = Column(Text,        nullable=True)   # JSON array e.g. '["Laptop","Monitor"]'
+    units_expected    = Column(Integer,     nullable=True)
+    planning_to_buy   = Column(String(200), nullable=True)
+    contact_mode      = Column(String(50),  nullable=True)
+    name              = Column(String(200), nullable=True)
+    phone             = Column(String(30),  nullable=True)
+    email             = Column(String(150), nullable=True)
+    call_status       = Column(String(50),  nullable=True)   # last call outcome
+    full_remark       = Column(Text,        nullable=True)
+    assigned_to       = Column(String(50),  nullable=True, index=True)
+    created_by        = Column(String(50),  nullable=False)
+    created_at        = Column(DateTime,    default=app_now)
+    updated_at        = Column(DateTime,    default=app_now, onupdate=app_now)
+
+    group = relationship("CRMLeadGroup", back_populates="leads")
+    calls = relationship("CRMLeadCall",  back_populates="lead",  lazy="select")
+
+
+class CRMLeadCall(Base):
+    """Call log entry for a lead (Assign Leads module)."""
+    __tablename__ = "crm_lead_calls"
+
+    id                = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    lead_id           = Column(UUID(as_uuid=True), ForeignKey("crm_leads.id"), nullable=False, index=True)
+    calling_date      = Column(Date,        nullable=False)
+    followup_date     = Column(Date,        nullable=True)
+    outcome           = Column(String(50),  nullable=True)
+    device_categories = Column(Text,        nullable=True)   # JSON array
+    quantity          = Column(Integer,     nullable=True)
+    full_remarks      = Column(Text,        nullable=True)
+    logged_by         = Column(String(50),  nullable=False)
+    created_at        = Column(DateTime,    default=app_now)
+
+    lead = relationship("CRMLead", back_populates="calls")
+
     contact = relationship("CRMContact", foreign_keys=[contact_id])
     dealer  = relationship("Dealer",     foreign_keys=[dealer_id])

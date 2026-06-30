@@ -122,6 +122,7 @@ from routers.invoices import router as invoices_router
 from routers.crm_purchase_orders import router as crm_purchase_orders_router
 from routers.accounts import router as accounts_router
 from routers.crm_reports import router as crm_reports_router
+from routers.crm_assign_leads import router as crm_assign_leads_router
 from routers.settings import router as settings_router
 from routers.trash import router as trash_router
 from routers.notifications import router as notifications_router
@@ -175,6 +176,7 @@ app.include_router(invoices_router)
 app.include_router(crm_purchase_orders_router)
 app.include_router(accounts_router)
 app.include_router(crm_reports_router)
+app.include_router(crm_assign_leads_router)
 app.include_router(settings_router)
 app.include_router(trash_router)
 app.include_router(notifications_router)

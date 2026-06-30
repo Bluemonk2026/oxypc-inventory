@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Landing Pages — OxyPC{% endblock %}
+{% block page_title %}Landing Pages{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-12">
+    {% if success %}
+    <div class="alert alert-success alert-dismissible py-2 mb-3" role="alert">
+      <i class="bi bi-check-circle me-2"></i>{{ success }}
+      <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-danger alert-dismissible py-2 mb-3" role="alert">
+      <i class="bi bi-exclamation-triangle me-2"></i>{{ error }}
+      <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent d-flex align-items-center gap-2 py-2">
+        <i class="bi bi-layout-text-sidebar text-primary"></i>
+        <span class="fw-semibold">Module Landing Page Titles</span>
+        <span class="badge bg-secondary ms-auto">{{ modules|length }} modules</span>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th style="width:40%">Navigation Label</th>
+                <th style="width:40%">Page Title</th>
+                <th style="width:20%">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for m in modules %}
+              <tr id="row-{{ m.key }}">
+                <td class="align-middle">
+                  <span class="fw-semibold small">{{ m.nav_label }}</span>
+                  <a href="{{ m.url }}" class="ms-2 text-muted small" target="_blank" title="Open page">
+                    <i class="bi bi-box-arrow-up-right"></i>
+                  </a>
+                </td>
+                <td class="align-middle">
+                  {# Display view #}
+                  <span id="title-view-{{ m.key }}" class="small">
+                    {{ m.current_title }}
+                    {% if m.is_custom %}
+                    <span class="badge bg-primary ms-1" style="font-size:0.6rem">Custom</span>
+                    {% endif %}
+                  </span>
+                  {# Inline edit input (hidden by default) #}
+                  <input type="text" id="title-input-{{ m.key }}"
+                         class="form-control form-control-sm d-none"
+                         value="{{ m.current_title }}"
+                         placeholder="Enter page title">
+                </td>
+                <td class="align-middle">
+                  {# View mode buttons #}
+                  <div id="btns-view-{{ m.key }}" class="d-flex gap-1">
+                    <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
+                            onclick="startEdit('{{ m.key }}')">
+                      <i class="bi bi-pencil me-1"></i>Edit
+                    </button>
+                    {% if m.is_custom %}
+                    <form method="post" action="/admin/landing-pages/reset" class="d-inline">
+                      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                      <input type="hidden" name="module_key" value="{{ m.key }}">
+                      <button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                              title="Reset to default">
+                        <i class="bi bi-arrow-counterclockwise"></i>
+                      </button>
+                    </form>
+                    {% endif %}
+                  </div>
+                  {# Edit mode buttons (hidden by default) #}
+                  <div id="btns-edit-{{ m.key }}" class="d-flex gap-1 d-none">
+                    <form method="post" action="/admin/landing-pages/save" id="form-{{ m.key }}">
+                      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                      <input type="hidden" name="module_key" value="{{ m.key }}">
+                      <input type="hidden" name="page_title" id="hidden-{{ m.key }}" value="{{ m.current_title }}">
+                      <button type="submit" class="btn btn-sm btn-success py-0 px-2">
+                        <i class="bi bi-check me-1"></i>Save
+                      </button>
+                    </form>
+                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                            onclick="cancelEdit('{{ m.key }}', '{{ m.current_title|e }}')">
+                      Cancel
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function startEdit(key) {
+  document.getElementById('title-view-' + key).classList.add('d-none');
+  document.getElementById('btns-view-' + key).classList.add('d-none');
+  document.getElementById('title-input-' + key).classList.remove('d-none');
+  document.getElementById('btns-edit-' + key).classList.remove('d-none');
+  document.getElementById('title-input-' + key).focus();
+}
+
+function cancelEdit(key, original) {
+  document.getElementById('title-input-' + key).value = original;
+  document.getElementById('title-input-' + key).classList.add('d-none');
+  document.getElementById('btns-edit-' + key).classList.add('d-none');
+  document.getElementById('title-view-' + key).classList.remove('d-none');
+  document.getElementById('btns-view-' + key).classList.remove('d-none');
+}
+
+// Sync input → hidden field before form submit
+document.querySelectorAll('[id^="form-"]').forEach(function(form) {
+  form.addEventListener('submit', function() {
+    var key = form.id.replace('form-', '');
+    document.getElementById('hidden-' + key).value = document.getElementById('title-input-' + key).value;
+  });
+});
+</script>
+{% endblock %}

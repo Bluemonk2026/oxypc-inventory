@@ -48,51 +48,75 @@ ACCORDION_SECTIONS = [
 # Keys MUST match the has_perm(role, '<key>', ...) checks used in templates/base.html
 # so that enabling/disabling here actually shows/hides the nav item.
 PERM_MODULES = [
-    ("dashboard",       "Admin Dashboard"),
-    ("devices",         "Inventory Search"),
-    ("attendance",      "Attendance"),
-    # INTAKE  (each GRN page has its own permission)
-    ("grn",             "GRN with Invoice"),
-    ("grn_post_iqc",    "GRN post IQC"),
-    ("grn_records",     "GRN Records"),
-    ("lots",            "Lot Overview"),
-    ("iqc",             "IQC Line Items"),
-    # INVENTORY  (each page has its own permission)
-    ("stock",           "Stock Inwards"),
-    ("production_manager", "Production Manager"),
-    ("scrap_products",  "Scrap Products"),
-    ("transfers",       "Move Device"),
-    ("dispatch",        "TRC Dashboard"),
-    # REPAIR
-    ("repair_l1",       "L1 Repair"),
-    ("repair_l2",       "L2 Repair"),
-    ("repair_l3",       "L3 Repair"),
-    ("qc_check",        "Stress Test"),
-    # COSMETIC REFURB  (Stages + Final QC + WorkID Status)
-    ("cosmetic",        "Cosmetic Refurb"),
-    # STORE MANAGER  (Parts Dashboard + Parts Purchased + Parts Tracking)
-    ("spare_parts",     "Store Manager (Parts)"),
-    # CRM
-    ("crm_contacts",    "CRM Contacts"),
-    ("crm_sourcing",    "CRM Sourcing Deals"),
-    ("crm_sales_opp",   "CRM Sales Opportunities"),
-    # SALES & CRM
-    ("sales",           "Ready to Sale / Sales"),
-    ("returns",         "Returns"),
-    ("dealers",         "Dealers"),
-    ("telecalling",     "Telecalling"),
-    ("whatsapp",        "WhatsApp"),
-    # FINANCE / LOCATIONS / REPORTS
-    ("finance",         "Finance"),
-    ("locations",       "Inventory Locations"),
-    ("reports",         "Reports"),
+    # ── Top-level ──────────────────────────────────────────────────
+    ("dashboard",            "Admin Dashboard"),
+    ("dispatch",             "TRC Dashboard"),
+    ("devices",              "Inventory Search"),
+    # ── ATTENDANCE ─────────────────────────────────────────────────
+    ("attendance",           "My Attendance"),
+    ("attendance_report",    "Attendance Report"),
+    # ── INTAKE ─────────────────────────────────────────────────────
+    ("grn",                  "GRN with Invoice"),
+    ("lots",                 "Lot Overview"),
+    ("iqc",                  "IQC Line Items"),
+    ("grn_post_iqc",         "GRN post IQC"),
+    ("grn_records",          "GRN Records"),
+    # ── INVENTORY ──────────────────────────────────────────────────
+    ("stock",                "Stock Inwards"),
+    ("production_manager",   "Production Manager"),
+    ("scrap_products",       "Scrap Products"),
+    ("transfers",            "Move Device"),
+    # ── REPAIR ─────────────────────────────────────────────────────
+    ("repair_l1",            "L1 Repair"),
+    ("repair_l2",            "L2 Repair"),
+    ("repair_l3",            "L3 Repair"),
+    ("qc_check",             "Stress Test"),
+    # ── COSMETIC REFURB ────────────────────────────────────────────
+    ("cosmetic",             "Cosmetic Stages"),
+    ("cosmetic_finalqc",     "Final QC"),
+    ("workid_status",        "WorkID Status"),
+    # ── STORE MANAGER ──────────────────────────────────────────────
+    ("spare_parts",          "Parts Dashboard"),
+    ("spare_parts_purchase", "Parts Purchased"),
+    ("parts_tracking",       "Parts Tracking"),
+    ("parts_consumption",    "Parts Consumption"),
+    # ── CRM ────────────────────────────────────────────────────────
+    ("crm_contacts",         "CRM Dashboard & Contact Leads"),
+    ("crm_sourcing",         "Sourcing Deals"),
+    ("crm_sales_opp",        "Sales Opportunities"),
+    ("crm_price_matrix",     "Price Matrix"),
+    ("crm_purchase_orders",  "Purchase Orders"),
+    ("crm_analytics",        "CRM Analytics"),
+    ("crm_assign_leads",     "Assign Leads"),
+    # ── SALES & CRM ────────────────────────────────────────────────
+    ("sales",                "Ready to Sale / Sales List"),
+    ("returns",              "Returns"),
+    ("dealers",              "Dealers"),
+    ("telecalling",          "Telecalling"),
+    ("whatsapp",             "WhatsApp"),
+    # ── FINANCE ────────────────────────────────────────────────────
+    ("finance",              "Accounts"),
+    ("finance_supplier",     "Supplier Payments"),
+    ("finance_customer",     "Customer Receipts"),
+    # ── INVENTORY LOCATIONS ────────────────────────────────────────
+    ("locations",            "Location Map"),
+    ("location_gaps",        "Gap Alerts"),
+    ("location_audit",       "Physical Audit"),
+    ("location_master",      "Manage Locations"),
+    ("location_trash",       "Trash"),
+    # ── REPORTS ────────────────────────────────────────────────────
+    ("reports",              "Lot P&L"),
+    ("report_sales",         "Sales Report"),
+    ("report_stage",         "Stage Log"),
+    ("report_bizpl",         "Business P&L"),
+    ("report_aging",         "Stock Aging"),
+    ("report_overdue",       "Overdue Devices"),
+    ("report_receivables",   "Receivables"),
+    ("market",               "Market Intel"),
 ]
 
 PERM_ACTIONS = [
     ("can_enable", "Enable"),
-    ("can_add",    "Add"),
-    ("can_edit",   "Edit"),
-    ("can_upload", "Upload"),
 ]
 
 CATEGORIES = [

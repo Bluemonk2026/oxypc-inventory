@@ -302,9 +302,6 @@
       <div class="card-body py-2">
         <div class="d-flex flex-wrap gap-4 small text-muted">
           <span><strong>Enable</strong> — Module is visible and accessible to this role</span>
-          <span><strong>Add</strong> — Can create new records</span>
-          <span><strong>Edit</strong> — Can modify existing records</span>
-          <span><strong>Upload</strong> — Can use bulk CSV import</span>
         </div>
       </div>
     </div>
@@ -481,26 +478,6 @@ function toggleAll(state) {
   document.querySelectorAll('.perm-cb').forEach(cb => cb.checked = state);
 }
 
-// When Enable is unchecked, uncheck Add/Edit/Upload too
-document.addEventListener('change', function(e) {
-  if (!e.target.classList.contains('perm-cb')) return;
-  const name = e.target.name; // perm_{module}_can_enable
-  if (name.endsWith('_can_enable') && !e.target.checked) {
-    const mod = name.replace('perm_', '').replace('_can_enable', '');
-    ['can_add','can_edit','can_upload'].forEach(a => {
-      const cb = document.querySelector(`[name="perm_${mod}_${a}"]`);
-      if (cb) cb.checked = false;
-    });
-  }
-  // If Add/Edit/Upload checked, auto-check Enable
-  if ((name.endsWith('_can_add') || name.endsWith('_can_edit') || name.endsWith('_can_upload'))
-      && e.target.checked) {
-    const parts = name.split('_');
-    const mod = name.replace('perm_', '').replace('_can_add','').replace('_can_edit','').replace('_can_upload','');
-    const enCb = document.querySelector(`[name="perm_${mod}_can_enable"]`);
-    if (enCb) enCb.checked = true;
-  }
-});
 
 {% endif %}
 </script>

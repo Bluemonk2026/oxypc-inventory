@@ -469,9 +469,11 @@ async def device_edit_form(
     iqc_inspection = (await db.execute(
         select(IQCInspection).where(IQCInspection.device_id == device.id)
     )).scalar_one_or_none()
+    current_lot = next((l for l in lots if l.id == device.lot_id), None)
     return templates.TemplateResponse("devices/edit.html", {
         "request": request, "current_user": current_user,
         "device": device, "lots": lots,
+        "current_lot": current_lot,
         "storage_locations": storage_locations,
         "movements": movements,
         "iqc_inspection": iqc_inspection,

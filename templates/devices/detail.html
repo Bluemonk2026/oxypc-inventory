@@ -131,6 +131,7 @@
         <table class="table table-sm mb-0">
           <tbody>
             <tr><th class="ps-3 text-muted small w-40">GRN Number</th><td>{% if device.grn_number %}<a href="/grn?highlight={{ device.grn_number|urlencode }}" class="text-decoration-none font-monospace" title="View in GRN Import">{{ device.grn_number }}</a>{% else %}—{% endif %}</td></tr>
+            <tr><th class="ps-3 text-muted small">Invoice No.</th><td class="font-monospace small">{{ lot.invoice_no if lot and lot.invoice_no else '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">Serial No.</th><td class="font-monospace small">{{ device.serial_no or '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">Floor</th><td>{{ device.floor or '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">Warehouse</th><td>{{ device.warehouse or '—' }}</td></tr>

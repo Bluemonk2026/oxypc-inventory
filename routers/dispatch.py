@@ -17,7 +17,7 @@ from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
 from models.lot import Lot
-from models.sales import Sale
+from models.sales import Sale, Return as SaleReturn
 from models.dispatch_request import TelecallerDispatchRequest
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from services.audit_engine import audit
@@ -153,11 +153,40 @@ async def dispatch_list(request: Request, db: AsyncSession = Depends(get_db),
             _seen[uname] = r.telecaller_name or uname
     telecaller_options = sorted(_seen.items(), key=lambda kv: kv[1].lower())
 
+    # ── Returned Devices: split by warranty status ───────────────────────────
+    ret_rows = (await db.execute(
+        select(Device, Sale, SaleReturn)
+        .join(SaleReturn, SaleReturn.device_id == Device.id, isouter=True)
+        .join(Sale, SaleReturn.sale_id == Sale.id, isouter=True)
+        .where(Device.return_status == True, Device.is_active == True)
+        .order_by(SaleReturn.return_date.desc())
+    )).all()
+
+    returned_within_warranty = []
+    returned_out_of_warranty = []
+    for device, sale, ret in ret_rows:
+        _w = warranty_from_sold_at(sale.sold_at if sale else None)
+        entry = {
+            "barcode": device.barcode,
+            "brand": device.brand or "",
+            "model": device.model or "",
+            "return_date": ret.return_date if ret else None,
+            "customer_name": (sale.customer_name if sale else None) or "—",
+            "sold_by": (sale.sold_by if sale else None) or "—",
+            "reason": (ret.reason if ret else None) or "—",
+        }
+        if _w and _w["status"] == "active":
+            returned_within_warranty.append(entry)
+        else:
+            returned_out_of_warranty.append(entry)
+
     return templates.TemplateResponse("dispatch/list.html", {
         "request": request, "current_user": current_user,
         "buckets": buckets, "card_stats": card_stats, "requests": dr,
         "telecaller_options": telecaller_options,
         "ready_summary": ready_summary,
+        "returned_within_warranty": returned_within_warranty,
+        "returned_out_of_warranty": returned_out_of_warranty,
     })
 
 

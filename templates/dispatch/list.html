@@ -169,7 +169,18 @@
               <th class="ps-3">Tag Number</th><th>Model</th><th>Returned On</th><th>Customer</th><th>User</th><th>Reason</th>
             </tr></thead>
             <tbody>
+              {% for r in returned_within_warranty %}
+              <tr>
+                <td class="ps-3"><a href="/devices/{{ r.barcode }}" class="font-monospace text-decoration-none">{{ r.barcode }}</a></td>
+                <td>{{ r.brand }} {{ r.model }}</td>
+                <td>{{ r.return_date.strftime('%d-%m-%Y') if r.return_date else '—' }}</td>
+                <td>{{ r.customer_name }}</td>
+                <td>{{ r.sold_by }}</td>
+                <td class="text-truncate" style="max-width:140px" title="{{ r.reason }}">{{ r.reason }}</td>
+              </tr>
+              {% else %}
               <tr><td colspan="6" class="text-center text-muted py-4 small">No warranty returns recorded.</td></tr>
+              {% endfor %}
             </tbody>
           </table>
         </div>
@@ -187,7 +198,18 @@
               <th class="ps-3">Tag Number</th><th>Model</th><th>Returned On</th><th>Customer</th><th>User</th><th>Reason</th>
             </tr></thead>
             <tbody>
+              {% for r in returned_out_of_warranty %}
+              <tr>
+                <td class="ps-3"><a href="/devices/{{ r.barcode }}" class="font-monospace text-decoration-none">{{ r.barcode }}</a></td>
+                <td>{{ r.brand }} {{ r.model }}</td>
+                <td>{{ r.return_date.strftime('%d-%m-%Y') if r.return_date else '—' }}</td>
+                <td>{{ r.customer_name }}</td>
+                <td>{{ r.sold_by }}</td>
+                <td class="text-truncate" style="max-width:140px" title="{{ r.reason }}">{{ r.reason }}</td>
+              </tr>
+              {% else %}
               <tr><td colspan="6" class="text-center text-muted py-4 small">No out-of-warranty returns recorded.</td></tr>
+              {% endfor %}
             </tbody>
           </table>
         </div>

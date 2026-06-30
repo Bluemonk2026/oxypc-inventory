@@ -31,29 +31,11 @@
   </div>
 </div>
 {% endif %}
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-header bg-transparent fw-semibold">Move Device to Stock In (Tag Number)</div>
-  <div class="card-body">
-    <form action="/stock/move-to-stock" method="post" class="d-flex gap-2">
-      <input type="text" name="barcode" class="form-control barcode-field w-auto" placeholder="Scan tag number" style="min-width:250px" autofocus>
-      <input type="text" name="notes" class="form-control w-auto" placeholder="Notes (optional)" style="min-width:200px">
-      <button class="btn btn-success"><i class="bi bi-arrow-right-circle me-1"></i>Move to Stock</button>
-    </form>
-  </div>
-</div>
-<div class="d-flex justify-content-between align-items-center mb-2">
-  <span class="text-muted small">{{ devices|length }} device(s) in Stock In</span>
-  <div class="d-flex gap-2">
-    <button type="button" id="assignBucketBtn" class="btn btn-sm btn-success" disabled
-            data-bs-toggle="modal" data-bs-target="#addToBucketModal">
-      <i class="bi bi-box me-1"></i>Assign Bucket/Carton (<span id="bktSelCount">0</span>)
-    </button>
-    <button type="button" id="bulkTransferBtn" class="btn btn-sm btn-primary" disabled
-            data-bs-toggle="modal" data-bs-target="#bulkTransferModal">
-      <i class="bi bi-arrow-left-right me-1"></i>Stock Transfer (<span id="selCount">0</span>)
-    </button>
-  </div>
-</div>
+<!-- hidden — moved into DataTables toolbar by JS -->
+<button type="button" id="assignBucketBtn" class="d-none btn btn-sm btn-success" disabled
+        data-bs-toggle="modal" data-bs-target="#addToBucketModal">
+  <i class="bi bi-box me-1"></i>Assign Bucket/Carton (<span id="bktSelCount">0</span>)
+</button>
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -115,7 +97,7 @@
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body p-0">
     <div class="table-responsive">
-      <table class="table table-hover mb-0 small">
+      <table id="bucketTable" class="table table-hover mb-0 small">
         <thead class="table-secondary">
           <tr><th>Bucket Number</th><th>Name</th><th>Location</th><th>Category</th><th>Qty</th><th>Actions</th></tr>
         </thead>
@@ -171,41 +153,6 @@
   </div>
 </div>
 
-<!-- Bulk Stock Transfer modal (#4) -->
-<div class="modal fade" id="bulkTransferModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
-    <form method="post" action="/stock/bulk-transfer" class="modal-content">
-      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-arrow-left-right me-2"></i>Stock Transfer — <span id="bt_count">0</span> item(s)</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="mb-2">
-          <label class="form-label fw-semibold">Transfer Type</label>
-          <select name="transfer_type" class="form-select">
-            <option value="transfer_to_trc">Transfer to TRC</option>
-            <option value="trc_to_showroom">TRC &rarr; Showroom</option>
-            <option value="showroom_to_trc">Showroom &rarr; TRC</option>
-          </select>
-        </div>
-        <div class="mb-2">
-          <label class="form-label fw-semibold">Department</label>
-          <select name="department" class="form-select">
-            <option value="">— Select Department —</option>
-            {% for d in departments %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
-          </select>
-        </div>
-        <div id="bt_barcodes"></div>
-        <p class="small text-muted mb-0">Creates a stock transfer for each selected item.</p>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="submit" class="btn btn-primary"><i class="bi bi-send me-1"></i>Transfer Selected</button>
-      </div>
-    </form>
-  </div>
-</div>
 <!-- Add to Bucket modal -->
 <div class="modal fade" id="addToBucketModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
@@ -289,15 +236,24 @@
 {% endblock %}
 {% block scripts %}
 <script>
-$(document).ready(function(){ $('#stockTable').DataTable({paging:false}); });
-
 function getCsrf(){ var c=document.cookie.split('; ').find(function(r){return r.startsWith('csrf_token=');}); return c ? c.split('=')[1] : ''; }
+
+$(document).ready(function(){
+  // ── Device table: 8 per page, Assign Bucket button on left of search row ──
+  $('#stockTable').DataTable({
+    pageLength: 8,
+    lengthChange: false,
+    dom: '<"d-flex align-items-center justify-content-between px-3 py-2 border-bottom"<"#stkBtnArea">f>t<"d-flex align-items-center justify-content-between px-3 py-2"ip>',
+    language: { search: '', searchPlaceholder: 'Search…' }
+  });
+  // Move hidden Assign button into the DT toolbar slot
+  $('#stkBtnArea').append($('#assignBucketBtn').removeClass('d-none'));
+});
 
 function selectedStockBarcodes(){ return Array.from(document.querySelectorAll('.stockChk:checked')).map(function(c){return c.value;}); }
 function updateStockSel(){
   var n = selectedStockBarcodes().length;
-  $('#selCount').text(n); $('#bktSelCount').text(n);
-  $('#bulkTransferBtn').prop('disabled', n === 0);
+  $('#bktSelCount').text(n);
   $('#assignBucketBtn').prop('disabled', n === 0);
 }
 $('#stockTable').on('change', '#selectAllStock', function(){
@@ -313,16 +269,6 @@ if (vm) { vm.addEventListener('show.bs.modal', function(e){
   document.getElementById('v_barcode').value = b.getAttribute('data-barcode');
   document.getElementById('v_bc').textContent = b.getAttribute('data-barcode');
   document.getElementById('v_model').textContent = b.getAttribute('data-model') || '—';
-});}
-
-var btm = document.getElementById('bulkTransferModal');
-if (btm) { btm.addEventListener('show.bs.modal', function(){
-  var bcs = selectedStockBarcodes();
-  document.getElementById('bt_count').textContent = bcs.length;
-  var wrap = document.getElementById('bt_barcodes'); wrap.innerHTML = '';
-  bcs.forEach(function(bc){
-    var inp = document.createElement('input'); inp.type='hidden'; inp.name='barcodes'; inp.value=bc; wrap.appendChild(inp);
-  });
 });}
 
 // ── Bucket feature ───────────────────────────────────────────────────────────
@@ -346,9 +292,50 @@ fetch('/api/buckets/device-map?status=stock_in').then(function(r){return r.json(
   });
 });
 
-// Load bucket table
+// Delegated event listeners for bucket table (survive DataTable rebuild)
+$(document).on('click', '.view-bkt-tags', function(e){
+  e.preventDefault();
+  var id=this.dataset.id, num=this.dataset.number;
+  document.getElementById('bktTagsNum').textContent = num;
+  document.getElementById('bktTagsBody').textContent = 'Loading…';
+  new bootstrap.Modal(document.getElementById('bucketTagsModal')).show();
+  fetch('/api/buckets/'+id+'/tags').then(function(r){return r.json();}).then(function(tags){
+    if(!tags.length){ document.getElementById('bktTagsBody').textContent='No devices.'; return; }
+    document.getElementById('bktTagsBody').innerHTML = tags.map(function(t){
+      return '<div class="py-1 border-bottom"><code>'+t.barcode+'</code> <span class="text-muted">'+t.brand+' '+t.model+'</span> <span class="badge bg-light text-dark">'+t.grade+'</span></div>';
+    }).join('');
+  });
+});
+
+$(document).on('click', '.edit-bkt', function(){
+  document.getElementById('editBktId').value = this.dataset.id;
+  document.getElementById('editBktName').value = this.dataset.name;
+  document.getElementById('editBktLocation').value = this.dataset.location;
+  new bootstrap.Modal(document.getElementById('editBucketModal')).show();
+});
+
+$(document).on('click', '.move-bkt-trc', function(){
+  var id=this.dataset.id, num=this.dataset.number;
+  if(!confirm('Move Bucket '+num+' to TRC Production?')) return;
+  var fd=new FormData(); fd.append('csrf_token', getCsrf());
+  fetch('/buckets/'+id+'/move-to-trc',{method:'POST',body:fd})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){
+        loadBucketTable();
+        fetch('/api/buckets/device-map?status=stock_in').then(function(r){return r.json();}).then(function(map){
+          document.querySelectorAll('.bkt-cell').forEach(function(cell){
+            if(!map[cell.dataset.barcode]) cell.innerHTML='<span class="text-muted">—</span>';
+          });
+        });
+      }
+    });
+});
+
+// Load bucket table — destroys and reinits DataTable each time
 function loadBucketTable(){
   fetch('/api/buckets?status=stock_in').then(function(r){return r.json();}).then(function(buckets){
+    if($.fn.DataTable.isDataTable('#bucketTable')){ $('#bucketTable').DataTable().destroy(); }
     var tbody = document.getElementById('bucketTbody');
     if(!buckets.length){
       tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No buckets created yet.</td></tr>';
@@ -367,46 +354,12 @@ function loadBucketTable(){
         '</td>'+
       '</tr>';
     }).join('');
-
-    // View tags
-    tbody.querySelectorAll('.view-bkt-tags').forEach(function(el){
-      el.addEventListener('click', function(e){
-        e.preventDefault();
-        var id=this.dataset.id, num=this.dataset.number;
-        document.getElementById('bktTagsNum').textContent = num;
-        document.getElementById('bktTagsBody').textContent = 'Loading…';
-        new bootstrap.Modal(document.getElementById('bucketTagsModal')).show();
-        fetch('/api/buckets/'+id+'/tags').then(function(r){return r.json();}).then(function(tags){
-          if(!tags.length){ document.getElementById('bktTagsBody').textContent='No devices.'; return; }
-          document.getElementById('bktTagsBody').innerHTML = tags.map(function(t){
-            return '<div class="py-1 border-bottom"><code>'+t.barcode+'</code> <span class="text-muted">'+t.brand+' '+t.model+'</span> <span class="badge bg-light text-dark">'+t.grade+'</span></div>';
-          }).join('');
-        });
-      });
-    });
-
-    // Edit bucket
-    tbody.querySelectorAll('.edit-bkt').forEach(function(el){
-      el.addEventListener('click', function(){
-        document.getElementById('editBktId').value = this.dataset.id;
-        document.getElementById('editBktName').value = this.dataset.name;
-        document.getElementById('editBktLocation').value = this.dataset.location;
-        new bootstrap.Modal(document.getElementById('editBucketModal')).show();
-      });
-    });
-
-    // Move to TRC
-    tbody.querySelectorAll('.move-bkt-trc').forEach(function(el){
-      el.addEventListener('click', function(){
-        var id=this.dataset.id, num=this.dataset.number;
-        if(!confirm('Move Bucket '+num+' to TRC Production?')) return;
-        var fd=new FormData(); fd.append('csrf_token', getCsrf());
-        fetch('/buckets/'+id+'/move-to-trc',{method:'POST',body:fd})
-          .then(function(r){return r.json();})
-          .then(function(d){
-            if(d.ok){ loadBucketTable(); fetch('/api/buckets/device-map?status=stock_in').then(function(r){return r.json();}).then(function(map){ document.querySelectorAll('.bkt-cell').forEach(function(cell){ if(!map[cell.dataset.barcode]) cell.innerHTML='<span class="text-muted">—</span>'; }); }); }
-          });
-      });
+    $('#bucketTable').DataTable({
+      pageLength: 8,
+      lengthChange: false,
+      ordering: false,
+      dom: '<"d-flex align-items-center justify-content-between px-3 py-2 border-bottom"f>t<"d-flex align-items-center justify-content-between px-3 py-2"ip>',
+      language: { search: '', searchPlaceholder: 'Search buckets…' }
     });
   });
 }
@@ -436,7 +389,6 @@ document.getElementById('bktSubmitBtn').addEventListener('click', function(){
     if(d.ok){
       bootstrap.Modal.getInstance(document.getElementById('addToBucketModal')).hide();
       loadBucketTable();
-      // Update Inside Bucket cells
       bcs.forEach(function(bc){
         var cell = document.querySelector('.bkt-cell[data-barcode="'+bc+'"]');
         if(cell) cell.innerHTML = '<span class="badge bg-warning text-dark">'+d.bucket_number+'</span>';

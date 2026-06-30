@@ -939,12 +939,9 @@ function estimatePowerW(cpuName) {
   var status = document.getElementById('diagnoseStatus');
   if (!btn) return;
 
-  // On HTTPS (production), browsers block http://127.0.0.1 as mixed content.
-  // Skip agent detection; technicians must use the local LAN server for Diagnose.
-  if (location.protocol === 'https:') {
-    if (status) status.innerHTML = '<span class="text-muted small"><i class="bi bi-info-circle me-1"></i>Diagnose available on local network only.</span>';
-    return;
-  }
+  // Chrome allows http://127.0.0.1 from HTTPS pages when the agent returns
+  // Access-Control-Allow-Private-Network: true (which oxyqc_agent.py does).
+  // No HTTPS block needed — let the fetch proceed on all origins.
 
   var pollTimer = null;
 

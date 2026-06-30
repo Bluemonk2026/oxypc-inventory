@@ -196,7 +196,7 @@
       </a></li>
       {% if has_perm(role,'crm_contacts','enable') %}
       <li><a href="/crm/contacts" class="nav-link {% if request.url.path.startswith('/crm/contacts') %}active{% endif %}">
-        <i class="bi bi-people me-2"></i> Contacts
+        <i class="bi bi-people me-2"></i> Contact Leads
       </a></li>
       {% endif %}
       {% if has_perm(role,'crm_sourcing','enable') %}

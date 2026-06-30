@@ -42,7 +42,9 @@ async def device_brief(barcode: str, db: AsyncSession = Depends(get_db),
     bc = (barcode or "").strip()
     if not bc:
         return JSONResponse({"found": False})
-    device = (await db.execute(select(Device).where(Device.barcode == bc))).scalar_one_or_none()
+    device = (await db.execute(
+        select(Device).where(or_(Device.barcode == bc, Device.serial_no == bc))
+    )).scalar_one_or_none()
     if not device:
         return JSONResponse({"found": False})
     sale = (await db.execute(
@@ -60,6 +62,14 @@ async def device_brief(barcode: str, db: AsyncSession = Depends(get_db),
         storage = f"{device.storage_gb} GB" + (f" {device.storage_type}" if device.storage_type else "")
     else:
         storage = "—"
+    sold_grade = device.grade or "—"
+    sold_on = sale.sold_at.strftime("%d-%m-%Y") if sale and sale.sold_at else "—"
+    if sale and w:
+        warranty_status = "Within Warranty" if w["status"] == "active" else "Out of Warranty"
+    elif sale:
+        warranty_status = "Out of Warranty"
+    else:
+        warranty_status = "Not Sold Yet"
     return JSONResponse({
         "found": True,
         "barcode": device.barcode,
@@ -70,6 +80,9 @@ async def device_brief(barcode: str, db: AsyncSession = Depends(get_db),
         "location": loc,
         "status": str(device.stage_label),
         "warranty": w["label"] if w else "No warranty",
+        "warranty_status": warranty_status,
+        "sold_grade": sold_grade,
+        "sold_on": sold_on,
         "return_status": "Yes" if device.return_status else "No",
     })
 
@@ -385,6 +398,18 @@ async def device_detail(
         .order_by(WorkOrder.assigned_at.desc())
     )).scalars().all()
 
+    # ── Warranty Status for device detail ────────────────────────────────────
+    _sale_for_warranty = (await db.execute(
+        select(Sale).where(Sale.device_id == device.id).order_by(Sale.sold_at.desc()).limit(1)
+    )).scalars().first()
+    _w = warranty_from_sold_at(_sale_for_warranty.sold_at if _sale_for_warranty else None)
+    if device.current_stage != DeviceStage.sold:
+        warranty_label = "Not Sold Yet"
+    elif _w and _w["status"] == "active":
+        warranty_label = "Within Warranty"
+    else:
+        warranty_label = "Out of Warranty"
+
     # ── Repair Status (item 9): derived from current stage + repair jobs ──────
     repair_status = None
     _lvl = {DeviceStage.l1: 1, DeviceStage.l2: 2, DeviceStage.l3: 3}.get(device.current_stage)
@@ -406,6 +431,7 @@ async def device_detail(
         "qc_checks": qc_checks, "parts_consumed": parts_consumed,
         "total_parts_cost": total_parts_cost,
         "lot_cost_per_device": lot_cost_per_device,
+        "warranty_label": warranty_label,
         "stage_labels": STAGE_LABELS,
         "current_location": current_location,
         "iqc_inspection": iqc_inspection,

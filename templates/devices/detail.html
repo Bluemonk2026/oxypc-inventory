@@ -2,7 +2,13 @@
 {% block title %}{{ device.barcode }} — OxyPC{% endblock %}
 {% block page_title %}Device Profile{% endblock %}
 {% block content %}
-
+<style>
+#deviceDetail .card { overflow: hidden; border-radius: 0.5rem; }
+#deviceDetail .card-body.p-0 { padding: .5rem 0 !important; overflow-x: auto; }
+#deviceDetail .card-body table { width: 100%; }
+#deviceDetail table th { white-space: nowrap; }
+</style>
+<div id="deviceDetail">
 <!-- Header row -->
 <div class="d-flex justify-content-between align-items-start mb-3">
   <div>
@@ -130,6 +136,16 @@
             <tr><th class="ps-3 text-muted small">Warehouse</th><td>{{ device.warehouse or '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">Return Status</th>
               <td><span class="badge bg-{{ 'warning text-dark' if device.return_status else 'secondary' }}">{{ 'Yes' if device.return_status else 'No' }}</span></td></tr>
+            <tr><th class="ps-3 text-muted small">Warranty Status</th>
+              <td>
+                {% if warranty_label == 'Within Warranty' %}
+                <span class="badge bg-success">Within Warranty</span>
+                {% elif warranty_label == 'Out of Warranty' %}
+                <span class="badge bg-danger">Out of Warranty</span>
+                {% else %}
+                <span class="badge bg-secondary">Not Sold Yet</span>
+                {% endif %}
+              </td></tr>
             <tr><th class="ps-3 text-muted small">Replaced</th>
               <td>{% if device.replaced %}<span class="font-monospace small">{{ device.replaced }}</span>{% else %}—{% endif %}</td></tr>
             <tr><th class="ps-3 text-muted small">Repair Status</th>
@@ -523,4 +539,5 @@
 
   </div><!-- /col-lg-7 -->
 </div><!-- /row -->
+</div><!-- /#deviceDetail -->
 {% endblock %}

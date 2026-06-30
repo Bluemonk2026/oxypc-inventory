@@ -26,15 +26,15 @@ class UserRole(str, enum.Enum):
 
 ROLE_LABELS = {
     UserRole.admin: "Admin",
-    UserRole.inventory_manager: "Inventory Manager",
+    UserRole.inventory_manager: "Cosmetic Manager",
     UserRole.iqc_inspector: "IQC Inspector",
     UserRole.l1_engineer: "L1 Engineer",
     UserRole.l2_engineer: "L2 Engineer",
-    UserRole.l3_engineer: "L3 Engineer",
-    UserRole.qc_inspector: "QC Inspector",
-    UserRole.sales: "Sales",
-    UserRole.spare_parts_manager: "Spare Parts Manager",
-    UserRole.telecaller: "Telecaller",
+    UserRole.l3_engineer: "L3/L4 Engineer",
+    UserRole.qc_inspector: "QC Manager",
+    UserRole.sales: "Sourcing Sales",
+    UserRole.spare_parts_manager: "Store Manager",
+    UserRole.telecaller: "Telecaller Sales",
     UserRole.sales_manager: "Sales Manager",
 }
 

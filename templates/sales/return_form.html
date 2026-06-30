@@ -9,25 +9,28 @@
       <div class="card-body">
         {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
         <form action="/returns/new" method="post">
+          <input type="hidden" name="barcode" id="returnBarcode">
           <div class="mb-3">
-            <label class="form-label fw-semibold">Device Tag Number</label>
-            <input type="text" name="barcode" id="returnBarcode" class="form-control barcode-field font-monospace" placeholder="Scan tag number" autofocus required>
+            <label class="form-label fw-semibold">Device Identity</label>
+            <div class="input-group">
+              <input type="text" id="returnIdentity" class="form-control barcode-field font-monospace" placeholder="Scan Tag Number or Serial Number" autofocus>
+              <button type="button" class="btn btn-primary" id="checkBtn"><i class="bi bi-search me-1"></i>Check</button>
+            </div>
           </div>
-          <!-- Auto product brief (item 2) -->
+          <div id="deviceBriefMsg" class="mb-2"></div>
           <div id="deviceBrief" class="card border-0 bg-light mb-3 d-none">
             <div class="card-body py-2 px-3 small">
               <div class="row g-2">
-                <div class="col-6"><span class="text-muted">Make:</span> <strong id="br_make">—</strong></div>
+                <div class="col-6"><span class="text-muted">Brand:</span> <strong id="br_make">—</strong></div>
                 <div class="col-6"><span class="text-muted">Model:</span> <strong id="br_model">—</strong></div>
                 <div class="col-6"><span class="text-muted">RAM:</span> <strong id="br_ram">—</strong></div>
                 <div class="col-6"><span class="text-muted">Storage:</span> <strong id="br_storage">—</strong></div>
-                <div class="col-6"><span class="text-muted">Location:</span> <strong id="br_location">—</strong></div>
-                <div class="col-6"><span class="text-muted">Status:</span> <strong id="br_status">—</strong></div>
-                <div class="col-12"><span class="text-muted">Warranty:</span> <strong id="br_warranty">—</strong></div>
+                <div class="col-6"><span class="text-muted">Sold Grade:</span> <strong id="br_sold_grade">—</strong></div>
+                <div class="col-6"><span class="text-muted">Sold On:</span> <strong id="br_sold_on">—</strong></div>
+                <div class="col-12"><span class="text-muted">Warranty Status:</span> <strong id="br_warranty_status">—</strong></div>
               </div>
             </div>
           </div>
-          <div id="deviceBriefMiss" class="alert alert-warning py-2 px-3 small d-none">Tag not found.</div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Return Reason</label>
             <select name="reason" class="form-select">
@@ -66,33 +69,56 @@
 {% block scripts %}
 <script>
 (function(){
-  var input = document.getElementById('returnBarcode');
+  var identity = document.getElementById('returnIdentity');
+  var barcodeHidden = document.getElementById('returnBarcode');
   var brief = document.getElementById('deviceBrief');
-  var miss  = document.getElementById('deviceBriefMiss');
-  if(!input) return;
-  var t=null;
-  function lookup(){
-    var bc = input.value.trim();
-    if(!bc){ brief.classList.add('d-none'); miss.classList.add('d-none'); return; }
-    fetch('/devices/api/brief?barcode='+encodeURIComponent(bc))
+  var msg = document.getElementById('deviceBriefMsg');
+  var checkBtn = document.getElementById('checkBtn');
+  if(!identity || !checkBtn) return;
+
+  function clearBrief(){
+    brief.classList.add('d-none');
+    msg.innerHTML = '';
+    barcodeHidden.value = '';
+  }
+
+  function check(){
+    var val = identity.value.trim();
+    if(!val){
+      clearBrief();
+      msg.innerHTML = '<div class="alert alert-warning py-2 px-3 small mb-0">Please enter Tag Number or Serial Number in textbox to validate.</div>';
+      return;
+    }
+    fetch('/devices/api/brief?barcode='+encodeURIComponent(val))
       .then(function(r){ return r.ok ? r.json() : {found:false}; })
       .then(function(d){
         if(d && d.found){
+          barcodeHidden.value = d.barcode;
           document.getElementById('br_make').textContent = d.make;
           document.getElementById('br_model').textContent = d.model;
           document.getElementById('br_ram').textContent = d.ram;
           document.getElementById('br_storage').textContent = d.storage;
-          document.getElementById('br_location').textContent = d.location;
-          document.getElementById('br_status').textContent = d.status;
-          document.getElementById('br_warranty').textContent = d.warranty;
-          brief.classList.remove('d-none'); miss.classList.add('d-none');
+          document.getElementById('br_sold_grade').textContent = d.sold_grade || '—';
+          document.getElementById('br_sold_on').textContent = d.sold_on || '—';
+          document.getElementById('br_warranty_status').textContent = d.warranty_status || '—';
+          brief.classList.remove('d-none');
+          var ws = d.warranty_status || '';
+          if(ws === 'Within Warranty'){
+            msg.innerHTML = '<div class="alert alert-success py-2 px-3 small mb-0">Device is in warranty and will be repair without any extra cost</div>';
+          } else if(ws === 'Out of Warranty'){
+            msg.innerHTML = '<div class="alert alert-warning py-2 px-3 small mb-0">Device is out warranty and will cost basic Rs1500 as repair cost excluding spare parts cost</div>';
+          } else {
+            msg.innerHTML = '';
+          }
         } else {
-          brief.classList.add('d-none'); miss.classList.remove('d-none');
+          clearBrief();
+          msg.innerHTML = '<div class="alert alert-danger py-2 px-3 small mb-0">This Device is not listed in our database. Hence returning process denied to accept this device</div>';
         }
-      }).catch(function(){ brief.classList.add('d-none'); });
+      }).catch(function(){ clearBrief(); });
   }
-  input.addEventListener('input', function(){ clearTimeout(t); t=setTimeout(lookup, 350); });
-  input.addEventListener('change', lookup);
+
+  checkBtn.addEventListener('click', check);
+  identity.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); check(); } });
 })();
 </script>
 {% endblock %}

@@ -39,37 +39,37 @@
 </div>
 
 <!-- ── Tab Navigation ── -->
-<ul class="nav nav-tabs mb-0" id="sparePartsTabs" role="tablist">
-  <li class="nav-item" role="presentation">
-    <button class="nav-link active" id="master-tab" data-bs-toggle="tab"
+<ul class="nav nav-tabs mb-0 d-flex" id="sparePartsTabs" role="tablist">
+  <li class="nav-item flex-fill text-center" role="presentation">
+    <button class="nav-link active w-100" id="master-tab" data-bs-toggle="tab"
             data-bs-target="#masterTab" type="button" role="tab">
       <i class="bi bi-box-seam me-1"></i>Part Master
       <span class="badge bg-secondary ms-1">{{ total_part_types }}</span>
     </button>
   </li>
-  <li class="nav-item" role="presentation">
-    <button class="nav-link" id="stockin-tab" data-bs-toggle="tab"
+  <li class="nav-item flex-fill text-center" role="presentation">
+    <button class="nav-link w-100" id="stockin-tab" data-bs-toggle="tab"
             data-bs-target="#stockinTab" type="button" role="tab">
       <i class="bi bi-box-arrow-in-down me-1"></i>Stock In (Purchases)
       <span class="badge bg-secondary ms-1">{{ purchases|length }}</span>
     </button>
   </li>
-  <li class="nav-item" role="presentation">
+  <li class="nav-item d-none" role="presentation">
     <button class="nav-link" id="consumption-tab" data-bs-toggle="tab"
             data-bs-target="#consumptionTab" type="button" role="tab">
       <i class="bi bi-tools me-1"></i>Consumption
       <span class="badge bg-secondary ms-1">{{ consumptions|length }}</span>
     </button>
   </li>
-  <li class="nav-item" role="presentation">
-    <button class="nav-link" id="requests-tab" data-bs-toggle="tab"
+  <li class="nav-item flex-fill text-center" role="presentation">
+    <button class="nav-link w-100" id="requests-tab" data-bs-toggle="tab"
             data-bs-target="#requestsTab" type="button" role="tab">
       <i class="bi bi-bag-plus me-1"></i>Part Requests
       <span class="badge bg-warning text-dark ms-1">{{ part_reqs|selectattr('status','equalto','requested')|list|length }}</span>
     </button>
   </li>
-  <li class="nav-item" role="presentation">
-    <button class="nav-link" id="sourcing-tab" data-bs-toggle="tab"
+  <li class="nav-item flex-fill text-center" role="presentation">
+    <button class="nav-link w-100" id="sourcing-tab" data-bs-toggle="tab"
             data-bs-target="#sourcingTab" type="button" role="tab">
       <i class="bi bi-box-arrow-in-down me-1"></i>Sourcing Requests
       <span class="badge bg-secondary ms-1">{{ sourcing|length }}</span>
@@ -102,10 +102,9 @@
         <thead class="table-dark">
           <tr>
             <th><input type="checkbox" class="form-check-input sp-sa" data-tbl="partsTable"></th>
-            <th>Code</th><th>Name</th><th>Category</th>
+            <th>Code</th><th>Added As</th><th>Name</th><th>Category</th>
             <th>Unit Price</th><th>In Stock</th><th>Min Alert</th>
             <th>Stock Value</th><th>Supplier</th>
-            <th>Added As</th>
             <th>Invoice</th><th>PO</th><th>E-way Bill</th>
             <th>Actions</th>
           </tr>
@@ -115,6 +114,13 @@
           <tr class="{{ 'table-danger' if part.qty_in_stock <= part.min_stock_alert else '' }}">
             <td><input type="checkbox" class="form-check-input sp-cb" data-tbl="partsTable"></td>
             <td><code>{{ part.part_code }}</code></td>
+            <td>
+              {% if part.source == 'harvest' %}
+              <span class="badge bg-warning text-dark">Harvest</span>
+              {% else %}
+              <span class="badge bg-success">New</span>
+              {% endif %}
+            </td>
             <td class="fw-semibold">{{ part.name }}</td>
             <td><span class="badge bg-secondary">{{ part.category }}</span></td>
             <td>&#8377;{{ "{:,.2f}".format(part.unit_price) }}</td>
@@ -126,30 +132,16 @@
             <td>{{ part.min_stock_alert }}</td>
             <td>&#8377;{{ "{:,.0f}".format(part.unit_price * part.qty_in_stock) }}</td>
             <td class="text-muted">{{ part.supplier or '—' }}</td>
-            <td>
-              {% if part.source == 'harvest' %}
-              <span class="badge bg-warning text-dark">Harvest</span>
-              {% else %}
-              <span class="badge bg-success">New</span>
-              {% endif %}
-            </td>
             {% set gdoc = grn_docs.get(part.id|string, {}) %}
             <td>{% if gdoc.get('invoice_file') %}<a href="/uploads/parts_grn/{{ gdoc.invoice_file }}" target="_blank" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1"><i class="bi bi-file-earmark"></i></a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td>{% if gdoc.get('po_file') %}<a href="/uploads/parts_grn/{{ gdoc.po_file }}" target="_blank" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1"><i class="bi bi-file-earmark"></i></a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td>{% if gdoc.get('eway_file') %}<a href="/uploads/parts_grn/{{ gdoc.eway_file }}" target="_blank" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1"><i class="bi bi-file-earmark"></i></a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td>
               <div class="d-flex gap-1 flex-wrap">
-                <a href="/spare-parts/{{ part.id }}/edit"
-                   class="btn btn-xs btn-outline-primary btn-sm py-0 px-2">Edit</a>
                 <a href="/spare-parts/purchase?part_id={{ part.id }}"
                    class="btn btn-xs btn-outline-success btn-sm py-0 px-2"
                    title="Record Purchase">
                   <i class="bi bi-box-arrow-in-down"></i> Buy
-                </a>
-                <a href="/spare-parts/consume?part_id={{ part.id }}"
-                   class="btn btn-xs btn-outline-warning btn-sm py-0 px-2"
-                   title="Record Consumption">
-                  <i class="bi bi-tools"></i> Use
                 </a>
                 <form method="post" action="/spare-parts/{{ part.id }}/procure" class="d-inline">
                   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">

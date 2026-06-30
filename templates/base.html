@@ -509,8 +509,7 @@
       <span class="navbar-brand mb-0 h1 fw-bold text-primary">{% block page_title %}{% endblock %}</span>
       <div class="ms-auto d-flex align-items-center gap-3">
         <a href="/auth/profile" class="text-decoration-none fw-bold text-dark" style="font-size:0.95rem">{{ current_user.full_name }}</a>
-        {% set _rn = {'admin':'Admin','inventory_manager':'Cosmetic Manager','iqc_inspector':'IQC Inspector','l1_engineer':'L1 Engineer','l2_engineer':'L2 Engineer','l3_engineer':'L3/L4 Engineer','qc_inspector':'QC Manager','sales':'Sourcing Sales','spare_parts_manager':'Store Manager','telecaller':'Telecaller Sales','sales_manager':'Sales Manager'} %}
-        <span class="badge bg-primary">{{ _rn.get(current_user.role.value, current_user.role.value) }}</span>
+        <span class="badge bg-primary">{{ role_display(current_user.role) }}</span>
         <!-- Notification Bell -->
         <div class="position-relative d-inline-block">
           <a href="/notifications/alerts" class="btn btn-link text-dark p-1 text-decoration-none" title="Alerts">

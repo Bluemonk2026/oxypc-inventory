@@ -50,3 +50,25 @@ def _any_perm(role, *modules):
 
 templates.env.globals["has_perm"] = _has_perm
 templates.env.globals["any_perm"] = _any_perm
+
+_ROLE_DISPLAY = {
+    "admin": "Admin",
+    "inventory_manager": "Cosmetic Manager",
+    "iqc_inspector": "IQC Inspector",
+    "l1_engineer": "L1 Engineer",
+    "l2_engineer": "L2 Engineer",
+    "l3_engineer": "L3/L4 Engineer",
+    "qc_inspector": "QC Manager",
+    "sales": "Sourcing Sales",
+    "spare_parts_manager": "Store Manager",
+    "telecaller": "Telecaller Sales",
+    "sales_manager": "Sales Manager",
+}
+
+
+def _role_display(role):
+    val = str(getattr(role, "value", role))
+    return _ROLE_DISPLAY.get(val, val)
+
+
+templates.env.globals["role_display"] = _role_display

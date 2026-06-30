@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Parts GRN{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0 fw-bold">Parts GRN</h5>
+  <a href="/parts-grn/new" class="btn btn-primary btn-sm">
+    <i class="bi bi-plus-circle me-1"></i>New GRN
+  </a>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="grnTable" class="table table-hover mb-0 small">
+        <thead class="table-dark">
+          <tr>
+            <th>GRN Number</th>
+            <th>PO Number</th>
+            <th>Vendor</th>
+            <th>Invoice No</th>
+            <th>Date Received</th>
+            <th>Total Phys Qty</th>
+            <th>Invoice Value</th>
+            <th>Created By</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in grns %}
+          <tr>
+            <td><code>{{ g.grn_number }}</code></td>
+            <td>{{ g.po_number or '—' }}</td>
+            <td>{{ g.vendor_name or '—' }}</td>
+            <td>{{ g.invoice_number or '—' }}</td>
+            <td>{{ g.date_received.strftime('%d-%m-%Y') if g.date_received else '—' }}</td>
+            <td>{{ g.total_physical_qty or '—' }}</td>
+            <td>{% if g.invoice_value %}₹{{ "{:,.2f}".format(g.invoice_value) }}{% else %}—{% endif %}</td>
+            <td class="text-muted">{{ g.created_by or '—' }}</td>
+            <td>
+              <a href="/parts-grn/{{ g.id }}" class="btn btn-xs btn-outline-primary btn-sm py-0 px-2">View</a>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="text-center text-muted py-4">No GRN records yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+$(document).ready(function () {
+  if ($('#grnTable tbody tr').length > 1) {
+    $('#grnTable').DataTable({ pageLength: 25, order: [[0, 'desc']] });
+  }
+});
+</script>
+{% endblock %}

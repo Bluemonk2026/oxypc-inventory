@@ -106,6 +106,7 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         "total_stock_value": total_stock_value,
         "consumed_this_month": consumed_this_month,
         "part_reqs": part_reqs, "part_stock": part_stock, "sourcing": sourcing,
+        "grn_docs": {},
     })
 
 
@@ -399,3 +400,29 @@ async def record_ram(
                        by_user=current_user.username, notes=notes or None))
     await db.commit()
     return RedirectResponse(url="/ram-tracking?success=RAM+logged", status_code=302)
+
+
+@router.post("/spare-parts/{part_id}/procure")
+async def procure_from_master(part_id: str, request: Request,
+                              db: AsyncSession = Depends(get_db),
+                              current_user: User = Depends(allowed)):
+    import uuid as _uuid
+    try:
+        uid = _uuid.UUID(part_id)
+    except ValueError:
+        raise HTTPException(404, "Part not found")
+    part = (await db.execute(select(SparePart).where(SparePart.id == uid))).scalar_one_or_none()
+    if not part:
+        raise HTTPException(404, "Part not found")
+    db.add(PartSourcingRequest(
+        part_id=part.id,
+        part_code=part.part_code,
+        part_name=part.name,
+        qty_requested=1,
+        raised_by=current_user.username,
+        status="open",
+    ))
+    await audit(db, action="PART_MASTER_PROCURE", user=current_user,
+                table_name="part_sourcing_requests", record_id=str(part.id))
+    await db.commit()
+    return RedirectResponse(url="/spare-parts?success=Sent+to+sourcing", status_code=302)

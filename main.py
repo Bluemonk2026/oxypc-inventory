@@ -106,6 +106,8 @@ from routers.telecalling import router as telecalling_router
 from routers.m_telecalling import router as m_telecalling_router
 from routers.whatsapp import router as whatsapp_router
 from routers.grn import router as grn_router
+from routers.parts_grn import router as parts_grn_router
+import models.parts_grn  # ensure parts_grn tables are in Base.metadata
 from routers.stage_control import router as stage_control_router
 from routers.market import router as market_router
 from routers.inventory_location import router as inventory_location_router
@@ -163,6 +165,7 @@ app.include_router(telecalling_router)
 app.include_router(m_telecalling_router)
 app.include_router(whatsapp_router)
 app.include_router(grn_router)
+app.include_router(parts_grn_router)
 app.include_router(stage_control_router)
 app.include_router(market_router)
 app.include_router(inventory_location_router)

@@ -159,6 +159,9 @@
       <li><a href="/spare-parts" class="nav-link {% if request.url.path == '/spare-parts' %}active{% endif %}">
         <i class="bi bi-gear me-2"></i> Parts Dashboard
       </a></li>
+      <li><a href="/parts-grn" class="nav-link {% if '/parts-grn' in request.url.path %}active{% endif %}">
+        <i class="bi bi-receipt me-2"></i> Parts GRN
+      </a></li>
       {% endif %}
       {% if has_perm(role,'scrap_products','enable') %}
       <li><a href="/scrap-products" class="nav-link {% if '/scrap-products' in request.url.path %}active{% endif %}">

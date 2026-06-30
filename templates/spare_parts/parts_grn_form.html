@@ -1,0 +1,446 @@
+{% extends "base.html" %}
+{% block title %}{% if grn %}Parts GRN — {{ grn.grn_number }}{% else %}New Parts GRN{% endif %}{% endblock %}
+{% block content %}
+
+{% set ro = grn is not none %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h5 class="mb-0 fw-bold">{% if ro %}Parts GRN <code class="fs-6">{{ grn.grn_number }}</code>{% else %}New Parts GRN{% endif %}</h5>
+    {% if ro %}<small class="text-muted">Created by {{ grn.created_by }} on {{ grn.created_at.strftime('%d-%m-%Y %H:%M') if grn.created_at else '' }}</small>{% endif %}
+  </div>
+  <a href="/parts-grn" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>All GRNs</a>
+</div>
+
+{% if not ro %}
+<form method="post" action="/parts-grn/new" enctype="multipart/form-data" id="grnForm">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+  <input type="hidden" name="line_items_json" id="lineItemsJson" value="[]">
+{% endif %}
+
+<!-- ── Section 1: Header ─────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-primary text-white py-2">
+    <i class="bi bi-file-earmark-text me-2"></i>Section 1 — GRN Header
+  </div>
+  <div class="card-body">
+
+    <!-- Row 1: PO -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">PO Number</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.po_number or '—' }}</p>
+        {% else %}<input type="text" name="po_number" class="form-control form-control-sm" id="hdrPO">{% endif %}
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">PO Date</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.po_date.strftime('%d-%m-%Y') if grn.po_date else '—' }}</p>
+        {% else %}<input type="date" name="po_date" class="form-control form-control-sm">{% endif %}
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">PO Upload</label>
+        {% if ro %}
+          {% if grn.po_file %}<a href="/uploads/parts_grn/{{ grn.po_file }}" target="_blank" class="btn btn-xs btn-outline-primary btn-sm py-0"><i class="bi bi-file-earmark me-1"></i>View</a>{% else %}<span class="text-muted">—</span>{% endif %}
+        {% else %}<input type="file" name="po_file" class="form-control form-control-sm">{% endif %}
+      </div>
+    </div>
+
+    <!-- Row 2: Invoice -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">Invoice Number</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.invoice_number or '—' }}</p>
+        {% else %}<input type="text" name="invoice_number" class="form-control form-control-sm" id="hdrInv">{% endif %}
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">Invoice Date</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.invoice_date.strftime('%d-%m-%Y') if grn.invoice_date else '—' }}</p>
+        {% else %}<input type="date" name="invoice_date" class="form-control form-control-sm">{% endif %}
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">Invoice Upload</label>
+        {% if ro %}
+          {% if grn.invoice_file %}<a href="/uploads/parts_grn/{{ grn.invoice_file }}" target="_blank" class="btn btn-xs btn-outline-primary btn-sm py-0"><i class="bi bi-file-earmark me-1"></i>View</a>{% else %}<span class="text-muted">—</span>{% endif %}
+        {% else %}<input type="file" name="invoice_file" class="form-control form-control-sm">{% endif %}
+      </div>
+    </div>
+
+    <!-- Row 3: E-way Bill -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">E-way Bill Number</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.eway_bill_number or '—' }}</p>
+        {% else %}<input type="text" name="eway_bill_number" class="form-control form-control-sm">{% endif %}
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">E-way Bill Date</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.eway_bill_date.strftime('%d-%m-%Y') if grn.eway_bill_date else '—' }}</p>
+        {% else %}<input type="date" name="eway_bill_date" class="form-control form-control-sm">{% endif %}
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">E-way Bill Upload</label>
+        {% if ro %}
+          {% if grn.eway_bill_file %}<a href="/uploads/parts_grn/{{ grn.eway_bill_file }}" target="_blank" class="btn btn-xs btn-outline-primary btn-sm py-0"><i class="bi bi-file-earmark me-1"></i>View</a>{% else %}<span class="text-muted">—</span>{% endif %}
+        {% else %}<input type="file" name="eway_bill_file" class="form-control form-control-sm">{% endif %}
+      </div>
+    </div>
+
+    <!-- Row 4: Vehicle -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">Vehicle Number</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.vehicle_number or '—' }}</p>
+        {% else %}<input type="text" name="vehicle_number" class="form-control form-control-sm" id="hdrVeh">{% endif %}
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">Vehicle Seal Upload</label>
+        {% if ro %}
+          {% if grn.vehicle_seal_file %}<a href="/uploads/parts_grn/{{ grn.vehicle_seal_file }}" target="_blank" class="btn btn-xs btn-outline-primary btn-sm py-0"><i class="bi bi-file-earmark me-1"></i>View</a>{% else %}<span class="text-muted">—</span>{% endif %}
+        {% else %}<input type="file" name="vehicle_seal_file" class="form-control form-control-sm">{% endif %}
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">Vehicle Image</label>
+        {% if ro %}
+          {% if grn.vehicle_image_file %}<a href="/uploads/parts_grn/{{ grn.vehicle_image_file }}" target="_blank" class="btn btn-xs btn-outline-primary btn-sm py-0"><i class="bi bi-image me-1"></i>View</a>{% else %}<span class="text-muted">—</span>{% endif %}
+        {% else %}<input type="file" name="vehicle_image_file" class="form-control form-control-sm">{% endif %}
+      </div>
+    </div>
+
+    <!-- Row 5: Date & Vendor -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">Date of Material Received</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.date_received.strftime('%d-%m-%Y') if grn.date_received else '—' }}</p>
+        {% else %}<input type="date" name="date_received" class="form-control form-control-sm">{% endif %}
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small fw-semibold">Vendor Name (PO)</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.vendor_name or '—' }}</p>
+        {% else %}<input type="text" name="vendor_name" class="form-control form-control-sm" id="hdrVendor">{% endif %}
+      </div>
+    </div>
+
+    <!-- Row 6: Tax Summary -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">Invoice Value (₹)</label>
+        {% if ro %}<p class="form-control-plaintext">{% if grn.invoice_value %}{{ "{:,.2f}".format(grn.invoice_value) }}{% else %}—{% endif %}</p>
+        {% else %}<input type="number" name="invoice_value" step="0.01" class="form-control form-control-sm">{% endif %}
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">SGST (₹)</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.sgst or '—' }}</p>
+        {% else %}<input type="number" name="sgst" step="0.01" class="form-control form-control-sm">{% endif %}
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">CGST (₹)</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.cgst or '—' }}</p>
+        {% else %}<input type="number" name="cgst" step="0.01" class="form-control form-control-sm">{% endif %}
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">IGST (₹)</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.igst or '—' }}</p>
+        {% else %}<input type="number" name="igst" step="0.01" class="form-control form-control-sm">{% endif %}
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">Tax Amount (₹)</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.tax_amount or '—' }}</p>
+        {% else %}<input type="number" name="tax_amount" step="0.01" class="form-control form-control-sm">{% endif %}
+      </div>
+    </div>
+
+    <!-- Row 7: Qty Totals -->
+    <div class="row g-3">
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">Total PO Qty</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.total_po_qty or '—' }}</p>
+        {% else %}<input type="number" name="total_po_qty" class="form-control form-control-sm">{% endif %}
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">Total Invoice Qty</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.total_invoice_qty or '—' }}</p>
+        {% else %}<input type="number" name="total_invoice_qty" class="form-control form-control-sm">{% endif %}
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">Total Physical Qty</label>
+        {% if ro %}<p class="form-control-plaintext">{{ grn.total_physical_qty or '—' }}</p>
+        {% else %}<input type="number" name="total_physical_qty" class="form-control form-control-sm">{% endif %}
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">Total Amount Invoice (₹)</label>
+        {% if ro %}<p class="form-control-plaintext">{% if grn.total_amount_invoice %}{{ "{:,.2f}".format(grn.total_amount_invoice) }}{% else %}—{% endif %}</p>
+        {% else %}<input type="number" name="total_amount_invoice" step="0.01" class="form-control form-control-sm">{% endif %}
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">GRN Number</label>
+        <p class="form-control-plaintext fw-bold text-primary">{{ grn_number }}</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── Section 2: Line Items ─────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-success text-white py-2 d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-list-ul me-2"></i>Section 2 — Line Items</span>
+    {% if not ro %}
+    <button type="button" class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#addItemModal">
+      <i class="bi bi-plus-circle me-1"></i>Add
+    </button>
+    {% endif %}
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small" id="lineItemsTable">
+        <thead class="table-secondary">
+          <tr>
+            <th>Part ID</th><th>GRN No</th><th>Lot No</th><th>Vendor</th>
+            <th>Invoice No</th><th>Part Name</th><th>Brand</th><th>Model</th>
+            <th>Inv Qty</th><th>Phys Qty</th><th>Price</th>
+            <th>Main Cat</th><th>Category</th><th>Vehicle</th><th>Invoice Ref</th><th>Remarks</th>
+            {% if not ro %}<th>Action</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody id="lineItemsTbody">
+          {% for li in line_items %}
+          <tr>
+            <td><code>{{ li.part_id }}</code></td>
+            <td>{{ li.grn_number or '—' }}</td>
+            <td>{{ li.lot_number or '—' }}</td>
+            <td>{{ li.vendor_name or '—' }}</td>
+            <td>{{ li.invoice_number or '—' }}</td>
+            <td>{{ li.part_name or '—' }}</td>
+            <td>{{ li.part_brand or '—' }}</td>
+            <td>{{ li.part_model or '—' }}</td>
+            <td>{{ li.invoice_qty or '—' }}</td>
+            <td>{{ li.physical_qty or '—' }}</td>
+            <td>{% if li.price %}₹{{ "{:,.2f}".format(li.price) }}{% else %}—{% endif %}</td>
+            <td>{{ li.main_category or '—' }}</td>
+            <td>{{ li.category or '—' }}</td>
+            <td>{{ li.vehicle_number or '—' }}</td>
+            <td>{{ li.invoice_ref or '—' }}</td>
+            <td>{{ li.remarks or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if not ro %}
+<div class="d-flex gap-2 mb-4">
+  <button type="submit" class="btn btn-primary">
+    <i class="bi bi-save me-1"></i>Save GRN
+  </button>
+  <a href="/parts-grn" class="btn btn-outline-secondary">Cancel</a>
+</div>
+</form>
+{% endif %}
+
+<!-- ── Add Line Item Modal (create mode only) ────────────────────────── -->
+{% if not ro %}
+<div class="modal fade" id="addItemModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Line Item</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Part ID <span class="text-muted">(auto)</span></label>
+            <input type="text" id="li_part_id" class="form-control form-control-sm" readonly>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Lot Number</label>
+            <input type="text" id="li_lot_number" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">PO Number</label>
+            <input type="text" id="li_po_number" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">GRN Number</label>
+            <input type="text" id="li_grn_number" class="form-control form-control-sm" readonly value="{{ grn_number }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Vendor Name</label>
+            <input type="text" id="li_vendor_name" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Invoice Number</label>
+            <input type="text" id="li_invoice_number" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold">Product Description</label>
+            <input type="text" id="li_product_description" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Item Name</label>
+            <input type="text" id="li_item_name" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Part Name</label>
+            <input type="text" id="li_part_name" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Part Brand</label>
+            <input type="text" id="li_part_brand" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Part Model</label>
+            <input type="text" id="li_part_model" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small fw-semibold">Invoice Qty</label>
+            <input type="number" id="li_invoice_qty" class="form-control form-control-sm" min="0">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small fw-semibold">Physical Qty</label>
+            <input type="number" id="li_physical_qty" class="form-control form-control-sm" min="0">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small fw-semibold">Price (₹)</label>
+            <input type="number" id="li_price" class="form-control form-control-sm" step="0.01" min="0">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Main Category</label>
+            <select id="li_main_category" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              {% for c in main_categories %}<option>{{ c }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Category</label>
+            <select id="li_category" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              {% for c in categories %}<option>{{ c }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Vehicle Number</label>
+            <input type="text" id="li_vehicle_number" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Invoice Ref</label>
+            <input type="text" id="li_invoice_ref" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold">Remarks</label>
+            <input type="text" id="li_remarks" class="form-control form-control-sm">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-success" onclick="addLineItem()">
+          <i class="bi bi-plus me-1"></i>Add to List
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var lineItems = [];
+var lineItemCounter = 0;
+
+function genPartId() {
+  return String(Math.floor(Math.random() * 90000000) + 10000000);
+}
+
+document.getElementById('addItemModal').addEventListener('show.bs.modal', function () {
+  document.getElementById('li_part_id').value = genPartId();
+  // auto-fill from header
+  var po = document.getElementById('hdrPO');
+  var inv = document.getElementById('hdrInv');
+  var vnd = document.getElementById('hdrVendor');
+  var veh = document.getElementById('hdrVeh');
+  if (po) document.getElementById('li_po_number').value = po.value;
+  if (inv) document.getElementById('li_invoice_number').value = inv.value;
+  if (vnd) document.getElementById('li_vendor_name').value = vnd.value;
+  if (veh) document.getElementById('li_vehicle_number').value = veh.value;
+});
+
+function addLineItem() {
+  var item = {
+    _idx: ++lineItemCounter,
+    part_id: document.getElementById('li_part_id').value,
+    lot_number: document.getElementById('li_lot_number').value,
+    po_number: document.getElementById('li_po_number').value,
+    grn_number: document.getElementById('li_grn_number').value,
+    vendor_name: document.getElementById('li_vendor_name').value,
+    invoice_number: document.getElementById('li_invoice_number').value,
+    product_description: document.getElementById('li_product_description').value,
+    item_name: document.getElementById('li_item_name').value,
+    part_name: document.getElementById('li_part_name').value,
+    part_brand: document.getElementById('li_part_brand').value,
+    part_model: document.getElementById('li_part_model').value,
+    invoice_qty: document.getElementById('li_invoice_qty').value,
+    physical_qty: document.getElementById('li_physical_qty').value,
+    price: document.getElementById('li_price').value,
+    main_category: document.getElementById('li_main_category').value,
+    category: document.getElementById('li_category').value,
+    vehicle_number: document.getElementById('li_vehicle_number').value,
+    invoice_ref: document.getElementById('li_invoice_ref').value,
+    remarks: document.getElementById('li_remarks').value,
+  };
+  lineItems.push(item);
+  renderLineItems();
+  updateHiddenJson();
+  // reset fields
+  ['li_lot_number','li_product_description','li_item_name','li_part_name',
+   'li_part_brand','li_part_model','li_invoice_qty','li_physical_qty',
+   'li_price','li_invoice_ref','li_remarks'].forEach(function(id) {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('li_main_category').value = '';
+  document.getElementById('li_category').value = '';
+  bootstrap.Modal.getInstance(document.getElementById('addItemModal')).hide();
+}
+
+function removeLineItem(idx) {
+  lineItems = lineItems.filter(function(i) { return i._idx !== idx; });
+  renderLineItems();
+  updateHiddenJson();
+}
+
+function renderLineItems() {
+  var tbody = document.getElementById('lineItemsTbody');
+  if (lineItems.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="17" class="text-center text-muted py-3">No items added yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = lineItems.map(function(item) {
+    return '<tr>' +
+      '<td><code>' + (item.part_id || '—') + '</code></td>' +
+      '<td>' + (item.grn_number || '—') + '</td>' +
+      '<td>' + (item.lot_number || '—') + '</td>' +
+      '<td>' + (item.vendor_name || '—') + '</td>' +
+      '<td>' + (item.invoice_number || '—') + '</td>' +
+      '<td>' + (item.part_name || '—') + '</td>' +
+      '<td>' + (item.part_brand || '—') + '</td>' +
+      '<td>' + (item.part_model || '—') + '</td>' +
+      '<td>' + (item.invoice_qty || '—') + '</td>' +
+      '<td>' + (item.physical_qty || '—') + '</td>' +
+      '<td>' + (item.price ? '₹' + parseFloat(item.price).toLocaleString('en-IN', {minimumFractionDigits:2}) : '—') + '</td>' +
+      '<td>' + (item.main_category || '—') + '</td>' +
+      '<td>' + (item.category || '—') + '</td>' +
+      '<td>' + (item.vehicle_number || '—') + '</td>' +
+      '<td>' + (item.invoice_ref || '—') + '</td>' +
+      '<td>' + (item.remarks || '—') + '</td>' +
+      '<td><button type="button" class="btn btn-xs btn-outline-danger btn-sm py-0 px-2" onclick="removeLineItem(' + item._idx + ')"><i class="bi bi-trash"></i></button></td>' +
+      '</tr>';
+  }).join('');
+}
+
+function updateHiddenJson() {
+  document.getElementById('lineItemsJson').value = JSON.stringify(lineItems);
+}
+</script>
+{% endif %}
+
+{% endblock %}

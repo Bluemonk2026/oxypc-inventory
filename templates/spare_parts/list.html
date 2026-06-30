@@ -92,9 +92,9 @@
         <button id="expSel_partsTable" class="btn btn-outline-info btn-sm" onclick="spExport('partsTable',true)" disabled>
           <i class="bi bi-download me-1"></i>Export Selected
         </button>
-        <a href="/spare-parts/new" class="btn btn-primary btn-sm">
+        <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addPartModal">
           <i class="bi bi-plus-circle me-1"></i>Add Part
-        </a>
+        </button>
       </div>
     </div>
     <div class="table-responsive">
@@ -104,7 +104,9 @@
             <th><input type="checkbox" class="form-check-input sp-sa" data-tbl="partsTable"></th>
             <th>Code</th><th>Name</th><th>Category</th>
             <th>Unit Price</th><th>In Stock</th><th>Min Alert</th>
-            <th>Stock Value</th><th>Supplier</th><th>Actions</th>
+            <th>Stock Value</th><th>Supplier</th>
+            <th>Invoice</th><th>PO</th><th>E-way Bill</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -123,6 +125,10 @@
             <td>{{ part.min_stock_alert }}</td>
             <td>&#8377;{{ "{:,.0f}".format(part.unit_price * part.qty_in_stock) }}</td>
             <td class="text-muted">{{ part.supplier or '—' }}</td>
+            {% set gdoc = grn_docs.get(part.id|string, {}) %}
+            <td>{% if gdoc.get('invoice_file') %}<a href="/uploads/parts_grn/{{ gdoc.invoice_file }}" target="_blank" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1"><i class="bi bi-file-earmark"></i></a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td>{% if gdoc.get('po_file') %}<a href="/uploads/parts_grn/{{ gdoc.po_file }}" target="_blank" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1"><i class="bi bi-file-earmark"></i></a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td>{% if gdoc.get('eway_file') %}<a href="/uploads/parts_grn/{{ gdoc.eway_file }}" target="_blank" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1"><i class="bi bi-file-earmark"></i></a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td>
               <div class="d-flex gap-1 flex-wrap">
                 <a href="/spare-parts/{{ part.id }}/edit"
@@ -137,6 +143,10 @@
                    title="Record Consumption">
                   <i class="bi bi-tools"></i> Use
                 </a>
+                <form method="post" action="/spare-parts/{{ part.id }}/procure" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                  <button class="btn btn-xs btn-outline-info btn-sm py-0 px-2" title="Send to Sourcing">Procure</button>
+                </form>
               </div>
             </td>
           </tr>
@@ -375,6 +385,135 @@
     </form>
   </div>
 </div>
+
+<!-- Add Part choice modal -->
+<div class="modal fade" id="addPartModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Add Part</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body d-flex flex-column gap-3 py-3">
+        <a href="/parts-grn/new" class="btn btn-outline-primary">
+          <i class="bi bi-file-earmark-plus me-2"></i>Add New Part
+        </a>
+        <button type="button" class="btn btn-outline-secondary"
+                onclick="bootstrap.Modal.getInstance(document.getElementById('addPartModal')).hide(); setTimeout(function(){ new bootstrap.Modal(document.getElementById('harvestModal')).show(); }, 300);">
+          <i class="bi bi-recycle me-2"></i>Add Harvest Part
+        </button>
+        <button type="button" class="btn btn-outline-dark" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Harvest Part modal -->
+<div class="modal fade" id="harvestModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form id="harvestForm">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-recycle me-2"></i>Add Harvest Part</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Part ID <span class="text-muted">(auto)</span></label>
+              <input type="text" id="hv_part_id" class="form-control form-control-sm" readonly>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Lot Number</label>
+              <input type="text" id="hv_lot_number" name="lot_number" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">PO Number</label>
+              <input type="text" class="form-control form-control-sm" value="Harvest" readonly>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">GRN Number</label>
+              <input type="text" class="form-control form-control-sm" value="Not Available" readonly>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Vendor Name</label>
+              <input type="text" class="form-control form-control-sm" value="Internal" readonly>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Invoice Number</label>
+              <input type="text" class="form-control form-control-sm" value="Internal" readonly>
+            </div>
+            <div class="col-md-12">
+              <label class="form-label small fw-semibold">Product Description</label>
+              <input type="text" name="product_description" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Part Name</label>
+              <input type="text" name="part_name" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Part Brand</label>
+              <input type="text" name="part_brand" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Part Model</label>
+              <input type="text" name="part_model" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Physical Qty</label>
+              <input type="number" name="physical_qty" id="hv_phys_qty" class="form-control form-control-sm" min="1" value="1">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Invoice Qty</label>
+              <input type="number" id="hv_inv_qty" class="form-control form-control-sm" readonly value="1">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Price (₹)</label>
+              <input type="number" name="price" step="0.01" min="0" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Vehicle Number</label>
+              <input type="text" name="vehicle_number" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Main Category</label>
+              <select name="main_category" class="form-select form-select-sm">
+                <option value="">— Select —</option>
+                <option>Hardware</option><option>Accessories</option><option>Consumables</option><option>Other</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Category</label>
+              <select name="category" class="form-select form-select-sm">
+                <option value="">— Select —</option>
+                <option>RAM</option><option>HDD</option><option>SSD</option><option>Battery</option>
+                <option>Screen</option><option>Keyboard</option><option>Charger</option>
+                <option>Motherboard</option><option>Cable</option><option>Adapter</option>
+                <option>Fan</option><option>Speaker</option><option>Webcam</option><option>Other</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Invoice Ref</label>
+              <input type="text" name="invoice_ref" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-12">
+              <label class="form-label small fw-semibold">Remarks</label>
+              <input type="text" name="remarks" class="form-control form-control-sm">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-success" onclick="submitHarvestPart()">
+            <i class="bi bi-save me-1"></i>Save Harvest Part
+          </button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -402,6 +541,29 @@ if (_hm) {
     document.getElementById('ho_part').textContent = b.getAttribute('data-part') || '—';
     document.getElementById('ho_eng').textContent = b.getAttribute('data-eng') || '—';
   });
+}
+
+// Harvest modal — generate Part ID on open, sync invoice qty
+document.getElementById('harvestModal').addEventListener('show.bs.modal', function() {
+  document.getElementById('hv_part_id').value = String(Math.floor(Math.random() * 90000000) + 10000000);
+});
+document.getElementById('hv_phys_qty').addEventListener('input', function() {
+  document.getElementById('hv_inv_qty').value = this.value;
+});
+function submitHarvestPart() {
+  var form = document.getElementById('harvestForm');
+  var data = new FormData(form);
+  fetch('/parts-grn/harvest', { method: 'POST', body: data })
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+      if (j.ok) {
+        bootstrap.Modal.getInstance(document.getElementById('harvestModal')).hide();
+        alert('Harvest part saved. Part ID: ' + j.part_id);
+        form.reset();
+        document.getElementById('hv_inv_qty').value = '1';
+      }
+    })
+    .catch(function() { alert('Error saving harvest part.'); });
 }
 
 // Preserve active tab across page reloads

@@ -373,12 +373,6 @@
                     <option value="">—</option>{% for o in cover_opts %}<option>{{o}}</option>{% endfor %}
                   </select>
                 </div>
-                <div class="col-md-3">
-                  <label class="form-label small">USB Cover</label>
-                  <select name="cover_usb" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in cover_opts %}<option>{{o}}</option>{% endfor %}
-                  </select>
-                </div>
               </div>
             </div>
           </div>
@@ -472,12 +466,10 @@
                 <div class="col-md-2"><label class="form-label small">Colour Spread</label><select name="screen_colour_spread" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
                 <div class="col-md-2"><label class="form-label small">Patch</label><select name="screen_patch" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
                 <div class="col-md-2"><label class="form-label small">Flickering</label><select name="screen_flickering" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Functional</label><select name="screen_functional" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
                 <div class="col-md-2"><label class="form-label small">Scratch</label><select name="screen_scratch" class="form-select form-select-sm"><option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Loose</label><select name="screen_loose" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
                 <div class="col-md-2"><label class="form-label small">Missing</label><select name="screen_missing" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
                 <div class="col-md-2"><label class="form-label small">Broken</label><select name="screen_broken" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Hinge Broken</label><select name="screen_hinge_broken" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Keyboard Mark</label><select name="screen_keyboard_mark" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
               </div>
             </div>
           </div>
@@ -490,6 +482,18 @@
                 <div class="col-md-3">
                   <label class="form-label small">Hinge</label>
                   <select name="hinge_condition" class="form-select form-select-sm">
+                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small">Loose</label>
+                  <select name="screen_loose" class="form-select form-select-sm">
+                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small">Hinge Broken</label>
+                  <select name="screen_hinge_broken" class="form-select form-select-sm">
                     <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
                   </select>
                 </div>
@@ -559,7 +563,6 @@
             <div class="card-body py-2">
               <p class="small fw-semibold text-uppercase mb-2 text-secondary">Keyboard</p>
               <div class="row g-2">
-                <div class="col-md-2"><label class="form-label small">Keyboard Mark</label><select name="screen_keyboard_mark" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
                 <div class="col-md-2"><label class="form-label small">Keyboard Colour Fade</label><select name="keyboard_colour_fade" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
                 <div class="col-md-2"><label class="form-label small">Keyboard Hard Press</label><select name="keyboard_hard_press" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
                 <div class="col-md-2"><label class="form-label small">Key Missing</label><select name="keyboard_key_missing" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
@@ -570,7 +573,7 @@
           <!-- 9. Palmrest (Panel D) -->
           <div class="card border bg-light mb-3">
             <div class="card-body py-2">
-              <p class="small fw-semibold text-uppercase mb-2 text-danger">Palmrest</p>
+              <p class="small fw-semibold text-uppercase mb-2 text-danger">Touchpad</p>
               <div class="row g-2">
                 <div class="col-md-2">
                   <label class="form-label small">Scratch</label>
@@ -629,7 +632,7 @@
                      placeholder="1">
             </div>
             <div class="col-md-3">
-              <label class="form-label">Unit Price (₹) <small class="text-muted">override</small></label>
+              <label class="form-label">Unit Price inclusive taxes (₹)</label>
               <input type="number" name="device_price_input" id="device_price" class="form-control"
                      step="0.01" min="0" placeholder="Auto-filled from line item">
               <div class="form-text">Auto-calculated if blank</div>

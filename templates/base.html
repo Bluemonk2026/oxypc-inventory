@@ -509,7 +509,7 @@
       <span class="navbar-brand mb-0 h1 fw-bold text-primary">{% block page_title %}{% endblock %}</span>
       <div class="ms-auto d-flex align-items-center gap-3">
         <a href="/auth/profile" class="text-decoration-none fw-bold text-dark" style="font-size:0.95rem">{{ current_user.full_name }}</a>
-        <span class="badge bg-primary">{{ role_display(current_user.role) }}</span>
+        <span class="badge bg-primary">{{ ROLE_DISPLAY_MAP.get(role, role) }}</span>
         <!-- Notification Bell -->
         <div class="position-relative d-inline-block">
           <a href="/notifications/alerts" class="btn btn-link text-dark p-1 text-decoration-none" title="Alerts">

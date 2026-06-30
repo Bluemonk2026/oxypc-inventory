@@ -38,13 +38,14 @@
       <div class="card-body p-0">
         <div class="table-responsive">
           <table id="l3Table" class="table table-hover mb-0 small">
-            <thead class="table-dark"><tr><th>WorkID</th><th>Tag Number</th><th>Location</th><th>Parts Required</th><th>Parts Requested</th><th>Notes</th><th>Timeline</th><th>Action</th></tr></thead>
+            <thead class="table-dark"><tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Location</th><th>Parts Required</th><th>Parts Requested</th><th>Notes</th><th>Timeline</th><th>Action</th></tr></thead>
             <tbody>
               {% for device, lot_number in devices %}
               {% set wo = work_map.get(device.id|string) if work_map is defined else None %}
               <tr>
                 <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
                 <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a></td>
+                <td>{% set bkt = bucket_map.get(device.id|string) if bucket_map is defined else None %}{% if bkt %}<span class="badge bg-warning text-dark font-monospace">{{ bkt }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                 <td>
                   {% set loc = location_map.get(device.id | string) %}
                   {% if loc and loc.unit_id %}

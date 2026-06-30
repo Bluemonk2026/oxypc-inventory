@@ -72,3 +72,4 @@ def _role_display(role):
 
 
 templates.env.globals["role_display"] = _role_display
+templates.env.globals["ROLE_DISPLAY_MAP"] = _ROLE_DISPLAY

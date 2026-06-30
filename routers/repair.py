@@ -28,6 +28,7 @@ from models.spare_parts import SparePartConsumption as SPC, SparePart
 from models.work_order import WorkOrder
 from models.part_request import PartRequest
 from models.iqc_inspection import IQCInspection
+from models.bucket import Bucket
 from services.parts_required import compute_required
 
 router = APIRouter(prefix="/repair", tags=["repair"], dependencies=[Depends(verify_csrf)])
@@ -197,6 +198,18 @@ async def repair_list(stage: str, request: Request,
         ret_dev = {str(r[0]) for r in ret_rows}
         returned_job_ids = {str(j.id) for j, *_ in open_jobs if str(j.device_id) in ret_dev}
 
+    # ── Bucket map: device_id → bucket_number ────────────────────────────────
+    bucket_map: dict = {}
+    bucket_ids = [d.bucket_id for d, _ in devices if d.bucket_id]
+    if bucket_ids:
+        bkt_rows = (await db.execute(
+            select(Bucket).where(Bucket.id.in_(bucket_ids))
+        )).scalars().all()
+        bkt_by_id = {str(b.id): b.bucket_number for b in bkt_rows}
+        for device, _ in devices:
+            if device.bucket_id:
+                bucket_map[str(device.id)] = bkt_by_id.get(str(device.bucket_id), "")
+
     return templates.TemplateResponse(f"repair/{stage}.html", {
         "request": request, "devices": devices, "open_jobs": open_jobs,
         "stage": stage.upper(), "current_user": current_user,
@@ -209,6 +222,7 @@ async def repair_list(stage: str, request: Request,
         "parts_alert_map": parts_alert_map,
         "parts_required_map": parts_required_map,
         "parts_requested_map": parts_requested_map,
+        "bucket_map": bucket_map,
         "started_ids": {str(j.device_id) for j, *_ in open_jobs},
         "page": page, "page_size": page_size,
         "total": total, "total_pages": total_pages,

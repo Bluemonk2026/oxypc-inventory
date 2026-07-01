@@ -48,7 +48,7 @@ NAV_PAGE_TITLES = [
     ("crm_price_matrix",     "Price Matrix",                  "Price Matrix",                  "/crm/price-matrix"),
     ("crm_purchase_orders",  "Purchase Orders",               "Purchase Orders",               "/crm/purchase-orders"),
     ("crm_analytics",        "CRM Analytics",                 "CRM Analytics",                 "/crm/reports"),
-    ("crm_assign_leads",     "Assign Leads",                  "Assign Leads",                  "/crm/assign-leads"),
+    ("crm_assign_leads",     "Assign Social Leads",           "Assign Social Leads",           "/crm/assign-leads"),
     ("sales",                "Ready to Sale / Sales List",    "Ready to Sale",                 "/sales/ready"),
     ("returns",              "Returns",                       "Process Return",                "/returns"),
     ("dealers",              "Dealers",                       "Dealers",                       "/dealers"),

@@ -87,7 +87,7 @@ PERM_MODULES = [
     ("crm_price_matrix",     "Price Matrix"),
     ("crm_purchase_orders",  "Purchase Orders"),
     ("crm_analytics",        "CRM Analytics"),
-    ("crm_assign_leads",     "Assign Leads"),
+    ("crm_assign_leads",     "Assign Social Leads"),
     # ── SALES & CRM ────────────────────────────────────────────────
     ("sales",                "Ready to Sale / Sales List"),
     ("returns",              "Returns"),

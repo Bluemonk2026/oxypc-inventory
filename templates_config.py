@@ -4,6 +4,17 @@ from fastapi.templating import Jinja2Templates
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
+# ── Static asset cache-busting ────────────────────────────────────────────────
+# Browsers cache /static/* aggressively since StaticFiles sends no explicit
+# Cache-Control header (only Last-Modified/ETag), so CSS/JS edits can silently
+# not show up for users until a hard refresh. Append this as a ?v= query string
+# on asset URLs so every restart forces a fresh fetch.
+try:
+    ASSET_VERSION = str(int(os.path.getmtime(os.path.join(BASE_DIR, "static", "css", "app.css"))))
+except OSError:
+    ASSET_VERSION = "1"
+templates.env.globals["ASSET_VERSION"] = ASSET_VERSION
+
 
 # ── Datetime display filters ──────────────────────────────────────────────────
 # Timestamps are now stored in the configured app timezone (default: IST/Asia/Kolkata).

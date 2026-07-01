@@ -73,10 +73,15 @@
                 {% endfor %}
               </select>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-3">
               <label class="form-label fw-semibold">Next Follow-up Date</label>
               <input type="date" name="next_followup_date" class="form-control"
                      value="{{ edit_call.next_followup_date.strftime('%Y-%m-%d') if edit_call and edit_call.next_followup_date else '' }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Next Follow-up Time</label>
+              <input type="time" name="next_followup_time" class="form-control"
+                     value="{{ edit_call.next_followup_date.strftime('%H:%M') if edit_call and edit_call.next_followup_date else '' }}">
             </div>
 
             <div class="col-12">

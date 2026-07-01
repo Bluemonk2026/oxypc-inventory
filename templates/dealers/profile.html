@@ -83,7 +83,14 @@
                   <span class="badge bg-{{ oc.get(call.call_outcome,'secondary') }}">{{ call.call_outcome | replace('_',' ') | title if call.call_outcome else '—' }}</span>
                 </td>
                 <td>{{ call.items_discussed or '—' }}</td>
-                <td>{% if call.next_followup_date %}<span class="{% if call.next_followup_date.date() <= today %}text-danger fw-semibold{% endif %}">{{ call.next_followup_date.strftime('%d-%m-%Y') }}</span>{% else %}—{% endif %}</td>
+                <td>
+                  {% if call.next_followup_date %}
+                  <span class="badge {% if call.next_followup_date.date() <= today %}bg-danger{% else %}bg-info text-dark{% endif %}">
+                    {{ call.next_followup_date.strftime('%d-%m-%Y') }}
+                    <i class="bi bi-clock ms-1"></i>{{ call.next_followup_date.strftime('%H:%M') }}
+                  </span>
+                  {% else %}—{% endif %}
+                </td>
                 <td class="text-muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ call.notes or '' }}">{{ call.notes or '' }}</td>
                 <td>
                   <a href="/dealers/{{ dealer.id }}/calls/{{ call.id }}/edit"

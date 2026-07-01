@@ -28,6 +28,23 @@ OUTSTANDING_STATUSES = ("pending", "confirmed", "delivered")
 PER_PAGE = 50
 
 
+def _combine_date_time(date_str: str | None, time_str: str | None) -> datetime | None:
+    """Combine a 'YYYY-MM-DD' date field and an 'HH:MM' time field into a
+    datetime. Defaults to 00:00 if no time given, or midnight if only a
+    date string was submitted (also handles a plain ISO datetime string)."""
+    if not date_str or not date_str.strip():
+        return None
+    date_str = date_str.strip()
+    time_str = (time_str or "").strip() or "00:00"
+    try:
+        return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        try:
+            return datetime.fromisoformat(date_str)
+        except ValueError:
+            return None
+
+
 def _upsell_suggestions(dealer: Dealer, outstanding_live: float = 0.0) -> list:
     suggestions = []
     days_since_sale = None
@@ -136,26 +153,6 @@ async def list_dealers(
 
     dealer_ids = [d.id for d in dealers]
 
-    # Outstanding map — current page only
-    outstanding_map: dict = {}
-    if dealer_ids:
-        out_rows = await db.execute(
-            select(DealerOrder.dealer_id, func.coalesce(func.sum(DealerOrder.due_amount), 0).label("out"))
-            .where(DealerOrder.dealer_id.in_(dealer_ids), DealerOrder.status.in_(OUTSTANDING_STATUSES))
-            .group_by(DealerOrder.dealer_id)
-        )
-        outstanding_map = {str(r.dealer_id): float(r.out) for r in out_rows}
-
-    # Last call date per dealer (for Last Call column)
-    last_call_map: dict = {}
-    if dealer_ids:
-        lc_rows = await db.execute(
-            select(DealerCall.dealer_id, func.max(DealerCall.call_date).label("last_call"))
-            .where(DealerCall.dealer_id.in_(dealer_ids))
-            .group_by(DealerCall.dealer_id)
-        )
-        last_call_map = {str(r.dealer_id): r.last_call for r in lc_rows}
-
     # Most recent call outcome + items per dealer (for pills) using window function
     recent_call_map: dict = {}
     if dealer_ids:
@@ -167,16 +164,18 @@ async def list_dealers(
             DealerCall.dealer_id,
             DealerCall.call_outcome,
             DealerCall.items_discussed,
+            DealerCall.next_followup_date,
             rn_col,
         ).where(DealerCall.dealer_id.in_(dealer_ids)).subquery()
         rc_rows = (await db.execute(
-            select(inner.c.dealer_id, inner.c.call_outcome, inner.c.items_discussed)
+            select(inner.c.dealer_id, inner.c.call_outcome, inner.c.items_discussed, inner.c.next_followup_date)
             .where(inner.c.rn == 1)
         )).all()
         recent_call_map = {
             str(r.dealer_id): {
                 "outcome": r.call_outcome,
                 "items_text": r.items_discussed or "",
+                "next_followup_date": r.next_followup_date,
             }
             for r in rc_rows
         }
@@ -257,12 +256,11 @@ async def list_dealers(
         "active_count": active_count,
         "followup_count": followup_count,
         "outstanding": f"{outstanding:,}",
-        "outstanding_map": outstanding_map,
-        "last_call_map": last_call_map,
         "recent_call_map": recent_call_map,
         "outcome_stats": outcome_stats,
         "sales_users": sales_users,
         "per_page": PER_PAGE,
+        "today": today,
     })
 
 
@@ -272,14 +270,27 @@ async def followups_due(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_sales),
 ):
+    """All dealers whose LATEST call log has a next_followup_date set —
+    not just calls due today. Ranked-latest-call subquery (rn == 1 per
+    dealer), same pattern used for the followup_count badge on the list page."""
     today = app_now().date()
+
+    rn_col = func.row_number().over(
+        partition_by=DealerCall.dealer_id,
+        order_by=DealerCall.call_date.desc()
+    ).label("rn")
+    ranked = select(
+        DealerCall.id,
+        DealerCall.dealer_id,
+        DealerCall.next_followup_date,
+        rn_col,
+    ).where(DealerCall.next_followup_date.isnot(None)).subquery()
+
     stmt = (
         select(DealerCall, Dealer.business_name, Dealer.id.label("dealer_id_col"), Dealer.phone)
+        .join(ranked, DealerCall.id == ranked.c.id)
         .join(Dealer, DealerCall.dealer_id == Dealer.id)
-        .where(
-            func.date(DealerCall.next_followup_date) == today,
-            DealerCall.call_outcome != 'not_interested',
-        )
+        .where(ranked.c.rn == 1)
         .order_by(DealerCall.next_followup_date)
     )
     if current_user.role not in (UserRole.admin,):
@@ -791,10 +802,10 @@ async def apply_credit_note(
     # Audit before commit
     await audit(
         db,
+        user=current_user,
         action="CREDIT_NOTE_APPLIED",
         table_name="dealer_credit_notes",
         record_id=cn.credit_number,
-        actor=current_user.username,
         notes=f"Applied ₹{applied_amount:,.0f} from CN {cn.credit_number} to order {order.order_number}; new due_amount=₹{float(order.due_amount):,.0f}",
         request=request,
     )
@@ -1119,6 +1130,7 @@ async def log_call(
     duration_mins: str = Form(default=None),
     call_outcome: str = Form(default=None),
     next_followup_date: str = Form(default=None),
+    next_followup_time: str = Form(default=None),
     items_discussed: str = Form(default=None),
     quote_given: str = Form(default=None),
     whatsapp_sent: str = Form(default=None),
@@ -1126,12 +1138,7 @@ async def log_call(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_sales),
 ):
-    next_dt = None
-    if next_followup_date:
-        try:
-            next_dt = datetime.fromisoformat(next_followup_date)
-        except ValueError:
-            pass
+    next_dt = _combine_date_time(next_followup_date, next_followup_time)
 
     _duration = int(duration_mins) if duration_mins and duration_mins.strip() else None
     _quote = float(quote_given) if quote_given and quote_given.strip() else None
@@ -1197,6 +1204,7 @@ async def update_call(
     duration_mins: str = Form(default=None),
     call_outcome: str = Form(default=None),
     next_followup_date: str = Form(default=None),
+    next_followup_time: str = Form(default=None),
     items_discussed: str = Form(default=None),
     quote_given: str = Form(default=None),
     whatsapp_sent: str = Form(default=None),
@@ -1211,12 +1219,7 @@ async def update_call(
         return RedirectResponse(url=f"/dealers/{dealer_id}?error=Call+not+found", status_code=302)
 
     # Parse dates
-    next_dt = None
-    if next_followup_date and next_followup_date.strip():
-        try:
-            next_dt = datetime.fromisoformat(next_followup_date)
-        except ValueError:
-            pass
+    next_dt = _combine_date_time(next_followup_date, next_followup_time)
 
     call_dt = call.call_date
     if call_date and call_date.strip():

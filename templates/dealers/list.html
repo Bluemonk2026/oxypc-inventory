@@ -162,9 +162,7 @@
             <th>Contact</th>
             <th>City</th>
             <th>Type</th>
-            <th>Last Call</th>
-            <th>Last Sale</th>
-            <th>Outstanding</th>
+            <th>Next Follow-up</th>
             <th>Assigned To</th>
             <th>Status</th>
             <th>Actions</th>
@@ -183,7 +181,6 @@
           {% set sc = {'active':'success','inactive':'secondary','blacklisted':'danger'} %}
           {% for d in dealers %}
           {% set rc = recent_call_map.get(d.id|string, {}) %}
-          {% set lc = last_call_map.get(d.id|string) %}
           <tr>
             <td><code>{{ d.dealer_code }}</code></td>
             <td>
@@ -211,19 +208,15 @@
             <td class="small">{{ d.city or '—' }}</td>
             <td><span class="badge bg-secondary">{{ d.dealer_type | title }}</span></td>
             <td class="small">
-              {% if lc %}
-                <span class="text-muted">{{ lc.strftime('%d-%m-%Y') }}</span>
+              {% set fu = rc.get('next_followup_date') %}
+              {% if fu %}
+              <span class="badge {% if fu.date() <= today %}bg-danger{% else %}bg-info text-dark{% endif %}">
+                {{ fu.strftime('%d-%m-%Y') }}
+                <i class="bi bi-clock ms-1"></i>{{ fu.strftime('%H:%M') }}
+              </span>
               {% else %}
-                <span class="text-muted">No calls</span>
+              <span class="text-muted">—</span>
               {% endif %}
-            </td>
-            <td class="small">
-              {% if d.last_sale_date %}{{ d.last_sale_date.strftime('%d-%m-%Y') }}
-              {% else %}<span class="text-muted">Never</span>{% endif %}
-            </td>
-            {% set d_out = outstanding_map.get(d.id|string, 0) %}
-            <td class="small {% if d_out > 0 %}text-danger fw-semibold{% endif %}">
-              ₹{{ "{:,.0f}".format(d_out) }}
             </td>
             <td class="small">{{ d.assigned_to or '—' }}</td>
             <td>
@@ -248,7 +241,7 @@
           </tr>
           {% else %}
           <tr>
-            <td colspan="11" class="text-center text-muted py-4">
+            <td colspan="9" class="text-center text-muted py-4">
               No dealers found. <a href="/dealers/new">Add your first dealer</a>
             </td>
           </tr>

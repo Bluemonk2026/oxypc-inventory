@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Follow-ups Due — OxyPC{% endblock %}
-{% block page_title %}Follow-ups Due{% endblock %}
+{% block title %}Follow-ups — OxyPC{% endblock %}
+{% block page_title %}Follow-ups{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <span class="text-muted">{{ rows|length }} follow-up(s) due</span>
+  <span class="text-muted">{{ rows|length }} dealer(s) with a follow-up scheduled</span>
   <a href="/dealers" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Back to Dealers</a>
 </div>
 {% if request.query_params.get('success') %}
@@ -25,7 +25,10 @@
           {% set days_over = (today - call.next_followup_date.date()) if call.next_followup_date else none %}
           <tr class="{{ 'table-danger' if days_over and days_over.days > 3 else '' }}">
             <td class="fw-semibold">
-              {{ call.next_followup_date.strftime('%d-%b-%Y') if call.next_followup_date else '—' }}
+              {% if call.next_followup_date %}
+              {{ call.next_followup_date.strftime('%d-%b-%Y') }}
+              <i class="bi bi-clock ms-1 text-muted"></i>{{ call.next_followup_date.strftime('%H:%M') }}
+              {% else %}—{% endif %}
               {% if days_over and days_over.days > 0 %}
               <span class="badge bg-danger ms-1">+{{ days_over.days }}d</span>
               {% endif %}
@@ -54,7 +57,7 @@
     {% else %}
     <div class="text-center py-5 text-muted">
       <i class="bi bi-check-circle fs-2 d-block mb-2 text-success"></i>
-      No follow-ups due! You're all caught up.
+      No follow-ups scheduled.
     </div>
     {% endif %}
   </div>

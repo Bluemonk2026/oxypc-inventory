@@ -257,6 +257,16 @@
       {# ── SALES & CRM (Overdue Orders removed — now on Sales List page) ─ #}
       {% if any_perm(role,'sales','returns','dealers','telecalling','whatsapp','assign_dealer_leads') %}
       <li class="nav-section">SALES & CRM</li>
+      {% if has_perm(role,'dealers','enable') %}
+      <li><a href="/dealers" class="nav-link {% if request.url.path.startswith('/dealers') and '/dealers/overdue' not in request.url.path %}active{% endif %}">
+        <i class="bi bi-building me-2"></i> Dealers
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'telecalling','enable') %}
+      <li><a href="/telecalling" class="nav-link {% if request.url.path.startswith('/telecalling') %}active{% endif %}">
+        <i class="bi bi-telephone me-2"></i> Telecalling
+      </a></li>
+      {% endif %}
       {% if has_perm(role,'sales','enable') %}
       <li><a href="/sales/ready" class="nav-link {% if '/sales/ready' in request.url.path %}active{% endif %}">
         <i class="bi bi-check-circle me-2"></i> Ready to Sale
@@ -268,16 +278,6 @@
       {% if has_perm(role,'returns','enable') %}
       <li><a href="/returns" class="nav-link {% if '/returns' in request.url.path %}active{% endif %}">
         <i class="bi bi-arrow-return-left me-2"></i> Returns
-      </a></li>
-      {% endif %}
-      {% if has_perm(role,'dealers','enable') %}
-      <li><a href="/dealers" class="nav-link {% if request.url.path.startswith('/dealers') and '/dealers/overdue' not in request.url.path %}active{% endif %}">
-        <i class="bi bi-building me-2"></i> Dealers
-      </a></li>
-      {% endif %}
-      {% if has_perm(role,'telecalling','enable') %}
-      <li><a href="/telecalling" class="nav-link {% if request.url.path.startswith('/telecalling') %}active{% endif %}">
-        <i class="bi bi-telephone me-2"></i> Telecalling
       </a></li>
       {% endif %}
       {% if has_perm(role,'whatsapp','enable') %}
@@ -446,9 +446,6 @@
       <li><a href="/qa/" class="nav-link {% if request.url.path.startswith('/qa') %}active{% endif %}">
         <i class="bi bi-speedometer2 me-2"></i> QA Dashboard
       </a></li>
-      <li><a href="/manuals/" class="nav-link {% if request.url.path.startswith('/manuals') %}active{% endif %}">
-        <i class="bi bi-book me-2"></i> Manuals
-      </a></li>
       {% endif %}
 
       {# ── OPTIONAL accordion ───────────────────────────────────────────── #}
@@ -497,6 +494,11 @@
       <li>
         <a href="/tickets" class="nav-link {% if request.url.path.startswith('/tickets') %}active{% endif %}">
           <i class="bi bi-ticket-detailed me-2"></i> Tickets Raised
+        </a>
+      </li>
+      <li>
+        <a href="/manuals/" class="nav-link {% if request.url.path.startswith('/manuals') %}active{% endif %}">
+          <i class="bi bi-book me-2"></i> Manuals
         </a>
       </li>
     </ul>

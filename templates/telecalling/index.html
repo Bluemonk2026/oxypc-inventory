@@ -27,6 +27,149 @@
   </div>
   {% endfor %}
 </div>
+
+<!-- Business Snapshot — Dealers / Device Requests / Sales / Returns -->
+<div class="d-flex align-items-center justify-content-between mt-3 mb-2">
+  <span class="fw-semibold text-muted small">
+    <i class="bi bi-speedometer2 me-1"></i>Business Snapshot
+    {% if not is_manager_view %}<span class="badge bg-light text-dark border ms-1">My Data Only</span>
+    {% else %}<span class="badge bg-light text-dark border ms-1">All Agents</span>{% endif %}
+  </span>
+</div>
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-3">
+    <a href="/dealers{% if not is_manager_view %}?assigned={{ current_user.username }}{% endif %}" class="text-decoration-none">
+      <div class="card border-0 shadow-sm py-3 px-3 card-hover">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="fs-4 fw-bold text-primary">{{ dealer_stats.total }}</div>
+            <div class="small text-muted">My Dealers</div>
+          </div>
+          <i class="bi bi-building fs-4 text-primary opacity-50"></i>
+        </div>
+        <div class="text-muted" style="font-size:0.7rem">{{ dealer_stats.active }} active</div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm py-3 px-3">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <div class="fs-4 fw-bold text-warning">{{ device_request_stats.total }}</div>
+          <div class="small text-muted">Device Requests</div>
+        </div>
+        <i class="bi bi-box-seam fs-4 text-warning opacity-50"></i>
+      </div>
+      <div class="text-muted" style="font-size:0.7rem">{{ device_request_stats.pending }} pending · {{ device_request_stats.approved }} approved</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="/sales" class="text-decoration-none">
+      <div class="card border-0 shadow-sm py-3 px-3 card-hover">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="fs-4 fw-bold text-success">{{ sales_stats.today_count }}</div>
+            <div class="small text-muted">Today's Sales</div>
+          </div>
+          <i class="bi bi-receipt fs-4 text-success opacity-50"></i>
+        </div>
+        <div class="text-muted" style="font-size:0.7rem">₹{{ "{:,.0f}".format(sales_stats.today_revenue) }} today · ₹{{ "{:,.0f}".format(sales_stats.month_revenue) }} MTD</div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="/returns" class="text-decoration-none">
+      <div class="card border-0 shadow-sm py-3 px-3 card-hover">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="fs-4 fw-bold text-danger">{{ returns_month_count }}</div>
+            <div class="small text-muted">Returns (MTD)</div>
+          </div>
+          <i class="bi bi-arrow-return-left fs-4 text-danger opacity-50"></i>
+        </div>
+        <div class="text-muted" style="font-size:0.7rem">against {{ sales_stats.month_count }} sales this month</div>
+      </div>
+    </a>
+  </div>
+</div>
+
+<!-- Business Snapshot detail — Device Requests / Recent Sales / Recent Returns -->
+<div class="row g-3 mb-3">
+  <div class="col-12 col-lg-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent py-2">
+        <span class="fw-semibold small"><i class="bi bi-box-seam me-1"></i>Recent Device Requests</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover mb-0" style="font-size:0.78rem">
+          <thead class="table-light"><tr><th>Device</th><th>Status</th><th>By</th></tr></thead>
+          <tbody>
+            {% for r in recent_device_requests %}
+            <tr>
+              <td>
+                {% if r.device %}<a href="/devices/{{ r.device.barcode }}" class="text-decoration-none">{{ r.device.barcode }}</a>
+                {% else %}—{% endif %}
+                <div class="text-muted" style="font-size:0.68rem">{{ r.grade or '' }}</div>
+              </td>
+              <td><span class="badge bg-{{ 'success' if r.status == 'approved' else 'warning text-dark' }}">{{ r.status | title }}</span></td>
+              <td class="text-muted">{{ r.telecaller_name or r.telecaller_username or '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-center text-muted py-3">No device requests yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent py-2">
+        <span class="fw-semibold small"><i class="bi bi-receipt me-1"></i>Recent Sales</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover mb-0" style="font-size:0.78rem">
+          <thead class="table-light"><tr><th>Customer</th><th>Amount</th><th>Date</th></tr></thead>
+          <tbody>
+            {% for s in recent_sales %}
+            <tr>
+              <td>{{ s.customer_name or '—' }}</td>
+              <td class="fw-semibold">₹{{ "{:,.0f}".format(s.sale_price) }}</td>
+              <td class="text-muted">{{ s.sold_at.strftime('%d-%m-%Y') if s.sold_at else '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-center text-muted py-3">No sales recorded yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent py-2">
+        <span class="fw-semibold small"><i class="bi bi-arrow-return-left me-1"></i>Recent Returns</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover mb-0" style="font-size:0.78rem">
+          <thead class="table-light"><tr><th>Sale#</th><th>Reason</th><th>Date</th></tr></thead>
+          <tbody>
+            {% for ret, sale in recent_returns %}
+            <tr>
+              <td>{{ sale.sale_number if sale else '—' }}</td>
+              <td class="text-truncate" style="max-width:120px">{{ ret.reason or '—' }}</td>
+              <td class="text-muted">{{ ret.return_date.strftime('%d-%m-%Y') if ret.return_date else '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-center text-muted py-3">No returns this month.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="text-muted small mb-3 ps-1">
   <i class="bi bi-funnel me-1"></i>
   Showing:

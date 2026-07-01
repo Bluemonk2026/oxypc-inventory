@@ -28,6 +28,20 @@ OUTSTANDING_STATUSES = ("pending", "confirmed", "delivered")
 PER_PAGE = 50
 
 
+def _ranked_calls_subq(ids_subq):
+    """Latest call (rn == 1) per dealer_id, restricted to the given dealer-id subquery."""
+    rn_col = func.row_number().over(
+        partition_by=DealerCall.dealer_id,
+        order_by=DealerCall.call_date.desc()
+    ).label("rn")
+    return select(
+        DealerCall.dealer_id,
+        DealerCall.call_outcome,
+        DealerCall.next_followup_date,
+        rn_col,
+    ).where(DealerCall.dealer_id.in_(ids_subq)).subquery()
+
+
 def _combine_date_time(date_str: str | None, time_str: str | None) -> datetime | None:
     """Combine a 'YYYY-MM-DD' date field and an 'HH:MM' time field into a
     datetime. Defaults to 00:00 if no time given, or midnight if only a
@@ -180,22 +194,8 @@ async def list_dealers(
             for r in rc_rows
         }
 
-    # ── Outcome distribution + Follow-ups Due ─────────────────────────────────
-    # Both are derived from each dealer's LATEST call, so we build a single
-    # ranked subquery and reuse it for both aggregations.
-    # This ensures the outcome cards and followup_count match the table exactly.
-    rn_outcome_col = func.row_number().over(
-        partition_by=DealerCall.dealer_id,
-        order_by=DealerCall.call_date.desc()
-    ).label("rn")
-    ranked_calls_inner = select(
-        DealerCall.dealer_id,
-        DealerCall.call_outcome,
-        DealerCall.next_followup_date,
-        rn_outcome_col,
-    ).where(DealerCall.dealer_id.in_(filtered_ids_subq)).subquery()
-
-    # outcome_stats: count of dealers grouped by their latest call outcome
+    # ── Outcome distribution (respects the list's own filters, all roles) ────
+    ranked_calls_inner = _ranked_calls_subq(filtered_ids_subq)
     outcome_rows = (await db.execute(
         select(ranked_calls_inner.c.call_outcome, func.count().label("cnt"))
         .where(ranked_calls_inner.c.rn == 1)
@@ -203,15 +203,23 @@ async def list_dealers(
     )).all()
     outcome_stats: dict = {(row.call_outcome or ""): row.cnt for row in outcome_rows}
 
+    # ── Follow-up counts — scoped to the logged-in user's own dealers unless
+    # admin (admin sees the count across all dealers, ignoring assignment) ───
+    if current_user.role == UserRole.admin:
+        followup_scope_ids = select(Dealer.id)
+    else:
+        followup_scope_ids = select(Dealer.id).where(Dealer.assigned_to == current_user.username)
+    followup_ranked = _ranked_calls_subq(followup_scope_ids)
+
     # followup_count: dealers whose LATEST call outcome is 'followup'
     # AND whose next_followup_date is today or already past (i.e. due / overdue)
     fu_result = await db.execute(
         select(func.count())
-        .select_from(ranked_calls_inner)
+        .select_from(followup_ranked)
         .where(
-            ranked_calls_inner.c.rn == 1,
-            ranked_calls_inner.c.call_outcome == 'followup',
-            func.date(ranked_calls_inner.c.next_followup_date) <= today,
+            followup_ranked.c.rn == 1,
+            followup_ranked.c.call_outcome == 'followup',
+            func.date(followup_ranked.c.next_followup_date) <= today,
         )
     )
     followup_count = int(fu_result.scalar() or 0)
@@ -220,10 +228,10 @@ async def list_dealers(
     # scheduled for exactly today (regardless of outcome)
     today_fu_result = await db.execute(
         select(func.count())
-        .select_from(ranked_calls_inner)
+        .select_from(followup_ranked)
         .where(
-            ranked_calls_inner.c.rn == 1,
-            func.date(ranked_calls_inner.c.next_followup_date) == today,
+            followup_ranked.c.rn == 1,
+            func.date(followup_ranked.c.next_followup_date) == today,
         )
     )
     today_followup_count = int(today_fu_result.scalar() or 0)

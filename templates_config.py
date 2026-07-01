@@ -53,14 +53,14 @@ templates.env.globals["any_perm"] = _any_perm
 
 _ROLE_DISPLAY = {
     "admin": "Admin",
-    "inventory_manager": "Cosmetic Manager",
-    "iqc_inspector": "IQC Inspector",
+    "inventory_manager": "Inventory Manager",
+    "iqc_inspector": "IQC Handler",
     "l1_engineer": "L1 Engineer",
     "l2_engineer": "L2 Engineer",
     "l3_engineer": "L3/L4 Engineer",
-    "qc_inspector": "QC Manager",
+    "qc_inspector": "QC Handler",
     "sales": "Sourcing Sales",
-    "spare_parts_manager": "Store Manager",
+    "spare_parts_manager": "Parts Manager",
     "telecaller": "Telecaller Sales",
     "sales_manager": "Sales Manager",
 }

@@ -47,8 +47,8 @@ async def lot_number_exists(lot_number: str, exclude_id: str = "",
     return JSONResponse({"exists": exists})
 
 STOCK_DEPARTMENTS = [
-    "IQC Inspector", "L1 Engineer", "L2 Engineer", "L3 Engineer",
-    "QC Inspector", "Inventory Manager", "Sales Manager", "Spare Parts Manager",
+    "IQC Handler", "L1 Engineer", "L2 Engineer", "L3 Engineer",
+    "QC Handler", "Inventory Manager", "Sales Manager", "Parts Manager",
 ]
 
 import csv

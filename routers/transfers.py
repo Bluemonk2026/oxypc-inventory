@@ -31,23 +31,23 @@ FALLBACK_WAREHOUSES = [
 ]
 
 DEPARTMENTS = [
-    "IQC Inspector",
+    "IQC Handler",
     "L1 Engineer",
     "L2 Engineer",
     "L3 Engineer",
-    "QC Inspector",
+    "QC Handler",
     "Inventory Manager",
     "Sales Manager",
-    "Spare Parts Manager",
+    "Parts Manager",
 ]
 
 # Departments that map to a repair stage + create a WorkOrder when a user is assigned
 DEPT_TO_STAGE = {"L1 Engineer": "l1", "L2 Engineer": "l2", "L3 Engineer": "l3"}
 DEPT_TO_ROLE = {
-    "IQC Inspector": "iqc_inspector", "L1 Engineer": "l1_engineer",
+    "IQC Handler": "iqc_inspector", "L1 Engineer": "l1_engineer",
     "L2 Engineer": "l2_engineer", "L3 Engineer": "l3_engineer",
-    "QC Inspector": "qc_inspector", "Inventory Manager": "inventory_manager",
-    "Sales Manager": "sales_manager", "Spare Parts Manager": "spare_parts_manager",
+    "QC Handler": "qc_inspector", "Inventory Manager": "inventory_manager",
+    "Sales Manager": "sales_manager", "Parts Manager": "spare_parts_manager",
 }
 STAGE_ENUM = {"l1": DeviceStage.l1, "l2": DeviceStage.l2, "l3": DeviceStage.l3}
 

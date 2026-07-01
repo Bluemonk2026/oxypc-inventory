@@ -13,6 +13,7 @@ from models.role_permissions import (
     get_cached_perms, set_cached_perms, _PERM_CACHE,
 )
 from auth.dependencies import get_current_user, require_roles, verify_csrf
+from routers.admin import _role_data
 
 router = APIRouter(prefix="/admin/master", tags=["master"], dependencies=[Depends(verify_csrf)])
 admin_only = require_roles(UserRole.admin)
@@ -205,10 +206,10 @@ async def master_list(
         accordion_data.append({**sec, "categories": cats})
 
     # ── Permission-matrix data (always loaded so Tab 2 works) ────────────────
-    builtin_roles = [(r.value, r.value.replace("_", " ").title()) for r in UserRole]
-    custom_roles_q = await db.execute(select(CustomRole).order_by(CustomRole.display_name))
-    custom_roles = [(cr.role_name, cr.display_name) for cr in custom_roles_q.scalars().all()]
-    all_roles = builtin_roles + custom_roles
+    # Same role list + display labels as the Add User page (models.user.ROLE_LABELS
+    # + custom roles), so "Cosmetic Manager" / "Store Manager" etc. never drift
+    # out of sync between the two dropdowns.
+    all_roles, _ = await _role_data(db)
 
     # Default selected role: requested role, else first non-admin role
     selected_role = role
@@ -223,6 +224,9 @@ async def master_list(
         )).scalars().all()
         perm_rows = {r.module: r for r in rows}
 
+    custom_roles_q2 = await db.execute(select(CustomRole).order_by(CustomRole.display_name))
+    custom_roles_list = custom_roles_q2.scalars().all()
+
     return templates.TemplateResponse("admin/master.html", {
         "request": request,
         "grouped": grouped,
@@ -236,6 +240,7 @@ async def master_list(
         "perm_rows": perm_rows,
         "perm_modules": PERM_MODULES,
         "perm_actions": PERM_ACTIONS,
+        "custom_roles_list": custom_roles_list,
     })
 
 
@@ -412,11 +417,8 @@ async def permissions_matrix(
     current_user: User = Depends(admin_only),
 ):
     """Render the Module Permissions tab (called via HTMX/JS or direct nav)."""
-    # Built-in roles + custom roles
-    builtin_roles = [(r.value, r.value.replace("_", " ").title()) for r in UserRole]
-    custom_roles_q = await db.execute(select(CustomRole).order_by(CustomRole.display_name))
-    custom_roles = [(cr.role_name, cr.display_name) for cr in custom_roles_q.scalars().all()]
-    all_roles = builtin_roles + custom_roles
+    # Same role list + display labels as the Add User page.
+    all_roles, _ = await _role_data(db)
 
     selected_role = role or (all_roles[1][0] if len(all_roles) > 1 else "")
 
@@ -428,6 +430,9 @@ async def permissions_matrix(
             .where(RoleModulePermission.role_name == selected_role)
         )).scalars().all()
         perm_rows = {r.module: r for r in rows}
+
+    custom_roles_q2 = await db.execute(select(CustomRole).order_by(CustomRole.display_name))
+    custom_roles_list = custom_roles_q2.scalars().all()
 
     return templates.TemplateResponse("admin/master.html", {
         "request": request,
@@ -444,6 +449,7 @@ async def permissions_matrix(
         "perm_rows": perm_rows,
         "perm_modules": PERM_MODULES,
         "perm_actions": PERM_ACTIONS,
+        "custom_roles_list": custom_roles_list,
     })
 
 
@@ -531,6 +537,9 @@ async def add_custom_role(
     if not clean:
         return RedirectResponse(url="/admin/master?main_tab=permissions&error=Invalid+role+name", status_code=302)
 
+    if clean in {r.value for r in UserRole}:
+        return RedirectResponse(url=f"/admin/master?main_tab=permissions&error=Role+{clean}+already+exists", status_code=302)
+
     existing = (await db.execute(select(CustomRole).where(CustomRole.role_name == clean))).scalar_one_or_none()
     if existing:
         return RedirectResponse(url=f"/admin/master?main_tab=permissions&error=Role+{clean}+already+exists", status_code=302)
@@ -539,6 +548,57 @@ async def add_custom_role(
     await db.commit()
     return RedirectResponse(
         url=f"/admin/master?main_tab=permissions&role={clean}&success=Role+{clean}+created",
+        status_code=302,
+    )
+
+
+@router.post("/permissions/edit-role/{role_id}")
+async def edit_custom_role(
+    request: Request,
+    role_id: str,
+    role_name: str = Form(...),
+    display_name: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(admin_only),
+):
+    """Rename a custom role's slug and/or display name. Cascades the slug
+    change to RoleModulePermission rows and any User accounts on that role,
+    and re-keys the in-memory permission cache. Built-in roles (UserRole
+    enum members) are not stored in CustomRole and cannot be edited here."""
+    import re
+    custom_role = (await db.execute(select(CustomRole).where(CustomRole.id == role_id))).scalar_one_or_none()
+    if not custom_role:
+        return RedirectResponse(url="/admin/master?main_tab=permissions&error=Role+not+found", status_code=302)
+
+    old_name = custom_role.role_name
+    clean = re.sub(r"[^a-z0-9_]", "_", role_name.strip().lower())
+    if not clean:
+        return RedirectResponse(url="/admin/master?main_tab=permissions&error=Invalid+role+name", status_code=302)
+
+    if clean != old_name:
+        if clean in {r.value for r in UserRole}:
+            return RedirectResponse(url=f"/admin/master?main_tab=permissions&error=Role+{clean}+already+exists", status_code=302)
+        dupe = (await db.execute(
+            select(CustomRole).where(CustomRole.role_name == clean, CustomRole.id != role_id)
+        )).scalar_one_or_none()
+        if dupe:
+            return RedirectResponse(url=f"/admin/master?main_tab=permissions&error=Role+{clean}+already+exists", status_code=302)
+
+    custom_role.role_name = clean
+    custom_role.display_name = display_name.strip()
+
+    if clean != old_name:
+        # Cascade the slug rename to permission rows and any assigned users.
+        await db.execute(
+            update(RoleModulePermission).where(RoleModulePermission.role_name == old_name).values(role_name=clean)
+        )
+        await db.execute(update(User).where(User.role == old_name).values(role=clean))
+        if old_name in _PERM_CACHE:
+            _PERM_CACHE[clean] = _PERM_CACHE.pop(old_name)
+
+    await db.commit()
+    return RedirectResponse(
+        url=f"/admin/master?main_tab=permissions&role={clean}&success=Role+updated",
         status_code=302,
     )
 

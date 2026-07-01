@@ -591,12 +591,12 @@ MANUALS = [
             ("Role Reference", [
                 "Admin: full access to all modules, user management, reports, and settings.",
                 "Inventory Manager: lots, stock inward, IQC, stage movement, and reports.",
-                "IQC Inspector: IQC entry and stage movement only.",
+                "IQC Handler: IQC entry and stage movement only.",
                 "L1 / L2 / L3 Engineer: respective repair stages and parts requests.",
-                "QC Inspector: QC check, stress test, and QA dashboard.",
+                "QC Handler: QC check, stress test, and QA dashboard.",
                 "Sales: Ready to Sale, CRM, and returns.",
                 "Sales Manager: all Sales functions plus dispatch request approval.",
-                "Spare Parts Manager: parts inventory and part request fulfilment.",
+                "Parts Manager: parts inventory and part request fulfilment.",
                 "Telecaller: TRC Dashboard and dispatch requests only.",
             ]),
             ("Set Module Permissions", [

@@ -180,29 +180,88 @@
     </div>
 
     {# Add new custom role #}
-    <div class="card border-0 shadow-sm">
+    <div class="card border-0 shadow-sm mb-3">
       <div class="card-header bg-transparent fw-semibold small text-uppercase">
         <i class="bi bi-plus-circle me-1 text-success"></i>Add New Role
       </div>
       <div class="card-body">
-        <form method="post" action="/admin/master/permissions/add-role">
+        <form method="post" action="/admin/master/permissions/add-role" id="addRoleForm">
           <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
           <div class="mb-2">
             <label class="form-label form-label-sm fw-semibold">Role Name <small class="text-muted">(slug)</small></label>
-            <input type="text" name="role_name" class="form-control form-control-sm"
-                   placeholder="e.g. warehouse_manager" pattern="[a-zA-Z0-9_]+" required>
+            <input type="text" name="role_name" id="newRoleName" class="form-control form-control-sm"
+                   placeholder="e.g. warehouse_manager" pattern="[a-zA-Z0-9_]+" required
+                   oninput="checkRoleNameExists(this)">
             <div class="form-text">Lowercase, underscores only</div>
+            <div class="invalid-feedback d-block small" id="newRoleNameError" style="display:none !important"></div>
           </div>
           <div class="mb-3">
             <label class="form-label form-label-sm fw-semibold">Display Name</label>
             <input type="text" name="display_name" class="form-control form-control-sm"
                    placeholder="e.g. Warehouse Manager" required>
           </div>
-          <button type="submit" class="btn btn-sm btn-success w-100">
+          <button type="submit" class="btn btn-sm btn-success w-100" id="addRoleSubmitBtn">
             <i class="bi bi-plus me-1"></i>Create Role
           </button>
         </form>
       </div>
+    </div>
+
+    {# Manage existing custom roles — rename slug / display name #}
+    {% if custom_roles_list %}
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-pencil-square me-1 text-primary"></i>Custom Roles
+      </div>
+      <div class="list-group list-group-flush">
+        {% for cr in custom_roles_list %}
+        <div class="list-group-item d-flex justify-content-between align-items-center py-2">
+          <div>
+            <div class="small fw-semibold">{{ cr.display_name }}</div>
+            <div class="text-muted" style="font-size:0.72rem">{{ cr.role_name }}</div>
+          </div>
+          <button type="button" class="btn btn-xs btn-sm py-0 px-2 btn-outline-secondary"
+                  data-bs-toggle="modal" data-bs-target="#editRoleModal"
+                  onclick="openEditRole('{{ cr.id }}','{{ cr.role_name }}','{{ cr.display_name }}')"
+                  title="Edit role name / display name">
+            <i class="bi bi-pencil" style="font-size:.7rem"></i>
+          </button>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  {# ── Edit Role modal ─────────────────────────────────────────────── #}
+  <div class="modal fade" id="editRoleModal" tabindex="-1">
+    <div class="modal-dialog">
+      <form method="post" id="editRoleForm">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h6 class="modal-title">Edit Role</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-2">
+              <label class="form-label form-label-sm fw-semibold">Role Name <small class="text-muted">(slug)</small></label>
+              <input type="text" name="role_name" id="editRoleName" class="form-control form-control-sm"
+                     pattern="[a-zA-Z0-9_]+" required oninput="checkEditRoleNameExists(this)">
+              <div class="form-text">Lowercase, underscores only. Renaming updates all users and permissions on this role.</div>
+              <div class="invalid-feedback d-block small" id="editRoleNameError" style="display:none !important"></div>
+            </div>
+            <div class="mb-2">
+              <label class="form-label form-label-sm fw-semibold">Display Name</label>
+              <input type="text" name="display_name" id="editRoleDisplayName" class="form-control form-control-sm" required>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-sm btn-primary" id="editRoleSubmitBtn">Save Changes</button>
+          </div>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -422,6 +481,7 @@
 
 {% endblock %}
 {% block scripts %}
+{% set main_tab = request.query_params.get('main_tab', 'dropdowns') %}
 <script>
 {% if main_tab != 'permissions' %}
 // ── Dropdown Config Tab ────────────────────────────────────────────────────
@@ -478,6 +538,55 @@ function toggleAll(state) {
   document.querySelectorAll('.perm-cb').forEach(cb => cb.checked = state);
 }
 
+// Existing role slugs (built-in + custom) — used for live duplicate checks
+const EXISTING_ROLE_SLUGS = {{ (all_roles|map(attribute=0)|list)|tojson }};
+
+function checkRoleNameExists(input) {
+  const errEl = document.getElementById('newRoleNameError');
+  const btn = document.getElementById('addRoleSubmitBtn');
+  const val = input.value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  const exists = val && EXISTING_ROLE_SLUGS.includes(val);
+  if (exists) {
+    errEl.textContent = `Role "${val}" already exists.`;
+    errEl.style.display = 'block';
+    input.classList.add('is-invalid');
+    btn.disabled = true;
+  } else {
+    errEl.style.display = 'none';
+    input.classList.remove('is-invalid');
+    btn.disabled = false;
+  }
+}
+
+let _editingRoleOriginalSlug = '';
+
+function openEditRole(roleId, roleName, displayName) {
+  document.getElementById('editRoleForm').action = `/admin/master/permissions/edit-role/${roleId}`;
+  document.getElementById('editRoleName').value = roleName;
+  document.getElementById('editRoleDisplayName').value = displayName;
+  document.getElementById('editRoleNameError').style.display = 'none';
+  document.getElementById('editRoleName').classList.remove('is-invalid');
+  document.getElementById('editRoleSubmitBtn').disabled = false;
+  _editingRoleOriginalSlug = roleName;
+}
+
+function checkEditRoleNameExists(input) {
+  const errEl = document.getElementById('editRoleNameError');
+  const btn = document.getElementById('editRoleSubmitBtn');
+  const val = input.value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  // Unchanged (still the same slug being edited) is always fine
+  const exists = val && val !== _editingRoleOriginalSlug && EXISTING_ROLE_SLUGS.includes(val);
+  if (exists) {
+    errEl.textContent = `Role "${val}" already exists.`;
+    errEl.style.display = 'block';
+    input.classList.add('is-invalid');
+    btn.disabled = true;
+  } else {
+    errEl.style.display = 'none';
+    input.classList.remove('is-invalid');
+    btn.disabled = false;
+  }
+}
 
 {% endif %}
 </script>

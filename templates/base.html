@@ -255,8 +255,13 @@
       {% endif %}
 
       {# ── SALES & CRM (Overdue Orders removed — now on Sales List page) ─ #}
-      {% if any_perm(role,'sales','returns','dealers','telecalling','whatsapp','assign_dealer_leads') %}
+      {% if any_perm(role,'sales','returns','dealers','telecalling','whatsapp','assign_dealer_leads','telesales_dashboard') %}
       <li class="nav-section">SALES & CRM</li>
+      {% if has_perm(role,'telesales_dashboard','enable') %}
+      <li><a href="/telesales-dashboard" class="nav-link {% if request.url.path.startswith('/telesales-dashboard') %}active{% endif %}">
+        <i class="bi bi-speedometer2 me-2"></i> TeleSales Dashboard
+      </a></li>
+      {% endif %}
       {% if has_perm(role,'dealers','enable') %}
       <li><a href="/dealers" class="nav-link {% if request.url.path.startswith('/dealers') and '/dealers/overdue' not in request.url.path %}active{% endif %}">
         <i class="bi bi-building me-2"></i> Dealers

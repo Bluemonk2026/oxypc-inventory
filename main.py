@@ -104,6 +104,7 @@ from routers.transfers import router as transfers_router
 from routers.part_requests import router as part_requests_router
 from routers.dispatch import router as dispatch_router
 from routers.attendance import router as attendance_router
+from routers.telesales_dashboard import router as telesales_dashboard_router
 from routers.dealers import router as dealers_router
 from routers.telecalling import router as telecalling_router
 from routers.m_telecalling import router as m_telecalling_router
@@ -165,6 +166,7 @@ app.include_router(transfers_router)
 app.include_router(part_requests_router)
 app.include_router(dispatch_router)
 app.include_router(attendance_router)
+app.include_router(telesales_dashboard_router)
 app.include_router(dealers_router)
 app.include_router(telecalling_router)
 app.include_router(m_telecalling_router)

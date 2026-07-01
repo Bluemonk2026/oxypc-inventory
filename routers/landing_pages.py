@@ -49,6 +49,7 @@ NAV_PAGE_TITLES = [
     ("crm_purchase_orders",  "Purchase Orders",               "Purchase Orders",               "/crm/purchase-orders"),
     ("crm_analytics",        "CRM Analytics",                 "CRM Analytics",                 "/crm/reports"),
     ("crm_assign_leads",     "Assign Social Leads",           "Assign Social Leads",           "/crm/assign-leads"),
+    ("telesales_dashboard",  "TeleSales Dashboard",           "TeleSales Dashboard",           "/telesales-dashboard"),
     ("sales",                "Ready to Sale / Sales List",    "Ready to Sale",                 "/sales/ready"),
     ("returns",              "Returns",                       "Process Return",                "/returns"),
     ("dealers",              "Dealers",                       "Dealers",                       "/dealers"),

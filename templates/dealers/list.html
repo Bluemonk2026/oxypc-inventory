@@ -90,6 +90,10 @@
     <a href="/dealers/new" class="btn btn-sm btn-primary">
       <i class="bi bi-plus-circle me-1"></i>Add Dealer
     </a>
+    <a href="/dealers/followups-due?today_only=1" class="btn btn-sm btn-info text-dark">
+      <i class="bi bi-calendar-check me-1"></i>Today Follow-ups
+      <span class="badge bg-white text-info">{{ today_followup_count }}</span>
+    </a>
   </div>
 </div>
 
@@ -108,17 +112,15 @@
     </div>
   </div>
   <div class="col-6 col-md-3">
-    <a href="/dealers/followups-due" class="text-decoration-none">
-      <div class="card border-0 shadow-sm text-center py-3 card-hover"
-           title="Dealers whose latest call status is Follow-up and follow-up date is today or past">
-        <div class="fs-4 fw-bold text-warning">{{ followup_count }}</div>
-        <div class="small text-muted">
-          Follow-ups Due
-          <i class="bi bi-info-circle ms-1" style="font-size:0.7rem"></i>
-        </div>
-        <div class="text-muted" style="font-size:0.65rem">(latest status + overdue)</div>
+    <div class="card border-0 shadow-sm text-center py-3"
+         title="Dealers whose latest call status is Follow-up and follow-up date is today or past">
+      <div class="fs-4 fw-bold text-warning">{{ followup_count }}</div>
+      <div class="small text-muted">
+        Follow-ups Due
+        <i class="bi bi-info-circle ms-1" style="font-size:0.7rem"></i>
       </div>
-    </a>
+      <div class="text-muted" style="font-size:0.65rem">(latest status + overdue)</div>
+    </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm text-center py-3">

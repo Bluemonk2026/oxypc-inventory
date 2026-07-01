@@ -1,9 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Follow-ups — OxyPC{% endblock %}
-{% block page_title %}Follow-ups{% endblock %}
+{% block title %}{% if today_only %}Today Follow-ups{% else %}Follow-ups{% endif %} — OxyPC{% endblock %}
+{% block page_title %}{% if today_only %}Today Follow-ups{% else %}Follow-ups{% endif %}{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <span class="text-muted">{{ rows|length }} dealer(s) with a follow-up scheduled</span>
+  <span class="text-muted">
+    {{ rows|length }} dealer(s) with a follow-up {% if today_only %}scheduled today{% else %}scheduled{% endif %}
+  </span>
   <a href="/dealers" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Back to Dealers</a>
 </div>
 {% if request.query_params.get('success') %}

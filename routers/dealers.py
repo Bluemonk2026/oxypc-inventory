@@ -215,6 +215,18 @@ async def list_dealers(
         )
     )
     followup_count = int(fu_result.scalar() or 0)
+
+    # today_followup_count: dealers whose LATEST call has a next_followup_date
+    # scheduled for exactly today (regardless of outcome)
+    today_fu_result = await db.execute(
+        select(func.count())
+        .select_from(ranked_calls_inner)
+        .where(
+            ranked_calls_inner.c.rn == 1,
+            func.date(ranked_calls_inner.c.next_followup_date) == today,
+        )
+    )
+    today_followup_count = int(today_fu_result.scalar() or 0)
     # ──────────────────────────────────────────────────────────────────────────
 
     # Sales users list for admin user-filter dropdown
@@ -255,6 +267,7 @@ async def list_dealers(
         "total_count": total_count,
         "active_count": active_count,
         "followup_count": followup_count,
+        "today_followup_count": today_followup_count,
         "outstanding": f"{outstanding:,}",
         "recent_call_map": recent_call_map,
         "outcome_stats": outcome_stats,
@@ -267,12 +280,14 @@ async def list_dealers(
 @router.get("/followups-due", response_class=HTMLResponse)
 async def followups_due(
     request: Request,
+    today_only: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_sales),
 ):
     """All dealers whose LATEST call log has a next_followup_date set —
     not just calls due today. Ranked-latest-call subquery (rn == 1 per
-    dealer), same pattern used for the followup_count badge on the list page."""
+    dealer), same pattern used for the followup_count badge on the list page.
+    Pass ?today_only=1 to restrict to follow-ups scheduled for today."""
     today = app_now().date()
 
     rn_col = func.row_number().over(
@@ -293,11 +308,14 @@ async def followups_due(
         .where(ranked.c.rn == 1)
         .order_by(DealerCall.next_followup_date)
     )
+    if today_only:
+        stmt = stmt.where(func.date(DealerCall.next_followup_date) == today)
     if current_user.role not in (UserRole.admin,):
         stmt = stmt.where(Dealer.assigned_to == current_user.username)
     rows = (await db.execute(stmt)).all()
     return templates.TemplateResponse("dealers/followups.html", {
         "request": request, "current_user": current_user, "rows": rows, "today": today,
+        "today_only": today_only,
     })
 
 

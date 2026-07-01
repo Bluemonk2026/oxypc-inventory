@@ -4,7 +4,7 @@
 {% block content %}
 
 <!-- Dashboard Filters -->
-<form method="get" action="/" class="row g-2 mb-3 align-items-end">
+<form method="get" action="/dashboard" class="row g-2 mb-3 align-items-end">
   <div class="col-md-3">
     <label class="form-label small fw-semibold">Filter by Stage</label>
     <select name="stage_filter" class="form-select form-select-sm">
@@ -28,7 +28,7 @@
     <button type="submit" class="btn btn-sm btn-primary">
       <i class="bi bi-funnel me-1"></i>Apply
     </button>
-    <a href="/" class="btn btn-sm btn-outline-secondary ms-1">Clear</a>
+    <a href="/dashboard" class="btn btn-sm btn-outline-secondary ms-1">Clear</a>
   </div>
 </form>
 

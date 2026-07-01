@@ -17,7 +17,7 @@ admin_only = require_roles(UserRole.admin)
 
 # (module_key, nav_label, default_page_title, route_url)
 NAV_PAGE_TITLES = [
-    ("dashboard",            "Admin Dashboard",               "Admin Dashboard",               "/"),
+    ("dashboard",            "Admin Dashboard",               "Admin Dashboard",               "/dashboard"),
     ("dispatch",             "TRC Dashboard",                 "TRC Dashboard",                 "/dispatch"),
     ("devices",              "Inventory Search",              "Inventory Search",              "/devices"),
     ("attendance",           "My Attendance",                 "My Attendance",                 "/attendance"),

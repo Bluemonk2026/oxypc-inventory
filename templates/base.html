@@ -23,7 +23,7 @@
       {% set role = current_user.role.value %}
       {% if has_perm(role,'dashboard','enable') %}
       <li class="nav-item">
-        <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">
+        <a href="/dashboard" class="nav-link {% if request.url.path == '/dashboard' %}active{% endif %}">
           <i class="bi bi-speedometer2 me-2"></i> Admin Dashboard
         </a>
       </li>

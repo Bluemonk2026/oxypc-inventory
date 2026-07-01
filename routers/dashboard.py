@@ -4,7 +4,7 @@ from templates_config import templates
 from datetime import datetime, date
 from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from database import get_db
@@ -52,6 +52,12 @@ async def _count(db: AsyncSession, *filters) -> int:
 
 
 @router.get("/", response_class=HTMLResponse)
+async def home(current_user: User = Depends(get_current_user)):
+    """Application home page — Inventory Search, for every user."""
+    return RedirectResponse(url="/devices", status_code=302)
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(
     request: Request,
     db: AsyncSession = Depends(get_db),

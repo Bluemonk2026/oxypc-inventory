@@ -24,15 +24,21 @@
 {# ── Main Tab Navigation ─────────────────────────────────────────────────── #}
 <ul class="nav nav-tabs mb-4" id="mainTabs">
   <li class="nav-item">
-    <a class="nav-link {{ 'active' if main_tab != 'permissions' else '' }}"
+    <a class="nav-link {{ 'active' if main_tab == 'dropdowns' else '' }}"
        href="/admin/master?main_tab=dropdowns">
       <i class="bi bi-menu-button-wide me-1"></i>Dropdown Configuration
     </a>
   </li>
   <li class="nav-item">
     <a class="nav-link {{ 'active' if main_tab == 'permissions' else '' }}"
-       href="/admin/master?main_tab=permissions">
+       href="/admin/master?main_tab=permissions{% if sel_role %}&role={{ sel_role }}{% endif %}">
       <i class="bi bi-shield-lock me-1"></i>Module Permissions
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {{ 'active' if main_tab == 'additional_permissions' else '' }}"
+       href="/admin/master?main_tab=additional_permissions{% if sel_role %}&role={{ sel_role }}{% endif %}">
+      <i class="bi bi-shield-plus me-1"></i>Role Additional Permissions
     </a>
   </li>
 </ul>
@@ -40,7 +46,7 @@
 {# ═══════════════════════════════════════════════════════════════════════════ #}
 {# TAB 1 — DROPDOWN CONFIGURATION                                             #}
 {# ═══════════════════════════════════════════════════════════════════════════ #}
-{% if main_tab != 'permissions' %}
+{% if main_tab == 'dropdowns' %}
 
 <div class="d-flex justify-content-between align-items-center mb-3">
   <input type="text" id="globalSearch" class="form-control form-control-sm"
@@ -371,8 +377,127 @@
 
 {% endif %}{# end tab 2 #}
 
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+{# TAB 3 — ROLE ADDITIONAL PERMISSIONS                                        #}
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+{% if main_tab == 'additional_permissions' %}
+
+{% set all_roles = all_roles|default([]) %}
+{% set additional_perms = additional_perms|default([]) %}
+
+<div class="row g-4">
+
+  {# ── Left panel: role selector ─────────────────────────────────────── #}
+  <div class="col-lg-3">
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-person-badge me-1"></i>Select Role
+      </div>
+      <div class="card-body">
+        <select id="addPermRoleSelector" class="form-select form-select-sm mb-2"
+                onchange="location.href='/admin/master?main_tab=additional_permissions&role='+this.value">
+          {% for rval, rlabel in all_roles %}
+          <option value="{{ rval }}" {{ 'selected' if rval == sel_role else '' }}>{{ rlabel }}</option>
+          {% endfor %}
+        </select>
+        <div class="small text-muted">
+          Editing additional permissions for:
+          <strong>{{ sel_role or '—' }}</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Right panel: additional permissions table ─────────────────────── #}
+  <div class="col-lg-9">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">
+          <i class="bi bi-shield-plus me-2"></i>Role Additional Permissions
+          {% if sel_role %}
+          — <span class="text-primary">{{ sel_role }}</span>
+          {% endif %}
+        </span>
+      </div>
+      <div class="card-body p-0">
+
+        {% if sel_role == 'admin' %}
+        <div class="alert alert-info m-3 mb-0">
+          <i class="bi bi-shield-fill-check me-2"></i>
+          <strong>Admin</strong> role always has full access. These additional permissions do not apply.
+        </div>
+        {% elif not sel_role %}
+        <div class="text-center text-muted py-5">
+          <i class="bi bi-arrow-left-circle fs-3 d-block mb-2"></i>
+          Select a role from the left panel to configure additional permissions.
+        </div>
+        {% else %}
+
+        <form method="post" action="/admin/master/permissions/save-additional" id="addPermForm">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+          <input type="hidden" name="role_name" value="{{ sel_role }}">
+
+          <div class="table-responsive">
+            <table class="table table-bordered table-sm mb-0" id="addPermMatrix">
+              <thead class="table-dark">
+                <tr>
+                  <th style="min-width:200px">Permission</th>
+                  <th class="text-center" style="width:120px">Enable</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for perm_key, perm_label in additional_perms %}
+                {% set checked = additional_perm_row[perm_key] if additional_perm_row is not none else true %}
+                <tr>
+                  <td class="fw-semibold small">{{ perm_label }}</td>
+                  <td class="text-center">
+                    <div class="form-check d-flex justify-content-center">
+                      <input class="form-check-input add-perm-cb" type="checkbox"
+                             name="add_perm_{{ perm_key }}"
+                             id="cb_add_{{ perm_key }}"
+                             {% if checked %}checked{% endif %}>
+                    </div>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="px-3 py-3 border-top d-flex gap-2">
+            <button type="submit" class="btn btn-primary px-4">
+              <i class="bi bi-save me-1"></i>Save Additional Permissions for {{ sel_role }}
+            </button>
+            <a href="/admin/master?main_tab=additional_permissions" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+
+        {% endif %}
+      </div>
+    </div>
+
+    {# Legend #}
+    {% if sel_role and sel_role != 'admin' %}
+    <div class="card border-0 shadow-sm mt-3">
+      <div class="card-body py-2">
+        <div class="d-flex flex-wrap gap-4 small text-muted">
+          <span><strong>File Upload</strong> — bulk-upload / CSV import controls app-wide</span>
+          <span><strong>File Download</strong> — file/attachment download controls</span>
+          <span><strong>File Export</strong> — CSV/Excel export buttons</span>
+          <span><strong>Print Page</strong> — print controls</span>
+          <span><strong>Add New Data</strong> — create-record actions app-wide</span>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+{% endif %}{# end tab 3 #}
+
 {# ─────────────────────── SHARED MODALS (Tab 1) ───────────────────────────── #}
-{% if main_tab != 'permissions' %}
+{% if main_tab == 'dropdowns' %}
 
 <!-- Add Value Modal -->
 <div class="modal fade" id="addModal" tabindex="-1">
@@ -483,7 +608,7 @@
 {% block scripts %}
 {% set main_tab = request.query_params.get('main_tab', 'dropdowns') %}
 <script>
-{% if main_tab != 'permissions' %}
+{% if main_tab == 'dropdowns' %}
 // ── Dropdown Config Tab ────────────────────────────────────────────────────
 
 function openEdit(id, value, desc) {

@@ -9,8 +9,9 @@ from database import get_db
 from models.user import User, UserRole
 from models.master import MasterData
 from models.role_permissions import (
-    RoleModulePermission, CustomRole,
+    RoleModulePermission, CustomRole, RoleAdditionalPermission,
     get_cached_perms, set_cached_perms, _PERM_CACHE,
+    set_cached_additional_perms, _ADDITIONAL_PERM_CACHE,
 )
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from routers.admin import _role_data
@@ -125,6 +126,15 @@ PERM_ACTIONS = [
     ("can_enable", "Enable"),
 ]
 
+# ── Role Additional Permissions — cross-cutting, not tied to any one module ──
+ADDITIONAL_PERMS = [
+    ("can_upload",       "File Upload"),
+    ("can_download",     "File Download"),
+    ("can_export",       "File Export"),
+    ("can_print",        "Print Page"),
+    ("can_add_new_data", "Add New Data"),
+]
+
 CATEGORIES = [
     # ── Device Identity ───────────────────────────────────────────
     ("brand",               "Device Brands",                "laptop"),
@@ -227,6 +237,13 @@ async def master_list(
     custom_roles_q2 = await db.execute(select(CustomRole).order_by(CustomRole.display_name))
     custom_roles_list = custom_roles_q2.scalars().all()
 
+    # ── Role Additional Permissions data (Tab 3) ──────────────────────────────
+    additional_perm_row = None
+    if selected_role:
+        additional_perm_row = (await db.execute(
+            select(RoleAdditionalPermission).where(RoleAdditionalPermission.role_name == selected_role)
+        )).scalar_one_or_none()
+
     return templates.TemplateResponse("admin/master.html", {
         "request": request,
         "grouped": grouped,
@@ -241,6 +258,9 @@ async def master_list(
         "perm_modules": PERM_MODULES,
         "perm_actions": PERM_ACTIONS,
         "custom_roles_list": custom_roles_list,
+        # Additional permissions tab data
+        "additional_perms": ADDITIONAL_PERMS,
+        "additional_perm_row": additional_perm_row,
     })
 
 
@@ -522,6 +542,46 @@ async def save_role_permissions(
     )
 
 
+@router.post("/permissions/save-additional")
+async def save_additional_permissions(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(admin_only),
+):
+    """Save the Role Additional Permissions row for one role (upsert)."""
+    form = await request.form()
+    role_name = (form.get("role_name") or "").strip()
+    if not role_name:
+        return RedirectResponse(
+            url="/admin/master?main_tab=additional_permissions&error=Role+name+required", status_code=302
+        )
+
+    values = {key: (f"add_perm_{key}" in form) for key, _label in ADDITIONAL_PERMS}
+
+    row = (await db.execute(
+        select(RoleAdditionalPermission).where(RoleAdditionalPermission.role_name == role_name)
+    )).scalar_one_or_none()
+    if row:
+        for key, val in values.items():
+            setattr(row, key, val)
+        row.updated_by = current_user.username
+    else:
+        db.add(RoleAdditionalPermission(role_name=role_name, updated_by=current_user.username, **values))
+
+    await db.commit()
+
+    set_cached_additional_perms(role_name, {
+        "upload": values["can_upload"], "download": values["can_download"],
+        "export": values["can_export"], "print": values["can_print"],
+        "add_new_data": values["can_add_new_data"],
+    })
+
+    return RedirectResponse(
+        url=f"/admin/master?main_tab=additional_permissions&role={role_name}&success=Additional+permissions+saved+for+{role_name}",
+        status_code=302,
+    )
+
+
 @router.post("/permissions/add-role")
 async def add_custom_role(
     request: Request,
@@ -614,3 +674,14 @@ async def load_all_permissions_to_cache(db: AsyncSession) -> None:
         }
     _PERM_CACHE.clear()
     _PERM_CACHE.update(tmp)
+
+    additional_rows = (await db.execute(select(RoleAdditionalPermission))).scalars().all()
+    tmp_add: dict = {}
+    for r in additional_rows:
+        tmp_add[r.role_name] = {
+            "upload": r.can_upload, "download": r.can_download,
+            "export": r.can_export, "print": r.can_print,
+            "add_new_data": r.can_add_new_data,
+        }
+    _ADDITIONAL_PERM_CACHE.clear()
+    _ADDITIONAL_PERM_CACHE.update(tmp_add)

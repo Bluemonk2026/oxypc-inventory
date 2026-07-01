@@ -45,10 +45,58 @@ class CustomRole(Base):
     created_at   = Column(DateTime, default=app_now)
 
 
+class RoleAdditionalPermission(Base):
+    """Cross-cutting, non-module-specific permissions per role — apply app-wide
+    rather than to one module (unlike RoleModulePermission above).
+
+      can_upload      — File Upload (any bulk-upload/import control app-wide)
+      can_download    — File Download (any file/attachment download control)
+      can_export      — File Export (CSV/Excel export buttons)
+      can_print       — Print Page
+      can_add_new_data — Add New Data (create-record actions app-wide)
+
+    Admin role always bypasses all checks (full access), same as the module matrix.
+    """
+    __tablename__ = "role_additional_permissions"
+
+    id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    role_name        = Column(String(60), unique=True, nullable=False, index=True)
+    can_upload       = Column(Boolean, default=True)
+    can_download     = Column(Boolean, default=True)
+    can_export       = Column(Boolean, default=True)
+    can_print        = Column(Boolean, default=True)
+    can_add_new_data = Column(Boolean, default=True)
+    updated_at       = Column(DateTime, default=app_now, onupdate=app_now)
+    updated_by       = Column(String(50), nullable=True)
+
+
 # ── In-memory permissions cache ───────────────────────────────────────────────
 # Populated on startup and refreshed whenever admin saves the matrix.
 # Structure: {role_name: {module: {"enable": bool, "add": bool, "edit": bool, "upload": bool}}}
 _PERM_CACHE: dict = {}
+
+# Structure: {role_name: {"upload": bool, "download": bool, "export": bool, "print": bool, "add_new_data": bool}}
+_ADDITIONAL_PERM_CACHE: dict = {}
+
+
+def get_cached_additional_perms(role_name: str) -> dict:
+    return _ADDITIONAL_PERM_CACHE.get(role_name, {})
+
+
+def set_cached_additional_perms(role_name: str, perms: dict) -> None:
+    _ADDITIONAL_PERM_CACHE[role_name] = perms
+
+
+def has_additional_perm(role_name: str, action: str) -> bool:
+    """Check if role_name has the given cross-cutting action allowed.
+    Admin always returns True. Unknown roles default to True (permissive) —
+    same "opt-in restriction" behavior as has_perm() below."""
+    if role_name == "admin":
+        return True
+    perms = _ADDITIONAL_PERM_CACHE.get(role_name)
+    if not perms:
+        return True   # no row configured → allow everything
+    return bool(perms.get(action, True))
 
 
 def get_cached_perms(role_name: str) -> dict:

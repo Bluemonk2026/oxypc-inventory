@@ -59,6 +59,24 @@ _admin = require_roles(UserRole.admin, UserRole.inventory_manager)
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 _HARDCODED_COMMITS = [
+    # ── 2026-07-01 ──────────────────────────────────────────────────────────────
+    {"date": "2026-07-01", "msg": "Left nav: WA Audit Log + Parts Purchased/Tracking/Consumption moved into Application Settings; Company Setting + Cost Config moved into FINANCE section", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-01", "msg": "Sidebar auto-scroll-to-bottom on page load fixed (stale scroll-position restore removed)", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-01", "msg": "Cache-Control: no-store added to all auth/home redirects — prevents stale-redirect browser caching after deploys", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-01", "msg": "Inventory Search is now the true application home page — root \"/\" redirects here; Admin Dashboard moved to its own /dashboard URL", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-01", "msg": "Diagnose Agent status UI: fixed stuck \"Agent is running\" state when the agent wasn't actually running; now a continuous self-correcting poller", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-01", "msg": "IQC: new interactive Keyboard & Click Test — technician presses every key and clicks left/right; Keyboard Working / Click Functional auto-fill Yes only if everything registered", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-01", "msg": "User Management column reorder: Full Name, Role, Last Login, Username, Created By, Status, Actions; Perms button removed from Actions", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-01", "msg": "Master Data: new \"Role Additional Permissions\" tab (File Upload/Download/Export, Print Page, Add New Data) with role rename + edit support", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-01", "msg": "Stress Test always showing FAIL — root cause (WiFi ping to public IP blocked by LAN firewalls) fixed; real macOS support added for USB/battery/display tests", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-01", "msg": "New TeleSales Dashboard page — Business Snapshot (Dealers, Device Requests, Sales, Returns) moved out of Telecalling Dashboard into its own page", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-01", "msg": "Final QC: 3 price values shown per device — Current Unit Price, After Repair Price, Updated Price; Device Detail P&L now itemizes each part consumed", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-01", "msg": "Renamed \"Assign Leads\" to \"Assign Social Leads\" across nav, Permission Matrix, and Landing Pages", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-01", "msg": "Role labels renamed: Cosmetic Manager → Inventory Manager, Store Manager → Parts Manager, IQC Inspector → IQC Handler, QC Manager → QC Handler; Master Data role dropdown synced with Add User page", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-01", "msg": "Dealer follow-ups: date + time on Call Log and Dealer Detail; Today Follow-ups button added; Follow-ups Due card no longer clickable; follow-up counts scoped to logged-in user unless admin", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-01", "msg": "New Assign Dealer Leads module — bulk-assign dealers to users via checkbox multi-select", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-01", "msg": "Global card styling: consistent card-header padding, card-body table padding + rounded corners app-wide", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-01", "msg": "App CSS not reflecting after edits — added cache-busting version query string to the stylesheet link", "category": "Bug Fix", "badge": "danger"},
     # ── 2026-06-30 ──────────────────────────────────────────────────────────────
     {"date": "2026-06-30", "msg": "Speed: GZip compression added (1 KB+ responses); role-based post-login redirect — non-admin users land on their first accessible nav item, not Admin Dashboard", "category": "Enhancement", "badge": "success"},
     {"date": "2026-06-30", "msg": "Nav: Inventory Locations moved to INVENTORY section below Scrap Products; QA Dashboard + Manuals added to Landing Pages admin and Permission Matrix", "category": "Enhancement", "badge": "success"},
@@ -137,13 +155,77 @@ _HARDCODED_COMMITS = [
 ]
 
 
+# Conventional-commit prefix -> (category, badge). Checked in order; first match wins.
+_COMMIT_PREFIX_MAP = [
+    ("fix:",     ("Bug Fix", "danger")),
+    ("feat:",    ("Enhancement", "success")),
+    ("style:",   ("Enhancement", "success")),
+    ("refactor:",("Enhancement", "success")),
+    ("rename:",  ("Enhancement", "success")),
+    ("perf:",    ("Enhancement", "success")),
+    ("docs:",    ("Enhancement", "success")),
+    ("chore:",   ("Enhancement", "success")),
+    ("ci:",      ("Enhancement", "success")),
+    ("test:",    ("Enhancement", "success")),
+]
+
+
+def _auto_commits_since(after_date: str) -> list[dict]:
+    """Pull every real git commit strictly after `after_date` (YYYY-MM-DD) and
+    turn each into a changelog entry, inferring category/badge from the
+    conventional-commit prefix. This is what makes new commits show up on the
+    QA Dashboard automatically — no manual list edit needed going forward.
+    Best-effort: returns [] on any git/parsing failure rather than raising,
+    since the changelog must never break page load."""
+    try:
+        result = subprocess.run(
+            ["git", "log", f"--since={after_date} 00:00:00",
+             "--format=%H|%ad|%s", "--date=format:%Y-%m-%d", "--no-merges"],
+            cwd=_PROJECT_ROOT, capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return []
+        entries = []
+        seen_subjects = set()
+        for line in result.stdout.strip().splitlines():
+            parts = line.split("|", 2)
+            if len(parts) != 3:
+                continue
+            _sha, date, subject = parts
+            subject = subject.strip()
+            if not subject or subject in seen_subjects:
+                continue
+            seen_subjects.add(subject)
+            # Skip the automated exe-rebuild noise commit — not a product change.
+            if "[skip ci]" in subject:
+                continue
+            category, badge = "Enhancement", "success"
+            msg = subject
+            for prefix, (cat, bg) in _COMMIT_PREFIX_MAP:
+                if subject.lower().startswith(prefix):
+                    category, badge = cat, bg
+                    msg = subject[len(prefix):].strip()
+                    break
+            entries.append({"date": date, "msg": msg, "category": category, "badge": badge})
+        return entries
+    except Exception:
+        return []
+
+
 def _get_recent_commits(days: int = 60) -> list[dict]:
-    """Return curated 60-day changelog for the QA dashboard.
-    Uses the hardcoded list which is more comprehensive and descriptive than
-    raw git log output. Git log entries use terse commit subjects; the curated
-    list provides human-readable descriptions of every change.
+    """Changelog for the QA dashboard: curated hand-written entries (more
+    descriptive than raw commit subjects) for everything up to the latest
+    hardcoded date, PLUS every real git commit after that date pulled
+    automatically — so new work shows up here without editing this file.
     """
-    return _HARDCODED_COMMITS
+    latest_hardcoded_date = max((c["date"] for c in _HARDCODED_COMMITS), default="1970-01-01")
+    # Start the automatic pull the day AFTER the last curated date, so today's
+    # already-hand-written entries above never get duplicated by the auto-pull.
+    cutoff = (datetime.strptime(latest_hardcoded_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    auto_entries = _auto_commits_since(cutoff)
+    # Newest first, same as the hardcoded list's ordering.
+    auto_entries.sort(key=lambda e: e["date"], reverse=True)
+    return auto_entries + _HARDCODED_COMMITS
 
 
 def _s(v: Optional[str]) -> Optional[str]:

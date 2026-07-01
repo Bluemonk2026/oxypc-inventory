@@ -12,26 +12,15 @@ from models.user import User, LoginLog
 from auth.dependencies import verify_password, hash_password, create_access_token, get_current_user, verify_csrf
 from config import ACCESS_TOKEN_EXPIRE_MINUTES, COOKIE_SECURE
 from limiter import limiter
-from models.role_permissions import has_perm
-from routers.landing_pages import NAV_PAGE_TITLES
 
 
 def _first_landing(role_value: str) -> str:
-    """Return the app's default landing page for a role.
+    """Return the app's default landing page.
 
-    Inventory Search (/devices) is the application-wide default for anyone
-    with access to it, including admin — Admin Dashboard is still reachable
-    via its nav link, it's just no longer what you land on right after login.
-    Roles without access to Inventory Search fall back to their first
-    accessible nav item, as before.
+    Inventory Search (/devices) is the application's home page for every
+    user, admin included — Admin Dashboard is still reachable via its own
+    nav link, it's just no longer what you land on right after login.
     """
-    if role_value == "admin" or has_perm(role_value, "devices", "enable"):
-        return "/devices"
-    for key, _, _, url in NAV_PAGE_TITLES:
-        if key == "dashboard":
-            continue  # Admin Dashboard — not shown to non-admin roles
-        if has_perm(role_value, key, "enable"):
-            return url
     return "/devices"
 
 router = APIRouter(prefix="/auth", tags=["auth"])

@@ -106,6 +106,14 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f4f8; }
 .card-hover { transition: transform 0.15s, box-shadow 0.15s; cursor: pointer; }
 .card-hover:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.1) !important; }
 
+/* Card header spacing + card-body tables (applies across all cards app-wide) */
+.card-header { padding: 0.5em 1em; }
+/* !important needed: many card-body elements use Bootstrap's .p-0 (itself
+   !important) for edge-to-edge tables — this rule intentionally overrides
+   that so every card-body containing a table gets p-3-equivalent padding. */
+.card-body:has(table) { padding: 1rem !important; }
+.card-body table { border-radius: 0.5em; overflow: hidden; }
+
 /* P&L colors */
 .profit-positive { color: #0f9e4e; font-weight: 600; }
 .profit-negative { color: #d63031; font-weight: 600; }

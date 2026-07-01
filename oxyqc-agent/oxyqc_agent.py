@@ -2,7 +2,7 @@
 """
 OxyQC Local Diagnose Agent
 ==========================
-Runs on an INSPECTION STATION (the PC the technician uses). Exposes:
+Runs on an INSPECTION STATION (the PC/Mac the technician uses). Exposes:
 
     GET  http://127.0.0.1:8765/diagnose   -> that station's hardware as JSON
 
@@ -10,9 +10,14 @@ The OxyPC web IQC page calls this from the browser. Because 127.0.0.1 in a
 browser always means the machine the browser runs on, this reads the LOCAL
 station's hardware — never the server's.
 
-Stdlib only (no third-party deps). Windows only (uses WMI/CIM via PowerShell).
-Run:    python oxyqc_agent.py        (or pythonw for no console)
-Build:  pyinstaller --onefile --noconsole --name OxyQC_Agent oxyqc_agent.py
+Stdlib only (no third-party deps). Supports Windows (WMI/CIM via PowerShell)
+and macOS (system_profiler / ioreg / networksetup — all built-in, no admin
+or sudo needed for any of the commands used here).
+
+Run:    python oxyqc_agent.py        (or pythonw for no console, Windows only)
+Build (Windows):  pyinstaller --onefile --noconsole --name Diagnose_Device_Agent oxyqc_agent.py
+Build (macOS):    pyinstaller --onefile --name Diagnose_Device_Agent oxyqc_agent.py
+                  (must be run ON a Mac — PyInstaller does not cross-compile)
 """
 import json
 import os
@@ -24,16 +29,46 @@ import platform
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = 8765
+IS_WINDOWS = platform.system() == "Windows"
+IS_MAC = platform.system() == "Darwin"
 
-# Per-user install target (no admin needed)
-_APPDIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Diagnose_Device_Agent")
-_TARGET = os.path.join(_APPDIR, "Diagnose_Device_Agent.exe")
-_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-_AUTOSTART_NAME = "Diagnose_Device_Agent"
+# Per-user install target (no admin/sudo needed)
+if IS_MAC:
+    _APPDIR = os.path.expanduser("~/Library/Application Support/Diagnose_Device_Agent")
+    _TARGET = os.path.join(_APPDIR, "Diagnose_Device_Agent")
+    _LAUNCH_AGENT_DIR = os.path.expanduser("~/Library/LaunchAgents")
+    _LAUNCH_AGENT_LABEL = "com.oxypc.diagnoseagent"
+    _LAUNCH_AGENT_PATH = os.path.join(_LAUNCH_AGENT_DIR, f"{_LAUNCH_AGENT_LABEL}.plist")
+else:
+    _APPDIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Diagnose_Device_Agent")
+    _TARGET = os.path.join(_APPDIR, "Diagnose_Device_Agent.exe")
+    _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    _AUTOSTART_NAME = "Diagnose_Device_Agent"
 
 
 def _set_autostart(path):
-    """Register HKCU autostart (per-user, no UAC). Best-effort."""
+    """Register per-user autostart. Best-effort, never fatal."""
+    if IS_MAC:
+        try:
+            os.makedirs(_LAUNCH_AGENT_DIR, exist_ok=True)
+            plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>{_LAUNCH_AGENT_LABEL}</string>
+    <key>ProgramArguments</key><array><string>{path}</string></array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><false/>
+</dict>
+</plist>
+"""
+            with open(_LAUNCH_AGENT_PATH, "w") as fh:
+                fh.write(plist)
+            subprocess.run(["launchctl", "load", "-w", _LAUNCH_AGENT_PATH],
+                            capture_output=True, timeout=10)
+        except Exception:
+            pass
+        return
     try:
         import winreg
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
@@ -43,11 +78,11 @@ def _set_autostart(path):
 
 
 def _self_install():
-    """When run as a frozen exe from somewhere other than %LOCALAPPDATA%\\OxyQC,
-    copy self there, register per-user autostart, launch that copy, and signal the
-    caller to exit. All per-user => never triggers UAC. Returns True if a relaunch
-    was started (caller should exit)."""
-    if os.name != "nt" or not getattr(sys, "frozen", False):
+    """When run as a frozen binary from somewhere other than the canonical
+    per-user install dir, copy self there, register autostart, launch that
+    copy, and signal the caller to exit. All per-user => no UAC / no sudo.
+    Returns True if a relaunch was started (caller should exit)."""
+    if not getattr(sys, "frozen", False):
         return False  # running as a .py script: don't self-install
     cur = os.path.abspath(sys.executable)
     try:
@@ -59,12 +94,18 @@ def _self_install():
         return False
     try:
         shutil.copy2(cur, _TARGET)   # note: drops Mark-of-the-Web -> no SmartScreen on the copy
+        if IS_MAC:
+            os.chmod(_TARGET, 0o755)
     except Exception:
         _set_autostart(cur)          # target busy/locked: just register where we are
         return False
     _set_autostart(_TARGET)
     try:
-        subprocess.Popen([_TARGET], creationflags=0x08000000)  # CREATE_NO_WINDOW
+        if IS_WINDOWS:
+            subprocess.Popen([_TARGET], creationflags=0x08000000)  # CREATE_NO_WINDOW
+        else:
+            subprocess.Popen([_TARGET], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              start_new_session=True)
         return True
     except Exception:
         return False
@@ -166,6 +207,9 @@ def _generation(cpu):
         m = re.search(r"Ryzen\s+([3579])", cpu)
         if m and m.group(1) in ("3", "5", "7"):
             return f"AMD Ryzen {m.group(1)}"
+        m2 = re.search(r"Apple\s+(M\d+)\s*(Pro|Max|Ultra)?", cpu)
+        if m2:
+            return f"Apple {m2.group(1)}{(' ' + m2.group(2)) if m2.group(2) else ''}"
     return None
 
 
@@ -208,9 +252,8 @@ def _yn3(state):
     return {"ok": "Yes", "error": "No", "absent": "No"}.get(state)
 
 
-def detect():
-    if platform.system() != "Windows":
-        return None, "OxyQC Agent runs on Windows only."
+def _probe_windows():
+    """Run the PowerShell/CIM probe. Returns (info_dict, err)."""
     ps = shutil.which("powershell") or "powershell"
     kw = {"creationflags": 0x08000000}  # CREATE_NO_WINDOW
     try:
@@ -222,9 +265,224 @@ def detect():
     if not raw:
         return None, (r.stderr or "no output from hardware probe").strip()[:200]
     try:
-        info = json.loads(raw)
+        return json.loads(raw), None
     except Exception:
         return None, "could not parse hardware probe output"
+
+
+def _sp(datatype):
+    """Run `system_profiler -json <datatype>` and return the parsed top-level list
+    for that datatype, or [] on any failure. Never raises."""
+    try:
+        r = subprocess.run(["system_profiler", "-json", datatype],
+                            capture_output=True, text=True, timeout=20)
+        data = json.loads(r.stdout or "{}")
+        return data.get(datatype) or []
+    except Exception:
+        return []
+
+
+def _ioreg_battery():
+    """Read AppleSmartBattery properties via ioreg. Returns a dict of best-effort
+    numeric fields; missing keys just aren't present. Never raises."""
+    out = {}
+    try:
+        r = subprocess.run(["ioreg", "-rn", "AppleSmartBattery"], capture_output=True, text=True, timeout=10)
+        text = r.stdout or ""
+        if not text.strip():
+            return out
+        out["present"] = True
+        for key in ("DesignCapacity", "MaxCapacity", "AppleRawMaxCapacity",
+                    "CurrentCapacity", "AppleRawCurrentCapacity", "Voltage", "CycleCount"):
+            m = re.search(rf'"{key}"\s*=\s*(\d+)', text)
+            if m:
+                out[key] = int(m.group(1))
+        out["is_charging"] = bool(re.search(r'"IsCharging"\s*=\s*Yes', text))
+        out["external_connected"] = bool(re.search(r'"ExternalConnected"\s*=\s*Yes', text))
+    except Exception:
+        pass
+    return out
+
+
+# Best-effort USB-C/Thunderbolt port counts by Mac model family. Apple doesn't
+# expose an exact physical port count via any read-only API, so — same as the
+# Windows probe's USB estimate — this is a starting point the technician
+# verifies, not a guarantee.
+_MAC_PORT_ESTIMATES = [
+    (r"MacBook Air", 2),
+    (r"MacBook Pro.*1[46]", 3),
+    (r"MacBook Pro", 2),
+    (r"Mac Studio", 4),
+    (r"Mac mini", 2),
+    (r"Mac Pro", 2),
+    (r"iMac", 2),
+]
+
+
+def _mac_usb_c_estimate(model_name):
+    for pattern, count in _MAC_PORT_ESTIMATES:
+        if re.search(pattern, model_name or "", re.I):
+            return count
+    return 0
+
+
+def _probe_mac():
+    """Gather the same info-dict schema as _probe_windows(), using macOS
+    command-line tools (system_profiler, ioreg, networksetup) — every command
+    here is a read-only query available to any logged-in user, no sudo."""
+    hw_list = _sp("SPHardwareDataType")
+    hw = hw_list[0] if hw_list else {}
+
+    model_name = hw.get("machine_name") or hw.get("machine_model") or ""
+    model_id = hw.get("machine_model") or model_name
+    serial = hw.get("serial_number", "")
+    chip = hw.get("chip_type") or hw.get("cpu_type") or ""
+    cores = None
+    cores_raw = hw.get("number_processors") or hw.get("total_number_of_cores") or hw.get("number_of_cores")
+    m = re.search(r"(\d+)", str(cores_raw or ""))
+    if m:
+        cores = int(m.group(1))
+    ram_gb = None
+    m = re.search(r"(\d+)", str(hw.get("physical_memory") or ""))
+    if m:
+        ram_gb = int(m.group(1))
+
+    # Battery
+    batt = _ioreg_battery()
+    has_battery = bool(batt.get("present"))
+    battery_pct = None
+    battery_health = None
+    battery_wh = None
+    on_ac = True
+    if has_battery:
+        design_cap = batt.get("DesignCapacity")
+        max_cap = batt.get("MaxCapacity") or batt.get("AppleRawMaxCapacity")
+        cur_cap = batt.get("CurrentCapacity") or batt.get("AppleRawCurrentCapacity")
+        if design_cap and max_cap:
+            battery_health = round(max_cap / design_cap * 100)
+        if max_cap and cur_cap:
+            battery_pct = round(cur_cap / max_cap * 100)
+        voltage_mv = batt.get("Voltage")
+        if max_cap and voltage_mv:
+            battery_wh = round(max_cap * voltage_mv / 1_000_000, 1)  # mAh * mV -> Wh
+        on_ac = bool(batt.get("external_connected"))
+
+    # Storage — capacity + rough SSD/HDD classification
+    disks = []
+    for item in _sp("SPStorageDataType"):
+        try:
+            size_bytes = item.get("size_in_bytes")
+            drive = item.get("physical_drive") or {}
+            if not size_bytes:
+                size_bytes = drive.get("size_in_bytes")
+            if not size_bytes:
+                continue
+            gb = round(int(size_bytes) / (1024 ** 3))
+            if gb <= 30:
+                continue
+            medium = str(drive.get("medium_type") or "").lower()
+            disk_type = "HDD" if "rotational" in medium else "SSD"
+            disks.append({"type": disk_type, "sizeGB": gb})
+        except Exception:
+            continue
+
+    # Display / GPU
+    disp_list = _sp("SPDisplaysDataType")
+    gpu_name = None
+    mons_count = 0
+    for d in disp_list:
+        if not gpu_name:
+            gpu_name = d.get("sppci_model") or d.get("_name")
+        ndrvs = d.get("spdisplays_ndrvs") or []
+        mons_count += len(ndrvs) if ndrvs else 1
+    screen_in = None
+    m = re.search(r'(\d{2}(?:\.\d)?)[\s\-]*(?:inch|")', model_name, re.I)
+    if m:
+        try:
+            screen_in = float(m.group(1))
+        except ValueError:
+            pass
+
+    # Peripherals — presence only (macOS gives no per-device error/fault state
+    # the way Windows Device Manager does, so 'ok' here means "detected", the
+    # same caveat the Windows probe already carries for several fields).
+    audio_list = _sp("SPAudioDataType")
+    camera_list = _sp("SPCameraDataType")
+    usb_list = _sp("SPUSBDataType")
+
+    is_laptop = bool(has_battery) or "MacBook" in model_name or "MacBook" in model_id
+
+    # Ethernet / Wi-Fi presence via networksetup hardware ports (built-in, no sudo)
+    wifi_present = False
+    ethernet_count = 0
+    try:
+        r = subprocess.run(["networksetup", "-listallhardwareports"],
+                            capture_output=True, text=True, timeout=10)
+        ports_out = r.stdout or ""
+        blocks = re.split(r"\n\n+", ports_out.strip())
+        for b in blocks:
+            name_m = re.search(r"Hardware Port:\s*(.+)", b)
+            if not name_m:
+                continue
+            pname = name_m.group(1)
+            if re.search(r"Wi-?Fi|AirPort", pname, re.I):
+                wifi_present = True
+            elif re.search(r"Ethernet|Thunderbolt Ethernet|USB.*LAN", pname, re.I):
+                ethernet_count += 1
+    except Exception:
+        pass
+    if not wifi_present:
+        # Virtually every Mac has built-in Wi-Fi; fall back to system_profiler.
+        wifi_present = bool(_sp("SPAirPortDataType"))
+
+    dvd_present = False  # no Mac model since ~2016 ships an internal optical drive
+
+    info = {
+        "manufacturer": "Apple",
+        "model": model_name or model_id,
+        "serial": serial,
+        "cpu": chip,
+        "clock": None,
+        "cores": cores,
+        "ram_gb": ram_gb,
+        "chassis": [],
+        "has_battery": has_battery,
+        "battery_pct": battery_pct,
+        "battery_health": battery_health,
+        "on_ac": on_ac,
+        "screen_in": screen_in,
+        "gpu": gpu_name,
+        "os": f"macOS {platform.mac_ver()[0]}".strip(),
+        "disks": disks,
+        "kbd": "ok",                                  # built-in keyboard always present
+        "touchpad": "ok" if is_laptop else "absent",   # built-in trackpad on laptops only
+        "sound": "ok" if audio_list else "absent",
+        "camera": "ok" if camera_list else "absent",
+        "wifi": "ok" if wifi_present else "absent",
+        "usbctrl": "ok" if usb_list else "absent",
+        "dvd_present": dvd_present,
+        "ethernet_count": ethernet_count,
+        "usbc_hint": _mac_usb_c_estimate(model_name or model_id),
+        "has_gpu": bool(gpu_name),
+        "mons_count": mons_count,
+        "battery_wh": battery_wh,
+        "storage_health": None,   # not available without smartctl/third-party tools
+        "fan_working": None,      # not reliably readable without elevated tools (powermetrics)
+        "fan_rpm": None,
+    }
+    return info, None
+
+
+def detect():
+    system = platform.system()
+    if system == "Windows":
+        info, err = _probe_windows()
+    elif system == "Darwin":
+        info, err = _probe_mac()
+    else:
+        return None, f"OxyQC Agent supports Windows and macOS only (detected: {system})."
+    if info is None:
+        return None, err
 
     chassis = info.get("chassis") or []
     if isinstance(chassis, int):
@@ -243,7 +501,7 @@ def detect():
     f = {}
     # ── Identity / specs ─────────────────────────────────────────────────────
     if info.get("manufacturer"):
-        f["brand"] = str(info["manufacturer"]).split()[0].title()   # e.g. "Dell"
+        f["brand"] = str(info["manufacturer"]).split()[0].title()   # e.g. "Dell" / "Apple"
     if info.get("model"):
         f["model"] = info["model"]
     serial = str(info.get("serial") or "").strip()
@@ -313,7 +571,7 @@ def detect():
         # touchpad cosmetic fields (Yes / No)
         f["touchpad_click_working"] = "Yes" if tp == "ok" else "No"
         f["touchpad_missing"] = "No" if tp in ("ok", "error") else "Yes"
-        # Logicboard exists if Win32_PointingDevice detected any device (ok or error)
+        # Logicboard exists if a pointing device was detected (ok or error)
         f["touchpad_logicboard"] = "Yes" if tp in ("ok", "error") else "No"
     else:
         f["touchpad_working"] = "No"            # desktops have no touchpad
@@ -357,13 +615,13 @@ def detect():
     ec = info.get("ethernet_count")
     if isinstance(ec, int):
         f["ethernet_ports"] = ec
-    # USB port counts (Windows exposes no exact physical A/C count):
-    #   USB-C → best-effort from UCSI/Type-C/Thunderbolt connector devices
-    #   USB-A → form-factor estimate (laptop 2 / desktop 4); technician verifies
+    # USB port counts:
+    #   USB-C → best-effort from Windows UCSI/Type-C hints, or macOS model-based estimate
+    #   USB-A → form-factor estimate; technician verifies (modern Macs have none)
     uch = info.get("usbc_hint")
     f["usb_c_ports"] = min(int(uch), 4) if isinstance(uch, int) and uch >= 0 else 0
     f["usbc_hint"] = int(uch) if isinstance(uch, int) else 0  # pass raw hint to JS
-    f["usb_a_ports"] = 2 if is_laptop else 4
+    f["usb_a_ports"] = 0 if IS_MAC else (2 if is_laptop else 4)
     # Storage health
     sh = info.get("storage_health")
     if isinstance(sh, (int, float)) and sh >= 0:
@@ -378,7 +636,8 @@ def detect():
 
     diag = [f"Auto-diagnosed on {info.get('os', 'this station')}."]
     if info.get("cpu"):
-        diag.append(f"CPU: {info['cpu']} @ {info.get('clock', '?')}GHz ({info.get('cores', '?')}C).")
+        clock_txt = f" @ {info.get('clock')}GHz" if info.get("clock") else ""
+        diag.append(f"CPU: {info['cpu']}{clock_txt} ({info.get('cores', '?')}C).")
     if info.get("ram_gb"):
         diag.append(f"RAM: {info['ram_gb']} GB.")
     if disks:
@@ -413,8 +672,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?", 1)[0]
-        if path == "/ping":   # lightweight liveness check (no WMI) for the page to poll
-            body = json.dumps({"ok": True, "agent": "OxyQC"}).encode("utf-8")
+        if path == "/ping":   # lightweight liveness check (no hardware probe) for the page to poll
+            body = json.dumps({"ok": True, "agent": "OxyQC", "platform": platform.system()}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -445,8 +704,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    # First run from Downloads etc. → install to %LOCALAPPDATA% + autostart, then
-    # the relaunched canonical copy serves. (No UAC — all per-user.)
+    # First run from Downloads etc. → install to the per-user app dir + autostart,
+    # then the relaunched canonical copy serves. (No UAC on Windows, no sudo on Mac.)
     if _self_install():
         return
     try:

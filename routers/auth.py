@@ -17,15 +17,22 @@ from routers.landing_pages import NAV_PAGE_TITLES
 
 
 def _first_landing(role_value: str) -> str:
-    """Return the first nav URL the role can access. Admin gets / (Admin Dashboard)."""
-    if role_value == "admin":
-        return "/"
+    """Return the app's default landing page for a role.
+
+    Inventory Search (/devices) is the application-wide default for anyone
+    with access to it, including admin — Admin Dashboard is still reachable
+    via its nav link, it's just no longer what you land on right after login.
+    Roles without access to Inventory Search fall back to their first
+    accessible nav item, as before.
+    """
+    if role_value == "admin" or has_perm(role_value, "devices", "enable"):
+        return "/devices"
     for key, _, _, url in NAV_PAGE_TITLES:
         if key == "dashboard":
             continue  # Admin Dashboard — not shown to non-admin roles
         if has_perm(role_value, key, "enable"):
             return url
-    return "/"
+    return "/devices"
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

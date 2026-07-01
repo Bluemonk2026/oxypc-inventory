@@ -942,6 +942,19 @@ function estimatePowerW(cpuName) {
   var status = document.getElementById('diagnoseStatus');
   if (!btn) return;
 
+  // Point the download button at the right installer for this technician's OS.
+  // Mac gets a source + double-clickable .command launcher (no compiled
+  // binary — PyInstaller can't cross-compile from the Windows/Linux server).
+  (function(){
+    var ua = navigator.userAgent || '';
+    var isMac = /Macintosh|Mac OS X/.test(ua) && !/iPhone|iPad/.test(ua);
+    if (isMac && dlBtn) {
+      dlBtn.href = '/iqc/agent-installer-mac';
+      dlBtn.title = 'Download Diagnose_Device_Agent (macOS) to this station';
+      dlBtn.querySelector('i').className = 'bi bi-apple me-1';
+    }
+  })();
+
   // Chrome allows http://127.0.0.1 from HTTPS pages when the agent returns
   // Access-Control-Allow-Private-Network: true (which oxyqc_agent.py does).
   // No HTTPS block needed — let the fetch proceed on all origins.

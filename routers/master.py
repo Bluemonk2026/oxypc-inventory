@@ -94,6 +94,7 @@ PERM_MODULES = [
     ("dealers",              "Dealers"),
     ("telecalling",          "Telecalling"),
     ("whatsapp",             "WhatsApp"),
+    ("assign_dealer_leads",  "Assign Dealer Leads"),
     # ── FINANCE ────────────────────────────────────────────────────
     ("finance",              "Accounts"),
     ("finance_supplier",     "Supplier Payments"),

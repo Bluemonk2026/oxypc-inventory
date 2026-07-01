@@ -54,6 +54,7 @@ NAV_PAGE_TITLES = [
     ("dealers",              "Dealers",                       "Dealers",                       "/dealers"),
     ("telecalling",          "Telecalling",                   "Telecalling",                   "/telecalling"),
     ("whatsapp",             "WhatsApp",                      "WhatsApp",                      "/whatsapp"),
+    ("assign_dealer_leads",  "Assign Dealer Leads",           "Assign Dealer Leads",           "/assign-dealer-leads"),
     ("finance",              "Accounts",                      "Accounts",                      "/accounts"),
     ("finance_supplier",     "Supplier Payments",             "Supplier Payments",             "/accounts/supplier-payments"),
     ("finance_customer",     "Customer Receipts",             "Customer Receipts",             "/accounts/customer-receipts"),

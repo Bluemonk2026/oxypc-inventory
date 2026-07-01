@@ -255,7 +255,7 @@
       {% endif %}
 
       {# ── SALES & CRM (Overdue Orders removed — now on Sales List page) ─ #}
-      {% if any_perm(role,'sales','returns','dealers','telecalling','whatsapp') %}
+      {% if any_perm(role,'sales','returns','dealers','telecalling','whatsapp','assign_dealer_leads') %}
       <li class="nav-section">SALES & CRM</li>
       {% if has_perm(role,'sales','enable') %}
       <li><a href="/sales/ready" class="nav-link {% if '/sales/ready' in request.url.path %}active{% endif %}">
@@ -283,6 +283,11 @@
       {% if has_perm(role,'whatsapp','enable') %}
       <li><a href="/whatsapp" class="nav-link {% if request.url.path.startswith('/whatsapp') %}active{% endif %}">
         <i class="bi bi-whatsapp me-2"></i> WhatsApp
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'assign_dealer_leads','enable') %}
+      <li><a href="/assign-dealer-leads" class="nav-link {% if request.url.path.startswith('/assign-dealer-leads') %}active{% endif %}">
+        <i class="bi bi-person-lines-fill me-2"></i> Assign Dealer Leads
       </a></li>
       {% endif %}
       {% endif %}

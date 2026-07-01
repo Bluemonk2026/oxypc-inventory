@@ -8,7 +8,7 @@ from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
@@ -16,6 +16,7 @@ from models.lot import Lot
 from models.iqc_inspection import IQCInspection
 from models.repair import RepairJob
 from models.part_request import PartRequest
+from models.spare_parts import SparePartConsumption
 from services.parts_required import compute_required
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 
@@ -126,11 +127,36 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
                         plist.append({"label": row["label"],
                                       "changed": bool(req and req.status == "received")})
                 parts_map[str(d.id)] = plist
+
+        # ── Pricing: current unit price → after-repair price (parts actually
+        #    consumed, real cost) → updated price shown to the user. ─────────
+        price_map = {}
+        if device_ids:
+            cost_rows = (await db.execute(
+                select(
+                    SparePartConsumption.device_id,
+                    func.coalesce(func.sum(SparePartConsumption.total_cost), 0).label("parts_cost"),
+                )
+                .where(SparePartConsumption.device_id.in_(device_ids))
+                .group_by(SparePartConsumption.device_id)
+            )).all()
+            parts_cost_by_device = {str(r.device_id): float(r.parts_cost or 0) for r in cost_rows}
+            for d, _ in devices:
+                current_price = float(d.device_price or 0)
+                parts_cost = parts_cost_by_device.get(str(d.id), 0.0)
+                after_repair_price = current_price + parts_cost
+                price_map[str(d.id)] = {
+                    "current_price": current_price,
+                    "parts_cost": parts_cost,
+                    "after_repair_price": after_repair_price,
+                    "updated_price": after_repair_price,
+                }
+
         return templates.TemplateResponse("cosmetic/final_qc.html", {
             "request": request, "current_user": current_user,
             "stage": stage, "stage_label": STAGE_LABELS[stage],
             "devices": devices, "iqc_map": iqc_map, "repairs_map": repairs_map,
-            "parts_map": parts_map,
+            "parts_map": parts_map, "price_map": price_map,
             "pipeline": COSMETIC_PIPELINE, "stage_labels": STAGE_LABELS,
         })
 

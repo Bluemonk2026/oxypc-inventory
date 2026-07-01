@@ -167,6 +167,27 @@
           {% endfor %}
         </ul>
         {% else %}<p class="text-muted small mb-0">No required parts.</p>{% endif %}
+
+        {% set price = price_map.get(device.id|string) %}
+        {% if price %}
+        <div class="small fw-semibold text-muted mt-3">Pricing</div>
+        <table class="table table-sm small mb-0">
+          <tbody>
+            <tr>
+              <th class="text-muted fw-normal">Current Unit Price</th>
+              <td class="text-end">₹{{ "%.2f"|format(price.current_price) }}</td>
+            </tr>
+            <tr>
+              <th class="text-muted fw-normal">After Repair Price <small class="text-muted">(+ parts changed)</small></th>
+              <td class="text-end">₹{{ "%.2f"|format(price.after_repair_price) }}</td>
+            </tr>
+            <tr class="table-light">
+              <th class="fw-bold">Updated Price</th>
+              <td class="text-end fw-bold text-success">₹{{ "%.2f"|format(price.updated_price) }}</td>
+            </tr>
+          </tbody>
+        </table>
+        {% endif %}
       </div>
 
       <!-- Final QC Decision -->

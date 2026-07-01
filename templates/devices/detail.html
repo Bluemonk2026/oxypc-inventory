@@ -195,6 +195,16 @@
               <td class="text-end pe-3">₹{{ "%.2f"|format(lot_cost_per_device) }}</td>
             </tr>
             {% endif %}
+            {% if parts_consumed %}
+            {% for row in parts_consumed %}
+            <tr>
+              <th class="ps-3 text-muted small fw-normal ps-4">
+                <i class="bi bi-gear me-1"></i>{{ row.name }} <small class="text-muted">&times;{{ row.SparePartConsumption.qty_used }} @ ₹{{ "%.2f"|format(row.SparePartConsumption.unit_cost or 0) }}</small>
+              </th>
+              <td class="text-end pe-3 small">₹{{ "%.2f"|format(row.SparePartConsumption.total_cost or 0) }}</td>
+            </tr>
+            {% endfor %}
+            {% endif %}
             <tr>
               <th class="ps-3 text-muted small">Parts Consumed</th>
               <td class="text-end pe-3 text-danger">₹{{ "%.2f"|format(total_parts_cost) }}</td>

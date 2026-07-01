@@ -298,7 +298,7 @@
       {% endif %}
 
       {# ── FINANCE ─────────────────────────────────────────────────────── #}
-      {% if has_perm(role,'finance','enable') or has_perm(role,'finance_supplier','enable') or has_perm(role,'finance_customer','enable') %}
+      {% if has_perm(role,'finance','enable') or has_perm(role,'finance_supplier','enable') or has_perm(role,'finance_customer','enable') or role == 'admin' %}
       <li class="nav-section">FINANCE</li>
       {% endif %}
       {% if has_perm(role,'finance','enable') %}
@@ -314,6 +314,14 @@
       {% if has_perm(role,'finance_customer','enable') %}
       <li><a href="/accounts/customer-receipts" class="nav-link {% if '/accounts/customer-receipts' in request.url.path %}active{% endif %}">
         <i class="bi bi-arrow-down-circle me-2"></i> Customer Receipts
+      </a></li>
+      {% endif %}
+      {% if role == 'admin' %}
+      <li><a href="/settings" class="nav-link {% if request.url.path == '/settings' %}active{% endif %}">
+        <i class="bi bi-gear me-2"></i> Company Setting
+      </a></li>
+      <li><a href="/admin/cost-config" class="nav-link {% if '/admin/cost-config' in request.url.path %}active{% endif %}">
+        <i class="bi bi-calculator me-2"></i> Cost Config
       </a></li>
       {% endif %}
 
@@ -368,7 +376,7 @@
       <li class="nav-section">ADMIN</li>
 
       {# User Settings — collapsible group #}
-      {% set user_settings_active = '/admin/users' in request.url.path or '/admin/master' in request.url.path or '/whatsapp/audit' in request.url.path %}
+      {% set user_settings_active = '/admin/users' in request.url.path or '/admin/master' in request.url.path %}
       <li class="nav-item">
         <a href="#userSettingsCollapse" class="nav-link d-flex align-items-center {% if user_settings_active %}active{% endif %}"
            data-bs-toggle="collapse" role="button"
@@ -384,36 +392,23 @@
             <li><a href="/admin/master" class="nav-link py-1 small {% if '/admin/master' in request.url.path %}active{% endif %}">
               <i class="bi bi-database-gear me-2"></i> Master Data
             </a></li>
-            <li><a href="/whatsapp/audit" class="nav-link py-1 small {% if '/whatsapp/audit' in request.url.path %}active{% endif %}">
-              <i class="bi bi-whatsapp me-2 text-success"></i> WA Audit Log
-            </a></li>
           </ul>
         </div>
       </li>
 
-      {# Company Settings — collapsible group #}
-      {% set company_settings_active = request.url.path == '/settings' or '/admin/cost-config' in request.url.path %}
-      <li class="nav-item">
-        <a href="#companySettingsCollapse" class="nav-link d-flex align-items-center {% if company_settings_active %}active{% endif %}"
-           data-bs-toggle="collapse" role="button"
-           aria-expanded="{{ 'true' if company_settings_active else 'false' }}" aria-controls="companySettingsCollapse">
-          <i class="bi bi-building me-2"></i> Company Settings
-          <i class="bi bi-chevron-down ms-auto small transition-icon"></i>
-        </a>
-        <div class="collapse {% if company_settings_active %}show{% endif %}" id="companySettingsCollapse">
-          <ul class="nav flex-column ps-3 pb-1">
-            <li><a href="/settings" class="nav-link py-1 small {% if request.url.path == '/settings' %}active{% endif %}">
-              <i class="bi bi-gear me-2"></i> Company Setting
-            </a></li>
-            <li><a href="/admin/cost-config" class="nav-link py-1 small {% if '/admin/cost-config' in request.url.path %}active{% endif %}">
-              <i class="bi bi-calculator me-2"></i> Cost Config
-            </a></li>
-          </ul>
-        </div>
-      </li>
+      {# QA Dashboard — admin only, all sub-pages accessible via tabs on the QA pages #}
+      <li><a href="/qa/" class="nav-link {% if request.url.path.startswith('/qa') %}active{% endif %}">
+        <i class="bi bi-speedometer2 me-2"></i> QA Dashboard
+      </a></li>
+      {% endif %}
 
-      {# Application Settings — collapsible group #}
-      {% set app_settings_active = '/stage-control' in request.url.path or '/admin/audit-log' in request.url.path or '/repair/move' in request.url.path or '/admin/landing-pages' in request.url.path %}
+      {# Application Settings — collapsible group. Standalone (not nested inside
+         role=='admin') so roles individually granted the Parts Purchased/Tracking/
+         Consumption permissions still see this accordion — but every admin-only
+         item inside is still explicitly gated on role=='admin', so non-admin
+         visibility is unchanged from before this reorg. #}
+      {% set app_settings_active = '/stage-control' in request.url.path or '/admin/audit-log' in request.url.path or '/repair/move' in request.url.path or '/admin/landing-pages' in request.url.path or '/whatsapp/audit' in request.url.path or '/purchase' in request.url.path or '/ram' in request.url.path or '/consume' in request.url.path %}
+      {% if role == 'admin' or has_perm(role,'spare_parts_purchase','enable') or has_perm(role,'parts_tracking','enable') or has_perm(role,'parts_consumption','enable') %}
       <li class="nav-item">
         <a href="#appSettingsCollapse" class="nav-link d-flex align-items-center {% if app_settings_active %}active{% endif %}"
            data-bs-toggle="collapse" role="button"
@@ -425,6 +420,7 @@
         </a>
         <div class="collapse {% if app_settings_active %}show{% endif %}" id="appSettingsCollapse">
           <ul class="nav flex-column ps-3 pb-1">
+            {% if role == 'admin' %}
             <li><a href="/repair/move/form" class="nav-link py-1 small {% if '/repair/move' in request.url.path %}active{% endif %}">
               <i class="bi bi-arrow-left-right me-2"></i> Move Device Internal
             </a></li>
@@ -443,28 +439,10 @@
             <li><a href="/admin/landing-pages" class="nav-link py-1 small {% if '/admin/landing-pages' in request.url.path %}active{% endif %}">
               <i class="bi bi-layout-text-sidebar me-2"></i> Landing Pages
             </a></li>
-          </ul>
-        </div>
-      </li>
-
-      {# QA Dashboard — admin only, all sub-pages accessible via tabs on the QA pages #}
-      <li><a href="/qa/" class="nav-link {% if request.url.path.startswith('/qa') %}active{% endif %}">
-        <i class="bi bi-speedometer2 me-2"></i> QA Dashboard
-      </a></li>
-      {% endif %}
-
-      {# ── OPTIONAL accordion ───────────────────────────────────────────── #}
-      {% set optional_active = '/purchase' in request.url.path or '/ram' in request.url.path or '/consume' in request.url.path %}
-      {% if has_perm(role,'spare_parts_purchase','enable') or has_perm(role,'parts_tracking','enable') or has_perm(role,'parts_consumption','enable') %}
-      <li class="nav-item">
-        <a href="#optionalCollapse" class="nav-link d-flex align-items-center {% if optional_active %}active{% endif %}"
-           data-bs-toggle="collapse" role="button"
-           aria-expanded="{{ 'true' if optional_active else 'false' }}" aria-controls="optionalCollapse">
-          <i class="bi bi-three-dots me-2"></i> Optional
-          <i class="bi bi-chevron-down ms-auto small transition-icon"></i>
-        </a>
-        <div class="collapse {% if optional_active %}show{% endif %}" id="optionalCollapse">
-          <ul class="nav flex-column ps-3 pb-1">
+            <li><a href="/whatsapp/audit" class="nav-link py-1 small {% if '/whatsapp/audit' in request.url.path %}active{% endif %}">
+              <i class="bi bi-whatsapp me-2 text-success"></i> WA Audit Log
+            </a></li>
+            {% endif %}
             {% if has_perm(role,'spare_parts_purchase','enable') %}
             <li><a href="/spare-parts/purchase" class="nav-link py-1 small {% if '/purchase' in request.url.path %}active{% endif %}">
               <i class="bi bi-bag-plus me-2"></i> Parts Purchased
@@ -570,24 +548,14 @@
 <script src="/static/js/barcode.js"></script>
 {% block scripts %}{% endblock %}
 <script>
-/* ── Sidebar scroll position persistence ─────────────────────────────────── */
+/* Sidebar always starts at the top on page load — no scroll-position
+   persistence. A previous version restored the last-saved scrollTop from
+   sessionStorage, but a saved position from a longer/differently-expanded
+   sidebar state simply clamps to the max scroll on a shorter page, which
+   looked like the sidebar "auto-scrolling to the bottom" on load. */
 (function () {
-  var STORAGE_KEY = 'oxypc_sidebar_scroll';
   var sidebar = document.getElementById('sidebar');
-  if (!sidebar) return;
-
-  // Restore saved position immediately (before first paint)
-  var saved = sessionStorage.getItem(STORAGE_KEY);
-  if (saved) sidebar.scrollTop = parseInt(saved, 10) || 0;
-
-  // Save position on every navigation click inside the sidebar
-  sidebar.addEventListener('click', function (e) {
-    var link = e.target.closest('a.nav-link, a[href]');
-    if (link && !link.dataset.bsToggle) {
-      // Store the CURRENT scrollTop (before navigation starts)
-      sessionStorage.setItem(STORAGE_KEY, sidebar.scrollTop);
-    }
-  });
+  if (sidebar) sidebar.scrollTop = 0;
 })();
 </script>
 <!-- Raise Ticket Modal (global — available on every page) -->

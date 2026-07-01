@@ -252,7 +252,9 @@ def _render_error(request: Request, code: int, message: str = None, detail: str 
 # Exception handlers
 @app.exception_handler(302)
 async def redirect_handler(request: Request, exc):
-    return RedirectResponse(url=exc.headers.get("Location", "/auth/login"))
+    resp = RedirectResponse(url=exc.headers.get("Location", "/auth/login"))
+    resp.headers["Cache-Control"] = "no-store"  # never let a browser cache an auth redirect
+    return resp
 
 
 @app.exception_handler(403)
@@ -270,7 +272,9 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     """Catch-all for any HTTPException status not handled above (400/401/405/409/…)."""
     code = exc.status_code or 500
     if code in (301, 302, 307, 308):
-        return RedirectResponse(url=(exc.headers or {}).get("Location", "/auth/login"))
+        resp = RedirectResponse(url=(exc.headers or {}).get("Location", "/auth/login"))
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
     detail_msg = exc.detail if isinstance(exc.detail, str) and exc.detail.strip() else None
     try:
         import http as _http

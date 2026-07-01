@@ -53,8 +53,11 @@ async def _count(db: AsyncSession, *filters) -> int:
 
 @router.get("/", response_class=HTMLResponse)
 async def home(current_user: User = Depends(get_current_user)):
-    """Application home page — Inventory Search, for every user."""
-    return RedirectResponse(url="/devices", status_code=302)
+    """Application home page — Inventory Search, for every user.
+    no-store so browsers never cache this redirect across deploys/logins."""
+    resp = RedirectResponse(url="/devices", status_code=302)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @router.get("/dashboard", response_class=HTMLResponse)

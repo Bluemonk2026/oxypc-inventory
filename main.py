@@ -103,6 +103,8 @@ from routers.devices import router as devices_router
 from routers.transfers import router as transfers_router
 from routers.part_requests import router as part_requests_router
 from routers.dispatch import router as dispatch_router
+from routers.model_requests import router as model_requests_router
+import models.model_requests  # ensure model_requests table is in Base.metadata
 from routers.attendance import router as attendance_router
 from routers.telesales_dashboard import router as telesales_dashboard_router
 from routers.dealers import router as dealers_router
@@ -165,6 +167,7 @@ app.include_router(devices_router)
 app.include_router(transfers_router)
 app.include_router(part_requests_router)
 app.include_router(dispatch_router)
+app.include_router(model_requests_router)
 app.include_router(attendance_router)
 app.include_router(telesales_dashboard_router)
 app.include_router(dealers_router)

@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Model Requests — OxyPC{% endblock %}
+{% block page_title %}Model Requests{% endblock %}
+{% block content %}
+
+<div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">Status</label>
+      <select name="status" class="form-select form-select-sm" style="width:170px">
+        <option value="">All Status</option>
+        <option value="open" {% if status=='open' %}selected{% endif %}>Open</option>
+        <option value="partially_fulfilled" {% if status=='partially_fulfilled' %}selected{% endif %}>Partially Fulfilled</option>
+        <option value="fulfilled" {% if status=='fulfilled' %}selected{% endif %}>Fulfilled</option>
+        <option value="cancelled" {% if status=='cancelled' %}selected{% endif %}>Cancelled</option>
+      </select>
+    </div>
+    {% if is_fulfiller %}
+    <div class="form-check mb-1">
+      <input class="form-check-input" type="checkbox" name="mine_only" value="1" id="mineOnly" {% if mine_only=='1' %}checked{% endif %} onchange="this.form.submit()">
+      <label class="form-check-label small" for="mineOnly">My requests only</label>
+    </div>
+    {% endif %}
+    <button class="btn btn-sm btn-outline-primary">Filter</button>
+    <a href="/model-requests" class="btn btn-sm btn-outline-secondary">Clear</a>
+  </form>
+  <a href="/model-requests/new" class="btn btn-sm btn-primary">
+    <i class="bi bi-plus-circle me-1"></i>New Request
+  </a>
+</div>
+
+{% if request.query_params.get('success') %}
+<div class="alert alert-success alert-dismissible fade show py-2"><i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success') | replace('+',' ') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+{% if request.query_params.get('error') %}
+<div class="alert alert-danger alert-dismissible fade show py-2"><i class="bi bi-exclamation-circle me-2"></i>{{ request.query_params.get('error') | replace('+',' ') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-primary">{{ total }}</div>
+      <div class="small text-muted">Total</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-warning">{{ open_count }}</div>
+      <div class="small text-muted">Open</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-info">{{ partial_count }}</div>
+      <div class="small text-muted">Partially Fulfilled</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-success">{{ fulfilled_count }}</div>
+      <div class="small text-muted">Fulfilled</div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small">
+        <thead class="table-light">
+          <tr>
+            <th>Requested</th>
+            <th>By</th>
+            <th>Config</th>
+            <th>Grade</th>
+            <th>Qty</th>
+            {% if is_fulfiller %}<th>Matching Stock</th>{% endif %}
+            <th>Status</th>
+            <th>Notes</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td class="text-muted">{{ r.created_at.strftime('%d-%m-%Y %H:%M') if r.created_at else '—' }}</td>
+            <td>
+              <div class="fw-semibold">{{ r.requested_by_name or r.requested_by }}</div>
+              <div class="text-muted" style="font-size:0.72rem">{{ (r.requested_by_role or '') | replace('_',' ') | title }}</div>
+            </td>
+            <td>
+              <div class="fw-semibold">{{ r.sub_category or 'Any' }} — {{ r.brand or '' }} {{ r.model or '' }}</div>
+              <div class="text-muted" style="font-size:0.72rem">
+                {{ r.cpu or '' }}{% if r.ram_gb %} · {{ r.ram_gb }}GB RAM{% endif %}{% if r.storage_gb %} · {{ r.storage_gb }}GB {{ r.storage_type or '' }}{% endif %}{% if r.screen_size %} · {{ r.screen_size }}{% endif %}
+              </div>
+            </td>
+            <td><span class="badge bg-secondary">{{ r.grade or 'Any' }}</span></td>
+            <td>
+              <span class="fw-semibold">{{ r.qty_fulfilled }}</span> / {{ r.qty_requested }}
+            </td>
+            {% if is_fulfiller %}
+            <td>
+              {% set mc = match_counts.get(r.id|string) %}
+              {% if mc is not none %}
+              <span class="badge bg-{{ 'success' if mc >= r.qty_requested else 'warning text-dark' if mc > 0 else 'danger' }}">
+                {{ mc }} ready
+              </span>
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            {% endif %}
+            <td><span class="badge bg-{{ status_badge.get(r.status, 'secondary') }}">{{ r.status | replace('_',' ') | title }}</span></td>
+            <td class="text-muted" style="max-width:180px; white-space:normal;">{{ r.notes or r.fulfillment_notes or '—' }}</td>
+            <td>
+              {% if is_fulfiller and r.status in ('open', 'partially_fulfilled') %}
+              <button type="button" class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#fulfilModal"
+                      onclick="openFulfil('{{ r.id }}', {{ r.qty_requested }}, {{ r.qty_fulfilled }})">
+                <i class="bi bi-check2-circle"></i> Update
+              </button>
+              {% endif %}
+              {% if r.status in ('open', 'partially_fulfilled') and (r.requested_by == current_user.username or is_fulfiller) %}
+              <form method="post" action="/model-requests/{{ r.id }}/cancel" class="d-inline" onsubmit="return confirm('Cancel this request?')">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-x-circle"></i></button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="9" class="text-center text-muted py-4">
+              No model requests yet. <a href="/model-requests/new">Raise your first request</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Fulfil Modal -->
+<div class="modal fade" id="fulfilModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="post" id="fulfilForm">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h6 class="modal-title">Update Fulfilment</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">Quantity Fulfilled <small class="text-muted">(of <span id="fulfilTotal"></span> requested)</small></label>
+            <input type="number" name="qty_fulfilled" id="fulfilQty" class="form-control" min="0" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">Notes <small class="text-muted">(e.g. allocated Tag Numbers)</small></label>
+            <textarea name="fulfillment_notes" class="form-control" rows="3" placeholder="Barcodes allocated, or reason still pending…"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-success">Save</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+function openFulfil(reqId, qtyRequested, qtyFulfilled) {
+  document.getElementById('fulfilForm').action = '/model-requests/' + reqId + '/fulfil';
+  document.getElementById('fulfilTotal').textContent = qtyRequested;
+  document.getElementById('fulfilQty').value = qtyFulfilled;
+  document.getElementById('fulfilQty').max = qtyRequested;
+}
+</script>
+{% endblock %}

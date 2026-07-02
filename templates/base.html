@@ -272,6 +272,11 @@
         <i class="bi bi-telephone me-2"></i> Telecalling
       </a></li>
       {% endif %}
+      {% if has_perm(role,'model_requests','enable') %}
+      <li><a href="/model-requests" class="nav-link {% if request.url.path.startswith('/model-requests') %}active{% endif %}">
+        <i class="bi bi-clipboard-plus me-2"></i> Model Requests
+      </a></li>
+      {% endif %}
       {% if has_perm(role,'sales','enable') %}
       <li><a href="/sales/ready" class="nav-link {% if '/sales/ready' in request.url.path %}active{% endif %}">
         <i class="bi bi-check-circle me-2"></i> Ready to Sale

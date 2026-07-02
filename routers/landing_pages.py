@@ -54,6 +54,7 @@ NAV_PAGE_TITLES = [
     ("returns",              "Returns",                       "Process Return",                "/returns"),
     ("dealers",              "Dealers",                       "Dealers",                       "/dealers"),
     ("telecalling",          "Telecalling",                   "Telecalling",                   "/telecalling"),
+    ("model_requests",       "Model Requests",                "Model Requests",                "/model-requests"),
     ("whatsapp",             "WhatsApp",                      "WhatsApp",                      "/whatsapp"),
     ("assign_dealer_leads",  "Assign Dealer Leads",           "Assign Dealer Leads",           "/assign-dealer-leads"),
     ("finance",              "Accounts",                      "Accounts",                      "/accounts"),

@@ -172,6 +172,7 @@ PERM_MODULES = [
     ("aging_tracker",        "Aging Tracker"),
     ("stage_audit_log",      "Stage Audit Log"),
     ("system_audit_log",     "System Audit Log"),
+    ("sidebar_config",       "Sidebar Config"),
     ("landing_pages",        "Landing Pages"),
     ("wa_audit_log",         "WA Audit Log"),
 ]

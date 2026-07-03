@@ -82,6 +82,7 @@ NAV_PAGE_TITLES = [
     ("aging_tracker",        "Aging Tracker",                 "Aging Tracker",                 "/stage-control/aging"),
     ("stage_audit_log",      "Stage Audit Log",               "Stage Audit Log",               "/stage-control/audit"),
     ("system_audit_log",     "System Audit Log",              "System Audit Log",              "/admin/audit-log"),
+    ("sidebar_config",       "Sidebar Config",                "Sidebar Config",                "/admin/sidebar-config"),
     ("landing_pages",        "Landing Pages",                 "Landing Pages",                 "/admin/landing-pages"),
     ("wa_audit_log",         "WA Audit Log",                  "WA Audit Log",                  "/whatsapp/audit"),
 ]

@@ -324,7 +324,7 @@
                 {% for mod_key, mod_label in perm_modules %}
                 {% set row = perm_rows.get(mod_key) if perm_rows is defined else none %}
                 <tr>
-                  <td class="fw-semibold small">{{ mod_label }}</td>
+                  <td class="fw-semibold small">{{ sidebar_label(mod_key, mod_label) }}</td>
                   {% for action_key, action_label in perm_actions %}
                   {% if row %}
                     {% if action_key == 'can_enable' %}{% set checked = row.can_enable %}

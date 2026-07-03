@@ -78,6 +78,21 @@ _PERM_CACHE: dict = {}
 # Structure: {role_name: {"upload": bool, "download": bool, "export": bool, "print": bool, "add_new_data": bool}}
 _ADDITIONAL_PERM_CACHE: dict = {}
 
+# ── Sidebar Config: custom labels for nav items / Permission Matrix "Module"
+#    column, keyed by the same module key used everywhere else (PERM_MODULES,
+#    NAV_PAGE_TITLES, has_perm()). Persisted as AppSetting rows
+#    (key=f"sidebar_label_{module_key}"), same convention as Landing Pages'
+#    page_title_{module_key}. Structure: {module_key: custom_label}
+_SIDEBAR_LABEL_CACHE: dict = {}
+
+
+def get_cached_sidebar_label(module_key: str, default: str) -> str:
+    return _SIDEBAR_LABEL_CACHE.get(module_key) or default
+
+
+def set_cached_sidebar_label(module_key: str, label: str) -> None:
+    _SIDEBAR_LABEL_CACHE[module_key] = label
+
 
 def get_cached_additional_perms(role_name: str) -> dict:
     return _ADDITIONAL_PERM_CACHE.get(role_name, {})

@@ -139,6 +139,7 @@ from routers.trash import router as trash_router
 from routers.notifications import router as notifications_router
 from routers.manuals import router as manuals_router
 from routers.landing_pages import router as landing_pages_router
+from routers.sidebar_config import router as sidebar_config_router
 from routers.buckets import router as buckets_router
 from routers.api import router as api_router
 from routers.api_v1 import router as api_v1_router
@@ -200,6 +201,7 @@ app.include_router(trash_router)
 app.include_router(notifications_router)
 app.include_router(manuals_router)
 app.include_router(landing_pages_router)
+app.include_router(sidebar_config_router)
 app.include_router(stress_api_router)
 app.include_router(buckets_router)
 
@@ -405,6 +407,16 @@ async def startup_event():
         print("  [Perms] Role permission cache loaded")
     except Exception as _pe:
         print(f"  [Perms] Could not load permission cache: {_pe}")
+
+    # ── Warm Sidebar Config label cache from DB ───────────────────────────────
+    try:
+        from routers.sidebar_config import load_sidebar_labels_to_cache
+        from database import AsyncSessionLocal as _ASL3
+        async with _ASL3() as _sess3:
+            await load_sidebar_labels_to_cache(_sess3)
+        print("  [SidebarConfig] Custom label cache loaded")
+    except Exception as _se:
+        print(f"  [SidebarConfig] Could not load label cache: {_se}")
 
     # ── Warm Master Data dropdown-options cache from DB ───────────────────────
     try:

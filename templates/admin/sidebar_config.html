@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Sidebar Config — OxyPC{% endblock %}
+{% block page_title %}Sidebar Config{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-12">
+    {% if success %}
+    <div class="alert alert-success alert-dismissible py-2 mb-3" role="alert">
+      <i class="bi bi-check-circle me-2"></i>{{ success }}
+      <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-danger alert-dismissible py-2 mb-3" role="alert">
+      <i class="bi bi-exclamation-triangle me-2"></i>{{ error }}
+      <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+
+    <div class="alert alert-info py-2 mb-3 small">
+      <i class="bi bi-info-circle me-1"></i>
+      Renaming a sidebar item here also renames it in the Module Permission Matrix's
+      "Module" column (<a href="/admin/master?main_tab=permissions">Admin → Master Data → Permissions</a>).
+    </div>
+
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent d-flex align-items-center gap-2 py-2">
+        <i class="bi bi-list-ul text-primary"></i>
+        <span class="fw-semibold">Sidebar Items</span>
+        <span class="badge bg-secondary ms-auto">{{ items|length }} items</span>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0" id="sidebarConfigTable">
+            <thead class="table-light">
+              <tr>
+                <th style="width:30%">Module Key</th>
+                <th style="width:40%">Sidebar Label</th>
+                <th style="width:30%">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for m in items %}
+              <tr id="row-{{ m.key }}">
+                <td class="align-middle">
+                  <code class="small text-muted">{{ m.key }}</code>
+                </td>
+                <td class="align-middle">
+                  <span id="label-view-{{ m.key }}" class="small">
+                    {{ m.current_label }}
+                    {% if m.is_custom %}
+                    <span class="badge bg-primary ms-1" style="font-size:0.6rem">Custom</span>
+                    {% endif %}
+                  </span>
+                  <input type="text" id="label-input-{{ m.key }}"
+                         class="form-control form-control-sm d-none"
+                         value="{{ m.current_label }}"
+                         placeholder="Enter sidebar label">
+                </td>
+                <td class="align-middle">
+                  <div id="btns-view-{{ m.key }}" class="d-flex gap-1">
+                    <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
+                            onclick="startEdit('{{ m.key }}')">
+                      <i class="bi bi-pencil me-1"></i>Edit
+                    </button>
+                    {% if m.is_custom %}
+                    <form method="post" action="/admin/sidebar-config/reset" class="d-inline">
+                      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                      <input type="hidden" name="module_key" value="{{ m.key }}">
+                      <button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                              title="Reset to default">
+                        <i class="bi bi-arrow-counterclockwise"></i>
+                      </button>
+                    </form>
+                    {% endif %}
+                  </div>
+                  <div id="btns-edit-{{ m.key }}" class="d-flex gap-1 d-none">
+                    <form method="post" action="/admin/sidebar-config/save" id="form-{{ m.key }}">
+                      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                      <input type="hidden" name="module_key" value="{{ m.key }}">
+                      <input type="hidden" name="label" id="hidden-{{ m.key }}" value="{{ m.current_label }}">
+                      <button type="submit" class="btn btn-sm btn-success py-0 px-2">
+                        <i class="bi bi-check me-1"></i>Save
+                      </button>
+                    </form>
+                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                            onclick="cancelEdit('{{ m.key }}', '{{ m.current_label|e }}')">
+                      Cancel
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){ $('#sidebarConfigTable').DataTable({ pageLength: 50, order: [] }); });
+
+function startEdit(key) {
+  document.getElementById('label-view-' + key).classList.add('d-none');
+  document.getElementById('btns-view-' + key).classList.add('d-none');
+  document.getElementById('label-input-' + key).classList.remove('d-none');
+  document.getElementById('btns-edit-' + key).classList.remove('d-none');
+  document.getElementById('label-input-' + key).focus();
+}
+
+function cancelEdit(key, original) {
+  document.getElementById('label-input-' + key).value = original;
+  document.getElementById('label-input-' + key).classList.add('d-none');
+  document.getElementById('btns-edit-' + key).classList.add('d-none');
+  document.getElementById('label-view-' + key).classList.remove('d-none');
+  document.getElementById('btns-view-' + key).classList.remove('d-none');
+}
+
+document.querySelectorAll('[id^="form-"]').forEach(function(form) {
+  form.addEventListener('submit', function() {
+    var key = form.id.replace('form-', '');
+    document.getElementById('hidden-' + key).value = document.getElementById('label-input-' + key).value;
+  });
+});
+</script>
+{% endblock %}

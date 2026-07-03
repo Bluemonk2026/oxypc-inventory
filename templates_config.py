@@ -52,7 +52,7 @@ templates.env.filters["ist_datetime"] = ist_datetime  # {{ dt | ist_datetime }}
 #   any_perm(role, *modules)        → True if ANY listed module is enabled
 #                                      (used to show a nav SECTION header only when
 #                                       at least one of its modules is visible).
-from models.role_permissions import has_perm as _has_perm
+from models.role_permissions import has_perm as _has_perm, get_cached_sidebar_label as _sidebar_label
 
 
 def _any_perm(role, *modules):
@@ -61,6 +61,7 @@ def _any_perm(role, *modules):
 
 templates.env.globals["has_perm"] = _has_perm
 templates.env.globals["any_perm"] = _any_perm
+templates.env.globals["sidebar_label"] = _sidebar_label
 
 _ROLE_DISPLAY = {
     "admin": "Admin",

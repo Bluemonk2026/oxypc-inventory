@@ -13,11 +13,38 @@ from sqlalchemy.orm import selectinload
 from database import get_db
 from models.dealers import Dealer, DealerCall, DealerAssignment, DealerOrder, DealerCreditNote
 from models.user import User, UserRole
+from models.master import MasterData
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from models.crm import CustomerReceipt
 from services.audit_engine import audit
 
 router = APIRouter(prefix="/dealers", tags=["dealers"])
+
+# Telecalling deal-detail dropdown categories — admin-managed via /admin/master
+# (Telecalling accordion section). Keys map 1:1 to DealerCall form field names.
+TC_FIELD_CATEGORIES = {
+    "category":      "tc_category",
+    "product_model": "tc_model",
+    "configuration": "tc_configuration",
+    "deal_status":   "tc_deal_status",
+    "whom_to_sell":  "tc_whom_to_sell",
+    "deals_in":      "tc_deals_in",
+    "stock_type":    "tc_stock_type",
+}
+
+
+async def _tc_field_options(db: AsyncSession) -> dict:
+    """Fetch active master-data options for every telecalling dropdown field."""
+    result = await db.execute(
+        select(MasterData)
+        .where(MasterData.category.in_(TC_FIELD_CATEGORIES.values()), MasterData.is_active == True)
+        .order_by(MasterData.display_order, MasterData.value)
+    )
+    rows = result.scalars().all()
+    by_category = {}
+    for r in rows:
+        by_category.setdefault(r.category, []).append(r.value)
+    return {field: by_category.get(cat, []) for field, cat in TC_FIELD_CATEGORIES.items()}
 
 SALES_ROLES = (UserRole.admin, UserRole.sales, UserRole.sales_manager, UserRole.telecaller)
 
@@ -1142,8 +1169,16 @@ async def call_form(
     dealer = result.scalar_one_or_none()
     if not dealer:
         return RedirectResponse(url="/dealers", status_code=302)
+    su_result = await db.execute(
+        select(User).where(
+            User.role.in_([UserRole.sales, UserRole.sales_manager, UserRole.telecaller]),
+            User.status == True,
+        ).order_by(User.full_name)
+    )
     return templates.TemplateResponse("dealers/call_form.html", {
         "request": request, "current_user": current_user, "dealer": dealer,
+        "sales_users": su_result.scalars().all(),
+        "tc_options": await _tc_field_options(db),
     })
 
 
@@ -1161,6 +1196,19 @@ async def log_call(
     quote_given: str = Form(default=None),
     whatsapp_sent: str = Form(default=None),
     notes: str = Form(default=None),
+    calling_remark: str = Form(default=None),
+    category: str = Form(default=None),
+    product_model: str = Form(default=None),
+    configuration: str = Form(default=None),
+    qty: str = Form(default=None),
+    asking_price: str = Form(default=None),
+    deal_status: str = Form(default=None),
+    requirements_preferred_config: str = Form(default=None),
+    whom_to_sell: str = Form(default=None),
+    sale_quantity: str = Form(default=None),
+    deals_in: str = Form(default=None),
+    stock_type: str = Form(default=None),
+    assigned_to: str = Form(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_sales),
 ):
@@ -1168,6 +1216,9 @@ async def log_call(
 
     _duration = int(duration_mins) if duration_mins and duration_mins.strip() else None
     _quote = float(quote_given) if quote_given and quote_given.strip() else None
+    _qty = int(qty) if qty and qty.strip().isdigit() else None
+    _asking_price = float(asking_price) if asking_price and asking_price.strip() else None
+    _sale_qty = int(sale_quantity) if sale_quantity and sale_quantity.strip().isdigit() else None
 
     call = DealerCall(
         dealer_id=dealer_id,
@@ -1181,6 +1232,19 @@ async def log_call(
         quote_given=_quote,
         whatsapp_sent=bool(whatsapp_sent),
         notes=notes,
+        calling_remark=(calling_remark or "").strip() or None,
+        category=(category or "").strip() or None,
+        product_model=(product_model or "").strip() or None,
+        configuration=(configuration or "").strip() or None,
+        qty=_qty,
+        asking_price=_asking_price,
+        deal_status=(deal_status or "").strip() or None,
+        requirements_preferred_config=(requirements_preferred_config or "").strip() or None,
+        whom_to_sell=(whom_to_sell or "").strip() or None,
+        sale_quantity=_sale_qty,
+        deals_in=(deals_in or "").strip() or None,
+        stock_type=(stock_type or "").strip() or None,
+        assigned_to=(assigned_to or "").strip() or None,
     )
     db.add(call)
 
@@ -1213,9 +1277,17 @@ async def edit_call_form(
     )).scalar_one_or_none()
     if not call:
         return RedirectResponse(url=f"/dealers/{dealer_id}?error=Call+not+found", status_code=302)
+    su_result = await db.execute(
+        select(User).where(
+            User.role.in_([UserRole.sales, UserRole.sales_manager, UserRole.telecaller]),
+            User.status == True,
+        ).order_by(User.full_name)
+    )
     return templates.TemplateResponse("dealers/call_form.html", {
         "request": request, "current_user": current_user,
         "dealer": dealer, "edit_call": call,
+        "sales_users": su_result.scalars().all(),
+        "tc_options": await _tc_field_options(db),
     })
 
 
@@ -1235,6 +1307,19 @@ async def update_call(
     quote_given: str = Form(default=None),
     whatsapp_sent: str = Form(default=None),
     notes: str = Form(default=None),
+    calling_remark: str = Form(default=None),
+    category: str = Form(default=None),
+    product_model: str = Form(default=None),
+    configuration: str = Form(default=None),
+    qty: str = Form(default=None),
+    asking_price: str = Form(default=None),
+    deal_status: str = Form(default=None),
+    requirements_preferred_config: str = Form(default=None),
+    whom_to_sell: str = Form(default=None),
+    sale_quantity: str = Form(default=None),
+    deals_in: str = Form(default=None),
+    stock_type: str = Form(default=None),
+    assigned_to: str = Form(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_sales),
 ):
@@ -1264,6 +1349,19 @@ async def update_call(
     call.quote_given = float(quote_given) if quote_given and quote_given.strip() else None
     call.whatsapp_sent = bool(whatsapp_sent)
     call.notes = (notes or "").strip() or None
+    call.calling_remark = (calling_remark or "").strip() or None
+    call.category = (category or "").strip() or None
+    call.product_model = (product_model or "").strip() or None
+    call.configuration = (configuration or "").strip() or None
+    call.qty = int(qty) if qty and qty.strip().isdigit() else None
+    call.asking_price = float(asking_price) if asking_price and asking_price.strip() else None
+    call.deal_status = (deal_status or "").strip() or None
+    call.requirements_preferred_config = (requirements_preferred_config or "").strip() or None
+    call.whom_to_sell = (whom_to_sell or "").strip() or None
+    call.sale_quantity = int(sale_quantity) if sale_quantity and sale_quantity.strip().isdigit() else None
+    call.deals_in = (deals_in or "").strip() or None
+    call.stock_type = (stock_type or "").strip() or None
+    call.assigned_to = (assigned_to or "").strip() or None
 
     await db.commit()
     return RedirectResponse(url=f"/dealers/{dealer_id}?success=Call+updated", status_code=302)

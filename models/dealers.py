@@ -76,6 +76,21 @@ class DealerCall(Base):
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=app_now)
 
+    # ── Telecalling deal-detail fields (2026-07-03) ───────────────────────
+    calling_remark   = Column(Text, nullable=True)       # remark captured during the call itself
+    category         = Column(String(50), nullable=True)
+    product_model    = Column(String(200), nullable=True)  # "Model" in the requirement sheet
+    configuration    = Column(String(200), nullable=True)
+    qty              = Column(Integer, nullable=True)
+    asking_price     = Column(Numeric(12, 2), nullable=True)
+    deal_status      = Column(String(30), nullable=True)  # open, negotiation, won, lost — distinct from call_outcome
+    requirements_preferred_config = Column(Text, nullable=True)
+    whom_to_sell     = Column(String(30), nullable=True)   # corporate, end_user, retail
+    sale_quantity    = Column(Integer, nullable=True)
+    deals_in         = Column(String(20), nullable=True)   # indian, imported
+    stock_type       = Column(String(20), nullable=True)   # ready, lot
+    assigned_to      = Column(String(50), nullable=True)   # per-deal assignee (may differ from called_by)
+
     dealer = relationship("Dealer", back_populates="calls")
 
 

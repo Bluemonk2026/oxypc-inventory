@@ -44,6 +44,13 @@ ACCORDION_SECTIONS = [
         "id": "sales", "label": "Sales & Returns", "icon": "bi-receipt",
         "cat_keys": ["payment_mode", "return_reason", "condition_on_return"],
     },
+    {
+        "id": "telecalling", "label": "Telecalling", "icon": "bi-telephone",
+        "cat_keys": [
+            "tc_category", "tc_model", "tc_configuration",
+            "tc_deal_status", "tc_whom_to_sell", "tc_deals_in", "tc_stock_type",
+        ],
+    },
 ]
 
 # ── Module list for Tab 2 (Permission Matrix) ─────────────────────────────────
@@ -171,6 +178,14 @@ CATEGORIES = [
     ("payment_mode",        "Payment Modes",                "sales"),
     ("return_reason",       "Return Reasons",               "sales"),
     ("condition_on_return", "Condition on Return",          "sales"),
+    # ── Telecalling ────────────────────────────────────────────────
+    ("tc_category",         "Telecalling: Category",         "sales"),
+    ("tc_model",            "Telecalling: Model",            "sales"),
+    ("tc_configuration",    "Telecalling: Configuration",    "sales"),
+    ("tc_deal_status",      "Telecalling: Status",           "sales"),
+    ("tc_whom_to_sell",     "Telecalling: Whom To Sale",     "sales"),
+    ("tc_deals_in",         "Telecalling: Deals In",         "sales"),
+    ("tc_stock_type",       "Telecalling: Ready / Lot",      "sales"),
 ]
 
 # Group by tab

@@ -228,12 +228,29 @@
           <tr>
             <th>Time</th>
             <th>Dealer</th>
+            <th>Location</th>
+            <th>Address</th>
             <th>Phone</th>
+            <th>Source</th>
+            <th>Concern Person</th>
             <th>Agent</th>
             <th>Mode</th>
             <th>Outcome</th>
-            <th>Items Discussed</th>
+            <th>Category</th>
+            <th>Model</th>
+            <th>Configuration</th>
+            <th>QTY</th>
+            <th>Asking Price</th>
+            <th>Status</th>
+            <th>Requirements / Sample Config</th>
+            <th>Whom To Sale</th>
+            <th>Sale Qty</th>
+            <th>Deals In</th>
+            <th>Ready/Lot</th>
+            <th>Assigned To</th>
             <th>Follow-up</th>
+            <th>Calling Remark</th>
+            <th>Remarks</th>
           </tr>
         </thead>
         <tbody>
@@ -249,11 +266,15 @@
               <span class="text-muted">—</span>
               {% endif %}
             </td>
+            <td>{{ rec.dealer.city if rec.dealer and rec.dealer.city else '—' }}{% if rec.dealer and rec.dealer.state %}, {{ rec.dealer.state }}{% endif %}</td>
+            <td class="text-truncate" style="max-width:160px" title="{{ rec.dealer.address if rec.dealer else '' }}">{{ (rec.dealer.address or '—')[:40] if rec.dealer else '—' }}</td>
             <td>
               {% if rec.dealer and rec.dealer.phone %}
               <a href="tel:{{ rec.dealer.phone }}">{{ rec.dealer.phone }}</a>
               {% else %}—{% endif %}
             </td>
+            <td>{{ rec.dealer.source or '—' if rec.dealer else '—' }}</td>
+            <td>{{ rec.dealer.contact_person or '—' if rec.dealer else '—' }}</td>
             <td>{{ rec.called_by }}</td>
             <td>
               <span class="badge bg-light text-dark border">
@@ -265,16 +286,29 @@
                 {{ rec.call_outcome | replace('_',' ') | title if rec.call_outcome else '—' }}
               </span>
             </td>
-            <td>{{ (rec.items_discussed or '—')[:50] }}</td>
+            <td>{{ rec.category or '—' }}</td>
+            <td>{{ rec.product_model or '—' }}</td>
+            <td>{{ rec.configuration or '—' }}</td>
+            <td>{{ rec.qty if rec.qty is not none else '—' }}</td>
+            <td>{{ '₹%.0f'|format(rec.asking_price) if rec.asking_price is not none else '—' }}</td>
+            <td>{{ (rec.deal_status or '—') | replace('_',' ') | title }}</td>
+            <td class="text-truncate" style="max-width:160px" title="{{ rec.requirements_preferred_config or '' }}">{{ (rec.requirements_preferred_config or '—')[:40] }}</td>
+            <td>{{ (rec.whom_to_sell or '—') | replace('_',' ') | title }}</td>
+            <td>{{ rec.sale_quantity if rec.sale_quantity is not none else '—' }}</td>
+            <td>{{ (rec.deals_in or '—') | title }}</td>
+            <td>{{ (rec.stock_type or '—') | title }}</td>
+            <td>{{ rec.assigned_to or '—' }}</td>
             <td>
               {% if rec.next_followup_date %}
               {{ rec.next_followup_date.strftime('%d-%m-%Y') }}
               {% else %}—{% endif %}
             </td>
+            <td class="text-truncate" style="max-width:140px" title="{{ rec.calling_remark or '' }}">{{ (rec.calling_remark or '—')[:40] }}</td>
+            <td class="text-truncate" style="max-width:140px" title="{{ rec.notes or '' }}">{{ (rec.notes or '—')[:40] }}</td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="8" class="text-center text-muted py-4">
+            <td colspan="24" class="text-center text-muted py-4">
               No calls logged for this period.
               <a href="/dealers">Log a call via Dealer Management</a>
             </td>

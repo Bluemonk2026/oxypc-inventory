@@ -169,4 +169,27 @@ MASTER_SEED = {
         "DisplayPort", "VGA", "SD Card Reader", "3.5mm Audio",
         "RJ45 Ethernet", "DC Power Jack",
     ],
+    # ── Telecalling deal-detail dropdowns (admin-manageable via /admin/master) ──
+    "tc_category": [
+        "Laptop", "Desktop", "Mobile", "Server", "Tablet", "Workstation",
+    ],
+    "tc_model": [
+        "Dell Latitude", "Dell OptiPlex", "HP EliteBook", "HP ProBook",
+        "Lenovo ThinkPad", "Lenovo ThinkCentre",
+    ],
+    "tc_configuration": [
+        "i3/4GB/500GB HDD", "i5/8GB/256GB SSD", "i7/16GB/512GB SSD",
+    ],
+    "tc_deal_status": [
+        "Open", "Negotiation", "Won", "Lost",
+    ],
+    "tc_whom_to_sell": [
+        "Corporate", "End User", "Retail",
+    ],
+    "tc_deals_in": [
+        "Indian", "Imported",
+    ],
+    "tc_stock_type": [
+        "Ready Stock", "Lot",
+    ],
 }

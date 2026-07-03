@@ -97,7 +97,9 @@ async def handover_part(req_id: str, request: Request, qty: int = Form(...),
 @router.post("/part-requests/{req_id}/validate-receiving")
 async def validate_receiving(req_id: str, request: Request,
                              db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Engineer confirms receipt of a handed-over part — flips status to 'received'."""
+    """Engineer verifies a handed-over part on the Device Profile page —
+    flips status to 'received' ('Changed' pill client-side). Called via
+    fetch() (no form body), so it returns JSON rather than redirecting."""
     pr = (await db.execute(select(PartRequest).where(PartRequest.id == _as_uuid(req_id)))).scalar_one_or_none()
     if not pr:
         raise HTTPException(404, "Part request not found")
@@ -107,8 +109,7 @@ async def validate_receiving(req_id: str, request: Request,
     await audit(db, user=current_user, action="PART_RECEIVED", table_name="part_requests",
                 record_id=str(pr.id), request=request)
     await db.commit()
-    dest = f"/devices/{pr.barcode}" if pr.barcode else "/spare-parts"
-    return RedirectResponse(url=dest + "?success=Part+received", status_code=302)
+    return JSONResponse({"ok": True})
 
 
 @router.post("/part-requests/{req_id}/not-in-stock")

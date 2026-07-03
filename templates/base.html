@@ -503,6 +503,18 @@
       <small class="text-muted">v1.0 &bull; OxyPC</small>
     </div>
   </nav>
+  <script>
+  /* Restore the sidebar's exact scroll position immediately (before the rest
+     of the page loads/paints) so clicking a nav item never visibly scrolls
+     the sidebar — it lands on the new page already at the same spot. Saved
+     on every scroll + right before a nav-link click (see bottom of body). */
+  (function () {
+    var sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+    var saved = sessionStorage.getItem('sidebarScrollTop');
+    if (saved !== null) sidebar.scrollTop = parseInt(saved, 10) || 0;
+  })();
+  </script>
 
   <!-- Main content -->
   <div id="page-content-wrapper" class="flex-grow-1 d-flex flex-column" style="min-width:0">
@@ -580,20 +592,18 @@
 <script src="/static/js/barcode.js"></script>
 {% block scripts %}{% endblock %}
 <script>
-/* Keep the sidebar's scroll position stable across page navigations.
-   Rather than storing/restoring a raw scrollTop (which broke before —
-   a saved offset from one page doesn't necessarily match another page's
-   sidebar height and can clamp to the bottom), just make sure the current
-   page's active nav link is visible. scrollIntoView({block:'nearest'})
-   only moves the scroll position if the active link isn't already
-   visible, so a link near the top of the viewport stays exactly where
-   it was instead of jumping the whole sidebar back to the top. */
+/* Save the sidebar's scroll position continuously (and right before a
+   nav-link click triggers the page navigation) so the inline restore
+   script near the top of <body> can put it back instantly on the next
+   page — the sidebar should never visibly move when clicking an item. */
 (function () {
   var sidebar = document.getElementById('sidebar');
-  var active  = sidebar ? sidebar.querySelector('.nav-link.active') : null;
-  if (active) {
-    active.scrollIntoView({ block: 'nearest' });
-  }
+  if (!sidebar) return;
+  function save() { sessionStorage.setItem('sidebarScrollTop', sidebar.scrollTop); }
+  sidebar.addEventListener('scroll', save, { passive: true });
+  sidebar.querySelectorAll('a.nav-link').forEach(function (link) {
+    link.addEventListener('click', save);
+  });
 })();
 </script>
 <!-- Raise Ticket Modal (global — available on every page) -->

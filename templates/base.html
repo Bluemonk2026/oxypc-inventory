@@ -11,6 +11,15 @@
   {% block head %}{% endblock %}
 </head>
 <body>
+<!-- Reconnecting overlay — shown instead of a raw 502/connection-error page
+     whenever the backend is briefly unreachable (e.g. mid-restart). Covers
+     the whole viewport, blocks interaction, and auto-hides + reloads once
+     the server answers /health again. See script near the closing </body>. -->
+<div id="reconnectOverlay" class="d-none" style="position:fixed;inset:0;z-index:2000;background:rgba(255,255,255,0.97);display:flex;flex-direction:column;align-items:center;justify-content:center;">
+  <div class="spinner-border text-success mb-3" style="width:3rem;height:3rem;" role="status"></div>
+  <div class="fw-semibold text-dark">Reconnecting to server…</div>
+  <div class="text-muted small mt-1">This page will resume automatically once the connection is back.</div>
+</div>
 <div id="sidebar-overlay"></div>
 <div class="d-flex" id="wrapper">
   <!-- Sidebar -->
@@ -848,6 +857,55 @@
   } else {
     injectCsrf();
   }
+})();
+</script>
+<script>
+/* Connection watchdog — polls GET /health in the background. If the backend
+   becomes unreachable (mid-restart, crash, ngrok 502, etc.) this shows the
+   full-screen "Reconnecting…" overlay instead of the user hitting a raw
+   502/connection-error page on their next click. Once /health answers again,
+   the overlay is hidden and the page reloads automatically to resume with
+   a fresh session. Runs on every page since it's in base.html. */
+(function () {
+  var overlay = document.getElementById('reconnectOverlay');
+  if (!overlay) return;
+  var down = false;
+
+  function checkHealth() {
+    var ctrl = new AbortController();
+    var timeout = setTimeout(function () { ctrl.abort(); }, 3000);
+    fetch('/health', { cache: 'no-store', signal: ctrl.signal })
+      .then(function (r) {
+        clearTimeout(timeout);
+        if (r.ok) {
+          onUp();
+        } else {
+          onDown();
+        }
+      })
+      .catch(function () {
+        clearTimeout(timeout);
+        onDown();
+      });
+  }
+
+  function onDown() {
+    if (!down) {
+      down = true;
+      overlay.classList.remove('d-none');
+    }
+  }
+
+  function onUp() {
+    if (down) {
+      down = false;
+      window.location.reload();
+    }
+  }
+
+  // Poll every 4s normally; the interval itself keeps running while the
+  // overlay is shown, so recovery is detected on the very next tick.
+  setInterval(checkHealth, 4000);
 })();
 </script>
 </body>

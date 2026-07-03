@@ -203,21 +203,42 @@ async def list_dealers(
             order_by=DealerCall.call_date.desc()
         ).label("rn")
         inner = select(
+            DealerCall.id,
             DealerCall.dealer_id,
             DealerCall.call_outcome,
             DealerCall.items_discussed,
             DealerCall.next_followup_date,
+            DealerCall.call_date,
+            DealerCall.qty,
+            DealerCall.calling_remark,
+            DealerCall.notes,
+            DealerCall.category,
+            DealerCall.sale_quantity,
+            DealerCall.deals_in,
+            DealerCall.whom_to_sell,
             rn_col,
         ).where(DealerCall.dealer_id.in_(dealer_ids)).subquery()
         rc_rows = (await db.execute(
-            select(inner.c.dealer_id, inner.c.call_outcome, inner.c.items_discussed, inner.c.next_followup_date)
-            .where(inner.c.rn == 1)
+            select(
+                inner.c.id, inner.c.dealer_id, inner.c.call_outcome, inner.c.items_discussed,
+                inner.c.next_followup_date, inner.c.call_date, inner.c.qty, inner.c.calling_remark,
+                inner.c.notes, inner.c.category, inner.c.sale_quantity, inner.c.deals_in, inner.c.whom_to_sell,
+            ).where(inner.c.rn == 1)
         )).all()
         recent_call_map = {
             str(r.dealer_id): {
+                "call_id": str(r.id),
                 "outcome": r.call_outcome,
                 "items_text": r.items_discussed or "",
                 "next_followup_date": r.next_followup_date,
+                "call_date": r.call_date,
+                "qty": r.qty,
+                "calling_remark": r.calling_remark or "",
+                "notes": r.notes or "",
+                "category": r.category or "",
+                "sale_quantity": r.sale_quantity,
+                "deals_in": r.deals_in or "",
+                "whom_to_sell": r.whom_to_sell or "",
             }
             for r in rc_rows
         }
@@ -1161,6 +1182,71 @@ async def update_dealer(
     dealer.notes = notes
     await db.commit()
     return RedirectResponse(url=f"/dealers/{dealer_id}?success=Dealer+updated", status_code=302)
+
+
+@router.post("/{dealer_id}/quick-edit")
+async def quick_edit_dealer(
+    dealer_id: str,
+    business_name: str = Form(...),
+    contact_person: str = Form(default=None),
+    dealer_type: str = Form(default="retail"),
+    phone: str = Form(default=None),
+    email: str = Form(default=None),
+    address: str = Form(default=None),
+    status: str = Form(default="active"),
+    call_id: str = Form(default=""),
+    qty: str = Form(default=""),
+    items_discussed: str = Form(default=""),
+    calling_remark: str = Form(default=""),
+    notes: str = Form(default=""),
+    category: str = Form(default=""),
+    sale_quantity: str = Form(default=""),
+    deals_in: str = Form(default=""),
+    whom_to_sell: str = Form(default=""),
+    next_followup_date: str = Form(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_sales),
+):
+    """Combined Edit modal on Dealer Management: updates the Dealer's core
+    fields plus the most-recent DealerCall's call-log-sourced fields
+    (creating a minimal DealerCall row if the dealer has none yet)."""
+    result = await db.execute(select(Dealer).where(Dealer.id == dealer_id))
+    dealer = result.scalar_one_or_none()
+    if not dealer:
+        return RedirectResponse(url="/dealers?error=Not+found", status_code=302)
+
+    dealer.business_name = business_name
+    dealer.contact_person = contact_person or None
+    dealer.dealer_type = dealer_type
+    dealer.phone = phone or None
+    dealer.email = email or None
+    dealer.address = address or None
+    dealer.status = status
+
+    call = None
+    if call_id:
+        call_result = await db.execute(select(DealerCall).where(DealerCall.id == call_id, DealerCall.dealer_id == dealer_id))
+        call = call_result.scalar_one_or_none()
+    if not call:
+        call = DealerCall(dealer_id=dealer_id, called_by=current_user.username)
+        db.add(call)
+
+    call.qty = int(qty) if (qty or "").strip().isdigit() else None
+    call.items_discussed = items_discussed or None
+    call.calling_remark = calling_remark or None
+    call.notes = notes or None
+    call.category = category or None
+    call.sale_quantity = int(sale_quantity) if (sale_quantity or "").strip().isdigit() else None
+    call.deals_in = deals_in or None
+    call.whom_to_sell = whom_to_sell or None
+    if next_followup_date:
+        try:
+            call.next_followup_date = datetime.strptime(next_followup_date, "%Y-%m-%d")
+        except ValueError:
+            pass
+
+    await db.commit()
+    return RedirectResponse(url="/dealers?success=Dealer+updated", status_code=302)
 
 
 @router.get("/{dealer_id}/call", response_class=HTMLResponse)

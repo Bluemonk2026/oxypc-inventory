@@ -95,8 +95,8 @@
               <div id="iqcBarcodeErr" class="invalid-feedback d-block text-danger small d-none">Duplicate Tag Number — this tag already exists.</div>
             </div>
             <div class="col-md-3">
-              <label class="form-label fw-semibold">Lot <span class="text-danger">*</span></label>
-              <select name="lot_id" id="lot_id" class="form-select" required>
+              <label class="form-label fw-semibold">Lot</label>
+              <select name="lot_id" id="lot_id" class="form-select">
                 <option value="">-- Select Lot --</option>
                 {% for lot in lots %}
                 <option value="{{ lot.id }}" {% if prefill_lot_id is defined and prefill_lot_id and prefill_lot_id|string == lot.id|string %}selected{% endif %}>{{ lot.lot_number }} — {{ lot.supplier_name }}</option>
@@ -167,36 +167,16 @@
             </div>
             <div class="col-md-3">
               <label class="form-label small">CPU / Processor</label>
-              {% set cpu_opts = ['Intel Core i3','Intel Core i5','Intel Core i7','Intel Core i9','Intel Core Ultra 5','Intel Core Ultra 7','Intel Celeron','Intel Pentium','AMD Ryzen 3','AMD Ryzen 5','AMD Ryzen 7','AMD Ryzen 9','Apple M1','Apple M2','Apple M3','Apple M4','Other'] %}
               {% set cur_cpu = device.cpu if device else '' %}
-              <select name="cpu" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
-                <option value="">—</option>
-                {% if cur_cpu and cur_cpu not in cpu_opts %}<option value="{{ cur_cpu }}" selected>{{ cur_cpu }}</option>{% endif %}
-                {% for o in cpu_opts %}<option value="{{ o }}" {% if cur_cpu == o %}selected{% endif %}>{{ o }}</option>{% endfor %}
-              </select>
+              <input type="text" name="cpu" class="form-control form-control-sm hw-lock" value="{{ cur_cpu }}" placeholder="—">
             </div>
             <div class="col-md-3">
               <label class="form-label small">Generation</label>
-              <select name="generation" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
-                <option value="">—</option>
-                <option>4th Gen</option><option>5th Gen</option><option>6th Gen</option>
-                <option>7th Gen</option><option>8th Gen</option><option>9th Gen</option>
-                <option>10th Gen</option><option>11th Gen</option><option>12th Gen</option>
-                <option>13th Gen</option><option>14th Gen</option>
-                <option>AMD Ryzen 3</option><option>AMD Ryzen 5</option><option>AMD Ryzen 7</option>
-                <option value="Apple M1" {% if device and device.generation == 'Apple M1' %}selected{% endif %}>Apple M1</option>
-                <option value="Apple M2" {% if device and device.generation == 'Apple M2' %}selected{% endif %}>Apple M2</option>
-                <option value="Apple M3" {% if device and device.generation == 'Apple M3' %}selected{% endif %}>Apple M3</option>
-                <option value="Apple M4" {% if device and device.generation == 'Apple M4' %}selected{% endif %}>Apple M4</option>
-              </select>
+              <input type="text" name="generation" class="form-control form-control-sm hw-lock" value="{{ device.generation if device else '' }}" placeholder="—">
             </div>
             <div class="col-md-3">
               <label class="form-label small">RAM (GB)</label>
-              <select name="ram_gb" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
-                <option value="">—</option>
-                <option>2</option><option>4</option><option>8</option><option>12</option>
-                <option>16</option><option>24</option><option>32</option><option>64</option>
-              </select>
+              <input type="text" name="ram_gb" class="form-control form-control-sm hw-lock" value="{{ device.ram_gb if device and device.ram_gb else '' }}" placeholder="—">
             </div>
             <div class="col-md-3">
               <label class="form-label small">HDD Capacity (GB) (if dual)</label>
@@ -207,12 +187,8 @@
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label small">SSD Capacity (GB)</label>
-              <select name="storage_gb" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
-                <option value="">—</option>
-                <option>128</option><option>240</option><option>256</option><option>320</option><option>480</option>
-                <option>512</option><option>960</option><option>1000</option><option>2000</option>
-              </select>
+              <label class="form-label small">Storage Capacity (GB)</label>
+              <input type="text" name="storage_gb" class="form-control form-control-sm hw-lock" value="{{ device.storage_gb if device and device.storage_gb else '' }}" placeholder="—">
             </div>
             <div class="col-md-3">
               <label class="form-label small">Storage Type</label>
@@ -815,10 +791,10 @@ document.querySelector('[name="barcode"]').addEventListener('change', function()
       setSelect('brand', d.brand);
       setInput('model', d.model);
       setInput('color', d.color);
-      setSelect('cpu', d.cpu);
-      setSelect('generation', d.generation);
-      setSelect('ram_gb', d.ram_gb);
-      setSelect('storage_gb', d.storage_gb);
+      setInput('cpu', d.cpu);
+      setInput('generation', d.generation);
+      setInput('ram_gb', d.ram_gb);
+      setInput('storage_gb', d.storage_gb);
       setSelect('storage_type', d.storage_type);
       setSelect('hdd_capacity_gb', d.hdd_capacity_gb);
       setSelect('screen_size', d.screen_size);
@@ -1300,7 +1276,7 @@ function estimatePowerW(cpuName) {
 <script>
 /* Append "Not Available" then "Not Checked" (last) to the hardware dropdowns. */
 (function(){
-  var NC = ['cpu','generation','ram_gb','storage_gb','storage_type','hdd_capacity_gb','screen_size','battery_present','battery_cable','power_on','status','keyboard_working','touchpad_working','port_hdmi','port_usb_working','port_audio_jack','speaker_status','wifi_status','webcam_status','hdd_connector','hdd_casing','dvd_drive'];
+  var NC = ['storage_type','hdd_capacity_gb','screen_size','battery_present','battery_cable','power_on','status','keyboard_working','touchpad_working','port_hdmi','port_usb_working','port_audio_jack','speaker_status','wifi_status','webcam_status','hdd_connector','hdd_casing','dvd_drive'];
   var EXTRA = ['Not Available','Not Checked'];
   NC.forEach(function(n){
     var el = document.querySelector('select[name="'+n+'"]'); if(!el) return;

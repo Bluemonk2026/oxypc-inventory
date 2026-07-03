@@ -38,6 +38,8 @@ class Lot(Base):
     buying_price = Column(Numeric(12, 2), nullable=False)       # Total lot cost
     qty = Column(Integer, nullable=False)
     purchase_date = Column(DateTime, nullable=False)
+    condition = Column(String(30), nullable=True)               # e.g. New / Refurbished / Used
+    selling_price = Column(Numeric(12, 2), nullable=True)       # Planned/expected selling price for the lot
 
     notes = Column(Text, nullable=True)
     created_by = Column(String(50), nullable=True)

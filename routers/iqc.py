@@ -358,6 +358,72 @@ async def iqc_list(
     })
 
 
+@router.post("/create-lot-from-selection")
+async def iqc_create_lot_from_selection(
+    request: Request,
+    barcodes: list[str] = Form(...),
+    lot_number: str = Form(...),
+    purchase_date: str = Form(...),
+    supplier_name: str = Form(...),
+    grn_date: str = Form(""),
+    vendor_name: str = Form(""),
+    condition: str = Form(""),
+    buying_price: str = Form("0"),
+    selling_price: str = Form(""),
+    notes: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+    _perm: User = Depends(require_module_perm("iqc", "add")),
+):
+    """Create a new Lot from a set of Tag Numbers selected on the IQC Line
+    Item table, and re-assign those devices to the new lot."""
+    barcodes = [b.strip() for b in barcodes if b and b.strip()]
+    if not barcodes:
+        return RedirectResponse(url="/iqc?error=No+devices+selected", status_code=302)
+
+    existing = await db.execute(select(Lot).where(Lot.lot_number == lot_number.strip()))
+    if existing.scalar_one_or_none():
+        return RedirectResponse(url=f"/iqc?error=Lot+Number+{lot_number.strip()}+already+exists", status_code=302)
+
+    try:
+        purchase_dt = _dtnow.strptime(purchase_date, "%Y-%m-%d")
+    except ValueError:
+        purchase_dt = _dtnow.utcnow()
+    grn_dt = None
+    if grn_date:
+        try:
+            grn_dt = _dtnow.strptime(grn_date, "%Y-%m-%d")
+        except ValueError:
+            grn_dt = None
+
+    lot = Lot(
+        lot_number=lot_number.strip(),
+        supplier_name=supplier_name.strip(),
+        purchase_date=purchase_dt,
+        grn_date=grn_dt,
+        vendor_name=vendor_name.strip() or None,
+        qty=len(barcodes),
+        condition=condition.strip() or None,
+        buying_price=float(buying_price) if (buying_price or "").strip() else 0,
+        selling_price=float(selling_price) if (selling_price or "").strip() else None,
+        notes=notes.strip() or None,
+        created_by=current_user.username if current_user else None,
+    )
+    db.add(lot)
+    await db.flush()
+
+    result = await db.execute(select(Device).where(Device.barcode.in_(barcodes)))
+    devices = result.scalars().all()
+    for device in devices:
+        device.lot_id = lot.id
+
+    await audit(db, action="LOT_CREATED_FROM_IQC_SELECTION", user=current_user,
+                table_name="lots", record_id=str(lot.id),
+                new_value={"lot_number": lot.lot_number, "barcodes": barcodes}, request=request)
+    await db.commit()
+    return RedirectResponse(url=f"/iqc?success=Lot+{lot.lot_number}+created+with+{len(devices)}+device(s)", status_code=302)
+
+
 @router.get("/export-csv")
 async def iqc_export_csv(
     db: AsyncSession = Depends(get_db),
@@ -419,7 +485,7 @@ async def iqc_new_form(request: Request, db: AsyncSession = Depends(get_db),
 async def iqc_create(
     request: Request,
     barcode: str = Form(...),
-    lot_id: str = Form(...),
+    lot_id: str = Form(""),
     sub_category: str = Form(""),
     device_type: str = Form(""),
     brand: str = Form(""),
@@ -517,6 +583,18 @@ async def iqc_create(
     battery_cable: str = Form(""),
     charging_port: str = Form(""),
     dvd_drive: str = Form(""),
+    # ── Covers and Casing ────────────────────────────────────────────────────
+    cover_ram: str = Form(""),
+    cover_dvd: str = Form(""),
+    cover_storage: str = Form(""),
+    # ── Hinge ────────────────────────────────────────────────────────────────
+    hinge_condition: str = Form(""),
+    hinge_cover: str = Form(""),
+    touchpad_logicboard: str = Form(""),
+    # ── Storage / Fan ────────────────────────────────────────────────────────
+    storage_health_pct: str = Form(""),
+    fan_sound_dba: str = Form(""),
+    fan_working: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("iqc", "add")),
@@ -543,7 +621,11 @@ async def iqc_create(
         except (ValueError, AttributeError, TypeError):
             return False
 
-    if not _is_uuid(lot_id):
+    if not (lot_id or "").strip():
+        from utils.lot_helpers import get_or_create_unassigned_lot
+        unassigned = await get_or_create_unassigned_lot(db)
+        lot_id = str(unassigned.id)
+    elif not _is_uuid(lot_id):
         lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
         lots = lots_result.scalars().all()
         return templates.TemplateResponse("iqc/form.html", {
@@ -661,6 +743,11 @@ async def iqc_create(
         battery_present=_v(battery_present), battery_cable=_v(battery_cable),
         charging_port=_v(charging_port),
         dvd_drive=_v(dvd_drive),
+        cover_ram=_v(cover_ram), cover_dvd=_v(cover_dvd), cover_storage=_v(cover_storage),
+        hinge_condition=_v(hinge_condition), hinge_cover=_v(hinge_cover),
+        touchpad_logicboard=_v(touchpad_logicboard),
+        storage_health_pct=_iv(storage_health_pct), fan_sound_dba=_iv(fan_sound_dba),
+        fan_working=_v(fan_working),
     )
     db.add(inspection)
 

@@ -106,6 +106,21 @@ class IQCInspection(Base):
     charging_port = Column(String(20), nullable=True)        # Yes / No (works if charging)
     dvd_drive = Column(String(10), nullable=True)            # Yes / No / NA
 
+    # ── Covers and Casing ─────────────────────────────────────────────────────
+    cover_ram = Column(String(5), nullable=True)              # Yes / No
+    cover_dvd = Column(String(5), nullable=True)              # Yes / No
+    cover_storage = Column(String(5), nullable=True)          # Yes / No
+
+    # ── Hinge ─────────────────────────────────────────────────────────────────
+    hinge_condition = Column(String(10), nullable=True)       # Yes / No
+    hinge_cover = Column(String(10), nullable=True)           # Yes / No
+    touchpad_logicboard = Column(String(10), nullable=True)   # Yes / No
+
+    # ── Storage / Fan ─────────────────────────────────────────────────────────
+    storage_health_pct = Column(Integer, nullable=True)
+    fan_sound_dba = Column(Integer, nullable=True)
+    fan_working = Column(String(5), nullable=True)            # Yes / No
+
     # ── Overall Assessment ────────────────────────────────────────────────────
     r2v3_grade_category = Column(String(10), nullable=True)  # C0 / C3 / C4 / C5
     remarks = Column(Text, nullable=True)

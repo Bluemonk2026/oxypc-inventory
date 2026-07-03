@@ -17,6 +17,7 @@ from models.user import User, UserRole
 from models.device import Device
 from models.work_order import WorkOrder
 from models.spare_parts import SparePart
+from models.engines import SparePartsLedger
 from models.part_request import PartRequest, PartSourcingRequest
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from services.audit_engine import audit
@@ -180,10 +181,49 @@ async def verify_sourcing(sr_id: str, request: Request,
     )).scalar_one_or_none()
     if not sr:
         return JSONResponse({"ok": False, "error": "Sourcing request not found"}, status_code=404)
+    if sr.verified:
+        return JSONResponse({"ok": False, "error": "Already verified"}, status_code=409)
     sr.verified = True
     sr.verified_at = app_now()
     sr.verified_by = current_user.username
+
+    # Credit the sourced quantity into Part Master stock (In Stock column),
+    # via a ledger entry so the computed-stock and qty_in_stock column stay
+    # in sync — same pattern as every other stock-affecting action.
+    if sr.part_id and sr.qty_sourced:
+        part = (await db.execute(select(SparePart).where(SparePart.id == sr.part_id))).scalar_one_or_none()
+        if part:
+            db.add(SparePartsLedger(
+                part_id=part.id, entry_type="IN", qty=sr.qty_sourced,
+                cost_per_unit=float(part.unit_price), total_cost=sr.qty_sourced * float(part.unit_price),
+                reference_type="sourcing_verified", reference_id=str(sr.id),
+                created_by=current_user.username,
+                notes=f"Sourcing request {sr.id} verified — {sr.qty_sourced}x {sr.part_name}",
+            ))
+            part.qty_in_stock += sr.qty_sourced
+
     await audit(db, user=current_user, action="SOURCING_VERIFIED", table_name="part_sourcing_requests",
-                record_id=str(sr.id), new_value={"verified_by": current_user.username}, request=request)
+                record_id=str(sr.id), new_value={"verified_by": current_user.username, "qty_sourced": sr.qty_sourced},
+                request=request)
+    await db.commit()
+    return JSONResponse({"ok": True})
+
+
+@router.post("/part-sourcing/{sr_id}/request-reupload")
+async def request_sourcing_reupload(sr_id: str, request: Request,
+                                    db: AsyncSession = Depends(get_db), current_user: User = Depends(spm_allowed)):
+    """Send-to-Reupload from the Verify Sourcing modal — asks the uploader to
+    re-submit documents. Does not change verified/status; the Sourcing
+    Requests table's Action column is intentionally unaffected by this."""
+    sr = (await db.execute(
+        select(PartSourcingRequest).where(PartSourcingRequest.id == _as_uuid(sr_id))
+    )).scalar_one_or_none()
+    if not sr:
+        return JSONResponse({"ok": False, "error": "Sourcing request not found"}, status_code=404)
+    sr.reupload_requested = True
+    sr.reupload_requested_at = app_now()
+    sr.reupload_requested_by = current_user.username
+    await audit(db, user=current_user, action="SOURCING_REUPLOAD_REQUESTED", table_name="part_sourcing_requests",
+                record_id=str(sr.id), new_value={"requested_by": current_user.username}, request=request)
     await db.commit()
     return JSONResponse({"ok": True})

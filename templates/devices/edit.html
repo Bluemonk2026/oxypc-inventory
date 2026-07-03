@@ -45,8 +45,8 @@
               <div id="editBarcodeErr" class="text-danger small mt-1 d-none">Duplicate Tag Number — this tag already exists.</div>
             </div>
             <div class="col-md-4">
-              <label class="form-label fw-semibold">Lot <span class="text-danger">*</span></label>
-              <select name="lot_id" id="lot_id" class="form-select" required>
+              <label class="form-label fw-semibold">Lot</label>
+              <select name="lot_id" id="lot_id" class="form-select">
                 <option value="">-- Select Lot --</option>
                 {% for lot in lots %}
                 <option value="{{ lot.id }}" {% if lot.id == device.lot_id %}selected{% endif %}>
@@ -114,33 +114,19 @@
             </div>
             <div class="col-md-3">
               <label class="form-label small">CPU / Processor</label>
-              {% set cpu_opts = ['Intel Core i3','Intel Core i5','Intel Core i7','Intel Core i9','Intel Core Ultra 5','Intel Core Ultra 7','Intel Celeron','Intel Pentium','AMD Ryzen 3','AMD Ryzen 5','AMD Ryzen 7','AMD Ryzen 9','Apple M1','Apple M2','Apple M3','Apple M4','Other'] %}
-              <select name="cpu" class="form-select form-select-sm">
-                <option value="">Not Available</option>
-                {% if device.cpu and device.cpu not in cpu_opts %}<option value="{{ device.cpu }}" selected>{{ device.cpu }}</option>{% endif %}
-                {% for o in cpu_opts %}<option {% if device.cpu == o %}selected{% endif %}>{{ o }}</option>{% endfor %}
-              </select>
+              <input type="text" name="cpu" class="form-control form-control-sm" value="{{ device.cpu or '' }}" placeholder="e.g. Intel Core i5">
             </div>
             <div class="col-md-3">
               <label class="form-label small">Generation</label>
-              <select name="generation" class="form-select form-select-sm">
-                <option value="">Not Available</option>
-                {% for opt in ['4th Gen','5th Gen','6th Gen','7th Gen','8th Gen','9th Gen','10th Gen','11th Gen','12th Gen','13th Gen','14th Gen','AMD Ryzen 3','AMD Ryzen 5','AMD Ryzen 7'] %}<option {% if device.generation == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
-              </select>
+              <input type="text" name="generation" class="form-control form-control-sm" value="{{ device.generation or '' }}" placeholder="e.g. 8th Gen">
             </div>
             <div class="col-md-3">
               <label class="form-label small">RAM (GB)</label>
-              <select name="ram_gb" class="form-select form-select-sm">
-                <option value="">Not Available</option>
-                {% for opt in [2,4,8,12,16,24,32,64] %}<option value="{{ opt }}" {% if device.ram_gb == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
-              </select>
+              <input type="text" name="ram_gb" class="form-control form-control-sm" value="{{ device.ram_gb if device.ram_gb else '' }}" placeholder="e.g. 8">
             </div>
             <div class="col-md-3">
-              <label class="form-label small">SSD Capacity (GB)</label>
-              <select name="storage_gb" class="form-select form-select-sm">
-                <option value="">Not Available</option>
-                {% for opt in [128,240,256,320,480,512,960,1000,2000] %}<option value="{{ opt }}" {% if device.storage_gb == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
-              </select>
+              <label class="form-label small">Storage Capacity (GB)</label>
+              <input type="text" name="storage_gb" class="form-control form-control-sm" value="{{ device.storage_gb if device.storage_gb else '' }}" placeholder="e.g. 256">
             </div>
             <div class="col-md-3">
               <label class="form-label small">Storage Type</label>
@@ -197,13 +183,33 @@
             <div class="col-md-3"><label class="form-label small">HDD Connector</label>{{ isel('hdd_connector', yn3) }}</div>
             <div class="col-md-3"><label class="form-label small">HDD Casing</label>{{ isel('hdd_casing', yn3) }}</div>
             <div class="col-md-3"><label class="form-label small">DVD Drive</label>{{ isel('dvd_drive', ['Yes','No','NA']) }}</div>
+            <div class="col-md-3">
+              <label class="form-label small">Storage Health (%)</label>
+              <input type="number" name="storage_health_pct" class="form-control form-control-sm" value="{{ ii.storage_health_pct if ii and ii.storage_health_pct is not none else '' }}" min="0" max="100" placeholder="—">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Fan Sound (in dBA)</label>
+              <input type="number" name="fan_sound_dba" class="form-control form-control-sm" value="{{ ii.fan_sound_dba if ii and ii.fan_sound_dba is not none else '' }}" min="0" max="100" placeholder="—">
+            </div>
+            <div class="col-md-3"><label class="form-label small">Fan Working</label>{{ isel('fan_working', ['Yes','No']) }}</div>
           </div>
 
-
-          <!-- ── Body Panels ── -->
+          <!-- ── Body Panels (mirrors IQC Entry's exact section breakdown) ── -->
           <p class="fw-bold small text-uppercase mb-2 border-bottom pb-1 sec-hd">Body Panels</p>
+
+          <!-- 1. Covers and Casing -->
           <div class="card border bg-light mb-2"><div class="card-body py-2">
-            <p class="small fw-semibold text-uppercase mb-2 text-primary">Panel A — LCD Lid / Top Cover</p>
+            <p class="small fw-semibold text-uppercase mb-2" style="color:#6f42c1">Covers and Casing</p>
+            <div class="row g-2">
+              <div class="col-md-3"><label class="form-label small">RAM Cover</label>{{ isel('cover_ram', ['Yes','No']) }}</div>
+              <div class="col-md-3"><label class="form-label small">DVD Cover</label>{{ isel('cover_dvd', ['Yes','No']) }}</div>
+              <div class="col-md-3"><label class="form-label small">Storage Cover</label>{{ isel('cover_storage', ['Yes','No']) }}</div>
+            </div>
+          </div></div>
+
+          <!-- 2. Display Panel (was: Panel A — LCD Lid / Top Cover) -->
+          <div class="card border bg-light mb-2"><div class="card-body py-2">
+            <p class="small fw-semibold text-uppercase mb-2 text-primary">Display Panel</p>
             <div class="row g-2">
               <div class="col-md-2"><label class="form-label small">Scratch</label>{{ isel('panel_a_scratch', scratch_opts) }}</div>
               <div class="col-md-2"><label class="form-label small">Broken / Crack</label>{{ isel('panel_a_broken', broken_opts) }}</div>
@@ -212,18 +218,10 @@
               <div class="col-md-2"><label class="form-label small">Colour Fade</label>{{ isel('panel_a_colour_fade', yn) }}</div>
             </div>
           </div></div>
+
+          <!-- 3. Bezel Frame (Panel C) -->
           <div class="card border bg-light mb-2"><div class="card-body py-2">
-            <p class="small fw-semibold text-uppercase mb-2 text-success">Panel B — Bottom Base</p>
-            <div class="row g-2">
-              <div class="col-md-2"><label class="form-label small">Scratch</label>{{ isel('panel_b_scratch', scratch_opts) }}</div>
-              <div class="col-md-2"><label class="form-label small">Broken / Crack</label>{{ isel('panel_b_broken', broken_opts) }}</div>
-              <div class="col-md-2"><label class="form-label small">Missing</label>{{ isel('panel_b_missing', yn) }}</div>
-              <div class="col-md-2"><label class="form-label small">Colour Fade</label>{{ isel('panel_b_colour_fade', yn) }}</div>
-              <div class="col-md-2"><label class="form-label small">Rubber Cut</label>{{ isel('panel_b_rubber_cut', yn) }}</div>
-            </div>
-          </div></div>
-          <div class="card border bg-light mb-2"><div class="card-body py-2">
-            <p class="small fw-semibold text-uppercase mb-2 text-warning">Panel C — Bezel / Frame</p>
+            <p class="small fw-semibold text-uppercase mb-2 text-warning">Bezel Frame</p>
             <div class="row g-2">
               <div class="col-md-2"><label class="form-label small">Scratch</label>{{ isel('panel_c_scratch', scratch_opts) }}</div>
               <div class="col-md-2"><label class="form-label small">Broken / Crack</label>{{ isel('panel_c_broken', broken_opts) }}</div>
@@ -232,20 +230,10 @@
               <div class="col-md-2"><label class="form-label small">Colour Fade</label>{{ isel('panel_c_colour_fade', yn) }}</div>
             </div>
           </div></div>
-          <div class="card border bg-light mb-3"><div class="card-body py-2">
-            <p class="small fw-semibold text-uppercase mb-2 text-danger">Panel D — Palmrest</p>
-            <div class="row g-2">
-              <div class="col-md-2"><label class="form-label small">Scratch</label>{{ isel('panel_d_scratch', scratch_opts) }}</div>
-              <div class="col-md-2"><label class="form-label small">Broken / Crack</label>{{ isel('panel_d_broken', broken_opts) }}</div>
-              <div class="col-md-2"><label class="form-label small">Missing</label>{{ isel('panel_d_missing', yn) }}</div>
-              <div class="col-md-2"><label class="form-label small">Dent</label>{{ isel('panel_d_dent', dent_opts) }}</div>
-              <div class="col-md-2"><label class="form-label small">Colour Fade</label>{{ isel('panel_d_colour_fade', yn) }}</div>
-            </div>
-          </div></div>
 
-          <!-- Display card (panel-style) -->
+          <!-- 4. Screen/Display (was: Display) -->
           <div class="card border bg-light mb-2"><div class="card-body py-2">
-            <p class="small fw-semibold text-uppercase mb-2 text-info">Display</p>
+            <p class="small fw-semibold text-uppercase mb-2 text-info">Screen/Display</p>
             <div class="row g-2">
               <div class="col-md-2"><label class="form-label small">Dot</label>{{ isel('screen_dot', yn) }}</div>
               <div class="col-md-2"><label class="form-label small">Line</label>{{ isel('screen_line', yn) }}</div>
@@ -253,23 +241,66 @@
               <div class="col-md-2"><label class="form-label small">Colour Spread</label>{{ isel('screen_colour_spread', yn) }}</div>
               <div class="col-md-2"><label class="form-label small">Patch</label>{{ isel('screen_patch', yn) }}</div>
               <div class="col-md-2"><label class="form-label small">Flickering</label>{{ isel('screen_flickering', yn) }}</div>
-              <div class="col-md-2"><label class="form-label small">Functional</label>{{ isel('screen_functional', yn) }}</div>
               <div class="col-md-2"><label class="form-label small">Scratch</label>{{ isel('screen_scratch', scratch_opts) }}</div>
-              <div class="col-md-2"><label class="form-label small">Loose</label>{{ isel('screen_loose', yn) }}</div>
               <div class="col-md-2"><label class="form-label small">Missing</label>{{ isel('screen_missing', yn) }}</div>
               <div class="col-md-2"><label class="form-label small">Broken</label>{{ isel('screen_broken', yn) }}</div>
-              <div class="col-md-2"><label class="form-label small">Hinge Broken</label>{{ isel('screen_hinge_broken', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Keyboard Mark</label>{{ isel('screen_keyboard_mark', yn) }}</div>
             </div>
           </div></div>
-          <div class="card border bg-light mb-3"><div class="card-body py-2">
-            <p class="small fw-semibold text-uppercase mb-2 text-secondary">Keyboard &amp; Touchpad</p>
+
+          <!-- 5. Hinge -->
+          <div class="card border bg-light mb-2"><div class="card-body py-2">
+            <p class="small fw-semibold text-uppercase mb-2 text-dark">Hinge</p>
+            <div class="row g-2">
+              <div class="col-md-3"><label class="form-label small">Hinge</label>{{ isel('hinge_condition', yn) }}</div>
+              <div class="col-md-3"><label class="form-label small">Loose</label>{{ isel('screen_loose', yn) }}</div>
+              <div class="col-md-3"><label class="form-label small">Hinge Broken</label>{{ isel('screen_hinge_broken', yn) }}</div>
+              <div class="col-md-3"><label class="form-label small">Hinge Cover</label>{{ isel('hinge_cover', yn) }}</div>
+            </div>
+          </div></div>
+
+          <!-- 6. Touchpad (split from Keyboard & Touchpad) -->
+          <div class="card border bg-light mb-2"><div class="card-body py-2">
+            <p class="small fw-semibold text-uppercase mb-2 text-secondary">Touchpad</p>
             <div class="row g-2">
               <div class="col-md-2"><label class="form-label small">Touchpad Scratch</label>{{ isel('touchpad_scratch', scratch_opts) }}</div>
               <div class="col-md-2"><label class="form-label small">Touchpad Colour Fade</label>{{ isel('touchpad_colour_fade', yn) }}</div>
-              <div class="col-md-2"><label class="form-label small">Keyboard Mark</label>{{ isel('screen_keyboard_mark', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Touchpad Logicboard</label>{{ isel('touchpad_logicboard', yn) }}</div>
+            </div>
+          </div></div>
+
+          <!-- 7. Bottom Base (Panel B) -->
+          <div class="card border bg-light mb-2"><div class="card-body py-2">
+            <p class="small fw-semibold text-uppercase mb-2 text-success">Bottom Base</p>
+            <div class="row g-2">
+              <div class="col-md-2"><label class="form-label small">Scratch</label>{{ isel('panel_b_scratch', scratch_opts) }}</div>
+              <div class="col-md-2"><label class="form-label small">Broken / Crack</label>{{ isel('panel_b_broken', broken_opts) }}</div>
+              <div class="col-md-2"><label class="form-label small">Missing</label>{{ isel('panel_b_missing', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Colour Fade</label>{{ isel('panel_b_colour_fade', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Rubber Cut</label>{{ isel('panel_b_rubber_cut', yn) }}</div>
+            </div>
+          </div></div>
+
+          <!-- 8. Keyboard (split from Keyboard & Touchpad) -->
+          <div class="card border bg-light mb-2"><div class="card-body py-2">
+            <p class="small fw-semibold text-uppercase mb-2 text-secondary">Keyboard</p>
+            <div class="row g-2">
               <div class="col-md-2"><label class="form-label small">Keyboard Colour Fade</label>{{ isel('keyboard_colour_fade', yn) }}</div>
-              <div class="col-md-2"><label class="form-label small">Key Missing</label>{{ isel('keyboard_key_missing', yn) }}</div>
               <div class="col-md-2"><label class="form-label small">Keyboard Hard Press</label>{{ isel('keyboard_hard_press', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Key Missing</label>{{ isel('keyboard_key_missing', yn) }}</div>
+            </div>
+          </div></div>
+
+          <!-- 9. Palmrest (Panel D) — heading text "Touchpad" intentionally
+               mirrors the IQC Entry page's own (duplicate) section label. -->
+          <div class="card border bg-light mb-3"><div class="card-body py-2">
+            <p class="small fw-semibold text-uppercase mb-2 text-danger">Touchpad</p>
+            <div class="row g-2">
+              <div class="col-md-2"><label class="form-label small">Scratch</label>{{ isel('panel_d_scratch', scratch_opts) }}</div>
+              <div class="col-md-2"><label class="form-label small">Broken / Crack</label>{{ isel('panel_d_broken', broken_opts) }}</div>
+              <div class="col-md-2"><label class="form-label small">Missing</label>{{ isel('panel_d_missing', yn) }}</div>
+              <div class="col-md-2"><label class="form-label small">Dent</label>{{ isel('panel_d_dent', dent_opts) }}</div>
+              <div class="col-md-2"><label class="form-label small">Colour Fade</label>{{ isel('panel_d_colour_fade', yn) }}</div>
             </div>
           </div></div>
 
@@ -282,7 +313,13 @@
             </div>
             <div class="col-md-3">
               <label class="form-label">R2V3 Grade Category</label>
-              {{ isel('r2v3_grade_category', ['C0','C3','C4','C5'], 'form-select') }}
+              {% set cur_r2v3 = ii.r2v3_grade_category if ii else None %}
+              <select name="r2v3_grade_category" class="form-select">
+                <option value="">-- Select --</option>
+                {% for c in master_options('iqc_r2v3_grade_category') %}
+                <option {% if cur_r2v3 == c %}selected{% endif %}>{{ c }}</option>
+                {% endfor %}
+              </select>
             </div>
             <div class="col-md-2">
               <label class="form-label">Quantity</label>
@@ -290,12 +327,12 @@
                      value="{{ device.qty or 1 }}" placeholder="1">
             </div>
             <div class="col-md-3">
-              <label class="form-label">Unit Price (₹)</label>
+              <label class="form-label">Unit Price inclusive taxes (₹)</label>
               <input type="number" name="device_price_input" class="form-control" step="0.01" min="0"
                      value="{{ device.device_price or '' }}" placeholder="e.g. 4500.00">
             </div>
             <div class="col-md-3">
-              <label class="form-label">Grade</label>
+              <label class="form-label">IQC Grade</label>
               {# Grade is an enum — use static options, do NOT load from master data #}
               <select name="grade" class="form-select">
                 <option value="">Not graded</option>
@@ -528,7 +565,7 @@ document.addEventListener('DOMContentLoaded', () => {
 <script>
 /* Append "Not Available" then "Not Checked" (last) to the hardware dropdowns. */
 (function(){
-  var NC = ['cpu','generation','ram_gb','storage_gb','storage_type','hdd_capacity_gb','screen_size','battery_present','battery_cable','power_on','status','keyboard_working','touchpad_working','port_hdmi','port_usb_working','port_audio_jack','speaker_status','wifi_status','webcam_status','hdd_connector','hdd_casing','dvd_drive'];
+  var NC = ['storage_type','hdd_capacity_gb','screen_size','battery_present','battery_cable','power_on','status','keyboard_working','touchpad_working','port_hdmi','port_usb_working','port_audio_jack','speaker_status','wifi_status','webcam_status','hdd_connector','hdd_casing','dvd_drive','fan_working'];
   var EXTRA = ['Not Available','Not Checked'];
   NC.forEach(function(n){
     var el = document.querySelector('select[name="'+n+'"]'); if(!el) return;

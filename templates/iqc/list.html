@@ -5,6 +5,9 @@
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <span class="text-muted">{{ devices|length }} device(s) in IQC</span>
   <div class="d-flex gap-2 flex-wrap">
+    <button type="button" id="createLotBtn" class="btn btn-success btn-sm d-none" onclick="openCreateLotModal()">
+      <i class="bi bi-box-seam me-1"></i>Create/Add Lot (<span id="createLotCount">0</span>)
+    </button>
     <a href="/iqc/export-csv" class="btn btn-outline-info btn-sm">
       <i class="bi bi-file-earmark-arrow-down me-1"></i>Export CSV
     </a>
@@ -25,12 +28,14 @@
       <table id="iqcTable" class="table table-hover mb-0">
         <thead class="table-dark">
           <tr>
+            <th style="width:32px"><input type="checkbox" id="iqcSelectAllChk" class="form-check-input" title="Select all on this page"></th>
             <th>Serial Number</th><th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>CPU</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Floor</th><th>Added</th><th>Action</th>
           </tr>
         </thead>
         <tbody>
           {% for device, lot_number in devices %}
           <tr>
+            <td><input type="checkbox" class="form-check-input iqcRowChk" value="{{ device.barcode }}"></td>
             <td class="font-monospace small">{{ device.serial_no or '—' }}</td>
             <td><a href="/devices/{{ device.barcode }}" class="text-decoration-none"><code>{{ device.barcode }}</code></a></td>
             <td><a href="/devices?lot={{ lot_number }}" class="text-decoration-none"><span class="badge bg-info text-dark">{{ lot_number }}</span></a></td>
@@ -80,7 +85,105 @@
     </div>
   </div>
 </div>
+
+<!-- Create/Add Lot Modal -->
+<div class="modal fade" id="createLotModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <form id="createLotForm" method="post" action="/iqc/create-lot-from-selection" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">Create / Add Lot</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold">Lot Number <span class="text-danger">*</span></label>
+            <input type="text" name="lot_number" class="form-control form-control-sm" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold">Purchase / GRN Date <span class="text-danger">*</span></label>
+            <input type="date" name="purchase_date" class="form-control form-control-sm" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold">Supplier Name <span class="text-danger">*</span></label>
+            <input type="text" name="supplier_name" class="form-control form-control-sm" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small">Date of Material Received</label>
+            <input type="date" name="grn_date" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small">Vendor Name (if different)</label>
+            <input type="text" name="vendor_name" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small">Total Quantity</label>
+            <input type="text" id="createLotTotalQty" class="form-control form-control-sm" readonly tabindex="-1">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small">Condition</label>
+            <input type="text" name="condition" class="form-control form-control-sm" placeholder="e.g. New / Refurbished / Used">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small">Buying Price</label>
+            <input type="number" step="0.01" name="buying_price" class="form-control form-control-sm" placeholder="Total lot cost">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small">Selling Price</label>
+            <input type="number" step="0.01" name="selling_price" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-12">
+            <label class="form-label small">Remarks</label>
+            <textarea name="notes" class="form-control form-control-sm" rows="2"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-box-seam me-1"></i>Create Lot</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {% endblock %}
 {% block scripts %}
-<script>$(document).ready(function(){ $('#iqcTable').DataTable({pageLength:25, columnDefs:[{visible:false, targets:[9,10]}]}); });</script>
+<script>
+$(document).ready(function(){
+  var dt = $('#iqcTable').DataTable({
+    pageLength:25,
+    columnDefs:[{visible:false, targets:[10,11]}, {orderable:false, targets:[0,-1]}],
+  });
+  window._dtIqc = dt;
+
+  function updateSel(){
+    var n = $(dt.rows().nodes()).find('.iqcRowChk:checked').length;
+    $('#createLotCount').text(n);
+    $('#createLotBtn').toggleClass('d-none', n === 0);
+  }
+  $('#iqcTable').on('change', '#iqcSelectAllChk', function(){
+    var checked = this.checked;
+    $(dt.rows({page:'current'}).nodes()).find('.iqcRowChk').prop('checked', checked);
+    updateSel();
+  });
+  $('#iqcTable').on('change', '.iqcRowChk', updateSel);
+  dt.on('draw', function(){ $('#iqcSelectAllChk').prop('checked', false); updateSel(); });
+});
+
+function openCreateLotModal(){
+  var dt = window._dtIqc;
+  var checked = $(dt.rows().nodes()).find('.iqcRowChk:checked');
+  var barcodes = checked.map(function(){ return this.value; }).get();
+  if (barcodes.length === 0) return;
+  var form = document.getElementById('createLotForm');
+  $(form).find('input[name="barcodes"]').remove();
+  barcodes.forEach(function(bc){
+    $('<input>').attr({ type:'hidden', name:'barcodes', value:bc }).appendTo(form);
+  });
+  $('#createLotTotalQty').val(barcodes.length);
+  var modal = new bootstrap.Modal(document.getElementById('createLotModal'));
+  modal.show();
+}
+</script>
 {% endblock %}

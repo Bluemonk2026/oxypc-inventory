@@ -70,3 +70,10 @@ class PartSourcingRequest(Base):
     verified = Column(Boolean, nullable=False, default=False, server_default="false")
     verified_at = Column(DateTime, nullable=True)
     verified_by = Column(String(50), nullable=True)
+
+    # Send to Reupload — from the Verify Sourcing modal, asks the uploader to
+    # re-submit documents. Does not change verified/status; the Sourcing
+    # Requests table's Action column intentionally stays unchanged.
+    reupload_requested = Column(Boolean, nullable=False, default=False, server_default="false")
+    reupload_requested_at = Column(DateTime, nullable=True)
+    reupload_requested_by = Column(String(50), nullable=True)

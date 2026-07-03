@@ -17,7 +17,7 @@ from models.lot import Lot
 from models.repair import RepairJob, RepairStatus
 from models.qc import QCCheck
 from models.spare_parts import SparePartConsumption, SparePart
-from models.location import DeviceLocationLog, StorageLocation, LocationAction
+from models.location import DeviceLocationLog, StorageLocation, LocationAction, UNIT_TYPE_LABELS
 from models.iqc_inspection import IQCInspection
 from models.part_request import PartRequest
 from models.work_order import WorkOrder
@@ -224,6 +224,9 @@ async def device_search(
         for did, sp in sale_rows:
             sale_price_map[str(did)] = sp
 
+    model_summary = await _build_model_summary(db, filters)
+    lot_summary = await _build_lot_summary(db)
+
     return templates.TemplateResponse("devices/list.html", {
         "request": request, "current_user": current_user,
         "devices": devices, "lots": lots,
@@ -232,7 +235,125 @@ async def device_search(
         "total": len(devices),
         "location_map": location_map,
         "stock_price_map": stock_price_map, "sale_price_map": sale_price_map,
+        "model_summary": model_summary,
+        "lot_summary": lot_summary,
     })
+
+
+async def _build_lot_summary(db: AsyncSession) -> list:
+    """Lot Based table (below the Model Based table on Inventory Search):
+    one row per Lot with GRN/supplier/vendor/financial details plus
+    'Actual Selling' — the sum of Sale.sale_price for devices in that lot."""
+    lots = (await db.execute(select(Lot).where(Lot.is_trashed == False).order_by(Lot.lot_number))).scalars().all()
+    if not lots:
+        return []
+
+    actual_selling_rows = (await db.execute(
+        select(Device.lot_id, func.sum(Sale.sale_price))
+        .join(Sale, Sale.device_id == Device.id)
+        .where(Device.lot_id.in_([l.id for l in lots]))
+        .group_by(Device.lot_id)
+    )).all()
+    actual_selling_map = {str(lot_id): float(total or 0) for lot_id, total in actual_selling_rows}
+
+    summary = []
+    for l in lots:
+        summary.append({
+            "lot_number": l.lot_number,
+            "purchase_date": l.purchase_date,
+            "supplier_name": l.supplier_name,
+            "grn_date": l.grn_date,
+            "vendor_name": l.vendor_name or "—",
+            "qty": l.qty,
+            "condition": l.condition or "—",
+            "buying_price": float(l.buying_price or 0),
+            "selling_price": float(l.selling_price) if l.selling_price is not None else None,
+            "actual_selling": actual_selling_map.get(str(l.id), 0.0),
+            "notes": l.notes or "—",
+        })
+    return summary
+
+
+async def _build_model_summary(db: AsyncSession, filters: list) -> list:
+    """Model Based table (below the main Devices table on Inventory Search):
+    one row per distinct (model, brand), aggregated across ALL matching
+    devices (not capped at 500 like the on-screen table), with Total Count,
+    Total Price, Repaired count, and per-tag detail for the view modal."""
+    query = (
+        select(Device, Lot.lot_number)
+        .join(Lot, Device.lot_id == Lot.id)
+        .where(Device.is_trashed == False)
+    )
+    for f in filters:
+        query = query.where(f)
+    rows = (await db.execute(query)).all()
+    if not rows:
+        return []
+
+    device_ids = [d.id for d, _ in rows]
+
+    # Stock Price (P&L total cost) per device — same source as the main table
+    price_map = {}
+    for c in (await db.execute(
+        select(DeviceCosting).where(DeviceCosting.device_id.in_(device_ids))
+    )).scalars().all():
+        price_map[str(c.device_id)] = float(c.total_cost or 0)
+    for d, _ in rows:
+        did = str(d.id)
+        if did not in price_map and d.device_price:
+            price_map[did] = float(d.device_price) * (d.qty or 1)
+
+    # Assigned Storage Location (Location ID / Location Type) per device,
+    # via the device's own location_id FK — same source as Device Detail.
+    loc_rows = (await db.execute(
+        select(Device.id, StorageLocation.unit_id, StorageLocation.unit_type)
+        .outerjoin(StorageLocation, Device.location_id == StorageLocation.id)
+        .where(Device.id.in_(device_ids))
+    )).all()
+    device_location = {str(did): (unit_id, unit_type) for did, unit_id, unit_type in loc_rows}
+
+    # Devices with at least one part consumed ("Repaired")
+    repaired_ids = {
+        str(did) for (did,) in (await db.execute(
+            select(SparePartConsumption.device_id)
+            .where(SparePartConsumption.device_id.in_(device_ids))
+            .distinct()
+        )).all()
+    }
+
+    groups: dict = {}
+    for d, _lot_number in rows:
+        key = (d.model or "Unknown Model", d.brand or "Unknown Make")
+        g = groups.setdefault(key, {
+            "model": key[0], "make": key[1],
+            "total_count": 0, "total_price": 0.0, "repaired_count": 0,
+            "grade_counts": {"A": 0, "B": 0, "C": 0},
+            "tags": [],
+        })
+        did = str(d.id)
+        price = price_map.get(did, 0.0)
+        unit_id, unit_type = device_location.get(did, (None, None))
+        grade_val = d.grade.value if d.grade else None
+        g["total_count"] += 1
+        g["total_price"] += price
+        if did in repaired_ids:
+            g["repaired_count"] += 1
+        if grade_val in g["grade_counts"]:
+            g["grade_counts"][grade_val] += 1
+        g["tags"].append({
+            "barcode": d.barcode,
+            "location_id": unit_id or "—",
+            "location_type": UNIT_TYPE_LABELS.get(unit_type, unit_type) if unit_type else "—",
+            "grade": grade_val or "—",
+        })
+
+    summary = []
+    for g in groups.values():
+        g["unit_price"] = round(g["total_price"] / g["total_count"], 2) if g["total_count"] else 0
+        g["total_price"] = round(g["total_price"], 2)
+        summary.append(g)
+    summary.sort(key=lambda g: g["total_count"], reverse=True)
+    return summary
 
 
 @router.get("/export")
@@ -531,7 +652,7 @@ async def device_edit_form(
 async def device_edit_save(
     barcode: str,
     request: Request,
-    lot_id: str = Form(...),
+    lot_id: str = Form(""),
     sub_category: str = Form(""),
     brand: str = Form(""),
     model: str = Form(""),
@@ -578,7 +699,12 @@ async def device_edit_save(
         # keep WorkOrder display snapshots consistent with the new tag
         await db.execute(update(WorkOrder).where(WorkOrder.device_id == device.id).values(barcode=new_bc))
 
-    device.lot_id = lot_id
+    if (lot_id or "").strip():
+        device.lot_id = lot_id
+    else:
+        from utils.lot_helpers import get_or_create_unassigned_lot
+        unassigned = await get_or_create_unassigned_lot(db)
+        device.lot_id = unassigned.id
     device.sub_category = sub_category or None
     device.brand = brand or None
     device.model = model or None
@@ -650,7 +776,7 @@ async def device_edit_save(
         "battery_present", "battery_cable", "charging_port", "power_on", "status", "all_ok", "r2v3_grade_category",
         "keyboard_working", "touchpad_working", "port_hdmi", "port_usb_working", "port_audio_jack",
         "speaker_status", "wifi_status", "webcam_status", "hdd_connector", "hdd_casing", "dvd_drive",
-        "screen_dot", "screen_line", "screen_functional", "screen_discoloration", "screen_patch",
+        "screen_dot", "screen_line", "screen_discoloration", "screen_patch",
         "screen_broken", "screen_flickering", "screen_scratch", "screen_loose", "screen_missing",
         "screen_hinge_broken", "screen_colour_spread", "screen_keyboard_mark",
         "panel_a_scratch", "panel_a_broken", "panel_a_missing", "panel_a_dent", "panel_a_colour_fade",
@@ -659,8 +785,10 @@ async def device_edit_save(
         "panel_d_dent", "panel_d_colour_fade", "panel_d_scratch", "panel_d_broken", "panel_d_missing",
         "keyboard_colour_fade", "keyboard_key_missing", "keyboard_hard_press",
         "touchpad_click_working", "touchpad_scratch", "touchpad_colour_fade", "touchpad_missing",
+        "cover_ram", "cover_dvd", "cover_storage",
+        "hinge_condition", "hinge_cover", "touchpad_logicboard", "fan_working",
     ]
-    _IQC_INT_FIELDS = ["usb_a_ports", "usb_c_ports", "ethernet_ports"]
+    _IQC_INT_FIELDS = ["usb_a_ports", "usb_c_ports", "ethernet_ports", "storage_health_pct", "fan_sound_dba"]
     for _f in _IQC_STR_FIELDS:
         if _f in _form:
             setattr(iqc_inspection, _f, (_form.get(_f) or None))

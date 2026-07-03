@@ -15,7 +15,7 @@
               <input type="text" class="form-control font-monospace" value="{{ part.part_code }}" readonly disabled>
             </div>
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Category</label>
+              <label class="form-label fw-semibold">Part Category</label>
               <select name="category" class="form-select" required>
                 {% for cat in categories %}
                 <option {% if cat == part.category %}selected{% endif %}>{{ cat }}</option>

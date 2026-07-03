@@ -159,15 +159,26 @@
       <table class="table table-hover mb-0" id="dealersTable">
         <thead class="table-light">
           <tr>
-            <th>Code</th>
-            <th>Business Name</th>
-            <th>Contact</th>
-            <th>City</th>
-            <th>Type</th>
-            <th>Next Follow-up</th>
-            <th>Assigned To</th>
+            <th>ID</th>
             <th>Status</th>
-            <th>Actions</th>
+            <th>Business Name</th>
+            <th>Type</th>
+            <th>Person Name</th>
+            <th>Phone</th>
+            <th>Email</th>
+            <th>Address</th>
+            <th>Calling Date</th>
+            <th>Require Quantity</th>
+            <th>Interested In</th>
+            <th>Custom Requirements</th>
+            <th>Full Remark</th>
+            <th>Deals in</th>
+            <th>Purchase Quantity</th>
+            <th>Selling Quantity</th>
+            <th>Indian/Imported</th>
+            <th>Whom to Sale</th>
+            <th>Next Followup</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -180,70 +191,86 @@
             'do_not_call': 'dark',
             'followup': 'info'
           } %}
-          {% set sc = {'active':'success','inactive':'secondary','blacklisted':'danger'} %}
           {% for d in dealers %}
           {% set rc = recent_call_map.get(d.id|string, {}) %}
+          {% set row_data = {
+            'id': d.id|string,
+            'dealer_code': d.dealer_code,
+            'business_name': d.business_name,
+            'dealer_type': d.dealer_type,
+            'contact_person': d.contact_person or '',
+            'phone': d.phone or '',
+            'email': d.email or '',
+            'address': d.address or '',
+            'status': d.status,
+            'call_id': rc.get('call_id', ''),
+            'call_date': rc.get('call_date').strftime('%d-%m-%Y %H:%M') if rc.get('call_date') else '',
+            'qty': rc.get('qty'),
+            'items_discussed': rc.get('items_text', ''),
+            'calling_remark': rc.get('calling_remark', ''),
+            'notes': rc.get('notes', ''),
+            'category': rc.get('category', ''),
+            'sale_quantity': rc.get('sale_quantity'),
+            'deals_in': rc.get('deals_in', ''),
+            'whom_to_sell': rc.get('whom_to_sell', ''),
+            'next_followup_date': rc.get('next_followup_date').strftime('%Y-%m-%d') if rc.get('next_followup_date') else '',
+            'outcome': rc.get('outcome', ''),
+          } %}
           <tr>
             <td><code>{{ d.dealer_code }}</code></td>
             <td>
-              <a href="/dealers/{{ d.id }}" class="fw-semibold text-decoration-none">{{ d.business_name }}</a>
-              {# Call log pills — only shown when a call record exists #}
-              {% if rc %}
-              <div class="mt-1 d-flex flex-wrap gap-1">
-                {% if rc.outcome %}
-                <span class="badge bg-{{ oc_colors.get(rc.outcome, 'secondary') }} bg-opacity-75">
-                  {{ rc.outcome | replace('_', ' ') | title }}
-                </span>
-                {% endif %}
-                {% if rc.items_text %}
-                <span class="badge bg-light text-dark border small fw-normal" style="font-size:0.7rem">
-                  {{ rc.items_text[:40] }}{% if rc.items_text|length > 40 %}…{% endif %}
-                </span>
-                {% endif %}
-              </div>
-              {% endif %}
+              {% if rc.get('outcome') %}
+              <span class="badge bg-{{ oc_colors.get(rc.outcome, 'secondary') }} bg-opacity-75">
+                {{ rc.outcome | replace('_', ' ') | title }}
+              </span>
+              {% else %}<span class="text-muted small">—</span>{% endif %}
             </td>
-            <td>
-              <div class="small">{{ d.contact_person or '' }}</div>
-              <div class="small text-muted">{{ d.phone or '' }}</div>
-            </td>
-            <td class="small">{{ d.city or '—' }}</td>
+            <td><a href="/dealers/{{ d.id }}" class="fw-semibold text-decoration-none">{{ d.business_name }}</a></td>
             <td><span class="badge bg-secondary">{{ d.dealer_type | title }}</span></td>
+            <td class="small">{{ d.contact_person or '—' }}</td>
+            <td class="small">{{ d.phone or '—' }}</td>
+            <td class="small">{{ d.email or '—' }}</td>
+            <td class="small">{{ d.address[:30] ~ '…' if d.address and d.address|length > 30 else (d.address or '—') }}</td>
+            <td class="small">{{ rc.get('call_date').strftime('%d-%m-%Y') if rc.get('call_date') else '—' }}</td>
+            <td class="small">{{ rc.get('qty') if rc.get('qty') is not none else '—' }}</td>
+            <td class="small">{{ rc.get('items_text')[:30] ~ '…' if rc.get('items_text') and rc.get('items_text')|length > 30 else (rc.get('items_text') or '—') }}</td>
+            <td class="small">{{ rc.get('calling_remark')[:30] ~ '…' if rc.get('calling_remark') and rc.get('calling_remark')|length > 30 else (rc.get('calling_remark') or '—') }}</td>
+            <td class="small">{{ rc.get('notes')[:30] ~ '…' if rc.get('notes') and rc.get('notes')|length > 30 else (rc.get('notes') or '—') }}</td>
+            <td class="small">{{ rc.get('category') or '—' }}</td>
+            <td class="small">{{ rc.get('qty') if rc.get('qty') is not none else '—' }}</td>
+            <td class="small">{{ rc.get('sale_quantity') if rc.get('sale_quantity') is not none else '—' }}</td>
+            <td class="small">{{ rc.get('deals_in') or '—' }}</td>
+            <td class="small">{{ rc.get('whom_to_sell') or '—' }}</td>
             <td class="small">
               {% set fu = rc.get('next_followup_date') %}
               {% if fu %}
               <span class="badge {% if fu.date() <= today %}bg-danger{% else %}bg-info text-dark{% endif %}">
                 {{ fu.strftime('%d-%m-%Y') }}
-                <i class="bi bi-clock ms-1"></i>{{ fu.strftime('%H:%M') }}
               </span>
               {% else %}
               <span class="text-muted">—</span>
               {% endif %}
             </td>
-            <td class="small">{{ d.assigned_to or '—' }}</td>
-            <td>
-              <span class="badge bg-{{ sc.get(d.status,'secondary') }}">{{ d.status | title }}</span>
-            </td>
             <td>
               <div class="btn-group btn-group-sm">
-                <a href="/dealers/{{ d.id }}" class="btn btn-outline-primary" title="View">
+                <button type="button" class="btn btn-outline-primary" title="View" onclick='openDealerViewModal({{ row_data | tojson }})'>
                   <i class="bi bi-eye"></i>
-                </a>
+                </button>
                 <a href="/dealers/{{ d.id }}/call" class="btn btn-outline-success" title="Log Call">
                   <i class="bi bi-telephone-plus"></i>
                 </a>
                 <a href="/whatsapp/compose?dealer_id={{ d.id }}" class="btn btn-outline-dark" title="WhatsApp">
                   <i class="bi bi-whatsapp"></i>
                 </a>
-                <a href="/dealers/{{ d.id }}/edit" class="btn btn-outline-secondary" title="Edit">
+                <button type="button" class="btn btn-outline-secondary" title="Edit" onclick='openDealerEditModal({{ row_data | tojson }})'>
                   <i class="bi bi-pencil"></i>
-                </a>
+                </button>
               </div>
             </td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="9" class="text-center text-muted py-4">
+            <td colspan="20" class="text-center text-muted py-4">
               No dealers found. <a href="/dealers/new">Add your first dealer</a>
             </td>
           </tr>
@@ -285,5 +312,185 @@
   </ul>
 </nav>
 {% endif %}
+
+<!-- Dealer View Modal -->
+<div class="modal fade" id="dealerViewModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title" id="dvTitle">Dealer Detail</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-2 small">
+          <div class="col-md-3"><strong>ID:</strong> <span id="dvId"></span></div>
+          <div class="col-md-3"><strong>Status:</strong> <span id="dvOutcome"></span></div>
+          <div class="col-md-3"><strong>Type:</strong> <span id="dvType"></span></div>
+          <div class="col-md-3"><strong>Dealer Status:</strong> <span id="dvStatus"></span></div>
+          <div class="col-md-6"><strong>Business Name:</strong> <span id="dvBusinessName"></span></div>
+          <div class="col-md-6"><strong>Person Name:</strong> <span id="dvPerson"></span></div>
+          <div class="col-md-6"><strong>Phone:</strong> <span id="dvPhone"></span></div>
+          <div class="col-md-6"><strong>Email:</strong> <span id="dvEmail"></span></div>
+          <div class="col-md-12"><strong>Address:</strong> <span id="dvAddress"></span></div>
+          <div class="col-md-6"><strong>Calling Date:</strong> <span id="dvCallDate"></span></div>
+          <div class="col-md-6"><strong>Next Followup:</strong> <span id="dvNextFollowup"></span></div>
+          <div class="col-md-6"><strong>Require Quantity:</strong> <span id="dvQty"></span></div>
+          <div class="col-md-6"><strong>Interested In:</strong> <span id="dvItems"></span></div>
+          <div class="col-md-12"><strong>Custom Requirements:</strong> <span id="dvCallingRemark"></span></div>
+          <div class="col-md-12"><strong>Full Remark:</strong> <span id="dvNotes"></span></div>
+          <div class="col-md-6"><strong>Deals in:</strong> <span id="dvCategory"></span></div>
+          <div class="col-md-6"><strong>Purchase Quantity:</strong> <span id="dvPurchaseQty"></span></div>
+          <div class="col-md-6"><strong>Selling Quantity:</strong> <span id="dvSaleQty"></span></div>
+          <div class="col-md-6"><strong>Indian/Imported:</strong> <span id="dvDealsIn"></span></div>
+          <div class="col-md-6"><strong>Whom to Sale:</strong> <span id="dvWhomToSell"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Dealer Edit Modal -->
+<div class="modal fade" id="dealerEditModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form id="dealerEditForm" method="post" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+      <input type="hidden" name="call_id" id="deId">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">Edit Dealer</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold">Business Name <span class="text-danger">*</span></label>
+            <input type="text" name="business_name" id="deBusinessName" class="form-control form-control-sm" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold">Type</label>
+            <select name="dealer_type" id="deType" class="form-select form-select-sm">
+              <option value="retail">Retail</option>
+              <option value="wholesale">Wholesale</option>
+              <option value="corporate">Corporate</option>
+              <option value="service">Service</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Person Name</label>
+            <input type="text" name="contact_person" id="deContactPerson" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Status</label>
+            <select name="status" id="deStatus" class="form-select form-select-sm">
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="blacklisted">Blacklisted</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Phone</label>
+            <input type="text" name="phone" id="dePhone" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Email</label>
+            <input type="text" name="email" id="deEmail" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-12">
+            <label class="form-label small">Address</label>
+            <textarea name="address" id="deAddress" class="form-control form-control-sm" rows="2"></textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Require Quantity</label>
+            <input type="number" name="qty" id="deQty" class="form-control form-control-sm" min="0">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Next Followup</label>
+            <input type="date" name="next_followup_date" id="deNextFollowup" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-12">
+            <label class="form-label small">Interested In</label>
+            <input type="text" name="items_discussed" id="deItems" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-12">
+            <label class="form-label small">Custom Requirements</label>
+            <textarea name="calling_remark" id="deCallingRemark" class="form-control form-control-sm" rows="2"></textarea>
+          </div>
+          <div class="col-md-12">
+            <label class="form-label small">Full Remark</label>
+            <textarea name="notes" id="deNotes" class="form-control form-control-sm" rows="2"></textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Deals in</label>
+            <input type="text" name="category" id="deCategory" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Selling Quantity</label>
+            <input type="number" name="sale_quantity" id="deSaleQty" class="form-control form-control-sm" min="0">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Indian/Imported</label>
+            <input type="text" name="deals_in" id="deDealsIn" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Whom to Sale</label>
+            <input type="text" name="whom_to_sell" id="deWhomToSell" class="form-control form-control-sm">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-save me-1"></i>Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {% endblock %}
-{% block scripts %}{% endblock %}
+{% block scripts %}
+<script>
+function openDealerViewModal(d){
+  document.getElementById('dvId').textContent = d.dealer_code;
+  document.getElementById('dvOutcome').textContent = d.outcome ? d.outcome.replace(/_/g,' ') : '—';
+  document.getElementById('dvType').textContent = d.dealer_type || '—';
+  document.getElementById('dvStatus').textContent = d.status || '—';
+  document.getElementById('dvBusinessName').textContent = d.business_name || '—';
+  document.getElementById('dvPerson').textContent = d.contact_person || '—';
+  document.getElementById('dvPhone').textContent = d.phone || '—';
+  document.getElementById('dvEmail').textContent = d.email || '—';
+  document.getElementById('dvAddress').textContent = d.address || '—';
+  document.getElementById('dvCallDate').textContent = d.call_date || '—';
+  document.getElementById('dvNextFollowup').textContent = d.next_followup_date || '—';
+  document.getElementById('dvQty').textContent = (d.qty !== null && d.qty !== undefined) ? d.qty : '—';
+  document.getElementById('dvItems').textContent = d.items_discussed || '—';
+  document.getElementById('dvCallingRemark').textContent = d.calling_remark || '—';
+  document.getElementById('dvNotes').textContent = d.notes || '—';
+  document.getElementById('dvCategory').textContent = d.category || '—';
+  document.getElementById('dvPurchaseQty').textContent = (d.qty !== null && d.qty !== undefined) ? d.qty : '—';
+  document.getElementById('dvSaleQty').textContent = (d.sale_quantity !== null && d.sale_quantity !== undefined) ? d.sale_quantity : '—';
+  document.getElementById('dvDealsIn').textContent = d.deals_in || '—';
+  document.getElementById('dvWhomToSell').textContent = d.whom_to_sell || '—';
+  new bootstrap.Modal(document.getElementById('dealerViewModal')).show();
+}
+
+function openDealerEditModal(d){
+  document.getElementById('dealerEditForm').action = '/dealers/' + d.id + '/quick-edit';
+  document.getElementById('deId').value = d.call_id || '';
+  document.getElementById('deBusinessName').value = d.business_name || '';
+  document.getElementById('deType').value = d.dealer_type || 'retail';
+  document.getElementById('deContactPerson').value = d.contact_person || '';
+  document.getElementById('deStatus').value = d.status || 'active';
+  document.getElementById('dePhone').value = d.phone || '';
+  document.getElementById('deEmail').value = d.email || '';
+  document.getElementById('deAddress').value = d.address || '';
+  document.getElementById('deQty').value = (d.qty !== null && d.qty !== undefined) ? d.qty : '';
+  document.getElementById('deNextFollowup').value = d.next_followup_date || '';
+  document.getElementById('deItems').value = d.items_discussed || '';
+  document.getElementById('deCallingRemark').value = d.calling_remark || '';
+  document.getElementById('deNotes').value = d.notes || '';
+  document.getElementById('deCategory').value = d.category || '';
+  document.getElementById('deSaleQty').value = (d.sale_quantity !== null && d.sale_quantity !== undefined) ? d.sale_quantity : '';
+  document.getElementById('deDealsIn').value = d.deals_in || '';
+  document.getElementById('deWhomToSell').value = d.whom_to_sell || '';
+  new bootstrap.Modal(document.getElementById('dealerEditModal')).show();
+}
+</script>
+{% endblock %}

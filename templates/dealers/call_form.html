@@ -101,98 +101,9 @@
                         placeholder="What was discussed, any special requirements...">{{ edit_call.notes or '' if edit_call else '' }}</textarea>
             </div>
             <div class="col-12">
-              <label class="form-label fw-semibold">Calling Remark</label>
+              <label class="form-label fw-semibold">Custom Requirements</label>
               <textarea name="calling_remark" class="form-control" rows="2"
                         placeholder="Notes specific to this call">{{ edit_call.calling_remark or '' if edit_call else '' }}</textarea>
-            </div>
-          </div>
-
-          <hr class="my-4">
-          <h6 class="fw-semibold text-muted mb-3"><i class="bi bi-clipboard-data me-1"></i>Deal Details</h6>
-          <div class="row g-3">
-            <div class="col-md-4">
-              <label class="form-label fw-semibold">Category</label>
-              <select name="category" class="form-select">
-                <option value="">Select...</option>
-                {% for val in tc_options.category %}
-                <option value="{{ val }}" {% if edit_call and edit_call.category == val %}selected{% endif %}>{{ val }}</option>
-                {% endfor %}
-              </select>
-              <div class="form-text">Options managed under <a href="/admin/master?tab=sales" target="_blank">Master &rarr; Telecalling</a></div>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label fw-semibold">Model</label>
-              <select name="product_model" class="form-select">
-                <option value="">Select...</option>
-                {% for val in tc_options.product_model %}
-                <option value="{{ val }}" {% if edit_call and edit_call.product_model == val %}selected{% endif %}>{{ val }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label fw-semibold">Configuration</label>
-              <select name="configuration" class="form-select">
-                <option value="">Select...</option>
-                {% for val in tc_options.configuration %}
-                <option value="{{ val }}" {% if edit_call and edit_call.configuration == val %}selected{% endif %}>{{ val }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label fw-semibold">QTY</label>
-              <input type="number" name="qty" class="form-control" min="0"
-                     value="{{ edit_call.qty if edit_call and edit_call.qty is not none else '' }}">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label fw-semibold">Asking Price (₹)</label>
-              <input type="number" name="asking_price" class="form-control" step="0.01" min="0"
-                     value="{{ edit_call.asking_price or '' if edit_call else '' }}">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label fw-semibold">Status</label>
-              <select name="deal_status" class="form-select">
-                <option value="">Select...</option>
-                {% for val in tc_options.deal_status %}
-                <option value="{{ val }}" {% if edit_call and edit_call.deal_status == val %}selected{% endif %}>{{ val }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label fw-semibold">Ready / Lot</label>
-              <select name="stock_type" class="form-select">
-                <option value="">Select...</option>
-                {% for val in tc_options.stock_type %}
-                <option value="{{ val }}" {% if edit_call and edit_call.stock_type == val %}selected{% endif %}>{{ val }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-12">
-              <label class="form-label fw-semibold">Requirements / Preferred Configuration of Sample</label>
-              <textarea name="requirements_preferred_config" class="form-control" rows="2"
-                        placeholder="Sample unit spec the customer wants to see first">{{ edit_call.requirements_preferred_config or '' if edit_call else '' }}</textarea>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label fw-semibold">Whom To Sale</label>
-              <select name="whom_to_sell" class="form-select">
-                <option value="">Select...</option>
-                {% for val in tc_options.whom_to_sell %}
-                <option value="{{ val }}" {% if edit_call and edit_call.whom_to_sell == val %}selected{% endif %}>{{ val }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label fw-semibold">Sale Quantity</label>
-              <input type="number" name="sale_quantity" class="form-control" min="0"
-                     value="{{ edit_call.sale_quantity if edit_call and edit_call.sale_quantity is not none else '' }}">
-            </div>
-            <div class="col-md-4">
-              <label class="form-label fw-semibold">Deals In</label>
-              <select name="deals_in" class="form-select">
-                <option value="">Select...</option>
-                {% for val in tc_options.deals_in %}
-                <option value="{{ val }}" {% if edit_call and edit_call.deals_in == val %}selected{% endif %}>{{ val }}</option>
-                {% endfor %}
-              </select>
             </div>
             <div class="col-md-6">
               <label class="form-label fw-semibold">Assigned To</label>

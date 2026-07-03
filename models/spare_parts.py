@@ -6,6 +6,15 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from database import Base
 
+# Part Category options for Add New Line Item / Add Harvest Part — sourced from
+# the hardware component field names on the IQC entry page (templates/iqc/form.html),
+# not invented independently, so the two stay aligned as IQC fields change.
+IQC_PART_CATEGORIES = [
+    "RAM", "HDD", "SSD", "Screen", "Battery", "Charging Port", "Keyboard",
+    "Touchpad", "HDMI Port", "USB Port", "Ethernet Port", "Audio Jack",
+    "Speaker", "Wi-Fi", "Webcam", "DVD Drive", "Fan", "Hinge", "Other",
+]
+
 
 class SparePart(Base):
     __tablename__ = "spare_parts"

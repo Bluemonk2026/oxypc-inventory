@@ -14,7 +14,7 @@
               <input type="text" name="part_code" class="form-control font-monospace" value="{{ next_code }}" required>
             </div>
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Category</label>
+              <label class="form-label fw-semibold">Part Category</label>
               <select name="category" class="form-select" required>
                 {% for cat in categories %}<option>{{ cat }}</option>{% endfor %}
               </select>

@@ -22,6 +22,8 @@ class PartRequest(Base):
 
     part_id = Column(UUID(as_uuid=True), ForeignKey("spare_parts.id"), nullable=True)
     part_name = Column(String(150), nullable=False)        # fixed-list label snapshot
+    part_category = Column(String(100), nullable=True)     # selected in the New Request/Replace modal
+    request_type = Column(String(10), nullable=False, default="new")  # new | replace
 
     requested_by = Column(String(50), nullable=True)       # engineer username
     engineer_name = Column(String(100), nullable=True)

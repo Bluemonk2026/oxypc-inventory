@@ -393,6 +393,7 @@ async def device_detail(
         existing = req_by_part.get(row["label"])
         parts_consumption.append({
             "label": row["label"],
+            "category": sp.category if sp else row["category"],
             "required": row["required"],
             "in_stock": stock > 0,
             "stock_qty": stock,
@@ -400,6 +401,16 @@ async def device_detail(
             "part_code": sp.part_code if sp else None,
             "request": existing,
         })
+
+    # ── All active spare parts, for the New Request/Replace modal's
+    #    Part Category -> Part Name cascade (client-side filtered). ──────────
+    all_parts_result = await db.execute(
+        select(SparePart).order_by(SparePart.category, SparePart.name)
+    )
+    all_spare_parts = [
+        {"id": str(sp.id), "name": sp.name, "category": sp.category}
+        for sp in all_parts_result.scalars().all()
+    ]
 
     # ── Work ID History — all WorkOrders assigned to this device ──────────────
     work_orders = (await db.execute(
@@ -446,6 +457,7 @@ async def device_detail(
         "iqc_inspection": iqc_inspection,
         "stress_data": stress_data,
         "parts_consumption": parts_consumption,
+        "all_spare_parts": all_spare_parts,
         "work_orders": work_orders,
         "repair_status": repair_status,
     })

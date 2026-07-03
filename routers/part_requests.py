@@ -42,6 +42,8 @@ async def create_part_request(
     barcode: str = Form(...),
     part_name: str = Form(...),
     part_id: str = Form(""),
+    part_category: str = Form(""),
+    request_type: str = Form("new"),
     qty: int = Form(1),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(eng_allowed),
@@ -61,6 +63,8 @@ async def create_part_request(
         work_id=wo.work_id if wo else None,
         device_id=device.id, barcode=device.barcode, stage=stage,
         part_id=_as_uuid(part_id), part_name=part_name,
+        part_category=part_category.strip() or None,
+        request_type=request_type.strip() or "new",
         requested_by=current_user.username, engineer_name=current_user.full_name,
         qty_requested=max(1, qty), status="requested",
     )

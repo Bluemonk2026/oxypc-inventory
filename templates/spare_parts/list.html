@@ -273,7 +273,7 @@
       <table id="partReqTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark"><tr>
           <th><input type="checkbox" class="form-check-input sp-sa" data-tbl="partReqTable"></th>
-          <th>WorkID</th><th>Tag Number</th><th>Engineer</th><th>Part Name</th>
+          <th>WorkID</th><th>Tag Number</th><th>Engineer</th><th>Part Name</th><th>Part Category</th>
           <th>Qty Requested</th><th>Qty Handover</th><th>QTY Available</th><th>Action</th>
         </tr></thead>
         <tbody>
@@ -286,6 +286,7 @@
             <td><a href="/devices/{{ r.barcode }}" class="font-monospace text-decoration-none">{{ r.barcode }}</a></td>
             <td>{{ r.engineer_name or r.requested_by or '—' }}</td>
             <td class="fw-semibold">{{ r.part_name }}</td>
+            <td>{{ r.part_category or '—' }}</td>
             <td>{{ r.qty_requested }}</td>
             <td>{{ r.qty_handed_over or '—' }}</td>
             <td><span class="badge {{ 'bg-success' if sufficient else 'bg-danger' }}">{{ stock }}</span></td>
@@ -312,7 +313,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="9" class="text-center text-muted py-4">No part requests.</td></tr>
+          <tr><td colspan="10" class="text-center text-muted py-4">No part requests.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -537,13 +538,10 @@
               </select>
             </div>
             <div class="col-md-4">
-              <label class="form-label small fw-semibold">Category</label>
+              <label class="form-label small fw-semibold">Part Category</label>
               <select name="category" class="form-select form-select-sm">
                 <option value="">— Select —</option>
-                <option>RAM</option><option>HDD</option><option>SSD</option><option>Battery</option>
-                <option>Screen</option><option>Keyboard</option><option>Charger</option>
-                <option>Motherboard</option><option>Cable</option><option>Adapter</option>
-                <option>Fan</option><option>Speaker</option><option>Webcam</option><option>Other</option>
+                {% for c in harvest_categories %}<option>{{ c }}</option>{% endfor %}
               </select>
             </div>
             <div class="col-md-4">

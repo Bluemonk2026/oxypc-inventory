@@ -12,7 +12,7 @@ from database import get_db
 from models.user import User, UserRole
 from models.device import Device
 from models.lot import Lot
-from models.spare_parts import SparePart, SparePartPurchase, SparePartConsumption, RAMTracking
+from models.spare_parts import SparePart, SparePartPurchase, SparePartConsumption, RAMTracking, IQC_PART_CATEGORIES
 from models.repair import RepairJob, RepairStatus
 from models.engines import SparePartsLedger
 from models.part_request import PartRequest, PartSourcingRequest
@@ -123,6 +123,7 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         "part_reqs": part_reqs, "part_stock": part_stock, "sourcing": sourcing,
         "deal_map": deal_map,
         "grn_docs": {},
+        "harvest_categories": IQC_PART_CATEGORIES,
     })
 
 

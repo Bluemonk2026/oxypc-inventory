@@ -296,27 +296,14 @@
                 {% elif _eng %}
                 <div class="d-flex align-items-center gap-1 flex-wrap">
                   <input type="number" id="qty_ref_{{ loop.index }}" value="1" min="1" class="form-control form-control-sm" style="width:56px" {% if not p.required %}disabled{% endif %}>
-                  <form method="post" action="/part-requests/create" class="d-inline" onsubmit="var b=this.querySelector('button[type=submit]'); b.disabled=true; b.innerHTML='<i class=\'bi bi-hourglass-split\'></i> Submitting…';">
-                    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-                    <input type="hidden" name="barcode" value="{{ device.barcode }}">
-                    <input type="hidden" name="part_name" value="{{ p.label }}">
-                    <input type="hidden" name="part_id" value="{{ p.part_id }}">
-                    <input type="number" name="qty" value="1" min="1" class="d-none">
-                    <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2" {% if not p.required %}disabled{% endif %}
-                            onclick="this.form.querySelector('[name=qty]').value=document.getElementById('qty_ref_{{ loop.index }}').value"><i class="bi bi-bag-plus"></i> New Request</button>
-                  </form>
-                  <form method="post" action="/part-requests/create" class="d-inline" onsubmit="var b=this.querySelector('button[type=submit]'); b.disabled=true; b.innerHTML='<i class=\'bi bi-hourglass-split\'></i> Submitting…';">
-                    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-                    <input type="hidden" name="barcode" value="{{ device.barcode }}">
-                    <input type="hidden" name="part_name" value="{{ p.label }}">
-                    <input type="hidden" name="part_id" value="{{ p.part_id }}">
-                    <input type="hidden" name="request_type" value="replace">
-                    <input type="number" name="qty" value="1" min="1" class="d-none">
-                    <button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-2" {% if not p.required %}disabled{% endif %}
-                            onmouseenter="if(!this.disabled)this.classList.replace('btn-outline-secondary','btn-outline-warning')"
-                            onmouseleave="this.classList.replace('btn-outline-warning','btn-outline-secondary')"
-                            onclick="this.form.querySelector('[name=qty]').value=document.getElementById('qty_ref_{{ loop.index }}').value"><i class="bi bi-arrow-repeat"></i> Replace</button>
-                  </form>
+                  <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2" {% if not p.required %}disabled{% endif %}
+                          onclick="openPartRequestModal('new', document.getElementById('qty_ref_{{ loop.index }}').value, '{{ p.category | e }}')">
+                    <i class="bi bi-bag-plus"></i> New Request</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" {% if not p.required %}disabled{% endif %}
+                          onmouseenter="if(!this.disabled)this.classList.replace('btn-outline-secondary','btn-outline-warning')"
+                          onmouseleave="this.classList.replace('btn-outline-warning','btn-outline-secondary')"
+                          onclick="openPartRequestModal('replace', document.getElementById('qty_ref_{{ loop.index }}').value, '{{ p.category | e }}')">
+                    <i class="bi bi-arrow-repeat"></i> Replace</button>
                 </div>
                 {% else %}<span class="text-muted">—</span>{% endif %}
               </td>
@@ -326,6 +313,94 @@
         </table>
       </div>
     </div>
+    {% endif %}
+
+    <!-- New Request / Replace modal — Part Category -> Part Name cascade -->
+    {% if parts_consumption is defined %}
+    <div class="modal fade" id="partRequestModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <form method="post" action="/part-requests/create" id="partRequestForm"
+              onsubmit="var b=this.querySelector('button[type=submit]'); b.disabled=true; b.innerHTML='<i class=\'bi bi-hourglass-split\'></i> Submitting…';">
+          <div class="modal-content">
+            <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+            <input type="hidden" name="barcode" value="{{ device.barcode }}">
+            <input type="hidden" name="request_type" id="pr_request_type" value="new">
+            <input type="hidden" name="part_id" id="pr_part_id" value="">
+            <div class="modal-header">
+              <h6 class="modal-title fw-semibold" id="pr_modal_title"><i class="bi bi-bag-plus me-2"></i>New Part Request</h6>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label form-label-sm mb-1">Part Category</label>
+                  <select id="pr_category" class="form-select form-select-sm" onchange="prFillPartNames()">
+                    <option value="">— Select —</option>
+                  </select>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label form-label-sm mb-1">Part Name</label>
+                  <select name="part_name" id="pr_part_name" class="form-select form-select-sm" required
+                          onchange="document.getElementById('pr_part_id').value = this.selectedOptions[0]?.dataset.id || ''">
+                    <option value="">— Select a category first —</option>
+                  </select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label form-label-sm mb-1">Quantity</label>
+                  <input type="number" name="qty" id="pr_qty" class="form-control form-control-sm" min="1" value="1" required>
+                </div>
+                <input type="hidden" name="part_category" id="pr_part_category">
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-check-lg me-1"></i>Submit Request</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+    <script>
+      const ALL_SPARE_PARTS = {{ all_spare_parts | tojson }};
+
+      function prFillPartNames() {
+        var cat = document.getElementById('pr_category').value;
+        document.getElementById('pr_part_category').value = cat;
+        var nameSel = document.getElementById('pr_part_name');
+        var matches = ALL_SPARE_PARTS.filter(function(sp) { return sp.category === cat; });
+        if (!cat) {
+          nameSel.innerHTML = '<option value="">— Select a category first —</option>';
+        } else if (!matches.length) {
+          nameSel.innerHTML = '<option value="">No parts in this category</option>';
+        } else {
+          nameSel.innerHTML = matches.map(function(sp) {
+            return '<option value="' + sp.name.replace(/"/g,'&quot;') + '" data-id="' + sp.id + '">' + sp.name + '</option>';
+          }).join('');
+        }
+        document.getElementById('pr_part_id').value = nameSel.selectedOptions[0]?.dataset.id || '';
+      }
+
+      function openPartRequestModal(requestType, qty, prefillCategory) {
+        document.getElementById('pr_request_type').value = requestType;
+        document.getElementById('pr_qty').value = qty || 1;
+        document.getElementById('pr_modal_title').innerHTML = requestType === 'replace'
+          ? '<i class="bi bi-arrow-repeat me-2"></i>Replace Part'
+          : '<i class="bi bi-bag-plus me-2"></i>New Part Request';
+
+        var catSel = document.getElementById('pr_category');
+        var categories = [...new Set(ALL_SPARE_PARTS.map(function(sp) { return sp.category; }))].sort();
+        catSel.innerHTML = '<option value="">— Select —</option>' +
+          categories.map(function(c) { return '<option value="' + c + '">' + c + '</option>'; }).join('');
+        if (prefillCategory && categories.includes(prefillCategory)) {
+          catSel.value = prefillCategory;
+        } else {
+          catSel.value = '';
+        }
+        prFillPartNames();
+
+        new bootstrap.Modal(document.getElementById('partRequestModal')).show();
+      }
+    </script>
     {% endif %}
 
     <!-- Stage Timeline -->

@@ -16,7 +16,7 @@ from sqlalchemy import select, func
 from database import get_db
 from models.user import User, UserRole
 from models.parts_grn import PartsGRN, PartsGRNLineItem
-from models.spare_parts import SparePart
+from models.spare_parts import SparePart, IQC_PART_CATEGORIES
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from services.audit_engine import audit
 from config import UPLOADS_DIR
@@ -28,8 +28,7 @@ PARTS_GRN_DIR = os.path.join(UPLOADS_DIR, "parts_grn")
 os.makedirs(PARTS_GRN_DIR, exist_ok=True)
 
 MAIN_CATEGORIES = ["Hardware", "Accessories", "Consumables", "Other"]
-CATEGORIES = ["RAM", "HDD", "SSD", "Battery", "Screen", "Keyboard",
-              "Charger", "Motherboard", "Cable", "Adapter", "Fan", "Speaker", "Webcam", "Other"]
+CATEGORIES = IQC_PART_CATEGORIES  # sourced from IQC entry page field names
 
 
 def _f(v: str | None) -> str | None:

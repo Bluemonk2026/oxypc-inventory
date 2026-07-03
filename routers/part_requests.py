@@ -203,6 +203,15 @@ async def verify_sourcing(sr_id: str, request: Request,
             ))
             part.qty_in_stock += sr.qty_sourced
 
+    # Revert the originating Part Request from "procure" back to "requested"
+    # now that stock is available — Part Request tab's Status column then
+    # shows "Available" and its Action column shows the Handover button
+    # again (instead of "Sent for Sourcing").
+    if sr.part_request_id:
+        pr = (await db.execute(select(PartRequest).where(PartRequest.id == sr.part_request_id))).scalar_one_or_none()
+        if pr and pr.status == "procure":
+            pr.status = "requested"
+
     await audit(db, user=current_user, action="SOURCING_VERIFIED", table_name="part_sourcing_requests",
                 record_id=str(sr.id), new_value={"verified_by": current_user.username, "qty_sourced": sr.qty_sourced},
                 request=request)

@@ -290,8 +290,8 @@
                             onclick="verifyPartReceived('{{ r.id }}')">
                       <i class="bi bi-check2-circle"></i> Verify &times;{{ r.qty_handed_over }}
                     </button>
-                    <span id="changedPill_{{ r.id }}" class="badge bg-primary d-none">Changed</span>
-                  {% elif r.status == 'received' %}<span class="badge bg-primary">Changed</span>
+                    <span id="changedPill_{{ r.id }}" class="badge bg-primary d-none">Part Changed</span>
+                  {% elif r.status == 'received' %}<span class="badge bg-primary">Part Changed</span>
                   {% elif r.status == 'not_in_stock' %}<span class="badge bg-danger">Not In Stock</span>
                   {% elif r.status == 'procure' %}<span class="badge bg-info text-dark">Sent for Sourcing</span>
                   {% else %}<span class="badge bg-secondary">{{ r.status }}</span>{% endif %}

@@ -180,8 +180,10 @@
 
 <!-- Model Based Table -->
 <div class="card border-0 shadow-sm mt-3">
-  <div class="card-header bg-white py-2">
+  <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
     <strong class="small"><i class="bi bi-collection me-1"></i>Model Based Summary</strong>
+    <input type="text" id="modelSearchBox" class="form-control form-control-sm" style="width:220px"
+           placeholder="Search Model Names…">
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -223,8 +225,10 @@
 
 <!-- Lot Based Table -->
 <div class="card border-0 shadow-sm mt-3">
-  <div class="card-header bg-white py-2">
+  <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
     <strong class="small"><i class="bi bi-box-seam me-1"></i>Lot Based Summary</strong>
+    <input type="text" id="lotSearchBox" class="form-control form-control-sm" style="width:220px"
+           placeholder="Search Model Names…">
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -242,10 +246,17 @@
             <th>Selling Price</th>
             <th>Actual Selling</th>
             <th>Remarks</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
           {% for l in lot_summary %}
+          {% set ld_data = {
+            'lot_number': l.lot_number,
+            'supplier_name': l.supplier_name,
+            'buying_price': l.buying_price,
+            'tags': l.tags,
+          } %}
           <tr>
             <td class="small">{{ l.lot_number }}</td>
             <td class="small">{{ l.purchase_date.strftime('%d-%m-%Y') if l.purchase_date else '—' }}</td>
@@ -258,10 +269,16 @@
             <td class="small">{% if l.selling_price is not none %}₹{{ "{:,.0f}".format(l.selling_price) }}{% else %}—{% endif %}</td>
             <td class="small">₹{{ "{:,.0f}".format(l.actual_selling) }}</td>
             <td class="small">{{ l.notes }}</td>
+            <td class="text-nowrap">
+              <button type="button" class="btn btn-xs btn-outline-primary py-0 px-1 small"
+                      title="View" onclick='showLotDetail({{ ld_data | tojson }})'>
+                <i class="bi bi-eye"></i>
+              </button>
+            </td>
           </tr>
           {% endfor %}
           {% if not lot_summary %}
-          <tr><td colspan="11" class="text-center text-muted small py-3">No lots found.</td></tr>
+          <tr><td colspan="12" class="text-center text-muted small py-3">No lots found.</td></tr>
           {% endif %}
         </tbody>
       </table>
@@ -303,12 +320,39 @@
   </div>
 </div>
 
+<!-- Lot Detail Modal -->
+<div class="modal fade" id="lotDetailModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title" id="lotDetailTitle">Lot Detail</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Tag Number</th>
+                <th>Quantity</th>
+                <th>Supplier Name</th>
+                <th>Buying Price</th>
+              </tr>
+            </thead>
+            <tbody id="ldTagsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 {% block scripts %}
 <script>
 $(document).ready(function() {
   var dt = $('#devicesTable').DataTable({
-    pageLength: 25,
+    pageLength: 10,
     order: [],
     columnDefs: [{ orderable: false, targets: [0, -1] }],
     dom: '<"d-flex justify-content-between align-items-center mb-2"lf>t<"d-flex justify-content-between"ip>',
@@ -329,6 +373,28 @@ $(document).ready(function() {
   $('#devicesTable').on('change', '.rowChk', updateSel);
   // Keep select-all box in sync when paging
   dt.on('draw', function(){ $('#selectAllChk').prop('checked', false); updateSel(); });
+
+  // Model Based table — paginated + Model Names search box
+  var dtModel = $('#modelSummaryTable').DataTable({
+    pageLength: 10,
+    order: [],
+    columnDefs: [{ orderable: false, targets: [-1] }],
+    dom: '<"d-flex justify-content-between align-items-center mb-2"lp>t<"d-flex justify-content-between"ip>',
+  });
+  $('#modelSearchBox').on('keyup', function(){
+    dtModel.column(0).search(this.value).draw();
+  });
+
+  // Lot Based table — paginated + search box
+  var dtLot = $('#lotSummaryTable').DataTable({
+    pageLength: 10,
+    order: [],
+    columnDefs: [{ orderable: false, targets: [-1] }],
+    dom: '<"d-flex justify-content-between align-items-center mb-2"lp>t<"d-flex justify-content-between"ip>',
+  });
+  $('#lotSearchBox').on('keyup', function(){
+    dtLot.search(this.value).draw();
+  });
 });
 
 function showModelDetail(g){
@@ -340,13 +406,27 @@ function showModelDetail(g){
   $('#mdTotalPrice').text(Number(g.total_price || 0).toLocaleString('en-IN'));
   var rows = '';
   (g.tags || []).forEach(function(t){
-    rows += '<tr><td class="small font-monospace">' + t.barcode + '</td>' +
+    rows += '<tr><td class="small"><a href="/devices/' + encodeURIComponent(t.barcode) + '" target="_blank" class="font-monospace text-decoration-none">' + t.barcode + '</a></td>' +
             '<td class="small">' + t.location_id + '</td>' +
             '<td class="small">' + t.location_type + '</td>' +
             '<td class="small">' + t.grade + '</td></tr>';
   });
   $('#mdTagsBody').html(rows || '<tr><td colspan="4" class="text-center text-muted small py-2">No tags.</td></tr>');
   var modal = new bootstrap.Modal(document.getElementById('modelDetailModal'));
+  modal.show();
+}
+
+function showLotDetail(l){
+  $('#lotDetailTitle').text('Lot ' + l.lot_number);
+  var rows = '';
+  (l.tags || []).forEach(function(t){
+    rows += '<tr><td class="small"><a href="/devices/' + encodeURIComponent(t.barcode) + '" target="_blank" class="font-monospace text-decoration-none">' + t.barcode + '</a></td>' +
+            '<td class="small">' + (t.qty || 1) + '</td>' +
+            '<td class="small">' + (l.supplier_name || '—') + '</td>' +
+            '<td class="small">₹' + Number(l.buying_price || 0).toLocaleString('en-IN') + '</td></tr>';
+  });
+  $('#ldTagsBody').html(rows || '<tr><td colspan="4" class="text-center text-muted small py-2">No tags.</td></tr>');
+  var modal = new bootstrap.Modal(document.getElementById('lotDetailModal'));
   modal.show();
 }
 

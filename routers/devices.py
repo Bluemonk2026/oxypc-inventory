@@ -256,6 +256,15 @@ async def _build_lot_summary(db: AsyncSession) -> list:
     )).all()
     actual_selling_map = {str(lot_id): float(total or 0) for lot_id, total in actual_selling_rows}
 
+    # Per-lot tag numbers (Device -> barcode/qty) for the View modal
+    device_rows = (await db.execute(
+        select(Device.lot_id, Device.barcode, Device.qty)
+        .where(Device.lot_id.in_([l.id for l in lots]), Device.is_trashed == False)
+    )).all()
+    tags_by_lot: dict = {}
+    for lot_id, barcode, qty in device_rows:
+        tags_by_lot.setdefault(str(lot_id), []).append({"barcode": barcode, "qty": qty or 1})
+
     summary = []
     for l in lots:
         summary.append({
@@ -270,6 +279,7 @@ async def _build_lot_summary(db: AsyncSession) -> list:
             "selling_price": float(l.selling_price) if l.selling_price is not None else None,
             "actual_selling": actual_selling_map.get(str(l.id), 0.0),
             "notes": l.notes or "—",
+            "tags": tags_by_lot.get(str(l.id), []),
         })
     return summary
 

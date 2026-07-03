@@ -291,7 +291,9 @@
             <td>{{ r.qty_handed_over or '—' }}</td>
             <td><span class="badge {{ 'bg-success' if available else 'bg-danger' }}">{{ stock }}</span></td>
             <td>
-              {% if r.status == 'procure' %}
+              {% if r.status in ('handed_over', 'received') %}
+              <span class="badge bg-primary">Handedover</span>
+              {% elif r.status == 'procure' %}
               <span class="badge bg-info text-dark">Sent for Sourcing</span>
               {% elif stock == 0 %}
               <span class="badge bg-danger">Not in Stock</span>

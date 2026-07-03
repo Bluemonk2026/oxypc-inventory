@@ -16,9 +16,10 @@ from models.user import User
 from utils.timezone import app_now
 from models.crm import (
     CRMLeadGroup, CRMLead, CRMLeadCall,
-    ACTIVITY_OUTCOMES, LEAD_PLATFORMS, LEAD_CONTACT_MODES, LEAD_DEVICE_CATEGORIES,
+    LEAD_PLATFORMS, LEAD_CONTACT_MODES, LEAD_DEVICE_CATEGORIES,
     LEAD_DEALING_GRADES, LEAD_WHOM_TO_SELL, LEAD_DEALS_IN,
 )
+from models.master import MasterData
 
 router = APIRouter(
     prefix="/crm/assign-leads",
@@ -35,7 +36,24 @@ _STATUS_BADGE = {
     "followup":       "info text-dark",
     "done":           "dark",
     "rescheduled":    "light text-dark border",
+    "not_in_stock":   "danger",
+    "high_price":     "warning text-dark",
+    "invalid_no":     "dark",
 }
+
+# Pills shown as per-group counts in each accordion header
+PILL_STATUSES = ["interested", "not_interested", "callback", "followup", "no_answer", "invalid_no"]
+
+
+async def _asl_status_options(db: AsyncSession) -> list:
+    """Status dropdown options for Assign Social Leads (call log modal + filter) —
+    admin-managed via /admin/master, Assign Social Leads section."""
+    result = await db.execute(
+        select(MasterData.value)
+        .where(MasterData.category == "asl_status", MasterData.is_active == True)
+        .order_by(MasterData.display_order, MasterData.value)
+    )
+    return [row[0] for row in result.all()]
 
 
 async def _next_lead_id(db: AsyncSession) -> str:
@@ -116,6 +134,7 @@ async def list_assign_leads(
     q: str = Query(default=""),
     customer: str = Query(default=""),
     assigned: str = Query(default=""),
+    status: str = Query(default=""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -126,8 +145,9 @@ async def list_assign_leads(
     groups_result = await db.execute(gq)
     groups = groups_result.scalars().all()
 
-    # Leads for these groups (with optional customer / assigned filters)
+    # Leads for these groups (with optional customer / assigned / status filters)
     leads_by_group: dict[str, list[dict]] = {}
+    pills_by_group: dict[str, dict] = {}
     if groups:
         group_ids = [g.id for g in groups]
         lq = (
@@ -142,13 +162,19 @@ async def list_assign_leads(
             )
         if assigned:
             lq = lq.where(CRMLead.assigned_to == assigned)
+        if status:
+            lq = lq.where(CRMLead.call_status == status)
         leads_result = await db.execute(lq)
         all_leads = leads_result.scalars().all()
         latest_calls = await _latest_calls_map(db, [l.id for l in all_leads])
         for lead in all_leads:
-            leads_by_group.setdefault(str(lead.group_id), []).append(
+            gid = str(lead.group_id)
+            leads_by_group.setdefault(gid, []).append(
                 _lead_dict(lead, latest_calls.get(str(lead.id)))
             )
+            pills = pills_by_group.setdefault(gid, {s: 0 for s in PILL_STATUSES})
+            if lead.call_status in pills:
+                pills[lead.call_status] += 1
 
     # All active users for assign dropdown
     users_result = await db.execute(
@@ -157,20 +183,24 @@ async def list_assign_leads(
     all_users = users_result.scalars().all()
 
     summary = await _compute_summary(db, q=q, customer=customer, assigned=assigned)
+    asl_status_options = await _asl_status_options(db)
 
     return templates.TemplateResponse("crm/assign_leads.html", {
         "request":          request,
         "current_user":     current_user,
         "groups":           groups,
         "leads_by_group":   leads_by_group,
+        "pills_by_group":   pills_by_group,
+        "pill_statuses":    PILL_STATUSES,
         "all_users":        all_users,
         "q":                q,
         "customer":         customer,
         "assigned":         assigned,
+        "status":           status,
         "platforms":        LEAD_PLATFORMS,
         "contact_modes":    LEAD_CONTACT_MODES,
         "device_categories": LEAD_DEVICE_CATEGORIES,
-        "outcomes":         ACTIVITY_OUTCOMES,
+        "outcomes":         asl_status_options,
         "dealing_grades_options": LEAD_DEALING_GRADES,
         "whom_to_sell_options":   LEAD_WHOM_TO_SELL,
         "deals_in_options":       LEAD_DEALS_IN,
@@ -271,8 +301,13 @@ async def get_group_leads(
     )
     leads = result.scalars().all()
     latest_calls = await _latest_calls_map(db, [l.id for l in leads])
+    pills = {s: 0 for s in PILL_STATUSES}
+    for l in leads:
+        if l.call_status in pills:
+            pills[l.call_status] += 1
     return JSONResponse({
         "leads": [_lead_dict(l, latest_calls.get(str(l.id))) for l in leads],
+        "pills": pills,
     })
 
 

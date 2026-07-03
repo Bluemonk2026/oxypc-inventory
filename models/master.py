@@ -192,4 +192,10 @@ MASTER_SEED = {
     "tc_stock_type": [
         "Ready Stock", "Lot",
     ],
+    # ── Assign Social Leads: call log / filter Status (admin-manageable) ──────
+    "asl_status": [
+        "interested", "not_interested", "callback", "order_placed",
+        "no_answer", "followup", "done", "rescheduled",
+        "not_in_stock", "high_price", "invalid_no",
+    ],
 }

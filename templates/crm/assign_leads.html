@@ -86,7 +86,7 @@
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body py-2 px-3">
     <form method="get" action="/crm/assign-leads" class="row g-2 align-items-end" id="filterForm">
-      <div class="col-sm-3">
+      <div class="col-sm-2">
         <input type="text" name="q" id="filterQ" class="form-control form-control-sm"
                placeholder="Search Ad Name" value="{{ q }}">
       </div>
@@ -94,13 +94,21 @@
         <input type="text" name="customer" id="filterCustomer" class="form-control form-control-sm"
                placeholder="Search Customer (name/phone/email)" value="{{ customer }}">
       </div>
-      <div class="col-sm-3">
+      <div class="col-sm-2">
         <select name="assigned" id="filterAssigned" class="form-select form-select-sm">
           <option value="">All Assigned Users</option>
           {% for u in all_users %}
           <option value="{{ u.username }}" {% if assigned == u.username %}selected{% endif %}>
             {{ u.full_name }}
           </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-sm-2">
+        <select name="status" id="filterStatus" class="form-select form-select-sm">
+          <option value="">All Statuses</option>
+          {% for o in outcomes %}
+          <option value="{{ o }}" {% if status == o %}selected{% endif %}>{{ o | replace('_',' ') | title }}</option>
           {% endfor %}
         </select>
       </div>
@@ -130,6 +138,7 @@
 {% for group in groups %}
 {% set gid = group.id | string %}
 {% set group_leads = leads_by_group.get(gid, []) %}
+{% set group_pills = pills_by_group.get(gid, {}) %}
 
 <div class="accordion-item border rounded mb-2 shadow-sm" id="grp-{{ gid }}">
   {# Header row: expand toggle (left) + action buttons (right) #}
@@ -139,6 +148,14 @@
             aria-expanded="false" aria-controls="gc-{{ gid }}">
       <span class="grp-name" id="grp-name-{{ gid }}">{{ group.name }}</span>
       <span class="badge bg-secondary fw-normal ms-2" id="grp-count-{{ gid }}">{{ group_leads | length }} lead{{ 's' if group_leads | length != 1 else '' }}</span>
+      <span class="d-inline-flex flex-wrap gap-1 ms-2" id="grp-pills-{{ gid }}">
+        <span class="badge bg-success fw-normal">Interested {{ group_pills.get('interested', 0) }}</span>
+        <span class="badge bg-danger fw-normal">Not Interested {{ group_pills.get('not_interested', 0) }}</span>
+        <span class="badge bg-warning text-dark fw-normal">Callback {{ group_pills.get('callback', 0) }}</span>
+        <span class="badge bg-info text-dark fw-normal">Followup {{ group_pills.get('followup', 0) }}</span>
+        <span class="badge bg-secondary fw-normal">No Answer {{ group_pills.get('no_answer', 0) }}</span>
+        <span class="badge bg-dark fw-normal">Invalid No {{ group_pills.get('invalid_no', 0) }}</span>
+      </span>
     </button>
     <div class="d-flex align-items-center gap-1 pe-2 flex-shrink-0">
       <a href="/crm/assign-leads/sample"
@@ -681,7 +698,18 @@ function esc(s) {
 const STATUS_BADGE = {
   interested:'success', not_interested:'danger', callback:'warning text-dark',
   order_placed:'primary', no_answer:'secondary', followup:'info text-dark',
-  done:'dark', rescheduled:'light text-dark border'
+  done:'dark', rescheduled:'light text-dark border',
+  not_in_stock:'danger', high_price:'warning text-dark', invalid_no:'dark'
+};
+
+const PILL_STATUSES = ['interested','not_interested','callback','followup','no_answer','invalid_no'];
+const PILL_LABELS = {
+  interested:'Interested', not_interested:'Not Interested', callback:'Callback',
+  followup:'Followup', no_answer:'No Answer', invalid_no:'Invalid No'
+};
+const PILL_BADGE = {
+  interested:'success', not_interested:'danger', callback:'warning text-dark',
+  followup:'info text-dark', no_answer:'secondary', invalid_no:'dark'
 };
 
 function statusLabel(s) {
@@ -731,7 +759,7 @@ function leadRowHtml(ld) {
   </tr>`;
 }
 
-/* ── Refresh one group's rows + count badge (no page reload) ── */
+/* ── Refresh one group's rows + count badge + status pills (no page reload) ── */
 async function refreshGroup(groupId) {
   const data = await apiFetch(`/crm/assign-leads/group/${groupId}/leads`);
   const tbody = document.getElementById(`tbody-${groupId}`);
@@ -744,6 +772,13 @@ async function refreshGroup(groupId) {
   }
   const countEl = document.getElementById(`grp-count-${groupId}`);
   if (countEl) countEl.textContent = `${data.leads.length} lead${data.leads.length !== 1 ? 's' : ''}`;
+
+  const pillsEl = document.getElementById(`grp-pills-${groupId}`);
+  if (pillsEl && data.pills) {
+    pillsEl.innerHTML = PILL_STATUSES.map(s =>
+      `<span class="badge bg-${PILL_BADGE[s]} fw-normal">${PILL_LABELS[s]} ${data.pills[s] || 0}</span>`
+    ).join('');
+  }
 }
 
 /* ── Refresh summary cards (mirrors the two card rows above) ── */
@@ -799,6 +834,9 @@ function newGroupItemHtml(gid, name) {
               aria-expanded="false" aria-controls="gc-${gid}">
         <span class="grp-name" id="grp-name-${gid}">${esc(name)}</span>
         <span class="badge bg-secondary fw-normal ms-2" id="grp-count-${gid}">0 leads</span>
+        <span class="d-inline-flex flex-wrap gap-1 ms-2" id="grp-pills-${gid}">
+          ${PILL_STATUSES.map(s => `<span class="badge bg-${PILL_BADGE[s]} fw-normal">${PILL_LABELS[s]} 0</span>`).join('')}
+        </span>
       </button>
       <div class="d-flex align-items-center gap-1 pe-2 flex-shrink-0">
         <a href="/crm/assign-leads/sample" class="btn btn-outline-teal py-0 px-2" style="font-size:.75rem;line-height:1.6">Sample</a>

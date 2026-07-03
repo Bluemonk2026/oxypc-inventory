@@ -51,6 +51,10 @@ ACCORDION_SECTIONS = [
             "tc_deal_status", "tc_whom_to_sell", "tc_deals_in", "tc_stock_type",
         ],
     },
+    {
+        "id": "assign_leads", "label": "Assign Social Leads", "icon": "bi-person-lines-fill",
+        "cat_keys": ["asl_status"],
+    },
 ]
 
 # ── Module list for Tab 2 (Permission Matrix) ─────────────────────────────────
@@ -186,6 +190,8 @@ CATEGORIES = [
     ("tc_whom_to_sell",     "Telecalling: Whom To Sale",     "sales"),
     ("tc_deals_in",         "Telecalling: Deals In",         "sales"),
     ("tc_stock_type",       "Telecalling: Ready / Lot",      "sales"),
+    # ── Assign Social Leads ────────────────────────────────────────
+    ("asl_status",          "Assign Leads: Status",          "sales"),
 ]
 
 # Group by tab

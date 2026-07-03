@@ -348,8 +348,10 @@ async def report(
 ):
     today = app_now().date()
 
+    # Default view is today only — older history is opt-in via the date
+    # range filter (previously defaulted to month-to-date).
     if not date_from:
-        date_from = date(today.year, today.month, 1).isoformat()
+        date_from = today.isoformat()
     if not date_to:
         date_to = today.isoformat()
 
@@ -357,7 +359,7 @@ async def report(
         d_from = date.fromisoformat(date_from)
         d_to = date.fromisoformat(date_to)
     except ValueError:
-        d_from = date(today.year, today.month, 1)
+        d_from = today
         d_to = today
         date_from = d_from.isoformat()
         date_to = d_to.isoformat()
@@ -433,6 +435,15 @@ async def report(
     )
     users = u_res.scalars().all()
 
+    # Role per user_id, for the report's "Role" column
+    role_map = {}
+    user_ids = {r.user_id for r in records if r.user_id}
+    if user_ids:
+        role_rows = (await db.execute(
+            select(User.id, User.role).where(User.id.in_(user_ids))
+        )).all()
+        role_map = {str(uid): role for uid, role in role_rows}
+
     return templates.TemplateResponse(
         "attendance/report.html",
         {
@@ -445,6 +456,7 @@ async def report(
             "user_id": user_id or "",
             "status_filter": status_filter or "",
             "users": users,
+            "role_map": role_map,
             "status_choices": ["present", "absent", "half_day", "late", "wfh"],
             "total": len(records),
             "total_hours": round(total_hours, 1),

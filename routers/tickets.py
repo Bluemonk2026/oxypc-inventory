@@ -61,11 +61,10 @@ async def list_tickets(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(Ticket)
-        .where(Ticket.raised_by == current_user.username)
-        .order_by(Ticket.raised_on.desc())
-    )
+    query = select(Ticket).order_by(Ticket.raised_on.desc())
+    if current_user.role.value != "admin":
+        query = query.where(Ticket.raised_by == current_user.username)
+    result = await db.execute(query)
     tickets = [_ticket_ctx(t) for t in result.scalars().all()]
     return templates.TemplateResponse("tickets/list.html", {
         "request": request,
@@ -103,12 +102,10 @@ async def close_ticket(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(Ticket).where(
-            Ticket.ticket_id == ticket_id,
-            Ticket.raised_by == current_user.username,
-        )
-    )
+    conditions = [Ticket.ticket_id == ticket_id]
+    if current_user.role.value != "admin":
+        conditions.append(Ticket.raised_by == current_user.username)
+    result = await db.execute(select(Ticket).where(*conditions))
     ticket = result.scalar_one_or_none()
     if not ticket:
         return JSONResponse({"error": "Ticket not found."}, status_code=404)

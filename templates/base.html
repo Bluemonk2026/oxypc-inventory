@@ -571,14 +571,20 @@
 <script src="/static/js/barcode.js"></script>
 {% block scripts %}{% endblock %}
 <script>
-/* Sidebar always starts at the top on page load — no scroll-position
-   persistence. A previous version restored the last-saved scrollTop from
-   sessionStorage, but a saved position from a longer/differently-expanded
-   sidebar state simply clamps to the max scroll on a shorter page, which
-   looked like the sidebar "auto-scrolling to the bottom" on load. */
+/* Keep the sidebar's scroll position stable across page navigations.
+   Rather than storing/restoring a raw scrollTop (which broke before —
+   a saved offset from one page doesn't necessarily match another page's
+   sidebar height and can clamp to the bottom), just make sure the current
+   page's active nav link is visible. scrollIntoView({block:'nearest'})
+   only moves the scroll position if the active link isn't already
+   visible, so a link near the top of the viewport stays exactly where
+   it was instead of jumping the whole sidebar back to the top. */
 (function () {
   var sidebar = document.getElementById('sidebar');
-  if (sidebar) sidebar.scrollTop = 0;
+  var active  = sidebar ? sidebar.querySelector('.nav-link.active') : null;
+  if (active) {
+    active.scrollIntoView({ block: 'nearest' });
+  }
 })();
 </script>
 <!-- Raise Ticket Modal (global — available on every page) -->

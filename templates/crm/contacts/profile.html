@@ -105,25 +105,19 @@
           <input type="hidden" name="contact_id" value="{{ contact.id }}">
           <input type="hidden" name="redirect_to" value="/crm/contacts/{{ contact.id }}">
           <div class="col-md-3">
+            {% set activity_type_emoji = {'call': '📞', 'whatsapp': '💬', 'visit': '🤝', 'email': '📧', 'meeting': '👥', 'note': '📝'} %}
             <select name="activity_type" class="form-select form-select-sm">
-              <option value="call">📞 Call</option>
-              <option value="whatsapp">💬 WhatsApp</option>
-              <option value="visit">🤝 Visit</option>
-              <option value="email">📧 Email</option>
-              <option value="meeting">👥 Meeting</option>
-              <option value="note">📝 Note</option>
+              {% for t in master_options('crm_activity_type') %}
+              <option value="{{ t }}">{{ activity_type_emoji.get(t, '') }} {{ t | title }}</option>
+              {% endfor %}
             </select>
           </div>
           <div class="col-md-3">
             <select name="outcome" class="form-select form-select-sm">
               <option value="">Outcome…</option>
-              <option value="interested">Interested</option>
-              <option value="not_interested">Not Interested</option>
-              <option value="callback">Callback</option>
-              <option value="order_placed">Order Placed</option>
-              <option value="no_answer">No Answer</option>
-              <option value="followup">Follow-up</option>
-              <option value="done">Done</option>
+              {% for o in master_options('crm_activity_outcome') %}
+              <option value="{{ o }}">{{ o | replace('_',' ') | title }}</option>
+              {% endfor %}
             </select>
           </div>
           <div class="col-md-6">

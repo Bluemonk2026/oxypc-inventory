@@ -241,11 +241,24 @@ async def export_devices(
     stage: str = "",
     lot: str = "",
     grade: str = "",
+    category: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(view_allowed),
 ):
-    """Export device search results as CSV."""
-    query = select(Device, Lot.lot_number).join(Lot, Device.lot_id == Lot.id)
+    """Export device search results as CSV.
+
+    Filters mirror the main /devices search route exactly (same is_trashed
+    exclusion, same outer join, same category filter) so what's on screen
+    is always what gets exported — a previous version silently diverged
+    from the list route (missing category filter, missing is_trashed
+    filter, and an inner join that dropped devices with no lot assigned
+    yet), which could make the export look "empty" relative to the list.
+    """
+    query = (
+        select(Device, Lot.lot_number)
+        .outerjoin(Lot, Device.lot_id == Lot.id)
+        .where(Device.is_trashed == False)
+    )
     filters = []
     if q:
         q_like = f"%{q}%"
@@ -262,6 +275,8 @@ async def export_devices(
         filters.append(Lot.lot_number.ilike(f"%{lot}%"))
     if grade:
         filters.append(Device.grade == grade)
+    if category:
+        filters.append(Device.sub_category == category)
     for f in filters:
         query = query.where(f)
     query = query.order_by(Device.updated_at.desc())
@@ -355,6 +370,15 @@ async def device_detail(
     # Current location for this device
     loc_map = await _build_location_map(db, [device.id])
     current_location = loc_map.get(str(device.id))
+
+    # Assigned Storage Location (Location ID / Location Type / Zone) — the
+    # device's own location_id FK, distinct from current_location above
+    # (which is derived from the most recent DeviceLocationLog entry).
+    assigned_location = None
+    if device.location_id:
+        assigned_location = (await db.execute(
+            select(StorageLocation).where(StorageLocation.id == device.location_id)
+        )).scalar_one_or_none()
 
     # IQC inspection (for stress report display)
     iqc_result = await db.execute(
@@ -454,6 +478,7 @@ async def device_detail(
         "warranty_label": warranty_label,
         "stage_labels": STAGE_LABELS,
         "current_location": current_location,
+        "assigned_location": assigned_location,
         "iqc_inspection": iqc_inspection,
         "stress_data": stress_data,
         "parts_consumption": parts_consumption,

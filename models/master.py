@@ -276,4 +276,12 @@ MASTER_SEED = {
     "cosmetic_final_qc_status": ["pass", "fail"],
     # ── IQC ────────────────────────────────────────────────────────────────────
     "iqc_r2v3_grade_category": ["C0", "C3", "C4", "C5"],
+    # ── Parts: Part Category — shared by Add New Part, Add Line Item, Add
+    #    Harvest Part, and the Device Detail New Request/Replace modal, so
+    #    all four always offer the exact same option set. ────────────────────
+    "iqc_part_category": [
+        "RAM", "HDD", "SSD", "Screen", "Battery", "Charging Port", "Keyboard",
+        "Touchpad", "HDMI Port", "USB Port", "Ethernet Port", "Audio Jack",
+        "Speaker", "Wi-Fi", "Webcam", "DVD Drive", "Fan", "Hinge", "Other",
+    ],
 }

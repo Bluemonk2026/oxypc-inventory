@@ -69,7 +69,7 @@
             onclick="submitBulkTrash()" title="Move selected devices to Trash">
       <i class="bi bi-trash3 me-1"></i>Delete Selected (<span id="selCount">0</span>)
     </button>
-    <a href="/devices/export?q={{ q }}&stage={{ stage }}&lot={{ lot }}&grade={{ grade }}"
+    <a href="/devices/export?q={{ q | urlencode }}&stage={{ stage | urlencode }}&lot={{ lot | urlencode }}&grade={{ grade | urlencode }}&category={{ category | urlencode }}"
        class="btn btn-sm btn-outline-success">
       <i class="bi bi-download me-1"></i>Export CSV
     </a>

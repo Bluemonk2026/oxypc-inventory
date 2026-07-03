@@ -37,7 +37,7 @@ ACCORDION_SECTIONS = [
             "repair_resolution", "part_category", "qc_check_item",
             "repair_action_taken", "repair_received_from", "repair_scrap_reason",
             "repair_source_type", "qc_failure_reason", "cosmetic_final_qc_status",
-            "iqc_r2v3_grade_category",
+            "iqc_r2v3_grade_category", "iqc_part_category",
         ],
     },
     {
@@ -214,6 +214,7 @@ CATEGORIES = [
     ("qc_failure_reason",   "Cosmetic/QC: Failure Reason",  "repair"),
     ("cosmetic_final_qc_status", "Cosmetic: Final QC Status", "repair"),
     ("iqc_r2v3_grade_category", "IQC: R2V3 Grade Category",  "repair"),
+    ("iqc_part_category",   "Parts: Part Category",         "repair"),
     # ── Inventory / Logistics ─────────────────────────────────────
     ("floor",               "Floors / Locations",           "inventory"),
     ("warehouse",           "Warehouses / Zones",           "inventory"),

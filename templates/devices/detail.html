@@ -131,7 +131,9 @@
             <tr><th class="ps-3 text-muted small w-40">GRN Number</th><td>{% if device.grn_number %}<a href="/grn?highlight={{ device.grn_number|urlencode }}" class="text-decoration-none font-monospace" title="View in GRN Import">{{ device.grn_number }}</a>{% else %}—{% endif %}</td></tr>
             <tr><th class="ps-3 text-muted small">Invoice No.</th><td class="font-monospace small">{{ lot.invoice_no if lot and lot.invoice_no else '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">Serial No.</th><td class="font-monospace small">{{ device.serial_no or '—' }}</td></tr>
-            <tr><th class="ps-3 text-muted small">Floor</th><td>{{ device.floor or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Location ID</th><td class="font-monospace small">{{ assigned_location.unit_id if assigned_location else '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Location Type</th><td>{{ assigned_location.unit_type_label if assigned_location else '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Zone</th><td>{{ assigned_location.zone_label if assigned_location else '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">Warehouse</th><td>{{ device.warehouse or '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">Return Status</th>
               <td><span class="badge bg-{{ 'warning text-dark' if device.return_status else 'secondary' }}">{{ 'Yes' if device.return_status else 'No' }}</span></td></tr>
@@ -362,6 +364,9 @@
     </div>
     <script>
       const ALL_SPARE_PARTS = {{ all_spare_parts | tojson }};
+      // Same canonical list as the Add New Part / Add Line Item / Add Harvest
+      // Part modals' Part Category dropdown (admin-managed via Master Data).
+      const PART_CATEGORY_OPTIONS = {{ master_options('iqc_part_category') | tojson }};
 
       function prFillPartNames() {
         var cat = document.getElementById('pr_category').value;
@@ -388,10 +393,9 @@
           : '<i class="bi bi-bag-plus me-2"></i>New Part Request';
 
         var catSel = document.getElementById('pr_category');
-        var categories = [...new Set(ALL_SPARE_PARTS.map(function(sp) { return sp.category; }))].sort();
         catSel.innerHTML = '<option value="">— Select —</option>' +
-          categories.map(function(c) { return '<option value="' + c + '">' + c + '</option>'; }).join('');
-        if (prefillCategory && categories.includes(prefillCategory)) {
+          PART_CATEGORY_OPTIONS.map(function(c) { return '<option value="' + c + '">' + c + '</option>'; }).join('');
+        if (prefillCategory && PART_CATEGORY_OPTIONS.includes(prefillCategory)) {
           catSel.value = prefillCategory;
         } else {
           catSel.value = '';

@@ -16,7 +16,8 @@ from sqlalchemy import select, func
 from database import get_db
 from models.user import User, UserRole
 from models.parts_grn import PartsGRN, PartsGRNLineItem
-from models.spare_parts import SparePart, IQC_PART_CATEGORIES
+from models.spare_parts import SparePart
+from utils.master_data import master_values
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from services.audit_engine import audit
 from config import UPLOADS_DIR
@@ -28,7 +29,6 @@ PARTS_GRN_DIR = os.path.join(UPLOADS_DIR, "parts_grn")
 os.makedirs(PARTS_GRN_DIR, exist_ok=True)
 
 MAIN_CATEGORIES = ["Hardware", "Accessories", "Consumables", "Other"]
-CATEGORIES = IQC_PART_CATEGORIES  # sourced from IQC entry page field names
 
 
 def _f(v: str | None) -> str | None:
@@ -105,7 +105,7 @@ async def grn_new_form(request: Request, db: AsyncSession = Depends(get_db),
     return templates.TemplateResponse("spare_parts/parts_grn_form.html", {
         "request": request, "current_user": current_user,
         "grn": None, "grn_number": grn_number, "line_items": [],
-        "main_categories": MAIN_CATEGORIES, "categories": CATEGORIES,
+        "main_categories": MAIN_CATEGORIES, "categories": await master_values(db, "iqc_part_category"),
     })
 
 
@@ -228,7 +228,7 @@ async def grn_detail(grn_id: str, request: Request, db: AsyncSession = Depends(g
     return templates.TemplateResponse("spare_parts/parts_grn_form.html", {
         "request": request, "current_user": current_user,
         "grn": grn, "grn_number": grn.grn_number, "line_items": line_items,
-        "main_categories": MAIN_CATEGORIES, "categories": CATEGORIES,
+        "main_categories": MAIN_CATEGORIES, "categories": await master_values(db, "iqc_part_category"),
     })
 
 

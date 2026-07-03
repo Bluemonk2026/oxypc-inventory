@@ -12,7 +12,8 @@ from database import get_db
 from models.user import User, UserRole
 from models.device import Device
 from models.lot import Lot
-from models.spare_parts import SparePart, SparePartPurchase, SparePartConsumption, RAMTracking, IQC_PART_CATEGORIES
+from models.spare_parts import SparePart, SparePartPurchase, SparePartConsumption, RAMTracking
+from utils.master_data import master_values
 from models.repair import RepairJob, RepairStatus
 from models.engines import SparePartsLedger
 from models.part_request import PartRequest, PartSourcingRequest
@@ -21,9 +22,6 @@ from services.audit_engine import audit
 
 router = APIRouter(tags=["spare_parts"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.spare_parts_manager)
-
-PART_CATEGORIES = ["RAM", "HDD", "SSD", "Battery", "Screen", "Keyboard",
-                   "Charger", "Motherboard", "Cable", "Other"]
 
 
 async def _next_part_code(db: AsyncSession) -> str:
@@ -123,7 +121,7 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         "part_reqs": part_reqs, "part_stock": part_stock, "sourcing": sourcing,
         "deal_map": deal_map,
         "grn_docs": {},
-        "harvest_categories": IQC_PART_CATEGORIES,
+        "harvest_categories": await master_values(db, "iqc_part_category"),
     })
 
 
@@ -132,7 +130,7 @@ async def new_part_form(request: Request, db: AsyncSession = Depends(get_db),
                         current_user: User = Depends(allowed)):
     next_code = await _next_part_code(db)
     return templates.TemplateResponse("spare_parts/part_form.html", {
-        "request": request, "next_code": next_code, "categories": PART_CATEGORIES,
+        "request": request, "next_code": next_code, "categories": await master_values(db, "iqc_part_category"),
         "current_user": current_user, "error": None,
     })
 
@@ -168,7 +166,7 @@ async def edit_part_form(part_id: str, request: Request,
     if not part:
         raise HTTPException(404, "Part not found")
     return templates.TemplateResponse("spare_parts/edit_form.html", {
-        "request": request, "part": part, "categories": PART_CATEGORIES,
+        "request": request, "part": part, "categories": await master_values(db, "iqc_part_category"),
         "current_user": current_user, "error": None,
     })
 

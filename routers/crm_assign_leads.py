@@ -22,7 +22,7 @@ from models.crm import (
 from models.master import MasterData
 
 router = APIRouter(
-    prefix="/crm/assign-leads",
+    prefix="/crm/assign-social-leads",
     tags=["crm-assign-leads"],
     dependencies=[Depends(verify_csrf)],
 )
@@ -293,12 +293,14 @@ async def get_summary(
 @router.get("/group/{group_id}/leads")
 async def get_group_leads(
     group_id: str,
+    status: str = Query(default=""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(CRMLead).where(CRMLead.group_id == group_id).order_by(CRMLead.created_at.desc())
-    )
+    query = select(CRMLead).where(CRMLead.group_id == group_id)
+    if status:
+        query = query.where(CRMLead.call_status == status)
+    result = await db.execute(query.order_by(CRMLead.created_at.desc()))
     leads = result.scalars().all()
     latest_calls = await _latest_calls_map(db, [l.id for l in leads])
     pills = {s: 0 for s in PILL_STATUSES}

@@ -924,7 +924,10 @@ async def stock_in_list(
         "departments": STOCK_DEPARTMENTS,
         "cost_parts_map": cost_parts_map, "location_map": location_map,
         "page": page, "page_size": page_size, "total": total, "total_pages": total_pages,
-        "zone_options": [(z.value, ZONE_LABELS.get(z, z.value)) for z in ZoneType],
+        "zone_options": [
+            (z.value, ZONE_LABELS.get(z, z.value))
+            for z in [ZoneType.workshop, ZoneType.holding, ZoneType.dispatch, ZoneType.showroom, ZoneType.warehouse]
+        ],
         "unit_type_options": [(u.value, UNIT_TYPE_LABELS.get(u, u.value)) for u in UnitType],
     })
 

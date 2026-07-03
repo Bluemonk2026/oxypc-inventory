@@ -120,10 +120,8 @@
             <div class="col-md-6">
               <label class="form-label fw-semibold">Zone <span class="text-danger">*</span></label>
               <select name="zone" class="form-select" required>
-                {% for z in zone_types %}
-                {% if z.value in ("showroom", "warehouse", "workshop", "holding") %}
+                {% for z in add_location_zone_types %}
                 <option value="{{ z.value }}">{{ zone_labels[z] }}</option>
-                {% endif %}
                 {% endfor %}
               </select>
             </div>
@@ -174,10 +172,8 @@
             <div class="col-md-6">
               <label class="form-label fw-semibold">Zone <span class="text-danger">*</span></label>
               <select name="zone" id="editLocZone" class="form-select" required>
-                {% for z in zone_types %}
-                {% if z.value in ("showroom", "warehouse", "workshop", "holding") %}
+                {% for z in add_location_zone_types %}
                 <option value="{{ z.value }}">{{ zone_labels[z] }}</option>
-                {% endif %}
                 {% endfor %}
               </select>
             </div>

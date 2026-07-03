@@ -171,6 +171,9 @@ async def location_master(
         "unit_types": list(UnitType),
         "zone_labels": ZONE_LABELS,
         "unit_type_labels": UNIT_TYPE_LABELS,
+        "add_location_zone_types": [
+            ZoneType.workshop, ZoneType.holding, ZoneType.dispatch, ZoneType.showroom, ZoneType.warehouse,
+        ],
     })
 
 

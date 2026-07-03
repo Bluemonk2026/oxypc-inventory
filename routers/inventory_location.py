@@ -129,10 +129,13 @@ async def location_master(
     )
     locations = result.scalars().all()
 
-    # Count devices per location (latest log = placed_back or assigned or moved)
-    loc_counts = {}
-    for loc in locations:
-        sub = (
+    # Count devices per location (latest log = placed_back or assigned or moved).
+    # Single query for all locations at once (was previously one query per
+    # location, each re-scanning the whole DeviceLocationLog table — O(N)
+    # round-trips that got slower as more locations/logs were added).
+    loc_counts = {str(loc.id): 0 for loc in locations}
+    if locations:
+        latest_sub = (
             select(
                 DeviceLocationLog.device_id,
                 func.max(DeviceLocationLog.logged_at).label("latest")
@@ -140,25 +143,24 @@ async def location_master(
             .group_by(DeviceLocationLog.device_id)
             .subquery()
         )
-        cnt_result = await db.execute(
-            select(func.count()).select_from(
-                select(DeviceLocationLog)
-                .join(sub, and_(
-                    DeviceLocationLog.device_id == sub.c.device_id,
-                    DeviceLocationLog.logged_at == sub.c.latest,
-                ))
-                .where(
-                    DeviceLocationLog.location_id == loc.id,
-                    DeviceLocationLog.action.in_([
-                        LocationAction.assigned,
-                        LocationAction.placed_back,
-                        LocationAction.moved,
-                    ])
-                )
-                .subquery()
+        count_rows = (await db.execute(
+            select(DeviceLocationLog.location_id, func.count().label("cnt"))
+            .join(latest_sub, and_(
+                DeviceLocationLog.device_id == latest_sub.c.device_id,
+                DeviceLocationLog.logged_at == latest_sub.c.latest,
+            ))
+            .where(
+                DeviceLocationLog.location_id.in_([loc.id for loc in locations]),
+                DeviceLocationLog.action.in_([
+                    LocationAction.assigned,
+                    LocationAction.placed_back,
+                    LocationAction.moved,
+                ])
             )
-        )
-        loc_counts[str(loc.id)] = cnt_result.scalar() or 0
+            .group_by(DeviceLocationLog.location_id)
+        )).all()
+        for location_id, cnt in count_rows:
+            loc_counts[str(location_id)] = cnt
 
     return templates.TemplateResponse("location/master.html", {
         "request": request,

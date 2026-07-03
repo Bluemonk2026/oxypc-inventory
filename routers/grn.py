@@ -35,7 +35,7 @@ async def _next_grn_number(db: AsyncSession) -> str:
     today = app_now().strftime("%Y%m%d")
     result = await db.execute(
         select(func.count(Lot.id)).where(
-            Lot.grn_number_new.like(f"GRN-{today}-%")
+            Lot.grn_system_number.like(f"GRN-{today}-%")
         )
     )
     n = (result.scalar() or 0) + 1
@@ -424,7 +424,7 @@ async def submit_grn(
 
     # Store GRN info on lot record
     lot.qty = received_qty   # update with actual received qty
-    lot.grn_number_new = grn_number
+    lot.grn_system_number = grn_number
     lot.grn_date = app_now()
 
     # Audit

@@ -395,9 +395,18 @@ async def records(
     if not date_to:
         date_to = today.isoformat()
 
+    try:
+        _date_from = date.fromisoformat(date_from)
+    except ValueError:
+        _date_from = today
+    try:
+        _date_to = date.fromisoformat(date_to)
+    except ValueError:
+        _date_to = today
+
     filters = [
-        func.date(TelecallingRecord.call_date) >= date_from,
-        func.date(TelecallingRecord.call_date) <= date_to,
+        func.date(TelecallingRecord.call_date) >= _date_from,
+        func.date(TelecallingRecord.call_date) <= _date_to,
     ]
     if agent:
         filters.append(TelecallingRecord.called_by == agent)

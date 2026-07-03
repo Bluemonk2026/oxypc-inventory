@@ -183,7 +183,16 @@
           <td><code>{{ s.part_code or '—' }}</code></td>
           <td class="fw-semibold">{{ s.part_name }}</td>
           <td>{{ s.qty_requested }}</td>
-          <td>{{ s.qty_sourced }}{% if s.source_deal_id %} <span class="text-muted small">({{ s.source_deal_id }})</span>{% endif %}</td>
+          <td>{{ s.qty_sourced }}
+            {% if s.source_deal_id %}
+              {% set _linked_deal = deal_map.get(s.source_deal_id) %}
+              {% if _linked_deal %}
+                <a href="/crm/sourcing/{{ s.source_deal_id }}" class="small">({{ _linked_deal.deal_number }})</a>
+              {% else %}
+                <span class="text-muted small">({{ s.source_deal_id }})</span>
+              {% endif %}
+            {% endif %}
+          </td>
           <td>{{ s.raised_by or '—' }}</td>
           <td>
             {% if s.status == 'open' and _sm %}
@@ -212,8 +221,13 @@
       </div>
       <div class="modal-body">
         <div class="mb-3"><span class="text-muted small">Part:</span> <strong id="cd_part">—</strong></div>
-        <label class="form-label fw-semibold">Source Deal ID</label>
-        <input type="text" name="source_deal_id" class="form-control mb-3" placeholder="e.g. SRC-2026-001" required>
+        <label class="form-label fw-semibold">Sourcing Deal</label>
+        <select name="source_deal_id" class="form-select mb-3" required>
+          <option value="" disabled selected>Select sourcing deal…</option>
+          {% for d in sourcing_deals_for_close %}
+          <option value="{{ d.id }}">{{ d.deal_number }} — {{ d.title[:60] }}{% if d.title|length > 60 %}…{% endif %}</option>
+          {% endfor %}
+        </select>
         <label class="form-label fw-semibold">Sourced Quantity</label>
         <input type="number" name="qty_sourced" class="form-control" min="0" value="1" required>
       </div>

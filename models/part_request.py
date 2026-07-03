@@ -1,6 +1,6 @@
 import uuid
 from utils.timezone import app_now
-from sqlalchemy import Column, String, DateTime, Integer, ForeignKey, Text
+from sqlalchemy import Column, String, DateTime, Integer, ForeignKey, Text, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from database import Base
@@ -58,8 +58,13 @@ class PartSourcingRequest(Base):
 
     raised_by = Column(String(50), nullable=True)          # spare parts manager username
     status = Column(String(10), nullable=False, default="open", index=True)  # open | closed
-    source_deal_id = Column(String(50), nullable=True)     # entered at Close Deal
+    source_deal_id = Column(String(50), nullable=True)     # sourcing deal UUID string, set at Close Deal
 
     created_at = Column(DateTime, default=app_now)
     closed_at = Column(DateTime, nullable=True)
     closed_by = Column(String(50), nullable=True)
+
+    # Verify step (Part Master, Sourcing Requests tab) — independent of Close Deal
+    verified = Column(Boolean, nullable=False, default=False, server_default="false")
+    verified_at = Column(DateTime, nullable=True)
+    verified_by = Column(String(50), nullable=True)

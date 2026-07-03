@@ -296,7 +296,7 @@
                 {% elif _eng %}
                 <div class="d-flex align-items-center gap-1 flex-wrap">
                   <input type="number" id="qty_ref_{{ loop.index }}" value="1" min="1" class="form-control form-control-sm" style="width:56px" {% if not p.required %}disabled{% endif %}>
-                  <form method="post" action="/part-requests/create" class="d-inline">
+                  <form method="post" action="/part-requests/create" class="d-inline" onsubmit="var b=this.querySelector('button[type=submit]'); b.disabled=true; b.innerHTML='<i class=\'bi bi-hourglass-split\'></i> Submitting…';">
                     <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                     <input type="hidden" name="barcode" value="{{ device.barcode }}">
                     <input type="hidden" name="part_name" value="{{ p.label }}">
@@ -305,7 +305,7 @@
                     <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2" {% if not p.required %}disabled{% endif %}
                             onclick="this.form.querySelector('[name=qty]').value=document.getElementById('qty_ref_{{ loop.index }}').value"><i class="bi bi-bag-plus"></i> New Request</button>
                   </form>
-                  <form method="post" action="/part-requests/create" class="d-inline">
+                  <form method="post" action="/part-requests/create" class="d-inline" onsubmit="var b=this.querySelector('button[type=submit]'); b.disabled=true; b.innerHTML='<i class=\'bi bi-hourglass-split\'></i> Submitting…';">
                     <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                     <input type="hidden" name="barcode" value="{{ device.barcode }}">
                     <input type="hidden" name="part_name" value="{{ p.label }}">

@@ -38,7 +38,7 @@
       <div class="card-body p-0">
         <div class="table-responsive">
           <table id="l3Table" class="table table-hover mb-0 small">
-            <thead class="table-dark"><tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Location</th><th>Parts Required</th><th>Parts Requested</th><th>Notes</th><th>Timeline</th><th>Action</th></tr></thead>
+            <thead class="table-dark"><tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Location</th><th>Parts Required</th><th>Parts Requested</th><th>Notes</th><th>Aging</th><th>Action</th></tr></thead>
             <tbody>
               {% for device, lot_number in devices %}
               {% set wo = work_map.get(device.id|string) if work_map is defined else None %}

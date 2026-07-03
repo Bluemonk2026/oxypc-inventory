@@ -15,6 +15,7 @@ from models.bucket import Bucket, _new_bucket_number
 from models.master import MasterData
 from models.stock_transfer import StockTransfer
 from models.work_order import WorkOrder
+from models.location import StorageLocation
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from services.notifications import create_notification
 
@@ -70,15 +71,26 @@ async def list_buckets(
     )).all()
     count_map = {str(r[0]): r[1] for r in count_rows}
 
+    loc_map = {}
+    loc_ids = {b.location_id for b in rows if b.location_id}
+    if loc_ids:
+        loc_rows = (await db.execute(
+            select(StorageLocation).where(StorageLocation.id.in_(loc_ids))
+        )).scalars().all()
+        loc_map = {l.id: l for l in loc_rows}
+
     return JSONResponse([{
         "id": str(b.id),
         "bucket_number": b.bucket_number,
         "name": b.name or "",
         "location": b.location or "",
+        "location_unit_id": loc_map[b.location_id].unit_id if b.location_id in loc_map else "",
+        "location_type": loc_map[b.location_id].unit_type_label if b.location_id in loc_map else "",
         "category": b.category or "",
         "status": b.status,
         "device_count": count_map.get(str(b.id), 0),
         "received_qty": b.received_qty,
+        "assigned_to_production": bool(b.assigned_to_production),
     } for b in rows])
 
 
@@ -147,6 +159,28 @@ async def bucket_engineers(
     } for u in rows])
 
 
+@router.get("/api/production-manager")
+async def production_manager(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Returns the current Production Manager for the Assign-to-Production modal.
+    Judgment call: this system has no dedicated 'production_manager' UserRole —
+    routers/stock.py already treats UserRole.inventory_manager as the Production
+    Manager role for TRC/bucket operations (see `allowed = require_roles(admin,
+    inventory_manager)` at the top of stock.py and buckets.py), so we reuse it
+    here rather than inventing a new role that would require a schema-review
+    approval for a new enum value."""
+    mgr = (await db.execute(
+        select(User).where(User.role == UserRole.inventory_manager, User.status == True)
+        .order_by(User.full_name).limit(1)
+    )).scalar_one_or_none()
+    if not mgr:
+        return JSONResponse({"id": None, "name": None})
+    return JSONResponse({"id": str(mgr.id), "name": mgr.full_name or mgr.username})
+
+
 @router.get("/api/bucket-warehouses")
 async def bucket_warehouses(
     request: Request,
@@ -171,6 +205,7 @@ async def create_bucket(
     barcodes: str = Form(...),
     name: str = Form(default=""),
     location: str = Form(default=""),
+    location_id: str = Form(default=""),
 ):
     barcode_list = [b.strip() for b in barcodes.split(",") if b.strip()]
     if not barcode_list:
@@ -185,10 +220,23 @@ async def create_bucket(
     # Derive category from first device brand
     category = devices[0].brand if devices else None
 
+    loc_uuid = None
+    loc = None
+    if location_id and location_id.strip():
+        try:
+            loc_uuid = uuid.UUID(location_id.strip())
+        except Exception:
+            loc_uuid = None
+        if loc_uuid:
+            loc = (await db.execute(
+                select(StorageLocation).where(StorageLocation.id == loc_uuid)
+            )).scalar_one_or_none()
+
     bucket = Bucket(
         bucket_number=_new_bucket_number(),
         name=name.strip() or None,
-        location=location.strip() or None,
+        location=(loc.display_name if loc else (location.strip() or None)),
+        location_id=loc.id if loc else None,
         category=category,
         status="stock_in",
         created_by=current_user.username,
@@ -198,6 +246,10 @@ async def create_bucket(
 
     for d in devices:
         d.bucket_id = bucket.id
+        if loc:
+            d.location_id = loc.id
+        # Task 2(c): mark devices as Stock Inward stage on bucket assignment
+        d.current_stage = DeviceStage.stock_in
         d.updated_at = app_now()
 
     await db.commit()
@@ -367,6 +419,110 @@ async def assign_bucket(
                 model=device.model,
                 stage=new_stage.value if hasattr(new_stage, "value") else str(new_stage),
             )
+
+    await db.commit()
+    return JSONResponse({"ok": True, "assigned": len(devices)})
+
+
+@router.post("/buckets/{bucket_id}/assign-to-production")
+async def assign_bucket_to_production(
+    bucket_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Batch D Task 3 — Stock Inward Movement table 'Assign to Production' action.
+    Marks the bucket assigned_to_production=True and moves all its devices'
+    stage to DeviceStage.trc_production (the existing stage value for the
+    TRC Production Manager page, reused rather than inventing a new one)."""
+    try:
+        uid = uuid.UUID(bucket_id)
+    except Exception:
+        raise HTTPException(400, "Invalid bucket ID")
+    bucket = (await db.execute(select(Bucket).where(Bucket.id == uid))).scalar_one_or_none()
+    if not bucket:
+        raise HTTPException(404, "Bucket not found")
+    if bucket.assigned_to_production:
+        raise HTTPException(400, "Bucket already assigned to production")
+
+    devices = (await db.execute(
+        select(Device).where(Device.bucket_id == uid, Device.is_active == True)
+    )).scalars().all()
+
+    for device in devices:
+        prev_stage = device.current_stage
+        prev_mv = (await db.execute(
+            select(StageMovement).where(
+                StageMovement.device_id == device.id,
+                StageMovement.to_stage == prev_stage,
+                StageMovement.exited_at == None,
+            ).order_by(StageMovement.moved_at.desc())
+        )).scalars().first()
+        if prev_mv:
+            prev_mv.exited_at = app_now()
+        device.current_stage = DeviceStage.trc_production
+        device.updated_at = app_now()
+        db.add(StageMovement(
+            device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.trc_production,
+            moved_by=current_user.username,
+            notes=f"Bucket {bucket.bucket_number} assigned to Production by {current_user.username}",
+        ))
+
+    bucket.assigned_to_production = True
+    bucket.assigned_to_production_by = current_user.username
+    bucket.assigned_to_production_at = app_now()
+    bucket.status = "trc_pending"
+    bucket.updated_at = app_now()
+
+    await db.commit()
+    return JSONResponse({"ok": True, "assigned": len(devices)})
+
+
+@router.post("/buckets/{bucket_id}/assign-to-engineer")
+async def assign_bucket_to_engineer(
+    bucket_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Batch D Task 4 — Production Manager page Movement table 'Assign to
+    Engineer' action. Moves all the bucket's devices into DeviceStage.l1 so
+    they appear on templates/repair/l1.html's existing query
+    (Device.current_stage == DeviceStage.l1), matching routers/repair.py's
+    STAGE_MAP without any new plumbing on the L1 page."""
+    try:
+        uid = uuid.UUID(bucket_id)
+    except Exception:
+        raise HTTPException(400, "Invalid bucket ID")
+    bucket = (await db.execute(select(Bucket).where(Bucket.id == uid))).scalar_one_or_none()
+    if not bucket:
+        raise HTTPException(404, "Bucket not found")
+
+    devices = (await db.execute(
+        select(Device).where(Device.bucket_id == uid, Device.is_active == True)
+    )).scalars().all()
+
+    for device in devices:
+        prev_stage = device.current_stage
+        prev_mv = (await db.execute(
+            select(StageMovement).where(
+                StageMovement.device_id == device.id,
+                StageMovement.to_stage == prev_stage,
+                StageMovement.exited_at == None,
+            ).order_by(StageMovement.moved_at.desc())
+        )).scalars().first()
+        if prev_mv:
+            prev_mv.exited_at = app_now()
+        device.current_stage = DeviceStage.l1
+        device.updated_at = app_now()
+        db.add(StageMovement(
+            device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.l1,
+            moved_by=current_user.username,
+            notes=f"Bucket {bucket.bucket_number} assigned to L1 Engineer by {current_user.username}",
+        ))
+
+    bucket.status = "validated"
+    bucket.updated_at = app_now()
 
     await db.commit()
     return JSONResponse({"ok": True, "assigned": len(devices)})

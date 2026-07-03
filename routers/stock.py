@@ -22,9 +22,52 @@ from models.iqc_inspection import IQCInspection
 from models.cost_config import CostConfig
 from models.stock_transfer import StockTransfer
 from models.stock_validation import StockValidation
+from models.part_request import PartRequest
+from models.spare_parts import SparePart
+from models.location import StorageLocation
 
 router = APIRouter(tags=["stock"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
+
+
+async def build_cost_parts_map(db: AsyncSession, device_ids: list):
+    """Batch-fetch parts-required / parts-repaired / repair-cost per device_id
+    for the Stock Inward + TRC Production 'Cost & Parts' table (Batch D).
+    Returns {device_id: {parts_required, parts_repaired, repair_cost}}.
+    Judgment call: 'Sale Price' is NOT a Device-level field in this schema —
+    Sale.sale_price is per-sale-transaction. Since these devices have not been
+    sold yet (Stock Inward / TRC Production stages), we surface device_price
+    (Stock Price) as Stock Cost and leave Sale Price blank/em-dash until a
+    canonical "intended sale price" field is added to Device. This is flagged
+    in the report; no schema field was invented to avoid violating the
+    schema-review-board gate.
+    """
+    out = {}
+    if not device_ids:
+        return out
+
+    pr_rows = (await db.execute(
+        select(PartRequest.device_id, PartRequest.status, PartRequest.qty_handed_over,
+               PartRequest.part_id)
+        .where(PartRequest.device_id.in_(device_ids))
+    )).all()
+
+    part_ids = {r.part_id for r in pr_rows if r.part_id}
+    price_map = {}
+    if part_ids:
+        sp_rows = (await db.execute(
+            select(SparePart.id, SparePart.unit_price).where(SparePart.id.in_(part_ids))
+        )).all()
+        price_map = {r.id: r.unit_price for r in sp_rows}
+
+    for r in pr_rows:
+        d = out.setdefault(r.device_id, {"parts_required": 0, "parts_repaired": 0, "repair_cost": 0})
+        d["parts_required"] += 1
+        if r.status == "handed_over":
+            d["parts_repaired"] += 1
+            unit_price = price_map.get(r.part_id) or 0
+            d["repair_cost"] += float(unit_price) * (r.qty_handed_over or 0)
+    return out
 
 
 @router.get("/lots/api/exists")
@@ -864,10 +907,22 @@ async def stock_in_list(
             if key not in assigned_dept_map and dept:
                 assigned_dept_map[key] = dept
 
+    # ── Cost & Parts table data (Batch D Task 1) ─────────────────────────────
+    cost_parts_map = await build_cost_parts_map(db, device_ids)
+    location_map = {}
+    if device_ids:
+        loc_ids = {d.location_id for d, _ in devices if d.location_id}
+        if loc_ids:
+            loc_rows = (await db.execute(
+                select(StorageLocation).where(StorageLocation.id.in_(loc_ids))
+            )).scalars().all()
+            location_map = {l.id: l for l in loc_rows}
+
     return templates.TemplateResponse("lots/stock_in.html", {
         "request": request, "devices": devices, "current_user": current_user,
         "analytics": analytics, "assigned_dept_map": assigned_dept_map,
         "departments": STOCK_DEPARTMENTS,
+        "cost_parts_map": cost_parts_map, "location_map": location_map,
         "page": page, "page_size": page_size, "total": total, "total_pages": total_pages,
     })
 
@@ -1044,9 +1099,21 @@ async def trc_production_list(
             if key not in assigned_dept_map and dept:
                 assigned_dept_map[key] = dept
 
+    # ── Cost & Parts table data (Batch D Task 1) ─────────────────────────────
+    cost_parts_map = await build_cost_parts_map(db, device_ids)
+    location_map = {}
+    if device_ids:
+        loc_ids = {d.location_id for d, _ in devices if d.location_id}
+        if loc_ids:
+            loc_rows = (await db.execute(
+                select(StorageLocation).where(StorageLocation.id.in_(loc_ids))
+            )).scalars().all()
+            location_map = {l.id: l for l in loc_rows}
+
     return templates.TemplateResponse("lots/trc_production.html", {
         "request": request, "devices": devices, "current_user": current_user,
         "assigned_dept_map": assigned_dept_map, "departments": STOCK_DEPARTMENTS,
+        "cost_parts_map": cost_parts_map, "location_map": location_map,
         "page": page, "page_size": page_size, "total": total, "total_pages": total_pages,
     })
 

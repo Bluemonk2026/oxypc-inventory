@@ -25,7 +25,7 @@ from models.engines import DeviceCosting
 from models.sales import Sale
 from services.parts_required import compute_required
 from auth.dependencies import get_current_user, require_roles, verify_csrf
-from utils.warranty import warranty_from_sold_at
+from utils.warranty import warranty_from_sold_at, warranty_status_for_sale
 
 router = APIRouter(prefix="/devices", tags=["devices"], dependencies=[Depends(verify_csrf)])
 # All logged-in users can search/view; only admin+invmgr can edit
@@ -70,6 +70,12 @@ async def device_brief(barcode: str, db: AsyncSession = Depends(get_db),
         warranty_status = "Out of Warranty"
     else:
         warranty_status = "Not Sold Yet"
+
+    # ── Sale warranty_type fields (Phase 1a/1b RMA capture) ──────────────────────
+    rma_warranty_type = getattr(sale, "warranty_type", None) if sale else None
+    rma_warranty_expires_at = getattr(sale, "warranty_expires_at", None) if sale else None
+    rma_warranty_status = warranty_status_for_sale(sale)  # in_warranty/out_of_warranty/no_warranty
+
     return JSONResponse({
         "found": True,
         "barcode": device.barcode,
@@ -84,6 +90,9 @@ async def device_brief(barcode: str, db: AsyncSession = Depends(get_db),
         "sold_grade": sold_grade,
         "sold_on": sold_on,
         "return_status": "Yes" if device.return_status else "No",
+        "rma_warranty_type": rma_warranty_type or "none",
+        "rma_warranty_expires_at": rma_warranty_expires_at.strftime("%d-%m-%Y") if rma_warranty_expires_at else None,
+        "rma_warranty_status": rma_warranty_status,
     })
 
 
@@ -506,6 +515,7 @@ async def device_edit_save(
     grade: str = Form(""),
     floor: str = Form(""),
     warehouse: str = Form(""),
+    location_id: str = Form(""),
     notes: str = Form(""),
     qty: str = Form(""),
     device_price_input: str = Form(""),
@@ -557,7 +567,24 @@ async def device_edit_save(
     else:
         device.grade = None
     device.floor = floor or None
-    device.warehouse = warehouse or None
+    # ── Resolve Location ID -> StorageLocation (Floor/Zone -> Location ID cascade). ──
+    # warehouse is legacy free-text; best-effort mirror the resolved location's
+    # display_name into it for backward-compat display in older reports/exports.
+    resolved_location_id = None
+    resolved_warehouse = warehouse or None
+    if location_id:
+        try:
+            uuid_module.UUID(str(location_id))
+            loc = (await db.execute(
+                select(StorageLocation).where(StorageLocation.id == location_id)
+            )).scalar_one_or_none()
+            if loc:
+                resolved_location_id = loc.id
+                resolved_warehouse = loc.display_name
+        except ValueError:
+            pass
+    device.location_id = resolved_location_id
+    device.warehouse = resolved_warehouse
     device.notes = notes or None
     if qty:
         try:

@@ -57,6 +57,41 @@ def warranty_label(sold_at: datetime | None, none_text: str = "—") -> str:
     return w["label"] if w else none_text
 
 
+WARRANTY_DURATIONS = {
+    "none": None,
+    "30_days": timedelta(days=30),
+    "6_months": timedelta(days=182),
+    "1_year": timedelta(days=365),
+}
+
+
+def compute_warranty_expiry(sold_at: datetime, warranty_type: str) -> datetime | None:
+    """Server-side computation of warranty_expires_at from sold_at + warranty_type.
+    Returns None for warranty_type == 'none' or unrecognized values."""
+    if not sold_at:
+        return None
+    delta = WARRANTY_DURATIONS.get(warranty_type)
+    if delta is None:
+        return None
+    return sold_at + delta
+
+
+def warranty_status_for_sale(sale) -> str:
+    """Return 'in_warranty' | 'out_of_warranty' | 'no_warranty' for a Sale record,
+    using the Sale's own warranty_type/warranty_expires_at (Phase 1a fields).
+    Falls back to 'no_warranty' when there is no sale or no warranty was selected."""
+    if not sale:
+        return "no_warranty"
+    wtype = getattr(sale, "warranty_type", None) or "none"
+    if wtype == "none":
+        return "no_warranty"
+    expires_at = getattr(sale, "warranty_expires_at", None)
+    if not expires_at:
+        return "no_warranty"
+    now = app_now()
+    return "in_warranty" if now <= expires_at else "out_of_warranty"
+
+
 async def latest_sold_at_map(db, device_ids) -> dict:
     """Return {device_id(str): latest Sale.sold_at} for the given device ids.
 

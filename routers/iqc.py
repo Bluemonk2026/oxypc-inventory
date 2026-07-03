@@ -11,6 +11,7 @@ from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
 from models.lot import Lot, LotLineItem
 from models.iqc_inspection import IQCInspection
+from models.location import StorageLocation
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from services.audit_engine import audit
 
@@ -438,6 +439,7 @@ async def iqc_create(
     grade: str = Form(""),
     floor: str = Form(""),
     warehouse: str = Form(""),
+    location_id: str = Form(""),
     notes: str = Form(""),
     lot_line_item_id: str = Form(""),
     qty: str = Form(""),
@@ -552,6 +554,20 @@ async def iqc_create(
     if lot_line_item_id and not _is_uuid(lot_line_item_id):
         lot_line_item_id = ""
 
+    # ── Resolve Location ID -> StorageLocation (Floor/Zone -> Location ID cascade). ──
+    # warehouse is legacy free-text; best-effort mirror the resolved location's
+    # display_name into it for backward-compat display in older reports/exports.
+    resolved_location_id = None
+    resolved_warehouse = warehouse or None
+    if location_id and _is_uuid(location_id):
+        loc_result = await db.execute(
+            select(StorageLocation).where(StorageLocation.id == location_id)
+        )
+        loc = loc_result.scalar_one_or_none()
+        if loc:
+            resolved_location_id = loc.id
+            resolved_warehouse = loc.display_name
+
     device = Device(
         barcode=barcode, lot_id=lot_id,
         sub_category=sub_category or None,
@@ -568,7 +584,8 @@ async def iqc_create(
         bios_password=(bios_password == "yes"),
         color=color or None,
         grade=grade or None, current_stage=DeviceStage.iqc,
-        floor=floor or None, warehouse=warehouse or None, notes=notes or None,
+        floor=floor or None, warehouse=resolved_warehouse,
+        location_id=resolved_location_id, notes=notes or None,
         lot_line_item_id=lot_line_item_id or None,
         qty=int(qty) if qty else 1,
     )

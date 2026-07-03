@@ -13,8 +13,17 @@ class StockTransfer(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     device_id = Column(UUID(as_uuid=True), ForeignKey("devices.id"), nullable=False, index=True)
 
+    # ── Batch C: Move Device / Move Bucket / Move Lot tabs ───────────────────
+    # move_kind identifies which tab originated this row. For bucket/lot moves,
+    # one StockTransfer row is created per member device (device_id always set),
+    # with bucket_id/lot_id tagging the originating group for traceability.
+    move_kind = Column(String(20), nullable=False, default="device")  # device|bucket|lot
+    bucket_id = Column(UUID(as_uuid=True), ForeignKey("buckets.id"), nullable=True, index=True)
+    lot_id = Column(UUID(as_uuid=True), ForeignKey("lots.id"), nullable=True, index=True)
+    to_location_id = Column(UUID(as_uuid=True), ForeignKey("storage_locations.id"), nullable=True, index=True)
+
     # ── Transfer Direction ────────────────────────────────────────────────────
-    transfer_type = Column(String(30), nullable=False)    # "trc_to_showroom" | "showroom_to_trc"
+    transfer_type = Column(String(30), nullable=False)    # "trc_to_showroom" | "showroom_to_trc" | "showroom_lot"
     from_warehouse = Column(String(100), nullable=False)
     to_warehouse = Column(String(100), nullable=False)
 

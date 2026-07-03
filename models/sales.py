@@ -32,6 +32,9 @@ class Sale(Base):
     delivery_status   = Column(String(30), nullable=True)    # pending / dispatched / delivered
     # ── Invoice / PO upload ──────────────────────────────────────────────────────
     invoice_file_path = Column(String(500), nullable=True)   # relative path to uploaded PDF
+    # ── Warranty at sale (Phase 1a) ──────────────────────────────────────────────
+    warranty_type       = Column(String(20), default="none")   # none/30_days/6_months/1_year
+    warranty_expires_at = Column(DateTime, nullable=True)       # server-computed from sold_at + duration
 
     device = relationship("Device", back_populates="sales")
     returns = relationship("Return", back_populates="sale", lazy="select")
@@ -56,5 +59,10 @@ class Return(Base):
     approved_by         = Column(String(50), nullable=True)
     approved_at         = Column(DateTime, nullable=True)
     rejection_reason    = Column(Text, nullable=True)
+    # RMA capture (Phase 1b)
+    return_type         = Column(String(20), default="customer")   # customer/dealer
+    serial_captured     = Column(String(100), nullable=True)       # serial/barcode scanned at RMA time
+    warranty_status     = Column(String(20), nullable=True)        # in_warranty/out_of_warranty/no_warranty (server-computed)
+    complaint_text      = Column(Text, nullable=True)               # RMA complaint/issue description
 
     sale = relationship("Sale", back_populates="returns")

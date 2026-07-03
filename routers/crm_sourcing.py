@@ -417,6 +417,60 @@ async def update_deal(
 
 # ── LINK LOT ─────────────────────────────────────────────────────────────────
 
+@router.post("/{deal_id}/upload")
+async def upload_documents(
+    request: Request,
+    deal_id: str,
+    purchase_invoice: UploadFile = File(default=None),
+    purchase_order: UploadFile = File(default=None),
+    eway_bill: UploadFile = File(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload Purchase Invoice / Purchase Order / E-way Bill for a sourcing deal.
+    Reuses the UUID-based safe-filename pattern used for product_records above."""
+    result = await db.execute(select(CRMSourcingDeal).where(CRMSourcingDeal.id == deal_id))
+    deal = result.scalar_one_or_none()
+    if not deal:
+        return RedirectResponse(url="/crm/sourcing?error=Deal+not+found", status_code=302)
+
+    async def _save(upload: UploadFile):
+        if not upload or not upload.filename:
+            return None
+        ext = os.path.splitext(upload.filename)[1].lower()
+        safe_name = f"{_uuid.uuid4().hex}{ext}"
+        uploads_dir = os.path.join(UPLOADS_DIR, "crm")
+        os.makedirs(uploads_dir, exist_ok=True)
+        dest = os.path.join(uploads_dir, safe_name)
+        content = await upload.read()
+        with open(dest, "wb") as f:
+            f.write(content)
+        return safe_name
+
+    saved_any = False
+    inv_name = await _save(purchase_invoice)
+    if inv_name:
+        deal.purchase_invoice_path = inv_name
+        saved_any = True
+    po_name = await _save(purchase_order)
+    if po_name:
+        deal.purchase_order_path = po_name
+        saved_any = True
+    eway_name = await _save(eway_bill)
+    if eway_name:
+        deal.eway_bill_path = eway_name
+        saved_any = True
+
+    if saved_any:
+        await audit(db, action="CRM_DEAL_DOCS_UPLOADED", user=current_user,
+                    table_name="crm_sourcing_deals", record_id=str(deal.id),
+                    new_value={"purchase_invoice": inv_name, "purchase_order": po_name, "eway_bill": eway_name},
+                    request=request)
+        await db.commit()
+        return RedirectResponse(url=f"/crm/sourcing/{deal_id}?success=Documents+uploaded", status_code=302)
+    return RedirectResponse(url=f"/crm/sourcing/{deal_id}?error=No+file+selected", status_code=302)
+
+
 @router.post("/{deal_id}/link-lot")
 async def link_lot(
     request: Request,

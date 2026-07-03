@@ -103,8 +103,9 @@ class Device(Base):
     bios_password = Column(Boolean, default=False, nullable=True)
     grade = Column(SAEnum(DeviceGrade), nullable=True)
     current_stage = Column(SAEnum(DeviceStage), nullable=False, default=DeviceStage.iqc, index=True)
-    floor = Column(String(50), nullable=True)
-    warehouse = Column(String(100), nullable=True)     # TRC 1st Floor, Showroom, etc.
+    floor = Column(String(50), nullable=True)          # holds the Zone value (ZoneType) selected on IQC/Edit
+    warehouse = Column(String(100), nullable=True)     # legacy free-text; now best-effort mirrors location display_name
+    location_id = Column(UUID(as_uuid=True), ForeignKey("storage_locations.id"), nullable=True)  # precise StorageLocation FK
     grn_number = Column(String(50), nullable=True)     # Goods Receipt Note ref
     return_status = Column(Boolean, nullable=False, default=False, server_default=text("false"))  # True once returned via Process Return
     replaced = Column(String(120), nullable=True)      # "Replaced by <tag>" / "Replaced from <tag>" (L3 device swap)

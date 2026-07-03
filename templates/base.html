@@ -101,6 +101,11 @@
         <i class="bi bi-cpu me-2"></i> Production Manager
       </a></li>
       {% endif %}
+      {% if has_perm(role,'scrap_products','enable') %}
+      <li><a href="/scrap-products" class="nav-link {% if '/scrap-products' in request.url.path %}active{% endif %}">
+        <i class="bi bi-trash3 me-2"></i> Scrap Products
+      </a></li>
+      {% endif %}
       {% if has_perm(role,'transfers','enable') %}
       <li><a href="/transfers" class="nav-link {% if '/transfers' in request.url.path %}active{% endif %}">
         <i class="bi bi-arrow-left-right me-2"></i> Move Device
@@ -161,11 +166,6 @@
       </a></li>
       <li><a href="/parts-grn" class="nav-link {% if '/parts-grn' in request.url.path %}active{% endif %}">
         <i class="bi bi-receipt me-2"></i> Parts GRN
-      </a></li>
-      {% endif %}
-      {% if has_perm(role,'scrap_products','enable') %}
-      <li><a href="/scrap-products" class="nav-link {% if '/scrap-products' in request.url.path %}active{% endif %}">
-        <i class="bi bi-trash3 me-2"></i> Scrap Products
       </a></li>
       {% endif %}
 
@@ -522,6 +522,24 @@
       </div>
     </nav>
 
+    <!-- Breadcrumb trail (auto-generated from request path) -->
+    {% set path_parts = request.url.path.strip('/').split('/') | select | list %}
+    {% if path_parts %}
+    <nav aria-label="breadcrumb">
+      <ol class="breadcrumb small mb-2 px-3 text-muted">
+        <li class="breadcrumb-item"><a href="/dashboard" class="text-decoration-none">Home</a></li>
+        {% for part in path_parts %}
+        {% set crumb_label = part.replace('-', ' ').replace('_', ' ').title() %}
+        {% if loop.last %}
+        <li class="breadcrumb-item active text-muted" aria-current="page">{{ crumb_label }}</li>
+        {% else %}
+        <li class="breadcrumb-item"><a href="/{{ path_parts[:loop.index] | join('/') }}" class="text-decoration-none text-muted">{{ crumb_label }}</a></li>
+        {% endif %}
+        {% endfor %}
+      </ol>
+    </nav>
+    {% endif %}
+
     <!-- Flash messages -->
     <div class="px-4 pt-2">
       {% if request.query_params.get('success') %}
@@ -724,24 +742,47 @@
   // Stay Logged In button
   document.getElementById('sessionExtendBtn').addEventListener('click', function() {
     fetch('/auth/extend-session', { credentials: 'same-origin' })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.ok) {
+      .then(function(r) {
+        // Must check transport status AND payload ok — a non-2xx response
+        // (e.g. 401 when the JWT was already too stale) must never be treated
+        // as a successful extend, even though the body still parses as JSON.
+        return r.json().then(function(data) { return { httpOk: r.ok, data: data }; });
+      })
+      .then(function(result) {
+        if (result.httpOk && result.data && result.data.ok === true) {
           clearInterval(countdownInterval);
           if (sessionModal) sessionModal.hide();
-          // Re-schedule from new session_expires cookie
-          var newExpires = parseInt(getCookieVal('session_expires') || '0', 10);
-          var nowNow = Math.floor(Date.now() / 1000);
-          var newWarnIn = (newExpires - nowNow - WARN_BEFORE_SECS) * 1000;
-          if (newWarnIn > 0) {
-            setTimeout(function() { showWarning(WARN_BEFORE_SECS); }, newWarnIn);
-          }
+          // The server rotates csrf_token to a fresh random value on every
+          // extend. Any form already rendered on the current page still has
+          // the OLD csrf_token baked into a hidden input, so the next POST
+          // from this page would 403 even though the session is valid.
+          // Reloading refreshes all forms with the new token transparently.
+          window.location.reload();
         } else {
+          // Session was already expired server-side (or request failed) —
+          // do not reschedule anything, go straight to login.
           window.location.href = '/auth/login';
         }
       })
       .catch(function() { window.location.href = '/auth/login'; });
   });
+
+  // Browsers throttle/pause setTimeout/setInterval in a backgrounded tab, so
+  // the countdown above may never fire while the page sits inactive. When the
+  // tab regains focus/visibility, re-check the expiry cookie directly and
+  // redirect straight to login if it has already passed — this is what
+  // prevents an inactive page from surfacing a stale-form error instead of a
+  // clean re-login prompt.
+  function recheckExpiry() {
+    var epoch = parseInt(getCookieVal('session_expires') || '0', 10);
+    if (epoch && (Math.floor(Date.now() / 1000) >= epoch)) {
+      window.location.href = '/auth/login';
+    }
+  }
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') recheckExpiry();
+  });
+  window.addEventListener('focus', recheckExpiry);
 })();
 </script>
 <script>

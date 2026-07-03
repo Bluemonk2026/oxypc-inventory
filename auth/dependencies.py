@@ -148,12 +148,12 @@ async def verify_csrf(request: Request) -> None:
         return
     cookie_token = request.cookies.get("csrf_token", "")
     if not cookie_token:
-        from fastapi.responses import HTMLResponse
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=403,
-            detail="CSRF token missing. Please log in again."
-        )
+        # Missing csrf_token cookie almost always means the session itself has
+        # expired (both cookies share the same lifetime and get cleared together
+        # by the browser) — not a genuine CSRF attack. Redirect to login instead
+        # of surfacing a raw 403 "Access Denied" page for what is really just an
+        # inactive-page timeout.
+        raise HTTPException(status_code=302, headers={"Location": "/auth/login"})
     # Form field must match cookie — read form data (FastAPI caches it per request)
     try:
         form = await request.form()
@@ -163,8 +163,8 @@ async def verify_csrf(request: Request) -> None:
     if not form_token:
         form_token = request.headers.get("X-CSRF-Token", "")
     if not form_token or form_token != cookie_token:
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=403,
-            detail="CSRF validation failed. Please refresh and try again."
-        )
+        # A stale form_token (page open since before the session was last
+        # extended/rotated) is also almost always a timeout, not an attack —
+        # send the user back to login to re-authenticate cleanly rather than
+        # showing a scary CSRF error.
+        raise HTTPException(status_code=302, headers={"Location": "/auth/login"})

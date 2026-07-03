@@ -166,6 +166,9 @@ class CRMSourcingDeal(Base):
     priority             = Column(String(10),  default="medium")
     notes                = Column(Text,        nullable=True)
     product_records_file = Column(String(500), nullable=True)   # stored filename under uploads/crm/
+    purchase_invoice_path= Column(String(500), nullable=True)   # stored filename under uploads/crm/
+    purchase_order_path  = Column(String(500), nullable=True)   # stored filename under uploads/crm/
+    eway_bill_path       = Column(String(500), nullable=True)   # stored filename under uploads/crm/
     created_by           = Column(String(50),  nullable=True)
     created_at           = Column(DateTime,    default=app_now)
     updated_at           = Column(DateTime,    default=app_now, onupdate=app_now)

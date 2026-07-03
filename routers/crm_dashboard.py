@@ -117,9 +117,35 @@ async def crm_dashboard(
     )
     part_sourcing = ps_r.scalars().all()
 
+    # ── Open sourcing deals for the Close Deal dropdown ──────────────────────
+    open_deals_r = await db.execute(
+        select(CRMSourcingDeal)
+        .where(CRMSourcingDeal.stage.notin_(["won", "lost"]))
+        .order_by(CRMSourcingDeal.created_at.desc())
+    )
+    sourcing_deals_for_close = open_deals_r.scalars().all()
+
+    # map deal id -> deal for rendering source_deal_id as a link in the table
+    deal_map = {}
+    linked_ids = [s.source_deal_id for s in part_sourcing if s.source_deal_id]
+    if linked_ids:
+        # source_deal_id may be a UUID string (new) — filter to valid UUIDs only
+        valid_ids = []
+        for lid in linked_ids:
+            try:
+                valid_ids.append(str(__import__("uuid").UUID(lid)))
+            except (ValueError, AttributeError, TypeError):
+                continue
+        if valid_ids:
+            dm_r = await db.execute(select(CRMSourcingDeal).where(CRMSourcingDeal.id.in_(valid_ids)))
+            for d in dm_r.scalars().all():
+                deal_map[str(d.id)] = d
+
     return templates.TemplateResponse("crm/dashboard.html", {
         "request": request, "current_user": current_user,
         "part_sourcing": part_sourcing,
+        "sourcing_deals_for_close": sourcing_deals_for_close,
+        "deal_map": deal_map,
         # contacts
         "contact_total": contact_total,
         "buyer_count": buyer_count,

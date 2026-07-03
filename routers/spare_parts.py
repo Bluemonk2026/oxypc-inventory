@@ -98,6 +98,21 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         select(PartSourcingRequest).order_by(PartSourcingRequest.created_at.desc()).limit(200)
     )).scalars().all()
 
+    # map source_deal_id (UUID string) -> CRMSourcingDeal for download links + display
+    from models.crm import CRMSourcingDeal
+    deal_map = {}
+    valid_ids = []
+    for s in sourcing:
+        if s.source_deal_id:
+            try:
+                valid_ids.append(str(__import__("uuid").UUID(s.source_deal_id)))
+            except (ValueError, AttributeError, TypeError):
+                continue
+    if valid_ids:
+        dm_r = await db.execute(select(CRMSourcingDeal).where(CRMSourcingDeal.id.in_(valid_ids)))
+        for d in dm_r.scalars().all():
+            deal_map[str(d.id)] = d
+
     return templates.TemplateResponse("spare_parts/list.html", {
         "request": request, "parts": parts, "current_user": current_user,
         "purchases": purchases, "consumptions": consumptions,
@@ -106,6 +121,7 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         "total_stock_value": total_stock_value,
         "consumed_this_month": consumed_this_month,
         "part_reqs": part_reqs, "part_stock": part_stock, "sourcing": sourcing,
+        "deal_map": deal_map,
         "grn_docs": {},
     })
 
@@ -176,7 +192,30 @@ async def update_part(
     part.name = name; part.category = category; part.unit_price = float(unit_price)
     part.min_stock_alert = min_stock_alert; part.supplier = supplier or None; part.notes = notes or None
     if qty_in_stock is not None:
-        part.qty_in_stock = max(0, int(qty_in_stock))
+        new_qty = max(0, int(qty_in_stock))
+        old_qty = int(part.qty_in_stock or 0)
+        delta = new_qty - old_qty
+        if delta != 0:
+            # Write a compensating ledger entry so _computed_stock() (ledger-based,
+            # used by the negative-stock guard in record_consumption) stays in sync
+            # with qty_in_stock (column-based, used by Part Master + Part Request
+            # display). Previously this edit path overwrote qty_in_stock directly
+            # with no ledger entry, letting the two diverge over time.
+            db.add(SparePartsLedger(
+                part_id=part.id,
+                entry_type="IN" if delta > 0 else "OUT",
+                qty=abs(delta),
+                cost_per_unit=float(part.unit_price),
+                total_cost=abs(delta) * float(part.unit_price),
+                reference_type="adjustment",
+                reference_id=None,
+                created_by=current_user.username,
+                notes=f"Part Master manual stock adjustment: {old_qty} -> {new_qty}",
+            ))
+            await audit(db, action="PART_STOCK_ADJUSTED", user=current_user,
+                        table_name="spare_parts_ledger", record_id=str(part.id),
+                        notes=f"Adjust {old_qty} -> {new_qty} ({'+' if delta>0 else ''}{delta})")
+        part.qty_in_stock = new_qty
     await db.commit()
     return RedirectResponse(url="/spare-parts?success=Part+updated", status_code=302)
 

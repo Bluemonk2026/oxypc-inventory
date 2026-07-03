@@ -68,6 +68,57 @@
     </div>
   </div>
 </div>
+
+<!-- Cost & Parts table (Batch D Task 1) -->
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+  <h6 class="fw-bold mb-0"><i class="bi bi-cash-coin me-2"></i>Cost &amp; Parts</h6>
+</div>
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="costPartsTable" class="table table-hover mb-0 small">
+        <thead class="table-dark"><tr>
+          <th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>CPU</th><th>RAM</th><th>Grade</th>
+          <th>Location</th><th>Stock Price</th><th>Sale Price</th><th>Parts Required</th><th>Parts Repaired</th>
+          <th>Stock Cost</th><th>Repair Cost</th><th>Total Cost</th>
+        </tr></thead>
+        <tbody>
+          {% for device, lot_number in devices %}
+          {% set cp = cost_parts_map.get(device.id) if cost_parts_map is defined else None %}
+          {% set loc = location_map.get(device.location_id) if (location_map is defined and device.location_id) else None %}
+          {% set stock_cost = device.device_price or 0 %}
+          {% set repair_cost = cp.repair_cost if cp else 0 %}
+          <tr>
+            <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none"><code>{{ device.barcode }}</code></a></td>
+            <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
+            <td>{{ device.brand or '—' }}</td>
+            <td>{{ device.model or '—' }}</td>
+            <td>{{ device.cpu or '—' }}</td>
+            <td>{{ (device.ram_gb|string ~ 'GB') if device.ram_gb else '—' }}</td>
+            <td>{{ device.grade or '—' }}</td>
+            <td>
+              {% if loc %}
+              <span tabindex="0" data-bs-toggle="tooltip" data-bs-html="true"
+                    title="Zone: {{ loc.zone_label }}<br>Type: {{ loc.unit_type_label }}<br>Location ID: {{ loc.unit_id }}<br>Max Capacity: {{ loc.capacity or '—' }}">
+                {{ loc.unit_id }}
+              </span>
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td>{{ '%.2f'|format(device.device_price) if device.device_price else '—' }}</td>
+            <td><span class="text-muted" title="No canonical device-level sale price field exists yet; Sale.sale_price is only recorded once a sale transaction happens.">—</span></td>
+            <td>{{ cp.parts_required if cp else 0 }}</td>
+            <td>{{ cp.parts_repaired if cp else 0 }}</td>
+            <td>{{ '%.2f'|format(stock_cost) }}</td>
+            <td>{{ '%.2f'|format(repair_cost) }}</td>
+            <td><strong>{{ '%.2f'|format(stock_cost + repair_cost) }}</strong></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 {% if total_pages and total_pages > 1 %}
 <nav class="mt-3" aria-label="Device list pagination">
   <ul class="pagination pagination-sm justify-content-center mb-0">
@@ -105,6 +156,47 @@
           <tr><td colspan="6" class="text-center text-muted py-3">Loading…</td></tr>
         </tbody>
       </table>
+    </div>
+  </div>
+</div>
+
+<!-- Movement table (Batch D Task 3) -->
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+  <h6 class="fw-bold mb-0"><i class="bi bi-arrow-left-right me-2"></i>Movement</h6>
+</div>
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="movementTable" class="table table-hover mb-0 small">
+        <thead class="table-secondary">
+          <tr><th>Location ID</th><th>Location Type</th><th>Count of Tag Number</th><th>Assigned To</th><th>Stage</th><th>Action</th></tr>
+        </thead>
+        <tbody id="movementTbody">
+          <tr><td colspan="6" class="text-center text-muted py-3">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Assign to Production modal -->
+<div class="modal fade" id="assignProdModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-send me-2"></i>Assign to Production</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="apBktId">
+        <div class="mb-2"><span class="text-muted small">Bucket:</span> <strong id="apBktNum">—</strong></div>
+        <div class="mb-2"><span class="text-muted small">Total Tag Numbers:</span> <strong id="apBktCount">—</strong></div>
+        <div class="mb-2"><span class="text-muted small">Production Manager:</span> <strong id="apManagerName">—</strong></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="apSubmitBtn" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Confirm Assign</button>
+      </div>
     </div>
   </div>
 </div>
@@ -175,9 +267,19 @@
           <input type="text" id="bktName" class="form-control" placeholder="e.g. Carton A1">
         </div>
         <div class="mb-2">
-          <label class="form-label fw-semibold">Bucket Location</label>
-          <select id="bktLocation" class="form-select">
-            <option value="">— Select Location —</option>
+          <label class="form-label fw-semibold">Floor / Zone</label>
+          <select id="bktZone" class="form-select">
+            <option value="">— Select Floor/Zone —</option>
+            <option value="showroom">Showroom</option>
+            <option value="workshop">TRC Floor</option>
+            <option value="holding">TRC Store</option>
+            <option value="warehouse">Warehouse</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Location ID</label>
+          <select id="bktLocationId" class="form-select" disabled>
+            <option value="">— Select Floor/Zone first —</option>
           </select>
         </div>
       </div>
@@ -276,13 +378,28 @@ if (vm) { vm.addEventListener('show.bs.modal', function(e){
 var _warehouses = [];
 fetch('/api/bucket-warehouses').then(function(r){return r.json();}).then(function(list){
   _warehouses = list;
-  var sel = document.getElementById('bktLocation');
   var sel2 = document.getElementById('editBktLocation');
   list.forEach(function(w){
-    var o = new Option(w, w); sel.add(o.cloneNode(true));
     if(sel2){ sel2.add(new Option(w, w)); }
   });
 });
+
+// Floor/Zone -> Location ID cascade (Batch D Task 2, reuses Batch B's /locations/api/by-zone)
+document.getElementById('bktZone').addEventListener('change', function(){
+  var zone = this.value;
+  var sel = document.getElementById('bktLocationId');
+  sel.innerHTML = '<option value="">— Loading —</option>';
+  sel.disabled = true;
+  if(!zone){ sel.innerHTML = '<option value="">— Select Floor/Zone first —</option>'; return; }
+  fetch('/locations/api/by-zone?zone=' + encodeURIComponent(zone)).then(function(r){return r.json();}).then(function(list){
+    sel.innerHTML = '<option value="">— Select Location —</option>';
+    list.forEach(function(loc){ sel.add(new Option(loc.display_name, loc.id)); });
+    sel.disabled = list.length === 0;
+  });
+});
+
+// Bootstrap tooltips (Location hover — Batch D Task 1); base.html has no shared init, so init here
+document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el){ new bootstrap.Tooltip(el); });
 
 // Populate "Inside Bucket" column on load
 fetch('/api/buckets/device-map?status=stock_in').then(function(r){return r.json();}).then(function(map){
@@ -323,6 +440,7 @@ $(document).on('click', '.move-bkt-trc', function(){
     .then(function(d){
       if(d.ok){
         loadBucketTable();
+        loadMovementTable();
         fetch('/api/buckets/device-map?status=stock_in').then(function(r){return r.json();}).then(function(map){
           document.querySelectorAll('.bkt-cell').forEach(function(cell){
             if(!map[cell.dataset.barcode]) cell.innerHTML='<span class="text-muted">—</span>';
@@ -371,28 +489,85 @@ document.getElementById('addToBucketModal').addEventListener('show.bs.modal', fu
   document.getElementById('bktQty').value = bcs.length;
   document.getElementById('bktTagList').innerHTML = bcs.map(function(bc){ return '<div>'+bc+'</div>'; }).join('');
   document.getElementById('bktName').value = '';
-  document.getElementById('bktLocation').value = '';
+  document.getElementById('bktZone').value = '';
+  document.getElementById('bktLocationId').innerHTML = '<option value="">— Select Floor/Zone first —</option>';
+  document.getElementById('bktLocationId').disabled = true;
 });
 
 // Submit create bucket
 document.getElementById('bktSubmitBtn').addEventListener('click', function(){
   var bcs = selectedStockBarcodes();
   var name = document.getElementById('bktName').value.trim();
-  var location = document.getElementById('bktLocation').value;
+  var locationId = document.getElementById('bktLocationId').value;
   if(!bcs.length){ alert('No devices selected.'); return; }
   var fd = new FormData();
   fd.append('csrf_token', getCsrf());
   fd.append('barcodes', bcs.join(','));
   fd.append('name', name);
-  fd.append('location', location);
+  fd.append('location_id', locationId);
   fetch('/buckets/create', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
     if(d.ok){
       bootstrap.Modal.getInstance(document.getElementById('addToBucketModal')).hide();
       loadBucketTable();
+      loadMovementTable();
       bcs.forEach(function(bc){
         var cell = document.querySelector('.bkt-cell[data-barcode="'+bc+'"]');
         if(cell) cell.innerHTML = '<span class="badge bg-warning text-dark">'+d.bucket_number+'</span>';
       });
+    }
+  });
+});
+
+// ── Movement table (Batch D Task 3) ─────────────────────────────────────────
+var _productionManager = null;
+fetch('/api/production-manager').then(function(r){return r.json();}).then(function(d){ _productionManager = d; });
+
+function loadMovementTable(){
+  fetch('/api/buckets?status=stock_in,trc_pending,validated').then(function(r){return r.json();}).then(function(buckets){
+    var tbody = document.getElementById('movementTbody');
+    if(!buckets.length){
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No buckets created yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = buckets.map(function(b){
+      var assignedBadge = b.assigned_to_production
+        ? '<span class="badge bg-primary">Production</span>'
+        : '<span class="badge bg-secondary">Pending</span>';
+      return '<tr>'+
+        '<td>'+(b.location_unit_id||'—')+'</td>'+
+        '<td>'+(b.location_type||'—')+'</td>'+
+        '<td><span class="badge bg-info text-dark">'+b.device_count+'</span></td>'+
+        '<td>'+assignedBadge+'</td>'+
+        '<td><span class="badge bg-light text-dark">'+b.status+'</span></td>'+
+        '<td class="text-nowrap">'+
+          (b.assigned_to_production ? '' :
+          '<button class="btn btn-xs btn-outline-primary btn-sm py-0 px-2 me-1 assign-prod-btn" data-id="'+b.id+'" data-number="'+b.bucket_number+'" data-count="'+b.device_count+'"><i class="bi bi-send"></i> Assign to Production</button>')+
+          '<button class="btn btn-xs btn-outline-secondary btn-sm py-0 px-2 me-1 edit-bkt" data-id="'+b.id+'" data-name="'+(b.name||'')+'" data-location="'+(b.location||'')+'"><i class="bi bi-pencil"></i></button>'+
+        '</td>'+
+      '</tr>';
+    }).join('');
+  });
+}
+loadMovementTable();
+
+$(document).on('click', '.assign-prod-btn', function(){
+  document.getElementById('apBktId').value = this.dataset.id;
+  document.getElementById('apBktNum').textContent = this.dataset.number;
+  document.getElementById('apBktCount').textContent = this.dataset.count;
+  document.getElementById('apManagerName').textContent = _productionManager && _productionManager.name ? _productionManager.name : '—';
+  new bootstrap.Modal(document.getElementById('assignProdModal')).show();
+});
+
+document.getElementById('apSubmitBtn').addEventListener('click', function(){
+  var id = document.getElementById('apBktId').value;
+  var fd = new FormData(); fd.append('csrf_token', getCsrf());
+  fetch('/buckets/'+id+'/assign-to-production', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
+    if(d.ok){
+      bootstrap.Modal.getInstance(document.getElementById('assignProdModal')).hide();
+      loadMovementTable();
+      loadBucketTable();
+    } else {
+      alert(d.detail || 'Failed to assign bucket to production.');
     }
   });
 });

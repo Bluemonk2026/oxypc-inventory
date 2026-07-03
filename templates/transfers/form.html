@@ -1,153 +1,367 @@
 {% extends "base.html" %}
 {% block title %}Assign Stock — Transfer to TRC — OxyPC{% endblock %}
 {% block page_title %}Assign Stock — Transfer to TRC{% endblock %}
+
+{% macro transfer_fields(prefix) %}
+  <div class="row g-3 mb-4">
+    <!-- Row 1: Transfer Date + Transfer Type -->
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">Transfer Date</label>
+      <input type="date" name="transfer_date" class="form-control bg-light"
+             value="{{ now.strftime('%Y-%m-%d') if now else '' }}" readonly>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">Transfer Type <span class="text-danger">*</span></label>
+      <select name="transfer_type" class="form-select" required>
+        <option value="">— Select Transfer Type —</option>
+        <option value="trc_to_showroom">TRC to Showroom</option>
+        <option value="showroom_to_trc">Showroom to TRC</option>
+        <option value="showroom_lot">Showroom Lot</option>
+      </select>
+    </div>
+
+    <!-- Row 2: Floor/Zone + Location ID (Task 4) -->
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">Floor/Zone</label>
+      <select name="floor_zone" class="form-select {{ prefix }}-floor-zone">
+        <option value="">— Select Floor/Zone —</option>
+        <option value="showroom">Showroom</option>
+        <option value="workshop">TRC Floor</option>
+        <option value="holding">TRC Store</option>
+        <option value="warehouse">Warehouse</option>
+      </select>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">Location ID</label>
+      <select name="to_location_id" class="form-select {{ prefix }}-location-id">
+        <option value="">-- Select Zone first --</option>
+      </select>
+    </div>
+
+    <!-- Row 3: Engineer Level + Assign to User -->
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">Engineer Level</label>
+      <select name="department" class="form-select {{ prefix }}-department">
+        <option value="">— Select Engineer Level —</option>
+        {% for d in departments %}{% if 'L1' in d or 'L2' in d or 'l1' in d or 'l2' in d %}<option value="{{ d }}">{{ d }}</option>{% endif %}{% endfor %}
+      </select>
+    </div>
+    <div class="col-md-6 d-none {{ prefix }}-assigned-user-wrap">
+      <label class="form-label fw-semibold">Assign To User</label>
+      <select name="assigned_user_id" class="form-select {{ prefix }}-assigned-user-id">
+        <option value="">— Select User —</option>
+      </select>
+    </div>
+
+    <!-- Transferred By (hidden — auto-set to current user) -->
+    <div class="col-md-6 d-none">
+      <label class="form-label fw-semibold">Order By / Transferred By</label>
+      <input type="text" name="transferred_by" class="form-control"
+             placeholder="Username of sender"
+             value="{{ current_user.username }}">
+    </div>
+
+    <!-- Received By (hidden) -->
+    <div class="col-md-6 d-none">
+      <label class="form-label fw-semibold">Receiver Name</label>
+      <input type="text" name="received_by" class="form-control"
+             placeholder="Username / name of receiver">
+    </div>
+
+    <!-- Notes -->
+    <div class="col-12">
+      <label class="form-label fw-semibold">Notes</label>
+      <textarea name="notes" class="form-control" rows="2"
+                placeholder="Any additional notes about this transfer"></textarea>
+    </div>
+  </div>
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary px-4">
+      <i class="bi bi-send me-2"></i>Assign this
+    </button>
+    <a href="/transfers" class="btn btn-outline-secondary">Cancel</a>
+  </div>
+{% endmacro %}
+
 {% block content %}
 <div class="row justify-content-center">
   <div class="col-xl-9">
     <div class="card border-0 shadow-sm">
-      <div class="card-header bg-transparent fw-semibold">
-        <i class="bi bi-arrow-left-right me-2"></i>Assign Stock or Move Stock
+      <div class="card-header bg-transparent fw-semibold p-0">
+        <ul class="nav nav-tabs card-header-tabs mb-0 d-flex" id="moveTabs" role="tablist">
+          <li class="nav-item flex-fill text-center" role="presentation">
+            <button class="nav-link active w-100" id="move-device-tab" data-bs-toggle="tab"
+                    data-bs-target="#moveDeviceTab" type="button" role="tab">
+              <i class="bi bi-laptop me-1"></i>Move Device
+            </button>
+          </li>
+          <li class="nav-item flex-fill text-center" role="presentation">
+            <button class="nav-link w-100" id="move-bucket-tab" data-bs-toggle="tab"
+                    data-bs-target="#moveBucketTab" type="button" role="tab">
+              <i class="bi bi-box-seam me-1"></i>Move Bucket
+            </button>
+          </li>
+          <li class="nav-item flex-fill text-center" role="presentation">
+            <button class="nav-link w-100" id="move-lot-tab" data-bs-toggle="tab"
+                    data-bs-target="#moveLotTab" type="button" role="tab">
+              <i class="bi bi-stack me-1"></i>Move Lot
+            </button>
+          </li>
+        </ul>
       </div>
       <div class="card-body">
         {% if error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>{% endif %}
-
-        <!-- Step 1: Tag Number lookup -->
-        <div class="bg-light rounded p-3 mb-4">
-          <h6 class="fw-bold text-primary mb-3"><i class="bi bi-upc-scan me-2"></i>Device Lookup</h6>
-          <form method="get" action="/transfers/new" class="row g-2 align-items-end">
-            <div class="col-md-6">
-              <label class="form-label fw-semibold">Tag Number / Tag Number</label>
-              <input type="text" name="barcode" class="form-control font-monospace"
-                     placeholder="Scan or type tag number" value="{{ barcode }}" autofocus>
-            </div>
-            <div class="col-auto">
-              <button type="submit" class="btn btn-outline-primary">
-                <i class="bi bi-search me-1"></i>Lookup
-              </button>
-            </div>
-          </form>
-        </div>
-
-        {% if device %}
-        <!-- Device Info Card -->
-        <div class="alert alert-success py-2 mb-4">
-          <strong><i class="bi bi-laptop me-2"></i>{{ device.barcode }}</strong> —
-          {{ device.brand or '' }} {{ device.model or '' }}
-          {% if device.cpu %} | {{ device.cpu }}{% endif %}
-          {% if device.ram_gb %} | {{ device.ram_gb }} GB RAM{% endif %}
-          {% if device.storage_gb %} | {{ device.storage_gb }} GB Storage{% endif %}
-          <span class="badge bg-primary ms-2">{{ device.current_stage.value.replace('_',' ').title() }}</span>
-        </div>
-
-        <!-- Transfer Form -->
-        <form action="/transfers/new" method="post">
-          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
-          <input type="hidden" name="barcode" value="{{ device.barcode }}">
-
-          <div class="row g-3 mb-4">
-            <!-- Row 1: Transfer Date + Transfer Type -->
-            <div class="col-md-6">
-              <label class="form-label fw-semibold">Transfer Date</label>
-              <input type="date" name="transfer_date" class="form-control bg-light"
-                     value="{{ now.strftime('%Y-%m-%d') if now else '' }}" readonly>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label fw-semibold">Transfer Type <span class="text-danger">*</span></label>
-              <select name="transfer_type_display" class="form-select bg-light" disabled>
-                <option value="transfer_to_trc" selected>Transfer to TRC</option>
-              </select>
-              <input type="hidden" name="transfer_type" value="transfer_to_trc">
-            </div>
-
-            <!-- Row 2: Department + Assign to User -->
-            <div class="col-md-6">
-              <label class="form-label fw-semibold">Department</label>
-              <select name="department" id="department" class="form-select">
-                <option value="">— Select Department —</option>
-                {% for d in departments %}{% if 'L1' in d or 'L2' in d or 'l1' in d or 'l2' in d %}<option value="{{ d }}">{{ d }}</option>{% endif %}{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-6 d-none" id="assigned_user_wrap">
-              <label class="form-label fw-semibold">Assign To User</label>
-              <select name="assigned_user_id" id="assigned_user_id" class="form-select">
-                <option value="">— Select User —</option>
-              </select>
-            </div>
-
-            <!-- Transferred By (hidden — auto-set to current user) -->
-            <div class="col-md-6 d-none">
-              <label class="form-label fw-semibold">Order By / Transferred By</label>
-              <input type="text" name="transferred_by" class="form-control"
-                     placeholder="Username of sender"
-                     value="{{ current_user.username }}">
-            </div>
-
-            <!-- Received By (hidden) -->
-            <div class="col-md-6 d-none">
-              <label class="form-label fw-semibold">Receiver Name</label>
-              <input type="text" name="received_by" class="form-control"
-                     placeholder="Username / name of receiver">
-            </div>
-
-            <!-- Notes -->
-            <div class="col-12">
-              <label class="form-label fw-semibold">Notes</label>
-              <textarea name="notes" class="form-control" rows="2"
-                        placeholder="Any additional notes about this transfer"></textarea>
-            </div>
-          </div>
-
-          <div class="d-flex gap-2">
-            <button type="submit" class="btn btn-primary px-4">
-              <i class="bi bi-send me-2"></i>Move Item
-            </button>
-            <a href="/transfers" class="btn btn-outline-secondary">Cancel</a>
-          </div>
-        </form>
-
-        {% elif barcode %}
-        <div class="alert alert-warning">
-          <i class="bi bi-exclamation-triangle me-2"></i>
-          Device <strong>{{ barcode }}</strong> not found. Please check the barcode and try again.
-        </div>
-        {% else %}
-        <div class="text-muted text-center py-4">
-          <i class="bi bi-upc-scan fs-1 d-block mb-2"></i>
-          Scan or enter a barcode above to look up a device before recording a transfer.
-        </div>
+        {% if request.query_params.get('error') %}
+        <div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ request.query_params.get('error') }}</div>
         {% endif %}
 
+        <div class="tab-content">
+
+          <!-- ══════════ TAB 1: Move Device ══════════ -->
+          <div class="tab-pane fade show active" id="moveDeviceTab" role="tabpanel">
+
+            <div class="bg-light rounded p-3 mb-4">
+              <h6 class="fw-bold text-primary mb-3"><i class="bi bi-upc-scan me-2"></i>Device Lookup</h6>
+              <form method="get" action="/transfers/new" class="row g-2 align-items-end">
+                <div class="col-md-6">
+                  <label class="form-label fw-semibold">Tag Number / Tag Number</label>
+                  <input type="text" name="barcode" class="form-control font-monospace"
+                         placeholder="Scan or type tag number" value="{{ barcode }}" autofocus
+                         oninput="this.value=this.value.toUpperCase()">
+                </div>
+                <div class="col-auto">
+                  <button type="submit" class="btn btn-outline-primary">
+                    <i class="bi bi-search me-1"></i>Lookup
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {% if device %}
+            <div class="alert alert-success py-2 mb-4">
+              <strong><i class="bi bi-laptop me-2"></i>{{ device.barcode }}</strong> —
+              {{ device.brand or '' }} {{ device.model or '' }}
+              {% if device.cpu %} | {{ device.cpu }}{% endif %}
+              {% if device.ram_gb %} | {{ device.ram_gb }} GB RAM{% endif %}
+              {% if device.storage_gb %} | {{ device.storage_gb }} GB Storage{% endif %}
+              <span class="badge bg-primary ms-2">{{ device.current_stage.value.replace('_',' ').title() }}</span>
+            </div>
+
+            <form action="/transfers/new" method="post">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+              <input type="hidden" name="barcode" value="{{ device.barcode }}">
+              {{ transfer_fields('device') }}
+            </form>
+
+            {% elif barcode %}
+            <div class="alert alert-warning">
+              <i class="bi bi-exclamation-triangle me-2"></i>
+              Device <strong>{{ barcode }}</strong> not found. Please check the barcode and try again.
+            </div>
+            {% else %}
+            <div class="text-muted text-center py-4">
+              <i class="bi bi-upc-scan fs-1 d-block mb-2"></i>
+              Scan or enter a barcode above to look up a device before recording a transfer.
+            </div>
+            {% endif %}
+          </div>
+
+          <!-- ══════════ TAB 2: Move Bucket ══════════ -->
+          <div class="tab-pane fade" id="moveBucketTab" role="tabpanel">
+
+            <div class="bg-light rounded p-3 mb-4">
+              <h6 class="fw-bold text-primary mb-3"><i class="bi bi-upc-scan me-2"></i>Bucket ID Lookup</h6>
+              <div class="row g-2 align-items-end">
+                <div class="col-md-6">
+                  <label class="form-label fw-semibold">Bucket / Location Unit ID</label>
+                  <input type="text" id="bucketUnitId" class="form-control font-monospace"
+                         placeholder="Scan or type bucket/location unit ID"
+                         oninput="this.value=this.value.toUpperCase()">
+                </div>
+                <div class="col-auto">
+                  <button type="button" id="bucketLookupBtn" class="btn btn-outline-primary">
+                    <i class="bi bi-search me-1"></i>Lookup
+                  </button>
+                </div>
+              </div>
+              <div id="bucketLookupResult" class="mt-3"></div>
+            </div>
+
+            <form action="/transfers/new/bucket" method="post" id="bucketMoveForm" class="d-none">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+              <input type="hidden" name="unit_id" id="bucketUnitIdHidden">
+              {{ transfer_fields('bucket') }}
+            </form>
+          </div>
+
+          <!-- ══════════ TAB 3: Move Lot ══════════ -->
+          <div class="tab-pane fade" id="moveLotTab" role="tabpanel">
+
+            <div class="bg-light rounded p-3 mb-4">
+              <h6 class="fw-bold text-primary mb-3"><i class="bi bi-upc-scan me-2"></i>Lot Lookup</h6>
+              <div class="row g-2 align-items-end">
+                <div class="col-md-6">
+                  <label class="form-label fw-semibold">Lot Number</label>
+                  <input type="text" id="lotNumber" class="form-control font-monospace"
+                         placeholder="Scan or type lot number"
+                         oninput="this.value=this.value.toUpperCase()">
+                </div>
+                <div class="col-auto">
+                  <button type="button" id="lotLookupBtn" class="btn btn-outline-primary">
+                    <i class="bi bi-search me-1"></i>Lookup
+                  </button>
+                </div>
+              </div>
+              <div id="lotLookupResult" class="mt-3"></div>
+            </div>
+
+            <form action="/transfers/new/lot" method="post" id="lotMoveForm" class="d-none">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+              <input type="hidden" name="lot_number" id="lotNumberHidden">
+              {{ transfer_fields('lot') }}
+            </form>
+          </div>
+
+        </div>
       </div>
     </div>
   </div>
 </div>
 {% endblock %}
+
 {% block scripts %}
 <script>
 (function(){
   var deptToRole  = {{ dept_to_role | default({}) | tojson }};
   var usersByRole = {{ users_by_role | default({}) | tojson }};
-  var dept = document.getElementById('department');
-  var wrap = document.getElementById('assigned_user_wrap');
-  var sel  = document.getElementById('assigned_user_id');
-  if(!dept || !wrap || !sel) return;
   var ENG = ['l1_engineer','l2_engineer','l3_engineer'];
-  function refresh(){
-    var role = deptToRole[dept.value];
-    sel.innerHTML = '<option value="">— Select User —</option>';
-    if(ENG.indexOf(role) !== -1){
-      (usersByRole[role] || []).forEach(function(u){
-        var o = document.createElement('option');
-        o.value = u.id; o.textContent = u.name + ' (' + u.username + ')';
-        sel.appendChild(o);
-      });
-      wrap.classList.remove('d-none');
-    } else {
-      wrap.classList.add('d-none');
+
+  // ── Department -> Assign-to-User cascade (per tab, reused via class selector) ──
+  function wireDeptCascade(prefix){
+    var dept = document.querySelector('.' + prefix + '-department');
+    var wrap = document.querySelector('.' + prefix + '-assigned-user-wrap');
+    var sel  = document.querySelector('.' + prefix + '-assigned-user-id');
+    if(!dept || !wrap || !sel) return;
+    function refresh(){
+      var role = deptToRole[dept.value];
+      sel.innerHTML = '<option value="">— Select User —</option>';
+      if(ENG.indexOf(role) !== -1){
+        (usersByRole[role] || []).forEach(function(u){
+          var o = document.createElement('option');
+          o.value = u.id; o.textContent = u.name + ' (' + u.username + ')';
+          sel.appendChild(o);
+        });
+        wrap.classList.remove('d-none');
+      } else {
+        wrap.classList.add('d-none');
+      }
     }
+    dept.addEventListener('change', refresh);
+    refresh();
   }
-  dept.addEventListener('change', refresh);
-  refresh();
+
+  // ── Floor/Zone -> Location ID cascade (per tab, reused via class selector) ──
+  function wireZoneCascade(prefix){
+    var zoneSel = document.querySelector('.' + prefix + '-floor-zone');
+    var locSel  = document.querySelector('.' + prefix + '-location-id');
+    if(!zoneSel || !locSel) return;
+    function loadLocations(zone){
+      if (!zone){
+        locSel.innerHTML = '<option value="">-- Select Zone first --</option>';
+        return;
+      }
+      locSel.innerHTML = '<option value="">Loading...</option>';
+      fetch('/locations/api/by-zone?zone=' + encodeURIComponent(zone))
+        .then(function(r){ return r.json(); })
+        .then(function(list){
+          locSel.innerHTML = '<option value="">-- Select Location --</option>';
+          (list || []).forEach(function(loc){
+            var o = document.createElement('option');
+            o.value = loc.id;
+            o.textContent = loc.display_name || loc.unit_id;
+            locSel.appendChild(o);
+          });
+        })
+        .catch(function(){
+          locSel.innerHTML = '<option value="">-- Select Location --</option>';
+        });
+    }
+    zoneSel.addEventListener('change', function(){ loadLocations(zoneSel.value); });
+  }
+
+  ['device','bucket','lot'].forEach(function(prefix){
+    wireDeptCascade(prefix);
+    wireZoneCascade(prefix);
+  });
+
+  // ── Move Bucket: lookup + reveal form ───────────────────────────────────────
+  var bucketBtn = document.getElementById('bucketLookupBtn');
+  if (bucketBtn) {
+    bucketBtn.addEventListener('click', function(){
+      var unitId = document.getElementById('bucketUnitId').value.trim();
+      var resultDiv = document.getElementById('bucketLookupResult');
+      var form = document.getElementById('bucketMoveForm');
+      if (!unitId) return;
+      resultDiv.innerHTML = '<span class="text-muted">Looking up...</span>';
+      fetch('/transfers/api/bucket-lookup?unit_id=' + encodeURIComponent(unitId))
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          if (!data.found) {
+            resultDiv.innerHTML = '<div class="alert alert-warning py-2 mb-0">Bucket/Location "' + unitId + '" not found.</div>';
+            form.classList.add('d-none');
+            return;
+          }
+          resultDiv.innerHTML =
+            '<div class="alert alert-success py-2 mb-0">' +
+            '<strong>Location ID:</strong> ' + data.unit_id + ' &nbsp;|&nbsp; ' +
+            '<strong>Location Type:</strong> ' + data.location_type + ' &nbsp;|&nbsp; ' +
+            '<strong>Count of Tag Numbers:</strong> ' + data.tag_count + ' &nbsp;|&nbsp; ' +
+            '<strong>Grade:</strong> ' + data.grade +
+            '</div>';
+          document.getElementById('bucketUnitIdHidden').value = unitId;
+          form.classList.remove('d-none');
+        })
+        .catch(function(){
+          resultDiv.innerHTML = '<div class="alert alert-danger py-2 mb-0">Lookup failed.</div>';
+        });
+    });
+  }
+
+  // ── Move Lot: lookup + reveal form ──────────────────────────────────────────
+  var lotBtn = document.getElementById('lotLookupBtn');
+  if (lotBtn) {
+    lotBtn.addEventListener('click', function(){
+      var lotNumber = document.getElementById('lotNumber').value.trim();
+      var resultDiv = document.getElementById('lotLookupResult');
+      var form = document.getElementById('lotMoveForm');
+      if (!lotNumber) return;
+      resultDiv.innerHTML = '<span class="text-muted">Looking up...</span>';
+      fetch('/transfers/api/lot-lookup?lot_number=' + encodeURIComponent(lotNumber))
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          if (!data.found) {
+            resultDiv.innerHTML = '<div class="alert alert-warning py-2 mb-0">Lot "' + lotNumber + '" not found.</div>';
+            form.classList.add('d-none');
+            return;
+          }
+          resultDiv.innerHTML =
+            '<div class="alert alert-success py-2 mb-0">' +
+            '<strong>Date Stock Inward:</strong> ' + data.stock_in_date + ' &nbsp;|&nbsp; ' +
+            '<strong>Date Final QC:</strong> ' + data.final_qc_date + ' &nbsp;|&nbsp; ' +
+            '<strong>Date Sold On:</strong> ' + data.sold_on_date + '<br>' +
+            '<strong>Model:</strong> ' + data.model + ' &nbsp;|&nbsp; ' +
+            '<strong>Grade:</strong> ' + data.grade + ' &nbsp;|&nbsp; ' +
+            '<strong>Warranty Status:</strong> ' + data.warranty_status +
+            '</div>';
+          document.getElementById('lotNumberHidden').value = lotNumber;
+          form.classList.remove('d-none');
+        })
+        .catch(function(){
+          resultDiv.innerHTML = '<div class="alert alert-danger py-2 mb-0">Lookup failed.</div>';
+        });
+    });
+  }
 })();
 </script>
 {% endblock %}

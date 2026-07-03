@@ -49,10 +49,10 @@
     <table class="table table-hover table-sm mb-0" id="locTable">
       <thead class="table-light">
         <tr>
-          <th>Unit ID</th>
+          <th>Location ID</th>
           <th>Zone</th>
           <th>Type</th>
-          <th>Slot</th>
+          <th>Bin Location</th>
           <th>Capacity</th>
           <th>Current Devices</th>
           <th>Description</th>
@@ -111,12 +111,14 @@
               <label class="form-label fw-semibold">Zone <span class="text-danger">*</span></label>
               <select name="zone" class="form-select" required>
                 {% for z in zone_types %}
+                {% if z.value in ("showroom", "warehouse", "workshop", "holding") %}
                 <option value="{{ z.value }}">{{ zone_labels[z] }}</option>
+                {% endif %}
                 {% endfor %}
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Unit Type <span class="text-danger">*</span></label>
+              <label class="form-label fw-semibold">Location Type <span class="text-danger">*</span></label>
               <select name="unit_type" class="form-select" required>
                 {% for u in unit_types %}
                 <option value="{{ u.value }}">{{ unit_type_labels[u] }}</option>
@@ -124,21 +126,17 @@
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Unit ID <span class="text-danger">*</span></label>
+              <label class="form-label fw-semibold">Location ID <span class="text-danger">*</span></label>
               <input type="text" name="unit_id" class="form-control text-uppercase" placeholder="e.g. RACK-A1" required>
               <div class="form-text">Unique code — will be printed on QR labels</div>
             </div>
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Slot / Bay</label>
+              <label class="form-label fw-semibold">Bin Location</label>
               <input type="text" name="slot" class="form-control" placeholder="e.g. Slot-3 (optional)">
             </div>
             <div class="col-md-6">
               <label class="form-label fw-semibold">Max Capacity</label>
               <input type="number" name="capacity" class="form-control" placeholder="e.g. 20">
-            </div>
-            <div class="col-12">
-              <label class="form-label fw-semibold">Description</label>
-              <input type="text" name="description" class="form-control" placeholder="Optional note">
             </div>
           </div>
         </div>

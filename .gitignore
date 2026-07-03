@@ -65,3 +65,4 @@ Thumbs.db
 # IQC "Download & run the OxyQC Agent" link works on GitHub builds / deploys.
 downloads/*
 !downloads/Diagnose_Device_Agent.exe
+.gstack/

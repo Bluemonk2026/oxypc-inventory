@@ -55,11 +55,7 @@
                 {% endfor %}
               </select>
             </div>
-            <div class="col-md-4">
-              <label class="form-label">GRN Number</label>
-              <input type="text" name="grn_number" class="form-control font-monospace bg-light"
-                     value="{{ device.grn_number or '' }}" placeholder="e.g. GRN-2024-001" readonly tabindex="-1">
-            </div>
+            <input type="hidden" name="grn_number" value="{{ device.grn_number or '' }}">
             <div class="col-md-4">
               <label class="form-label">Invoice No.</label>
               <input type="text" class="form-control font-monospace bg-light"
@@ -310,21 +306,23 @@
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Floor / Zone</label>
-              <select name="floor" class="form-select">
+              <label class="form-label">Floor/Zone</label>
+              {% set zone_opts = [
+                ('showroom','Showroom'), ('ground_floor','Ground Floor'), ('first_floor','1st Floor'),
+                ('second_floor','2nd Floor'), ('warehouse','Warehouse'), ('workshop','Workshop'),
+                ('dispatch','Dispatch Area'), ('holding','Holding Zone')
+              ] %}
+              <select name="floor" id="editFloorZone" class="form-select">
                 <option value="">N/A</option>
-                {% for f in ['Showroom','Ground Floor','1st Floor','2nd Floor','Warehouse','Workshop','Dispatch Area','Holding Zone'] %}
-                <option {% if device.floor == f %}selected{% endif %}>{{ f }}</option>
+                {% for val, label in zone_opts %}
+                <option value="{{ val }}" {% if device.floor == val %}selected{% endif %}>{{ label }}</option>
                 {% endfor %}
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Warehouse / Area</label>
-              <select name="warehouse" class="form-select">
-                <option value="">— Select —</option>
-                {% for w in ['TRC 1st Floor','TRC 2nd Floor','TRC 3rd Floor','Main Warehouse','Workshop','Showroom','Dispatch Area','Holding Zone'] %}
-                <option {% if device.warehouse == w %}selected{% endif %}>{{ w }}</option>
-                {% endfor %}
+              <label class="form-label">Location ID</label>
+              <select name="location_id" id="editLocationId" class="form-select" data-preselect="{{ device.location_id or '' }}">
+                <option value="">-- Select Zone first --</option>
               </select>
             </div>
             <div class="col-md-3 d-flex align-items-end">
@@ -452,6 +450,42 @@ async function loadMasterOptions(category, selectId, currentVal) {
     if (current) sel.value = current;
   } catch(e) { console.warn('master data load failed', e); }
 }
+
+// ── Floor/Zone -> Location ID cascade ───────────────────────────────────────
+(function(){
+  var zoneSel = document.getElementById('editFloorZone');
+  var locSel  = document.getElementById('editLocationId');
+  if (!zoneSel || !locSel) return;
+
+  function loadLocations(zone, preselectId) {
+    if (!zone) {
+      locSel.innerHTML = '<option value="">-- Select Zone first --</option>';
+      return;
+    }
+    locSel.innerHTML = '<option value="">Loading...</option>';
+    fetch('/locations/api/by-zone?zone=' + encodeURIComponent(zone))
+      .then(function(r){ return r.json(); })
+      .then(function(list){
+        locSel.innerHTML = '<option value="">-- Select Location --</option>';
+        (list || []).forEach(function(loc){
+          var o = document.createElement('option');
+          o.value = loc.id;
+          o.textContent = loc.display_name || loc.unit_id;
+          if (preselectId && String(preselectId) === String(loc.id)) o.selected = true;
+          locSel.appendChild(o);
+        });
+      })
+      .catch(function(){
+        locSel.innerHTML = '<option value="">-- Select Location --</option>';
+      });
+  }
+
+  zoneSel.addEventListener('change', function(){ loadLocations(zoneSel.value, null); });
+
+  // Best-effort: pre-fetch on load since a zone/location may already be set
+  if (zoneSel.value) loadLocations(zoneSel.value, locSel.dataset.preselect || null);
+})();
+
 document.addEventListener('DOMContentLoaded', () => {
   loadMasterOptions('brand', 'edit-brand-select', '{{ device.brand or "" }}');
   // Grade uses enum values (A/B/C/D/scrap) — static options, not master data

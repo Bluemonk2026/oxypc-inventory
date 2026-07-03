@@ -819,3 +819,36 @@ async def api_gap_count(
 ):
     gap_ids, _, _ = await _gap_devices(db)
     return JSONResponse({"gap_count": len(gap_ids)})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  8. Zone -> Location cascade API (reused by IQC Entry, Device Edit,
+#     and later the Move Device page in Batch C)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/api/by-zone")
+async def api_locations_by_zone(
+    zone: str = "",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return active StorageLocation rows for a given zone, for populating a
+    dependent 'Location ID' dropdown. zone must match a ZoneType enum value
+    (e.g. 'showroom', 'first_floor', 'dispatch')."""
+    if not zone:
+        return JSONResponse([])
+    try:
+        zone_enum = ZoneType(zone)
+    except ValueError:
+        return JSONResponse([])
+
+    result = await db.execute(
+        select(StorageLocation)
+        .where(StorageLocation.zone == zone_enum, StorageLocation.is_active == True)
+        .order_by(StorageLocation.unit_id)
+    )
+    locations = result.scalars().all()
+    return JSONResponse([
+        {"id": str(loc.id), "unit_id": loc.unit_id, "display_name": loc.display_name}
+        for loc in locations
+    ])

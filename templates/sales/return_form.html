@@ -9,6 +9,7 @@
       <div class="card-body">
         {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
         <form action="/returns/new" method="post">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
           <input type="hidden" name="barcode" id="returnBarcode">
           <div class="mb-3">
             <label class="form-label fw-semibold">Device Identity</label>
@@ -28,8 +29,16 @@
                 <div class="col-6"><span class="text-muted">Sold Grade:</span> <strong id="br_sold_grade">—</strong></div>
                 <div class="col-6"><span class="text-muted">Sold On:</span> <strong id="br_sold_on">—</strong></div>
                 <div class="col-12"><span class="text-muted">Warranty Status:</span> <strong id="br_warranty_status">—</strong></div>
+                <div class="col-12"><span class="text-muted">RMA Warranty:</span> <strong id="br_rma_warranty_status">—</strong> <span id="br_rma_warranty_expiry" class="text-muted"></span></div>
               </div>
             </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Return Type</label>
+            <select name="return_type" class="form-select">
+              <option value="customer">Customer Return</option>
+              <option value="dealer">Dealer Return</option>
+            </select>
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Return Reason</label>
@@ -45,6 +54,10 @@
               <option value="">-- Select --</option>
               <option>As sold</option><option>Minor damage</option><option>Major damage</option><option>Non-functional</option>
             </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Complaint / Issue Description</label>
+            <textarea name="complaint_text" class="form-control" rows="2" placeholder="Describe the customer's complaint or issue"></textarea>
           </div>
           <div class="mb-3">
             <label class="form-label">Refund Amount (₹)</label>
@@ -101,6 +114,9 @@
           document.getElementById('br_sold_grade').textContent = d.sold_grade || '—';
           document.getElementById('br_sold_on').textContent = d.sold_on || '—';
           document.getElementById('br_warranty_status').textContent = d.warranty_status || '—';
+          var rmaLabels = {in_warranty: 'In Warranty', out_of_warranty: 'Out of Warranty', no_warranty: 'No Warranty'};
+          document.getElementById('br_rma_warranty_status').textContent = rmaLabels[d.rma_warranty_status] || '—';
+          document.getElementById('br_rma_warranty_expiry').textContent = d.rma_warranty_expires_at ? ('(expires ' + d.rma_warranty_expires_at + ')') : '';
           brief.classList.remove('d-none');
           var ws = d.warranty_status || '';
           if(ws === 'Within Warranty'){

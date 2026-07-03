@@ -31,7 +31,10 @@ from services.control_engine import validate_sale_allowed
 from services.cost_engine import check_below_cost_warning
 from services.audit_engine import audit
 from services.event_bus import EventType, publish
-from utils.warranty import warranty_from_sold_at, latest_sold_at_map
+from utils.warranty import (
+    warranty_from_sold_at, latest_sold_at_map,
+    compute_warranty_expiry, warranty_status_for_sale,
+)
 
 router = APIRouter(tags=["sales"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.sales)
@@ -162,6 +165,7 @@ async def create_sale(
     notes: str = Form(""),
     qty: int = Form(1),
     invoice_file_path: str = Form(""),
+    warranty_type: str = Form("none"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("sales", "add")),
@@ -202,6 +206,9 @@ async def create_sale(
     warn = await check_below_cost_warning(device, price, db)
 
     sale_num = await _next_sale_number(db)
+    sold_at = app_now()
+    wtype = warranty_type if warranty_type in ("none", "30_days", "6_months", "1_year") else "none"
+    warranty_expires_at = compute_warranty_expiry(sold_at, wtype)
     sale = Sale(
         sale_number=sale_num, device_id=device.id,
         sale_price=price,
@@ -210,6 +217,8 @@ async def create_sale(
         invoice_no=invoice_no or None, payment_mode=payment_mode,
         sold_by=current_user.username, notes=notes or None,
         invoice_file_path=invoice_file_path or None,
+        sold_at=sold_at,
+        warranty_type=wtype, warranty_expires_at=warranty_expires_at,
     )
     db.add(sale)
 
@@ -528,6 +537,8 @@ async def process_return(
     action_taken: str = Form("restock"),
     refund_amount: str = Form("0"),
     notes: str = Form(""),
+    return_type: str = Form("customer"),
+    complaint_text: str = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("returns", "add")),
@@ -582,6 +593,10 @@ async def process_return(
     else:
         reentered_stage = "iqc"
 
+    # Server-computed warranty status at RMA time — never trust client input
+    rtype = return_type if return_type in ("customer", "dealer") else "customer"
+    warranty_status = warranty_status_for_sale(sale)
+
     # Create return as PENDING — device stage unchanged until manager approves
     ret = Return(
         sale_id=sale.id, device_id=device.id,
@@ -592,6 +607,10 @@ async def process_return(
         refund_amount=Decimal(refund_amount) if refund_amount else None,
         notes=notes or None,
         approval_status='pending',
+        return_type=rtype,
+        serial_captured=barcode or None,
+        warranty_status=warranty_status,
+        complaint_text=complaint_text or None,
     )
     db.add(ret)
 
@@ -601,7 +620,9 @@ async def process_return(
     await audit(db, user=current_user, action="RETURN_SUBMITTED",
                 table_name="returns", record_id=str(device.id),
                 new_value={"sale": sale.sale_number, "reason": reason,
-                           "action": action_taken, "approval_status": "pending"},
+                           "action": action_taken, "approval_status": "pending",
+                           "return_type": rtype, "warranty_status": warranty_status,
+                           "complaint_text": complaint_text or None},
                 request=request)
 
     await db.commit()

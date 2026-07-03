@@ -8,7 +8,7 @@ Parts request → handover → sourcing workflow.
 import uuid
 from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Request, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -164,3 +164,22 @@ async def close_sourcing(sr_id: str, request: Request,
                 request=request)
     await db.commit()
     return RedirectResponse(url="/crm/?success=Sourcing+deal+closed", status_code=302)
+
+
+@router.post("/part-sourcing/{sr_id}/verify")
+async def verify_sourcing(sr_id: str, request: Request,
+                          db: AsyncSession = Depends(get_db), current_user: User = Depends(spm_allowed)):
+    """Spare Parts Manager verifies the sourced documents/quantity on the Part Master
+    'Sourcing Requests' tab. Independent of the Sales Manager's Close Deal step."""
+    sr = (await db.execute(
+        select(PartSourcingRequest).where(PartSourcingRequest.id == _as_uuid(sr_id))
+    )).scalar_one_or_none()
+    if not sr:
+        return JSONResponse({"ok": False, "error": "Sourcing request not found"}, status_code=404)
+    sr.verified = True
+    sr.verified_at = app_now()
+    sr.verified_by = current_user.username
+    await audit(db, user=current_user, action="SOURCING_VERIFIED", table_name="part_sourcing_requests",
+                record_id=str(sr.id), new_value={"verified_by": current_user.username}, request=request)
+    await db.commit()
+    return JSONResponse({"ok": True})

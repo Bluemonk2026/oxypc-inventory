@@ -110,10 +110,6 @@
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">GRN Number</label>
-              <input type="text" name="grn_number" class="form-control font-monospace bg-light" placeholder="e.g. GRN-2024-001" value="{{ prefill_grn if prefill_grn is defined else '' }}" readonly tabindex="-1">
-            </div>
-            <div class="col-md-3">
               <label class="form-label">Color</label>
               <input type="text" name="color" class="form-control" placeholder="Black / Silver / Dark Grey">
             </div>
@@ -693,17 +689,24 @@
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Floor</label>
-              <select name="floor" class="form-select">
+              <label class="form-label">Floor/Zone</label>
+              <select name="floor" id="iqcFloorZone" class="form-select">
                 <option value="">N/A</option>
-                <option>Showroom</option><option>Ground Floor</option><option>1st Floor</option>
-                <option>2nd Floor</option><option>Warehouse</option><option>Workshop</option>
-                <option>Dispatch Area</option><option>Holding Zone</option>
+                <option value="showroom">Showroom</option>
+                <option value="ground_floor">Ground Floor</option>
+                <option value="first_floor">1st Floor</option>
+                <option value="second_floor">2nd Floor</option>
+                <option value="warehouse">Warehouse</option>
+                <option value="workshop">Workshop</option>
+                <option value="dispatch">Dispatch Area</option>
+                <option value="holding">Holding Zone</option>
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Warehouse / Location</label>
-              <input type="text" name="warehouse" class="form-control" placeholder="e.g. TRC 1st Floor, Rack A3">
+              <label class="form-label">Location ID</label>
+              <select name="location_id" id="iqcLocationId" class="form-select">
+                <option value="">-- Select Zone first --</option>
+              </select>
             </div>
             <div class="col-md-3 d-flex align-items-end">
               <div class="form-check ms-2 mb-2">
@@ -742,6 +745,41 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   window.lotSelect = lotSelect;
 });
+
+// ── Floor/Zone -> Location ID cascade ───────────────────────────────────────
+(function(){
+  var zoneSel = document.getElementById('iqcFloorZone');
+  var locSel  = document.getElementById('iqcLocationId');
+  if (!zoneSel || !locSel) return;
+
+  function loadLocations(zone, preselectId) {
+    if (!zone) {
+      locSel.innerHTML = '<option value="">-- Select Zone first --</option>';
+      return;
+    }
+    locSel.innerHTML = '<option value="">Loading...</option>';
+    fetch('/locations/api/by-zone?zone=' + encodeURIComponent(zone))
+      .then(function(r){ return r.json(); })
+      .then(function(list){
+        locSel.innerHTML = '<option value="">-- Select Location --</option>';
+        (list || []).forEach(function(loc){
+          var o = document.createElement('option');
+          o.value = loc.id;
+          o.textContent = loc.display_name || loc.unit_id;
+          if (preselectId && String(preselectId) === String(loc.id)) o.selected = true;
+          locSel.appendChild(o);
+        });
+      })
+      .catch(function(){
+        locSel.innerHTML = '<option value="">-- Select Location --</option>';
+      });
+  }
+
+  zoneSel.addEventListener('change', function(){ loadLocations(zoneSel.value, null); });
+
+  // Best-effort pre-fetch on load if editing/prefilled with a zone already set
+  if (zoneSel.value) loadLocations(zoneSel.value, locSel.dataset.preselect || null);
+})();
 
 // Autofill IQC form from barcode lookup
 document.querySelector('[name="barcode"]').addEventListener('change', function() {

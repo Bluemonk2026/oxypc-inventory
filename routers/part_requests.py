@@ -160,11 +160,31 @@ async def close_sourcing(sr_id: str, request: Request,
     )).scalar_one_or_none()
     if not sr:
         raise HTTPException(404, "Sourcing request not found")
+    was_already_closed = sr.status == "closed"
     sr.status = "closed"
     sr.source_deal_id = source_deal_id
     sr.qty_sourced = max(0, qty_sourced)
     sr.closed_at = app_now()
     sr.closed_by = current_user.username
+
+    # If this request was already verified on the Part Master "Sourcing
+    # Requests" tab (verify_sourcing() below) before the deal was closed
+    # here, its qty_sourced was still 0 at verify-time so no stock was
+    # credited then. Credit it now that the real quantity is known — but
+    # only the first time this deal is closed, so re-submitting an
+    # already-closed deal doesn't double-credit stock.
+    if sr.verified and not was_already_closed and sr.part_id and sr.qty_sourced:
+        part = (await db.execute(select(SparePart).where(SparePart.id == sr.part_id))).scalar_one_or_none()
+        if part:
+            db.add(SparePartsLedger(
+                part_id=part.id, entry_type="IN", qty=sr.qty_sourced,
+                cost_per_unit=float(part.unit_price), total_cost=sr.qty_sourced * float(part.unit_price),
+                reference_type="sourcing_verified", reference_id=str(sr.id),
+                created_by=current_user.username,
+                notes=f"Sourcing request {sr.id} closed after verify — {sr.qty_sourced}x {sr.part_name}",
+            ))
+            part.qty_in_stock += sr.qty_sourced
+
     await audit(db, user=current_user, action="SOURCING_CLOSED", table_name="part_sourcing_requests",
                 record_id=str(sr.id), new_value={"source_deal_id": source_deal_id, "qty_sourced": qty_sourced},
                 request=request)

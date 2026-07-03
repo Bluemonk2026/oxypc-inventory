@@ -297,14 +297,13 @@
                   {% else %}<span class="badge bg-secondary">{{ r.status }}</span>{% endif %}
                 {% elif _eng %}
                 <div class="d-flex align-items-center gap-1 flex-wrap">
-                  <input type="number" id="qty_ref_{{ loop.index }}" value="1" min="1" class="form-control form-control-sm" style="width:56px" {% if not p.required %}disabled{% endif %}>
                   <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2" {% if not p.required %}disabled{% endif %}
-                          onclick="openPartRequestModal('new', document.getElementById('qty_ref_{{ loop.index }}').value, '{{ p.category | e }}')">
+                          onclick="openPartRequestModal('new', 1, '{{ p.category | e }}')">
                     <i class="bi bi-bag-plus"></i> New Request</button>
                   <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" {% if not p.required %}disabled{% endif %}
                           onmouseenter="if(!this.disabled)this.classList.replace('btn-outline-secondary','btn-outline-warning')"
                           onmouseleave="this.classList.replace('btn-outline-warning','btn-outline-secondary')"
-                          onclick="openPartRequestModal('replace', document.getElementById('qty_ref_{{ loop.index }}').value, '{{ p.category | e }}')">
+                          onclick="openPartRequestModal('replace', 1, '{{ p.category | e }}')">
                     <i class="bi bi-arrow-repeat"></i> Replace</button>
                 </div>
                 {% else %}<span class="text-muted">—</span>{% endif %}

@@ -17,6 +17,7 @@ from utils.timezone import app_now
 from models.crm import (
     CRMLeadGroup, CRMLead, CRMLeadCall,
     ACTIVITY_OUTCOMES, LEAD_PLATFORMS, LEAD_CONTACT_MODES, LEAD_DEVICE_CATEGORIES,
+    LEAD_DEALING_GRADES, LEAD_WHOM_TO_SELL, LEAD_DEALS_IN,
 )
 
 router = APIRouter(
@@ -52,8 +53,27 @@ def _cats(raw: str | None) -> list[str]:
         return []
 
 
-def _lead_dict(lead: CRMLead) -> dict:
+async def _latest_calls_map(db: AsyncSession, lead_ids: list) -> dict:
+    """Return {lead_id_str: CRMLeadCall} — most recent call per lead (by created_at)."""
+    if not lead_ids:
+        return {}
+    result = await db.execute(
+        select(CRMLeadCall)
+        .where(CRMLeadCall.lead_id.in_(lead_ids))
+        .order_by(CRMLeadCall.created_at.desc())
+    )
+    latest = {}
+    for c in result.scalars().all():
+        key = str(c.lead_id)
+        if key not in latest:
+            latest[key] = c
+    return latest
+
+
+def _lead_dict(lead: CRMLead, latest_call: CRMLeadCall = None) -> dict:
     cats = _cats(lead.device_categories)
+    grades = _cats(lead.dealing_grades)
+    call_cats = _cats(latest_call.device_categories) if latest_call else []
     return {
         "id":                    str(lead.id),
         "lead_id":               lead.lead_id,
@@ -63,16 +83,28 @@ def _lead_dict(lead: CRMLead) -> dict:
         "platform":              lead.platform or "",
         "device_categories":     cats,
         "device_categories_display": ", ".join(cats) if cats else "—",
-        "units_expected":        lead.units_expected,
+        "purchase_quantity":     lead.purchase_quantity or "",
+        "selling_quantity":      lead.selling_quantity or "",
+        "whom_to_sell":          lead.whom_to_sell or "",
+        "deals_in":              lead.deals_in or "",
+        "dealing_grades":        grades,
+        "dealing_grades_display": ", ".join(grades) if grades else "—",
         "planning_to_buy":       lead.planning_to_buy or "",
         "contact_mode":          lead.contact_mode or "",
         "name":                  lead.name or "",
         "phone":                 lead.phone or "",
         "email":                 lead.email or "",
+        "address":               lead.address or "",
         "call_status":           lead.call_status or "",
         "status_badge":          _STATUS_BADGE.get(lead.call_status or "", "secondary"),
         "full_remark":           lead.full_remark or "",
         "assigned_to":           lead.assigned_to or "",
+        # ── Derived from the most recent call log entry ──────────────────────
+        "latest_calling_date":        latest_call.calling_date.strftime("%d-%m-%Y") if latest_call and latest_call.calling_date else "—",
+        "latest_quantity":            (latest_call.quantity if latest_call else "") or "—",
+        "latest_device_categories":   ", ".join(call_cats) if call_cats else "—",
+        "latest_full_remarks":        (latest_call.full_remarks if latest_call else "") or "—",
+        "latest_deals_in":            (latest_call.deals_in if latest_call else "") or "—",
     }
 
 
@@ -111,14 +143,20 @@ async def list_assign_leads(
         if assigned:
             lq = lq.where(CRMLead.assigned_to == assigned)
         leads_result = await db.execute(lq)
-        for lead in leads_result.scalars().all():
-            leads_by_group.setdefault(str(lead.group_id), []).append(_lead_dict(lead))
+        all_leads = leads_result.scalars().all()
+        latest_calls = await _latest_calls_map(db, [l.id for l in all_leads])
+        for lead in all_leads:
+            leads_by_group.setdefault(str(lead.group_id), []).append(
+                _lead_dict(lead, latest_calls.get(str(lead.id)))
+            )
 
     # All active users for assign dropdown
     users_result = await db.execute(
         select(User).where(User.status == True).order_by(User.full_name)
     )
     all_users = users_result.scalars().all()
+
+    summary = await _compute_summary(db, q=q, customer=customer, assigned=assigned)
 
     return templates.TemplateResponse("crm/assign_leads.html", {
         "request":          request,
@@ -133,6 +171,108 @@ async def list_assign_leads(
         "contact_modes":    LEAD_CONTACT_MODES,
         "device_categories": LEAD_DEVICE_CATEGORIES,
         "outcomes":         ACTIVITY_OUTCOMES,
+        "dealing_grades_options": LEAD_DEALING_GRADES,
+        "whom_to_sell_options":   LEAD_WHOM_TO_SELL,
+        "deals_in_options":       LEAD_DEALS_IN,
+        "summary":          summary,
+    })
+
+
+# ── SUMMARY CARDS ─────────────────────────────────────────────────────────────
+
+async def _compute_summary(db: AsyncSession, q: str = "", customer: str = "", assigned: str = "") -> dict:
+    """Aggregate counts for the two summary card rows, scoped to the same
+    filters as the group/lead list above."""
+    gq = select(CRMLeadGroup.id)
+    if q:
+        gq = gq.where(CRMLeadGroup.name.ilike(f"%{q}%"))
+    group_ids = [row[0] for row in (await db.execute(gq)).all()]
+
+    if not group_ids:
+        empty_counts = lambda keys: {k: 0 for k in keys}
+        return {
+            "platform":   {"Facebook": 0, "Instagram": 0, "Google Ads": 0},
+            "connection": {"interested": 0, "no_answer": 0, "not_interested": 0},
+            "calling":    {"callback": 0, "followup": 0, "order_placed": 0},
+            "quantity":   {"purchase": 0, "sale": 0},
+            "grades":     {g: 0 for g in LEAD_DEALING_GRADES},
+            "categories": {c: 0 for c in LEAD_DEVICE_CATEGORIES},
+        }
+
+    lq = select(CRMLead).where(CRMLead.group_id.in_(group_ids))
+    if customer:
+        like = f"%{customer}%"
+        lq = lq.where(or_(CRMLead.name.ilike(like), CRMLead.phone.ilike(like), CRMLead.email.ilike(like)))
+    if assigned:
+        lq = lq.where(CRMLead.assigned_to == assigned)
+    leads = (await db.execute(lq)).scalars().all()
+
+    def _to_num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return 0
+
+    platform_counts   = {"Facebook": 0, "Instagram": 0, "Google Ads": 0}
+    connection_counts = {"interested": 0, "no_answer": 0, "not_interested": 0}
+    calling_counts     = {"callback": 0, "followup": 0, "order_placed": 0}
+    purchase_total, sale_total = 0, 0
+    grade_counts    = {g: 0 for g in LEAD_DEALING_GRADES}
+    category_counts = {c: 0 for c in LEAD_DEVICE_CATEGORIES}
+
+    for lead in leads:
+        if lead.platform in platform_counts:
+            platform_counts[lead.platform] += 1
+        if lead.call_status in connection_counts:
+            connection_counts[lead.call_status] += 1
+        if lead.call_status in calling_counts:
+            calling_counts[lead.call_status] += 1
+        purchase_total += _to_num(lead.purchase_quantity)
+        sale_total     += _to_num(lead.selling_quantity)
+        for g in _cats(lead.dealing_grades):
+            if g in grade_counts:
+                grade_counts[g] += 1
+        for c in _cats(lead.device_categories):
+            if c in category_counts:
+                category_counts[c] += 1
+
+    return {
+        "platform":   platform_counts,
+        "connection": connection_counts,
+        "calling":    calling_counts,
+        "quantity":   {"purchase": int(purchase_total) if purchase_total == int(purchase_total) else purchase_total,
+                       "sale": int(sale_total) if sale_total == int(sale_total) else sale_total},
+        "grades":     grade_counts,
+        "categories": category_counts,
+    }
+
+
+@router.get("/summary")
+async def get_summary(
+    q: str = Query(default=""),
+    customer: str = Query(default=""),
+    assigned: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return JSONResponse(await _compute_summary(db, q=q, customer=customer, assigned=assigned))
+
+
+# ── GROUP ROWS REFRESH (used by JS after any modal submit — no page reload) ──
+
+@router.get("/group/{group_id}/leads")
+async def get_group_leads(
+    group_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(CRMLead).where(CRMLead.group_id == group_id).order_by(CRMLead.created_at.desc())
+    )
+    leads = result.scalars().all()
+    latest_calls = await _latest_calls_map(db, [l.id for l in leads])
+    return JSONResponse({
+        "leads": [_lead_dict(l, latest_calls.get(str(l.id))) for l in leads],
     })
 
 
@@ -173,16 +313,16 @@ async def edit_group(
 @router.get("/sample")
 async def download_sample():
     headers = [
-        "lead_date", "platform", "device_categories", "units_expected",
-        "planning_to_buy", "contact_mode", "name", "phone", "email",
-        "assigned_to", "full_remark",
+        "lead_date", "platform", "device_categories", "purchase_quantity",
+        "planning_to_buy", "contact_mode", "name", "phone", "email", "address",
+        "assigned_to",
     ]
     rows = [
         headers,
         [
             "2026-06-30", "Facebook", "Laptop,Desktop", "10",
             "This week", "Phone Call", "Rahul Sharma", "9876543210",
-            "rahul@email.com", "", "Interested in bulk lot",
+            "rahul@email.com", "123 MG Road, Delhi", "",
         ],
         [
             "2026-07-01", "Instagram", "Monitor", "5",
@@ -232,8 +372,6 @@ async def import_leads(
 
             cats_raw = (row.get("device_categories") or "").strip()
             cats = [c.strip() for c in cats_raw.split(",") if c.strip()]
-            units_s = (row.get("units_expected") or "").strip()
-            units = int(units_s) if units_s.isdigit() else None
 
             lead = CRMLead(
                 lead_id=await _next_lead_id(db),
@@ -241,14 +379,14 @@ async def import_leads(
                 lead_date=ld,
                 platform=(row.get("platform") or "").strip() or None,
                 device_categories=_json.dumps(cats) if cats else None,
-                units_expected=units,
+                purchase_quantity=(row.get("purchase_quantity") or "").strip() or None,
                 planning_to_buy=(row.get("planning_to_buy") or "").strip() or None,
                 contact_mode=(row.get("contact_mode") or "").strip() or None,
                 name=(row.get("name") or "").strip() or None,
                 phone=(row.get("phone") or "").strip() or None,
                 email=(row.get("email") or "").strip() or None,
+                address=(row.get("address") or "").strip() or None,
                 assigned_to=(row.get("assigned_to") or "").strip() or None,
-                full_remark=(row.get("full_remark") or "").strip() or None,
                 created_by=current_user.username,
             )
             db.add(lead)
@@ -269,14 +407,18 @@ async def add_lead(
     lead_date: str = Form(""),
     platform: str = Form(""),
     device_categories: str = Form("[]"),
-    units_expected: str = Form(""),
+    purchase_quantity: str = Form(""),
+    selling_quantity: str = Form(""),
+    whom_to_sell: str = Form(""),
+    deals_in: str = Form(""),
+    dealing_grades: str = Form("[]"),
     planning_to_buy: str = Form(""),
     contact_mode: str = Form(""),
     name: str = Form(""),
     phone: str = Form(""),
     email: str = Form(""),
+    address: str = Form(""),
     assigned_to: str = Form(""),
-    full_remark: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -291,17 +433,14 @@ async def add_lead(
         except ValueError:
             pass
 
-    units = None
-    if units_expected:
-        try:
-            units = int(units_expected)
-        except ValueError:
-            pass
-
     try:
         cats = _json.loads(device_categories) if device_categories else []
     except Exception:
         cats = []
+    try:
+        grades = _json.loads(dealing_grades) if dealing_grades else []
+    except Exception:
+        grades = []
 
     lead = CRMLead(
         lead_id=await _next_lead_id(db),
@@ -309,14 +448,18 @@ async def add_lead(
         lead_date=ld,
         platform=platform.strip() or None,
         device_categories=_json.dumps(cats) if cats else None,
-        units_expected=units,
+        purchase_quantity=purchase_quantity.strip() or None,
+        selling_quantity=selling_quantity.strip() or None,
+        whom_to_sell=whom_to_sell.strip() or None,
+        deals_in=deals_in.strip() or None,
+        dealing_grades=_json.dumps(grades) if grades else None,
         planning_to_buy=planning_to_buy.strip() or None,
         contact_mode=contact_mode.strip() or None,
         name=name.strip() or None,
         phone=phone.strip() or None,
         email=email.strip() or None,
+        address=address.strip() or None,
         assigned_to=assigned_to.strip() or None,
-        full_remark=full_remark.strip() or None,
         created_by=current_user.username,
     )
     db.add(lead)
@@ -331,14 +474,18 @@ async def edit_lead(
     lead_date: str = Form(""),
     platform: str = Form(""),
     device_categories: str = Form("[]"),
-    units_expected: str = Form(""),
+    purchase_quantity: str = Form(""),
+    selling_quantity: str = Form(""),
+    whom_to_sell: str = Form(""),
+    deals_in: str = Form(""),
+    dealing_grades: str = Form("[]"),
     planning_to_buy: str = Form(""),
     contact_mode: str = Form(""),
     name: str = Form(""),
     phone: str = Form(""),
     email: str = Form(""),
+    address: str = Form(""),
     assigned_to: str = Form(""),
-    full_remark: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -354,30 +501,31 @@ async def edit_lead(
         except ValueError:
             pass
 
-    units = None
-    if units_expected:
-        try:
-            units = int(units_expected)
-        except ValueError:
-            pass
-
     try:
         cats = _json.loads(device_categories) if device_categories else []
     except Exception:
         cats = []
+    try:
+        grades = _json.loads(dealing_grades) if dealing_grades else []
+    except Exception:
+        grades = []
 
-    lead.lead_date        = ld
-    lead.platform         = platform.strip() or None
-    lead.device_categories= _json.dumps(cats) if cats else None
-    lead.units_expected   = units
-    lead.planning_to_buy  = planning_to_buy.strip() or None
-    lead.contact_mode     = contact_mode.strip() or None
-    lead.name             = name.strip() or None
-    lead.phone            = phone.strip() or None
-    lead.email            = email.strip() or None
-    lead.assigned_to      = assigned_to.strip() or None
-    lead.full_remark      = full_remark.strip() or None
-    lead.updated_at       = app_now()
+    lead.lead_date         = ld
+    lead.platform          = platform.strip() or None
+    lead.device_categories = _json.dumps(cats) if cats else None
+    lead.purchase_quantity = purchase_quantity.strip() or None
+    lead.selling_quantity  = selling_quantity.strip() or None
+    lead.whom_to_sell      = whom_to_sell.strip() or None
+    lead.deals_in          = deals_in.strip() or None
+    lead.dealing_grades    = _json.dumps(grades) if grades else None
+    lead.planning_to_buy   = planning_to_buy.strip() or None
+    lead.contact_mode      = contact_mode.strip() or None
+    lead.name              = name.strip() or None
+    lead.phone             = phone.strip() or None
+    lead.email             = email.strip() or None
+    lead.address           = address.strip() or None
+    lead.assigned_to       = assigned_to.strip() or None
+    lead.updated_at        = app_now()
 
     await db.commit()
     return JSONResponse({"ok": True})
@@ -390,10 +538,14 @@ async def log_call(
     lead_id: str,
     calling_date: str = Form(...),
     followup_date: str = Form(""),
-    outcome: str = Form(""),
+    outcome: str = Form(""),          # shown to users as "Status"
     device_categories: str = Form("[]"),
     quantity: str = Form(""),
     full_remarks: str = Form(""),
+    purchase_quantity: str = Form(""),
+    selling_quantity: str = Form(""),
+    whom_to_sell: str = Form(""),
+    deals_in: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -414,13 +566,6 @@ async def log_call(
         except ValueError:
             pass
 
-    qty = None
-    if quantity:
-        try:
-            qty = int(quantity)
-        except ValueError:
-            pass
-
     try:
         cats = _json.loads(device_categories) if device_categories else []
     except Exception:
@@ -432,8 +577,12 @@ async def log_call(
         followup_date=fd,
         outcome=outcome.strip() or None,
         device_categories=_json.dumps(cats) if cats else None,
-        quantity=qty,
+        quantity=quantity.strip() or None,
         full_remarks=full_remarks.strip() or None,
+        purchase_quantity=purchase_quantity.strip() or None,
+        selling_quantity=selling_quantity.strip() or None,
+        whom_to_sell=whom_to_sell.strip() or None,
+        deals_in=deals_in.strip() or None,
         logged_by=current_user.username,
     )
     db.add(call)
@@ -465,10 +614,14 @@ async def get_call_history(
         calls.append({
             "calling_date":      c.calling_date.strftime("%d-%m-%Y") if c.calling_date else "",
             "followup_date":     c.followup_date.strftime("%d-%m-%Y") if c.followup_date else "",
-            "outcome":           c.outcome or "",
+            "outcome":           c.outcome or "",       # shown to users as "Status"
             "device_categories": _cats(c.device_categories),
             "quantity":          c.quantity,
             "full_remarks":      c.full_remarks or "",
+            "purchase_quantity": c.purchase_quantity or "",
+            "selling_quantity":  c.selling_quantity or "",
+            "whom_to_sell":      c.whom_to_sell or "",
+            "deals_in":          c.deals_in or "",
             "logged_by":         c.logged_by,
         })
     return JSONResponse({"calls": calls})

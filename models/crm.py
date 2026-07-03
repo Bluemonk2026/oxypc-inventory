@@ -399,6 +399,9 @@ LEAD_PLATFORMS = [
 ]
 LEAD_CONTACT_MODES = ["Phone Call", "WhatsApp", "Email", "In-Person", "Video Call", "SMS"]
 LEAD_DEVICE_CATEGORIES = ["Laptop", "Desktop", "Monitor", "Mini PC"]
+LEAD_DEALING_GRADES = ["Grade A", "Grade B", "Grade C", "Lot"]
+LEAD_WHOM_TO_SELL = ["Corporate", "Retail", "End User"]
+LEAD_DEALS_IN = ["Indian", "Imported", "Both"]
 
 
 class CRMLeadGroup(Base):
@@ -424,15 +427,20 @@ class CRMLead(Base):
     lead_date         = Column(Date,        nullable=True)
     platform          = Column(String(100), nullable=True)
     device_categories = Column(Text,        nullable=True)   # JSON array e.g. '["Laptop","Monitor"]'
-    units_expected    = Column(Integer,     nullable=True)
+    purchase_quantity = Column(String(50),  nullable=True)   # was units_expected (Integer) — renamed + freeform
     planning_to_buy   = Column(String(200), nullable=True)
     contact_mode      = Column(String(50),  nullable=True)
     name              = Column(String(200), nullable=True)
     phone             = Column(String(30),  nullable=True)
     email             = Column(String(150), nullable=True)
+    address           = Column(Text,        nullable=True)
     call_status       = Column(String(50),  nullable=True)   # last call outcome
-    full_remark       = Column(Text,        nullable=True)
+    full_remark       = Column(Text,        nullable=True)   # deprecated — call log's full_remarks is now shown instead
     assigned_to       = Column(String(50),  nullable=True, index=True)
+    selling_quantity  = Column(String(50),  nullable=True)
+    whom_to_sell      = Column(String(30),  nullable=True)   # Corporate, Retail, End User
+    deals_in          = Column(String(20),  nullable=True)   # Indian, Imported, Both
+    dealing_grades    = Column(Text,        nullable=True)   # JSON array e.g. '["Grade A","Lot"]'
     created_by        = Column(String(50),  nullable=False)
     created_at        = Column(DateTime,    default=app_now)
     updated_at        = Column(DateTime,    default=app_now, onupdate=app_now)
@@ -449,10 +457,14 @@ class CRMLeadCall(Base):
     lead_id           = Column(UUID(as_uuid=True), ForeignKey("crm_leads.id"), nullable=False, index=True)
     calling_date      = Column(Date,        nullable=False)
     followup_date     = Column(Date,        nullable=True)
-    outcome           = Column(String(50),  nullable=True)
+    outcome           = Column(String(50),  nullable=True)   # shown to users as "Status"
     device_categories = Column(Text,        nullable=True)   # JSON array
-    quantity          = Column(Integer,     nullable=True)
+    quantity          = Column(String(50),  nullable=True)   # freeform (was Integer)
     full_remarks      = Column(Text,        nullable=True)
+    purchase_quantity = Column(String(50),  nullable=True)
+    selling_quantity  = Column(String(50),  nullable=True)
+    whom_to_sell      = Column(String(30),  nullable=True)   # Corporate, Retail, End User
+    deals_in          = Column(String(20),  nullable=True)   # Indian, Imported, Both
     logged_by         = Column(String(50),  nullable=False)
     created_at        = Column(DateTime,    default=app_now)
 

@@ -1,0 +1,54 @@
+{# Row partial for one lead group's tbody — mirrors leadRowHtml() in assign_leads.html's JS exactly,
+   since the JS refresh path re-renders these same rows client-side after any modal submit. #}
+{% if not group_leads %}
+<tr>
+  <td colspan="15" class="text-center text-muted py-3 small">
+    No leads yet — click <i class="bi bi-plus-lg"></i> to add one
+  </td>
+</tr>
+{% endif %}
+{% for ld in group_leads %}
+<tr id="lr-{{ ld.id }}">
+  <td class="ps-3 font-monospace text-muted small">{{ ld.lead_id }}</td>
+  <td>
+    {% if ld.call_status %}
+    <span class="badge bg-{{ ld.status_badge }} small">
+      {{ ld.call_status | replace('_', ' ') | title }}
+    </span>
+    {% else %}
+    <span class="text-muted">—</span>
+    {% endif %}
+  </td>
+  <td class="fw-semibold">{{ ld.name or '—' }}</td>
+  <td>{{ ld.phone or '—' }}</td>
+  <td class="text-muted small">{{ ld.email or '—' }}</td>
+  <td class="text-truncate" style="max-width:130px" title="{{ ld.address }}">{{ ld.address or '—' }}</td>
+  <td>{{ ld.latest_calling_date }}</td>
+  <td>{{ ld.latest_quantity }}</td>
+  <td>{{ ld.latest_device_categories }}</td>
+  <td class="text-truncate" style="max-width:130px" title="{{ ld.latest_full_remarks }}">{{ ld.latest_full_remarks }}</td>
+  <td>{{ ld.device_categories_display }}</td>
+  <td>{{ ld.purchase_quantity or '—' }}</td>
+  <td>{{ ld.selling_quantity or '—' }}</td>
+  <td>{{ ld.latest_deals_in }}</td>
+  <td>
+    <div class="btn-group btn-group-sm">
+      <button class="btn btn-outline-primary py-0 px-1"
+              data-lead='{{ ld | tojson }}'
+              onclick="showEditLeadModal(this)" title="Edit">
+        <i class="bi bi-pencil"></i>
+      </button>
+      <button class="btn btn-outline-success py-0 px-1"
+              data-lead='{{ ld | tojson }}'
+              onclick="showCallModal(this)" title="Log Call">
+        <i class="bi bi-telephone"></i>
+      </button>
+      <button class="btn btn-outline-info py-0 px-1"
+              onclick="showHistoryModal('{{ ld.id }}', '{{ ld.name | e }}')"
+              title="Call History">
+        <i class="bi bi-clock-history"></i>
+      </button>
+    </div>
+  </td>
+</tr>
+{% endfor %}

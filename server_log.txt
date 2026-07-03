@@ -1,0 +1,37 @@
+INFO:     Started server process [42276]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+
+==================================================
+  OxyPC Inventory starting...
+==================================================
+  [Schema] Auto-fixed 1 issue(s):
+    + Created all missing tables via Base.metadata.create_all
+  [Timezone] Using default: Asia/Kolkata (IST)
+  [Events] Webhook dispatcher subscribed to all event types
+  [Perms] Role permission cache loaded
+
+  OxyPC Inventory started successfully
+  URL: http://localhost:8000
+  LAN: http://<your-server-ip>:8000
+  Default login: see config.ini or ask your administrator
+==================================================
+
+INFO:     127.0.0.1:58027 - "GET /login HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:58030 - "GET / HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:50993 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53208 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65313 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60733 - "GET /model-requests HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60736 - "GET /model-requests/new HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60739 - "GET /model-requests HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53522 - "GET /model-requests/new HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53524 - "POST /model-requests/new HTTP/1.1" 403 Forbidden
+INFO:     127.0.0.1:56029 - "POST /model-requests/new HTTP/1.1" 302 Found
+INFO:     127.0.0.1:49732 - "GET /model-requests HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53165 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64521 - "POST /model-requests/ea6420f5-68e5-4a10-8721-531d602b8af9/fulfil HTTP/1.1" 302 Found
+INFO:     127.0.0.1:58098 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52723 - "GET / HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:52725 - "GET /docs HTTP/1.1" 200 OK

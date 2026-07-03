@@ -1,0 +1,38 @@
+OxyPC Learning Manual
+============================================================
+Module: Stock Intake & Lot Management
+Description: Create lots, receive stock inwards, and manage lot-level tracking.
+
+Step 1: Create a New Lot
+----------------------------------------
+  - Go to Intake → Lot Overview in the left navigation.
+  - Click 'New Lot' at the top right.
+  - Fill in: Lot Name, Source (Supplier), Expected Device Count, Purchase Date, and Remarks.
+  - Click 'Create Lot' to save. The lot appears in the Lot Overview list.
+
+Step 2: Stock Inward Entry
+----------------------------------------
+  - Go to Inventory → Stock Inwards.
+  - Select the Lot from the dropdown.
+  - Enter each device's Tag Number (barcode), Brand, and Model.
+  - Click 'Add Device' for each unit.
+  - Once all devices are entered, click 'Confirm Stock In'.
+
+Step 3: View Lot Details
+----------------------------------------
+  - In Lot Overview, click any lot name to open the detail page.
+  - The detail page shows: device count, stage-wise breakdown, GRN status, and full device list.
+  - Use 'Export' to download the lot's device list as Excel.
+
+Step 4: GRN with Invoice
+----------------------------------------
+  - Go to Intake → GRN with Invoice.
+  - Select the lot and upload the supplier invoice PDF.
+  - Enter: Invoice Number, Date, Total Value, and Per-Device Cost.
+  - Click 'Save GRN' to record the financial receipt.
+
+Tips & Best Practices
+----------------------------------------
+  * Always create the Lot BEFORE entering devices — every device must belong to a lot.
+  * Tag Numbers must be unique across the entire system. Duplicates are blocked.
+  * Mark a lot as 'Closed' once all devices have completed the workflow.

@@ -82,17 +82,9 @@
               <label class="form-label fw-semibold">Customer State</label>
               <select name="customer_state" class="form-select">
                 <option value="">Delhi (default)</option>
-                <option value="Maharashtra">Maharashtra</option>
-                <option value="Karnataka">Karnataka</option>
-                <option value="Tamil Nadu">Tamil Nadu</option>
-                <option value="Uttar Pradesh">Uttar Pradesh</option>
-                <option value="Haryana">Haryana</option>
-                <option value="Gujarat">Gujarat</option>
-                <option value="Rajasthan">Rajasthan</option>
-                <option value="West Bengal">West Bengal</option>
-                <option value="Telangana">Telangana</option>
-                <option value="Punjab">Punjab</option>
-                <option value="Other State">Other State (IGST)</option>
+                {% for s in master_options('customer_state') %}
+                <option value="{{ s }}">{{ 'Other State (IGST)' if s == 'Other State' else s }}</option>
+                {% endfor %}
               </select>
               <div class="form-text small">Select non-Delhi state for IGST; leave blank for Delhi (CGST+SGST)</div>
             </div>
@@ -103,10 +95,9 @@
             <div class="col-md-6">
               <label class="form-label fw-semibold">Warranty</label>
               <select name="warranty_type" class="form-select">
-                <option value="none">No Warranty</option>
-                <option value="30_days">30 Days</option>
-                <option value="6_months">6 Months</option>
-                <option value="1_year">1 Year</option>
+                {% for w in master_options('sale_warranty_type') %}
+                <option value="{{ w }}">{{ 'No Warranty' if w == 'none' else w | replace('_',' ') | title }}</option>
+                {% endfor %}
               </select>
             </div>
             <div class="col-12">

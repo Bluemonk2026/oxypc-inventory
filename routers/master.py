@@ -15,6 +15,7 @@ from models.role_permissions import (
 )
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from routers.admin import _role_data
+from utils.master_data import refresh_master_cache
 
 router = APIRouter(prefix="/admin/master", tags=["master"], dependencies=[Depends(verify_csrf)])
 admin_only = require_roles(UserRole.admin)
@@ -34,15 +35,26 @@ ACCORDION_SECTIONS = [
         "cat_keys": [
             "l1_issue", "l2_issue", "l3_issue", "repair_issue",
             "repair_resolution", "part_category", "qc_check_item",
+            "repair_action_taken", "repair_received_from", "repair_scrap_reason",
+            "repair_source_type", "qc_failure_reason", "cosmetic_final_qc_status",
+            "iqc_r2v3_grade_category",
         ],
     },
     {
         "id": "inventory", "label": "Inventory & Logistics", "icon": "bi-box-seam",
-        "cat_keys": ["floor", "warehouse", "supplier", "data_destruction_method"],
+        "cat_keys": [
+            "floor", "warehouse", "supplier", "data_destruction_method",
+            "transfer_type", "spare_parts_ram_action", "spare_parts_ram_gb",
+            "spare_parts_consume_stage",
+        ],
     },
     {
         "id": "sales", "label": "Sales & Returns", "icon": "bi-receipt",
-        "cat_keys": ["payment_mode", "return_reason", "condition_on_return"],
+        "cat_keys": [
+            "payment_mode", "return_reason", "condition_on_return",
+            "customer_state", "sale_warranty_type", "return_type",
+            "product_return_reason", "dealer_credit_reason",
+        ],
     },
     {
         "id": "telecalling", "label": "Telecalling", "icon": "bi-telephone",
@@ -54,6 +66,28 @@ ACCORDION_SECTIONS = [
     {
         "id": "assign_leads", "label": "Assign Social Leads", "icon": "bi-person-lines-fill",
         "cat_keys": ["asl_status"],
+    },
+    {
+        "id": "dealers", "label": "Dealer Management", "icon": "bi-people",
+        "cat_keys": [
+            "dealer_dealer_type", "dealer_status",
+            "call_outcome", "call_mode", "call_type",
+        ],
+    },
+    {
+        "id": "crm", "label": "CRM", "icon": "bi-diagram-3",
+        "cat_keys": [
+            "crm_source_type", "crm_material_type", "crm_buyer_type",
+            "crm_priority", "crm_activity_type", "crm_activity_outcome",
+        ],
+    },
+    {
+        "id": "other_modules", "label": "WhatsApp / Market / Attendance / QA", "icon": "bi-grid-3x3-gap",
+        "cat_keys": [
+            "whatsapp_message_type", "whatsapp_group_category",
+            "market_trade_type", "market_item_category", "market_condition",
+            "attendance_status", "qa_environment",
+        ],
     },
 ]
 
@@ -173,15 +207,52 @@ CATEGORIES = [
     ("repair_resolution",   "Repair Resolutions",           "repair"),
     ("part_category",       "Spare Parts Categories",       "repair"),
     ("qc_check_item",       "QC Check Items",               "repair"),
+    ("repair_action_taken", "Repair L3: Action Taken",      "repair"),
+    ("repair_received_from","Repair L3: Received From",     "repair"),
+    ("repair_scrap_reason", "Repair L3: Scrap Reason",      "repair"),
+    ("repair_source_type",  "Repair L3: Customer/Internal", "repair"),
+    ("qc_failure_reason",   "Cosmetic/QC: Failure Reason",  "repair"),
+    ("cosmetic_final_qc_status", "Cosmetic: Final QC Status", "repair"),
+    ("iqc_r2v3_grade_category", "IQC: R2V3 Grade Category",  "repair"),
     # ── Inventory / Logistics ─────────────────────────────────────
     ("floor",               "Floors / Locations",           "inventory"),
     ("warehouse",           "Warehouses / Zones",           "inventory"),
     ("supplier",            "Suppliers",                    "inventory"),
     ("data_destruction_method", "Data Destruction Methods", "inventory"),
+    ("transfer_type",       "Transfers: Transfer Type",     "inventory"),
+    ("spare_parts_ram_action", "Spare Parts: RAM Action",    "inventory"),
+    ("spare_parts_ram_gb",  "Spare Parts: RAM Capacity (GB)", "inventory"),
+    ("spare_parts_consume_stage", "Spare Parts: Consumption Stage", "inventory"),
     # ── Sales / Returns ──────────────────────────────────────────
     ("payment_mode",        "Payment Modes",                "sales"),
     ("return_reason",       "Return Reasons",               "sales"),
     ("condition_on_return", "Condition on Return",          "sales"),
+    ("customer_state",      "Sales: Customer State (GST)",  "sales"),
+    ("sale_warranty_type",  "Sales: Warranty Type",         "sales"),
+    ("return_type",         "Sales: Return Type",           "sales"),
+    ("product_return_reason", "Sales: Product Return Reason", "sales"),
+    ("dealer_credit_reason", "Dealers: Credit Note Reason", "sales"),
+    # ── Dealer Management ─────────────────────────────────────────
+    ("dealer_dealer_type",  "Dealers: Dealer Type",         "dealers"),
+    ("dealer_status",       "Dealers: Status",              "dealers"),
+    ("call_outcome",        "Dealer Calls: Call Outcome",   "dealers"),
+    ("call_mode",           "Dealer Calls: Call Mode",      "dealers"),
+    ("call_type",           "Dealer Calls: Call Type",      "dealers"),
+    # ── CRM ────────────────────────────────────────────────────────
+    ("crm_source_type",     "CRM: Source Type",             "crm"),
+    ("crm_material_type",   "CRM: Material Type",           "crm"),
+    ("crm_buyer_type",      "CRM: Buyer Type",              "crm"),
+    ("crm_priority",        "CRM: Deal Priority",           "crm"),
+    ("crm_activity_type",   "CRM: Activity Type",           "crm"),
+    ("crm_activity_outcome","CRM: Activity Outcome",        "crm"),
+    # ── WhatsApp / Market / Attendance / QA ───────────────────────
+    ("whatsapp_message_type", "WhatsApp: Message Type",     "other_modules"),
+    ("whatsapp_group_category", "WhatsApp: Group Category", "other_modules"),
+    ("market_trade_type",   "Market: Trade Type",           "other_modules"),
+    ("market_item_category","Market: Item Category",        "other_modules"),
+    ("market_condition",    "Market: Item Condition",       "other_modules"),
+    ("attendance_status",   "Attendance: Status",           "other_modules"),
+    ("qa_environment",      "QA: Test Environment",         "other_modules"),
     # ── Telecalling ────────────────────────────────────────────────
     ("tc_category",         "Telecalling: Category",         "sales"),
     ("tc_model",            "Telecalling: Model",            "sales"),
@@ -302,6 +373,7 @@ async def add_master_value(
     item = MasterData(category=category, value=value.strip(), description=description.strip() or None)
     db.add(item)
     await db.commit()
+    await refresh_master_cache(db)
     cat_tab = dict((c[0], c[2]) for c in CATEGORIES).get(category, 'laptop')
     return RedirectResponse(url=f"/admin/master?success=Value+added&tab={cat_tab}", status_code=302)
 
@@ -321,6 +393,7 @@ async def edit_master_value(
     item.value = value.strip()
     item.description = description.strip() or None
     await db.commit()
+    await refresh_master_cache(db)
     cat_tab = dict((c[0], c[2]) for c in CATEGORIES).get(item.category, 'laptop')
     return RedirectResponse(url=f"/admin/master?success=Updated&tab={cat_tab}", status_code=302)
 
@@ -337,6 +410,7 @@ async def toggle_master_value(
         raise HTTPException(404)
     item.is_active = not item.is_active
     await db.commit()
+    await refresh_master_cache(db)
     cat_tab = dict((c[0], c[2]) for c in CATEGORIES).get(item.category, 'laptop')
     return RedirectResponse(url=f"/admin/master?success=Updated&tab={cat_tab}", status_code=302)
 
@@ -354,6 +428,7 @@ async def delete_master_value(
         cat_tab = dict((c[0], c[2]) for c in CATEGORIES).get(item.category, 'laptop')
     await db.execute(delete(MasterData).where(MasterData.id == item_id))
     await db.commit()
+    await refresh_master_cache(db)
     return RedirectResponse(url=f"/admin/master?success=Deleted&tab={cat_tab}", status_code=302)
 
 
@@ -432,6 +507,7 @@ async def bulk_upload_category(
         added += 1
 
     await db.commit()
+    await refresh_master_cache(db)
     cat_tab = dict((c[0], c[2]) for c in CATEGORIES).get(category, 'laptop')
     return RedirectResponse(
         url=f"/admin/master?success={added}+values+added,+{skipped}+skipped&tab={cat_tab}",

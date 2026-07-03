@@ -89,3 +89,10 @@ def _role_display(role):
 
 templates.env.globals["role_display"] = _role_display
 templates.env.globals["ROLE_DISPLAY_MAP"] = _ROLE_DISPLAY
+
+# ── Master Data dropdown options — usable in any template ──
+#   master_options('category_key') → list of active option values, cache-backed
+#   (see utils/master_data.py). Warmed at startup, refreshed on admin edits.
+from utils.master_data import master_options as _master_options
+
+templates.env.globals["master_options"] = _master_options

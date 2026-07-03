@@ -14,6 +14,7 @@ from database import get_db
 from models.dealers import Dealer, DealerCall, DealerAssignment, DealerOrder, DealerCreditNote
 from models.user import User, UserRole
 from models.master import MasterData
+from utils.master_data import master_values
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from models.crm import CustomerReceipt
 from services.audit_engine import audit
@@ -730,6 +731,8 @@ async def new_dealer_form(
     return templates.TemplateResponse("dealers/form.html", {
         "request": request, "current_user": current_user,
         "dealer": None, "sales_users": sales_users,
+        "dealer_type_options": await master_values(db, "dealer_dealer_type"),
+        "dealer_status_options": await master_values(db, "dealer_status"),
     })
 
 
@@ -1104,6 +1107,8 @@ async def edit_dealer_form(
     return templates.TemplateResponse("dealers/form.html", {
         "request": request, "current_user": current_user,
         "dealer": dealer, "sales_users": sales_users,
+        "dealer_type_options": await master_values(db, "dealer_dealer_type"),
+        "dealer_status_options": await master_values(db, "dealer_status"),
     })
 
 
@@ -1179,6 +1184,9 @@ async def call_form(
         "request": request, "current_user": current_user, "dealer": dealer,
         "sales_users": su_result.scalars().all(),
         "tc_options": await _tc_field_options(db),
+        "call_mode_options": await master_values(db, "call_mode"),
+        "call_type_options": await master_values(db, "call_type"),
+        "call_outcome_options": await master_values(db, "call_outcome"),
     })
 
 
@@ -1288,6 +1296,9 @@ async def edit_call_form(
         "dealer": dealer, "edit_call": call,
         "sales_users": su_result.scalars().all(),
         "tc_options": await _tc_field_options(db),
+        "call_mode_options": await master_values(db, "call_mode"),
+        "call_type_options": await master_values(db, "call_type"),
+        "call_outcome_options": await master_values(db, "call_outcome"),
     })
 
 

@@ -189,12 +189,9 @@
                                    max="{{ order.total_amount }}" step="0.01" required>
                             <select name="reason" class="form-select form-select-sm mb-2">
                               <option value="">— Reason —</option>
-                              <option value="goods_returned">Goods Returned</option>
-                              <option value="damaged_goods">Damaged Goods</option>
-                              <option value="wrong_item">Wrong Item Delivered</option>
-                              <option value="short_delivery">Short Delivery</option>
-                              <option value="price_adjustment">Price Adjustment</option>
-                              <option value="other">Other</option>
+                              {% for r in master_options('dealer_credit_reason') %}
+                              <option value="{{ r }}">{{ r | replace('_',' ') | title }}</option>
+                              {% endfor %}
                             </select>
                             <input type="text" name="items_description" class="form-control form-control-sm mb-2"
                                    placeholder="Items returned (optional)">

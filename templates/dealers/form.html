@@ -28,7 +28,7 @@
             <div class="col-md-4">
               <label class="form-label fw-semibold">Dealer Type</label>
               <select name="dealer_type" class="form-select">
-                {% for t in ['retail','wholesale','corporate','service'] %}
+                {% for t in dealer_type_options %}
                 <option value="{{ t }}" {% if dealer and dealer.dealer_type==t %}selected{% endif %}>{{ t | title }}</option>
                 {% endfor %}
               </select>
@@ -88,7 +88,7 @@
             <div class="col-md-4">
               <label class="form-label">Status</label>
               <select name="status" class="form-select">
-                {% for s in ['active','inactive','blacklisted'] %}
+                {% for s in dealer_status_options %}
                 <option value="{{ s }}" {% if dealer and dealer.status==s %}selected{% endif %}>{{ s | title }}</option>
                 {% endfor %}
               </select>

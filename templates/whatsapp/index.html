@@ -655,10 +655,11 @@
         <div class="modal-body">
           <div class="mb-3">
             <label class="form-label small fw-semibold">Category</label>
+            {% set group_category_labels = {'dealer': 'Dealer Group', 'personal': 'Personal Group', 'other': 'Other'} %}
             <select name="group_category" id="glGroupCat" class="form-select">
-              <option value="dealer">Dealer Group</option>
-              <option value="personal">Personal Group</option>
-              <option value="other" selected>Other</option>
+              {% for c in master_options('whatsapp_group_category') %}
+              <option value="{{ c }}" {% if c == 'other' %}selected{% endif %}>{{ group_category_labels.get(c, c) }}</option>
+              {% endfor %}
             </select>
           </div>
           <div class="mb-3">

@@ -167,8 +167,7 @@
                   <label class="form-label">Failure Category</label>
                   <select name="failure_reason" class="form-select">
                     <option value="">— Select —</option>
-                    <option>Functional</option><option>Paint</option><option>Plastic Part</option>
-                    <option>Screen</option><option>Keyboard</option><option>Battery</option>
+                    {% for r in master_options('qc_failure_reason') %}<option>{{ r }}</option>{% endfor %}
                   </select>
                 </div>
               </div>

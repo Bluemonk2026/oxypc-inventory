@@ -406,6 +406,16 @@ async def startup_event():
     except Exception as _pe:
         print(f"  [Perms] Could not load permission cache: {_pe}")
 
+    # ── Warm Master Data dropdown-options cache from DB ───────────────────────
+    try:
+        from utils.master_data import refresh_master_cache
+        from database import AsyncSessionLocal as _ASL2
+        async with _ASL2() as _sess2:
+            await refresh_master_cache(_sess2)
+        print("  [MasterData] Dropdown options cache loaded")
+    except Exception as _me:
+        print(f"  [MasterData] Could not load dropdown-options cache: {_me}")
+
     # ── Print startup banner ───────────────────────────────────────────────────
     print(f"\n  {APP_NAME} started successfully")
     print(f"  URL: http://localhost:{APP_PORT}")

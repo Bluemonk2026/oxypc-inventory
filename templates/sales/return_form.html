@@ -36,16 +36,18 @@
           <div class="mb-3">
             <label class="form-label fw-semibold">Return Type</label>
             <select name="return_type" class="form-select">
-              <option value="customer">Customer Return</option>
-              <option value="dealer">Dealer Return</option>
+              {% for t in master_options('return_type') %}
+              <option value="{{ t }}">{{ t | title }} Return</option>
+              {% endfor %}
             </select>
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Return Reason</label>
             <select name="reason" class="form-select">
               <option value="">-- Select reason --</option>
-              <option>Not working</option><option>Wrong item</option><option>Customer changed mind</option>
-              <option>Dead on arrival</option><option>Physical damage</option><option>Other</option>
+              {% for r in master_options('product_return_reason') %}
+              <option>{{ r }}</option>
+              {% endfor %}
             </select>
           </div>
           <div class="mb-3">

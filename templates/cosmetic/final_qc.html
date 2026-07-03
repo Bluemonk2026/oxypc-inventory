@@ -199,14 +199,14 @@
           <div class="mb-2">
             <label class="form-label small">Final Status</label>
             <select name="final_qc_status" class="form-select form-select-sm">
-              <option value="pass">Pass</option><option value="fail">Fail</option>
+              {% for s in master_options('cosmetic_final_qc_status') %}<option value="{{ s }}">{{ s | title }}</option>{% endfor %}
             </select>
           </div>
           <div class="mb-2">
             <label class="form-label small">Failure Reason <small class="text-muted">(if fail)</small></label>
             <select name="failure_reason" class="form-select form-select-sm">
               <option value="">— N/A —</option>
-              <option>Functional</option><option>Paint</option><option>Plastic Part</option>
+              {% for r in master_options('qc_failure_reason') %}<option>{{ r }}</option>{% endfor %}
             </select>
           </div>
           <div class="mb-2">

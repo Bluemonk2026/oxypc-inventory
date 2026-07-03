@@ -12,11 +12,17 @@
     </div>
     <div class="col-md-6">
       <label class="form-label fw-semibold">Transfer Type <span class="text-danger">*</span></label>
+      {% set transfer_type_labels = {
+        'trc_to_showroom': 'TRC to Showroom',
+        'showroom_to_trc': 'Showroom to TRC',
+        'showroom_lot': 'Showroom Lot',
+        'internal': 'Internal',
+      } %}
       <select name="transfer_type" class="form-select" required>
         <option value="">— Select Transfer Type —</option>
-        <option value="trc_to_showroom">TRC to Showroom</option>
-        <option value="showroom_to_trc">Showroom to TRC</option>
-        <option value="showroom_lot">Showroom Lot</option>
+        {% for t in master_options('transfer_type') if t != 'internal' %}
+        <option value="{{ t }}">{{ transfer_type_labels.get(t, t) }}</option>
+        {% endfor %}
       </select>
     </div>
 

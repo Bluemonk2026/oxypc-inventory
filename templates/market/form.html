@@ -13,16 +13,18 @@
           <div class="row g-3">
             <div class="col-md-3">
               <label class="form-label fw-semibold">Trade Type</label>
+              {% set market_trade_labels = {'sell': '🟢 Selling', 'buy': '🔵 Buying'} %}
               <select name="trade_type" class="form-select">
-                <option value="sell" {% if entry.trade_type=='sell' %}selected{% endif %}>🟢 Selling</option>
-                <option value="buy"  {% if entry.trade_type=='buy'  %}selected{% endif %}>🔵 Buying</option>
+                {% for t in master_options('market_trade_type') %}
+                <option value="{{ t }}" {% if entry.trade_type==t %}selected{% endif %}>{{ market_trade_labels.get(t, t) }}</option>
+                {% endfor %}
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label fw-semibold">Category</label>
               <select name="category" class="form-select">
                 <option value="">—</option>
-                {% for c in ['Laptop','Desktop','Monitor / TFT','Printer','Server','Tablet','Projector','Spare Parts','Other'] %}
+                {% for c in master_options('market_item_category') %}
                 <option {% if entry.category==c %}selected{% endif %}>{{ c }}</option>
                 {% endfor %}
               </select>
@@ -54,7 +56,7 @@
             <div class="col-md-2">
               <label class="form-label fw-semibold">Condition</label>
               <select name="condition" class="form-select">
-                {% for c in ['refurb','new','used','as-is'] %}
+                {% for c in master_options('market_condition') %}
                 <option value="{{ c }}" {% if entry.condition==c %}selected{% endif %}>{{ c | title }}</option>
                 {% endfor %}
               </select>

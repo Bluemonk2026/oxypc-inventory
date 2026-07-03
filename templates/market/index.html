@@ -241,18 +241,18 @@
           <div class="row g-3">
             <div class="col-md-3">
               <label class="form-label small fw-semibold">Trade Type</label>
+              {% set market_trade_labels_long = {'sell': '🟢 Selling (I have)', 'buy': '🔵 Buying (I need)'} %}
               <select name="trade_type" class="form-select form-select-sm">
-                <option value="sell">🟢 Selling (I have)</option>
-                <option value="buy">🔵 Buying (I need)</option>
+                {% for t in master_options('market_trade_type') %}
+                <option value="{{ t }}">{{ market_trade_labels_long.get(t, t) }}</option>
+                {% endfor %}
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small fw-semibold">Category</label>
               <select name="category" class="form-select form-select-sm">
                 <option value="">—</option>
-                <option>Laptop</option><option>Desktop</option><option>Monitor / TFT</option>
-                <option>Printer</option><option>Server</option><option>Tablet</option>
-                <option>Projector</option><option>Spare Parts</option><option>Other</option>
+                {% for c in master_options('market_item_category') %}<option>{{ c }}</option>{% endfor %}
               </select>
             </div>
             <div class="col-md-3">
@@ -281,11 +281,11 @@
             </div>
             <div class="col-md-2">
               <label class="form-label small fw-semibold">Condition</label>
+              {% set market_condition_labels = {'refurb': 'Refurbished', 'new': 'New', 'used': 'Used', 'as-is': 'As-Is'} %}
               <select name="condition" class="form-select form-select-sm">
-                <option value="refurb">Refurbished</option>
-                <option value="new">New</option>
-                <option value="used">Used</option>
-                <option value="as-is">As-Is</option>
+                {% for c in master_options('market_condition') %}
+                <option value="{{ c }}">{{ market_condition_labels.get(c, c) }}</option>
+                {% endfor %}
               </select>
             </div>
             <div class="col-md-2">

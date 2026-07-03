@@ -33,7 +33,7 @@
           <label class="form-label">Stage</label>
           <select name="stage" class="form-select">
             <option value="">— Any —</option>
-            <option>L1</option><option>L2</option><option>L3</option><option>IQC</option>
+            {% for s in master_options('spare_parts_consume_stage') %}<option>{{ s }}</option>{% endfor %}
           </select>
         </div>
         <div class="col-md-3">

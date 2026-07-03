@@ -13,11 +13,17 @@
       </div>
       <div class="col-md-3">
         <label class="form-label small text-muted mb-1">Transfer Type</label>
+        {% set transfer_type_arrow_labels = {
+          'trc_to_showroom': 'TRC → Showroom',
+          'showroom_to_trc': 'Showroom → TRC',
+          'showroom_lot': 'Showroom Lot',
+          'internal': 'Internal',
+        } %}
         <select name="transfer_type" class="form-select form-select-sm">
           <option value="">All Types</option>
-          <option value="trc_to_showroom" {% if transfer_type == 'trc_to_showroom' %}selected{% endif %}>TRC → Showroom</option>
-          <option value="showroom_to_trc" {% if transfer_type == 'showroom_to_trc' %}selected{% endif %}>Showroom → TRC</option>
-          <option value="internal" {% if transfer_type == 'internal' %}selected{% endif %}>Internal</option>
+          {% for t in master_options('transfer_type') %}
+          <option value="{{ t }}" {% if transfer_type == t %}selected{% endif %}>{{ transfer_type_arrow_labels.get(t, t) }}</option>
+          {% endfor %}
         </select>
       </div>
       <div class="col-auto d-flex gap-2">

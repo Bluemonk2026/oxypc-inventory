@@ -125,7 +125,7 @@
           <div class="mb-3">
             <label class="form-label">Status</label>
             <select name="status" class="form-select">
-              {% for s in status_choices %}<option value="{{ s }}">{{ s | replace('_',' ') | title }}</option>{% endfor %}
+              {% for s in master_options('attendance_status') %}<option value="{{ s }}">{{ s | replace('_',' ') | title }}</option>{% endfor %}
             </select>
           </div>
           <div class="row g-2">

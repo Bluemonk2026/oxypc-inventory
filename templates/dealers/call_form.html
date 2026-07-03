@@ -38,16 +38,16 @@
             <div class="col-md-4">
               <label class="form-label fw-semibold">Call Mode</label>
               <select name="call_mode" class="form-select">
-                {% for val, lbl in [('phone','Phone'),('whatsapp','WhatsApp'),('in_person','In Person')] %}
-                <option value="{{ val }}" {% if (edit_call and edit_call.call_mode == val) or (not edit_call and val == 'phone') %}selected{% endif %}>{{ lbl }}</option>
+                {% for val in call_mode_options %}
+                <option value="{{ val }}" {% if (edit_call and edit_call.call_mode == val) or (not edit_call and val == 'phone') %}selected{% endif %}>{{ val | replace('_',' ') | title }}</option>
                 {% endfor %}
               </select>
             </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">Call Type</label>
               <select name="call_type" class="form-select">
-                {% for val, lbl in [('outbound','Outbound'),('inbound','Inbound')] %}
-                <option value="{{ val }}" {% if (edit_call and edit_call.call_type == val) or (not edit_call and val == 'outbound') %}selected{% endif %}>{{ lbl }}</option>
+                {% for val in call_type_options %}
+                <option value="{{ val }}" {% if (edit_call and edit_call.call_type == val) or (not edit_call and val == 'outbound') %}selected{% endif %}>{{ val | title }}</option>
                 {% endfor %}
               </select>
             </div>
@@ -61,15 +61,8 @@
               <label class="form-label fw-semibold">Outcome <span class="text-danger">*</span></label>
               <select name="call_outcome" class="form-select" required>
                 <option value="">Select outcome...</option>
-                {% for val, lbl in [
-                  ('interested','Interested'),
-                  ('order_placed','Order Placed'),
-                  ('callback','Callback Requested'),
-                  ('not_interested','Not Interested'),
-                  ('no_answer','No Answer'),
-                  ('followup','Follow-up Needed')
-                ] %}
-                <option value="{{ val }}" {% if edit_call and edit_call.call_outcome == val %}selected{% endif %}>{{ lbl }}</option>
+                {% for val in call_outcome_options %}
+                <option value="{{ val }}" {% if edit_call and edit_call.call_outcome == val %}selected{% endif %}>{{ val | replace('_',' ') | title }}</option>
                 {% endfor %}
               </select>
             </div>

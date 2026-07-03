@@ -9,10 +9,11 @@
       <div class="row g-3">
         <div class="col-md-2">
           <label class="form-label fw-semibold">Action <span class="text-danger">*</span></label>
+          {% set ram_action_labels = {'removed': 'Removed from device', 'added': 'Added to device', 'cannibalized': 'Cannibalized (device→device)'} %}
           <select name="action" class="form-select" required>
-            <option value="removed">Removed from device</option>
-            <option value="added">Added to device</option>
-            <option value="cannibalized">Cannibalized (device→device)</option>
+            {% for a in master_options('spare_parts_ram_action') %}
+            <option value="{{ a }}">{{ ram_action_labels.get(a, a) }}</option>
+            {% endfor %}
           </select>
         </div>
         <div class="col-md-2">
@@ -26,8 +27,7 @@
         <div class="col-md-2">
           <label class="form-label fw-semibold">RAM (GB) <span class="text-danger">*</span></label>
           <select name="ram_gb" class="form-select" required>
-            <option>2</option><option>4</option><option>8</option><option>12</option>
-            <option>16</option><option>24</option><option>32</option><option>64</option>
+            {% for g in master_options('spare_parts_ram_gb') %}<option>{{ g }}</option>{% endfor %}
           </select>
         </div>
         <div class="col-md-2">

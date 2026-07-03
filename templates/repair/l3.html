@@ -140,22 +140,14 @@
               <label class="form-label small fw-semibold">Action Taken</label>
               <select name="action_taken" class="form-select form-select-sm">
                 <option value="">— Select —</option>
-                <option>BIOS Programming</option>
-                <option>CPU Socket PIN alignment</option>
-                <option>Part Replaced</option>
-                <option>Re-soldering</option>
-                <option>Reflow</option>
-                <option>Resoldering</option>
-                <option>Shorting removed</option>
-                <option>Track Repair</option>
-                <option>Others</option>
+                {% for a in master_options('repair_action_taken') %}<option>{{ a }}</option>{% endfor %}
               </select>
             </div>
             <div class="col-12">
               <label class="form-label small fw-semibold">Received From</label>
               <select name="received_from" class="form-select form-select-sm">
                 <option value="">— Select —</option>
-                <option>L1/L2 Engineer</option><option>L4 Support</option>
+                {% for r in master_options('repair_received_from') %}<option>{{ r }}</option>{% endfor %}
               </select>
             </div>
             <div class="col-12">
@@ -166,17 +158,14 @@
               <label class="form-label small">Scrap Reason <small class="text-muted">(if scrapped)</small></label>
               <select name="scrap_reason" class="form-select form-select-sm">
                 <option value="">— N/A —</option>
-                <option>CPU SHORT</option><option>CPU Sorting</option>
-                <option>Component Burn</option><option>Component Damage</option>
-                <option>Component Missing</option><option>PCB Burn</option>
-                <option>PCB Damage</option><option>Internal PCB Short</option>
+                {% for s in master_options('repair_scrap_reason') %}<option>{{ s }}</option>{% endfor %}
               </select>
             </div>
             <div class="col-12">
               <label class="form-label small">Customer / Internal</label>
               <select name="customer_internal" class="form-select form-select-sm">
                 <option value="">— Select —</option>
-                <option>Internal</option><option>Customer Service</option>
+                {% for c in master_options('repair_source_type') %}<option>{{ c }}</option>{% endfor %}
               </select>
             </div>
             <!-- Replace Device with (items 7 & 8) — only for returned devices -->

@@ -198,4 +198,82 @@ MASTER_SEED = {
         "no_answer", "followup", "done", "rescheduled",
         "not_in_stock", "high_price", "invalid_no",
     ],
+    # ── Dealer / Telecalling call log (unifies 3 previously-divergent copies) ──
+    "call_outcome": [
+        "interested", "order_placed", "callback", "not_interested",
+        "no_answer", "followup", "do_not_call",
+    ],
+    "call_mode": ["phone", "whatsapp", "in_person"],
+    "call_type": ["outbound", "inbound"],
+    # ── QC / Cosmetic (unifies 3 previously-divergent copies) ─────────────────
+    "qc_failure_reason": [
+        "Functional", "Paint", "Plastic Part", "Screen", "Keyboard", "Battery",
+    ],
+    # ── Repair L3 ──────────────────────────────────────────────────────────────
+    "repair_action_taken": [
+        "BIOS Programming", "CPU Socket PIN alignment", "Part Replaced",
+        "Re-soldering", "Reflow", "Shorting removed", "Track Repair", "Others",
+    ],
+    "repair_received_from": ["L1/L2 Engineer", "L4 Support"],
+    "repair_scrap_reason": [
+        "CPU SHORT", "CPU Sorting", "Component Burn", "Component Damage",
+        "Component Missing", "PCB Burn", "PCB Damage", "Internal PCB Short",
+    ],
+    "repair_source_type": ["Internal", "Customer Service"],
+    # ── Sales ──────────────────────────────────────────────────────────────────
+    "customer_state": [
+        "Maharashtra", "Karnataka", "Tamil Nadu", "Uttar Pradesh",
+        "Haryana", "Gujarat", "Rajasthan", "West Bengal", "Telangana",
+        "Punjab", "Other State",
+    ],
+    "sale_warranty_type": ["none", "30_days", "6_months", "1_year"],
+    "return_type": ["customer", "dealer"],
+    "product_return_reason": [
+        "Not working", "Wrong item", "Customer changed mind",
+        "Dead on arrival", "Physical damage", "Other",
+    ],
+    "dealer_credit_reason": [
+        "goods_returned", "damaged_goods", "wrong_item",
+        "short_delivery", "price_adjustment", "other",
+    ],
+    # ── Transfers ──────────────────────────────────────────────────────────────
+    "transfer_type": ["trc_to_showroom", "showroom_to_trc", "showroom_lot", "internal"],
+    # ── WhatsApp ───────────────────────────────────────────────────────────────
+    "whatsapp_message_type": ["Text", "Product Catalog", "Invoice", "Payment Reminder"],
+    "whatsapp_group_category": ["dealer", "personal", "other"],
+    # ── Market / Barter Board ──────────────────────────────────────────────────
+    "market_trade_type": ["sell", "buy"],
+    "market_item_category": [
+        "Laptop", "Desktop", "Monitor / TFT", "Printer", "Server",
+        "Tablet", "Projector", "Spare Parts", "Other",
+    ],
+    "market_condition": ["refurb", "new", "used", "as-is"],
+    # ── Dealers ────────────────────────────────────────────────────────────────
+    "dealer_dealer_type": ["retail", "wholesale", "corporate", "service"],
+    "dealer_status": ["active", "inactive", "blacklisted"],
+    # ── CRM (previously plain Python constants in models/crm.py) ──────────────
+    "crm_source_type": ["recycler", "refurb", "endcust", "trader", "indiv", "online"],
+    "crm_material_type": [
+        "as_is_untested", "as_is_tested", "as_is_graded",
+        "partially_refurb", "refurb_full", "scrap_parts", "bulk_mix",
+    ],
+    "crm_buyer_type": ["corp_buyer", "dealer", "online_seller", "export", "retail", "gov"],
+    "crm_priority": ["low", "medium", "high", "urgent"],
+    "crm_activity_type": ["call", "whatsapp", "visit", "email", "meeting", "note"],
+    "crm_activity_outcome": [
+        "interested", "not_interested", "callback", "order_placed",
+        "no_answer", "followup", "done", "rescheduled",
+    ],
+    # ── Spare Parts ────────────────────────────────────────────────────────────
+    "spare_parts_ram_action": ["removed", "added", "cannibalized"],
+    "spare_parts_ram_gb": ["2", "4", "8", "12", "16", "24", "32", "64"],
+    "spare_parts_consume_stage": ["L1", "L2", "L3", "IQC"],
+    # ── Attendance ─────────────────────────────────────────────────────────────
+    "attendance_status": ["present", "absent", "half_day", "late", "wfh"],
+    # ── QA ─────────────────────────────────────────────────────────────────────
+    "qa_environment": ["QA", "Staging", "Dev", "Production"],
+    # ── Cosmetic / Final QC ────────────────────────────────────────────────────
+    "cosmetic_final_qc_status": ["pass", "fail"],
+    # ── IQC ────────────────────────────────────────────────────────────────────
+    "iqc_r2v3_grade_category": ["C0", "C3", "C4", "C5"],
 }

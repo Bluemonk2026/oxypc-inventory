@@ -667,7 +667,7 @@
               <label class="form-label">R2V3 Grade Category</label>
               <select name="r2v3_grade_category" class="form-select">
                 <option value="">-- Select --</option>
-                <option>C0</option><option>C3</option><option>C4</option><option>C5</option>
+                {% for c in master_options('iqc_r2v3_grade_category') %}<option>{{ c }}</option>{% endfor %}
               </select>
             </div>
             <div class="col-md-2">

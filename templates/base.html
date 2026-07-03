@@ -422,7 +422,9 @@
          item inside is still explicitly gated on role=='admin', so non-admin
          visibility is unchanged from before this reorg. #}
       {% set app_settings_active = '/stage-control' in request.url.path or '/admin/audit-log' in request.url.path or '/repair/move' in request.url.path or '/admin/landing-pages' in request.url.path or '/whatsapp/audit' in request.url.path or '/purchase' in request.url.path or '/ram' in request.url.path or '/consume' in request.url.path %}
-      {% if role == 'admin' or has_perm(role,'spare_parts_purchase','enable') or has_perm(role,'parts_tracking','enable') or has_perm(role,'parts_consumption','enable') %}
+      {% if role == 'admin' or has_perm(role,'spare_parts_purchase','enable') or has_perm(role,'parts_tracking','enable') or has_perm(role,'parts_consumption','enable')
+            or has_perm(role,'move_device_internal','enable') or has_perm(role,'stage_control','enable') or has_perm(role,'aging_tracker','enable')
+            or has_perm(role,'stage_audit_log','enable') or has_perm(role,'system_audit_log','enable') or has_perm(role,'landing_pages','enable') or has_perm(role,'wa_audit_log','enable') %}
       <li class="nav-item">
         <a href="#appSettingsCollapse" class="nav-link d-flex align-items-center {% if app_settings_active %}active{% endif %}"
            data-bs-toggle="collapse" role="button"
@@ -434,25 +436,37 @@
         </a>
         <div class="collapse {% if app_settings_active %}show{% endif %}" id="appSettingsCollapse">
           <ul class="nav flex-column ps-3 pb-1">
-            {% if role == 'admin' %}
+            {% if role == 'admin' or has_perm(role,'move_device_internal','enable') %}
             <li><a href="/repair/move/form" class="nav-link py-1 small {% if '/repair/move' in request.url.path %}active{% endif %}">
               <i class="bi bi-arrow-left-right me-2"></i> Move Device Internal
             </a></li>
+            {% endif %}
+            {% if role == 'admin' or has_perm(role,'stage_control','enable') %}
             <li><a href="/stage-control" class="nav-link py-1 small {% if request.url.path == '/stage-control' %}active{% endif %}">
               <i class="bi bi-diagram-3 me-2"></i> Stage Control
             </a></li>
+            {% endif %}
+            {% if role == 'admin' or has_perm(role,'aging_tracker','enable') %}
             <li><a href="/stage-control/aging" class="nav-link py-1 small {% if '/stage-control/aging' in request.url.path %}active{% endif %}">
               <i class="bi bi-hourglass-split me-2"></i> Aging Tracker
             </a></li>
+            {% endif %}
+            {% if role == 'admin' or has_perm(role,'stage_audit_log','enable') %}
             <li><a href="/stage-control/audit" class="nav-link py-1 small {% if '/stage-control/audit' in request.url.path %}active{% endif %}">
               <i class="bi bi-journal-text me-2"></i> Stage Audit Log
             </a></li>
+            {% endif %}
+            {% if role == 'admin' or has_perm(role,'system_audit_log','enable') %}
             <li><a href="/admin/audit-log" class="nav-link py-1 small {% if '/admin/audit-log' in request.url.path %}active{% endif %}">
               <i class="bi bi-shield-check me-2"></i> System Audit Log
             </a></li>
+            {% endif %}
+            {% if role == 'admin' or has_perm(role,'landing_pages','enable') %}
             <li><a href="/admin/landing-pages" class="nav-link py-1 small {% if '/admin/landing-pages' in request.url.path %}active{% endif %}">
               <i class="bi bi-layout-text-sidebar me-2"></i> Landing Pages
             </a></li>
+            {% endif %}
+            {% if role == 'admin' or has_perm(role,'wa_audit_log','enable') %}
             <li><a href="/whatsapp/audit" class="nav-link py-1 small {% if '/whatsapp/audit' in request.url.path %}active{% endif %}">
               <i class="bi bi-whatsapp me-2 text-success"></i> WA Audit Log
             </a></li>

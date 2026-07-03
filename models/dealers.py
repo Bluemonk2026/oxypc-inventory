@@ -81,7 +81,8 @@ class DealerCall(Base):
     category         = Column(String(50), nullable=True)
     product_model    = Column(String(200), nullable=True)  # "Model" in the requirement sheet
     configuration    = Column(String(200), nullable=True)
-    qty              = Column(Integer, nullable=True)
+    qty              = Column(Integer, nullable=True)   # Required Quantity
+    purchase_quantity = Column(Integer, nullable=True)  # Purchase Quantity — distinct from Required Quantity
     asking_price     = Column(Numeric(12, 2), nullable=True)
     deal_status      = Column(String(30), nullable=True)  # open, negotiation, won, lost — distinct from call_outcome
     requirements_preferred_config = Column(Text, nullable=True)

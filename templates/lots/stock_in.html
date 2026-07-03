@@ -267,19 +267,27 @@
           <input type="text" id="bktName" class="form-control" placeholder="e.g. Carton A1">
         </div>
         <div class="mb-2">
-          <label class="form-label fw-semibold">Floor / Zone</label>
+          <label class="form-label fw-semibold">Zone</label>
           <select id="bktZone" class="form-select">
-            <option value="">— Select Floor/Zone —</option>
-            <option value="showroom">Showroom</option>
-            <option value="workshop">TRC Floor</option>
-            <option value="holding">TRC Store</option>
-            <option value="warehouse">Warehouse</option>
+            <option value="">— Select Zone —</option>
+            {% for val, label in zone_options %}
+            <option value="{{ val }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Location Type</label>
+          <select id="bktLocationType" class="form-select">
+            <option value="">— Select Location Type —</option>
+            {% for val, label in unit_type_options %}
+            <option value="{{ val }}">{{ label }}</option>
+            {% endfor %}
           </select>
         </div>
         <div class="mb-2">
           <label class="form-label fw-semibold">Location ID</label>
           <select id="bktLocationId" class="form-select" disabled>
-            <option value="">— Select Floor/Zone first —</option>
+            <option value="">— Select Zone first —</option>
           </select>
         </div>
       </div>
@@ -384,19 +392,28 @@ fetch('/api/bucket-warehouses').then(function(r){return r.json();}).then(functio
   });
 });
 
-// Floor/Zone -> Location ID cascade (Batch D Task 2, reuses Batch B's /locations/api/by-zone)
-document.getElementById('bktZone').addEventListener('change', function(){
-  var zone = this.value;
+// Zone + Location Type -> Location ID cascade (reuses /locations/api/by-zone,
+// now also filterable by unit_type / Location Type)
+function _loadBktLocations(){
+  var zone = document.getElementById('bktZone').value;
+  var unitType = document.getElementById('bktLocationType').value;
   var sel = document.getElementById('bktLocationId');
+  if(!zone || !unitType){
+    sel.innerHTML = '<option value="">— Select Zone and Location Type first —</option>';
+    sel.disabled = true;
+    return;
+  }
   sel.innerHTML = '<option value="">— Loading —</option>';
   sel.disabled = true;
-  if(!zone){ sel.innerHTML = '<option value="">— Select Floor/Zone first —</option>'; return; }
-  fetch('/locations/api/by-zone?zone=' + encodeURIComponent(zone)).then(function(r){return r.json();}).then(function(list){
-    sel.innerHTML = '<option value="">— Select Location —</option>';
-    list.forEach(function(loc){ sel.add(new Option(loc.display_name, loc.id)); });
-    sel.disabled = list.length === 0;
-  });
-});
+  fetch('/locations/api/by-zone?zone=' + encodeURIComponent(zone) + '&unit_type=' + encodeURIComponent(unitType))
+    .then(function(r){return r.json();}).then(function(list){
+      sel.innerHTML = '<option value="">— Select Location —</option>';
+      list.forEach(function(loc){ sel.add(new Option(loc.display_name, loc.id)); });
+      sel.disabled = list.length === 0;
+    });
+}
+document.getElementById('bktZone').addEventListener('change', _loadBktLocations);
+document.getElementById('bktLocationType').addEventListener('change', _loadBktLocations);
 
 // Bootstrap tooltips (Location hover — Batch D Task 1); base.html has no shared init, so init here
 document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el){ new bootstrap.Tooltip(el); });
@@ -490,7 +507,8 @@ document.getElementById('addToBucketModal').addEventListener('show.bs.modal', fu
   document.getElementById('bktTagList').innerHTML = bcs.map(function(bc){ return '<div>'+bc+'</div>'; }).join('');
   document.getElementById('bktName').value = '';
   document.getElementById('bktZone').value = '';
-  document.getElementById('bktLocationId').innerHTML = '<option value="">— Select Floor/Zone first —</option>';
+  document.getElementById('bktLocationType').value = '';
+  document.getElementById('bktLocationId').innerHTML = '<option value="">— Select Zone and Location Type first —</option>';
   document.getElementById('bktLocationId').disabled = true;
 });
 

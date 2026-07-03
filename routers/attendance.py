@@ -100,6 +100,15 @@ async def attendance_index(
         )
     records = rows_result.scalars().all()
 
+    # Role per user_id, for the privileged table's "Role" column
+    role_map = {}
+    user_ids = {r.user_id for r in records if r.user_id}
+    if user_ids:
+        role_rows = (await db.execute(
+            select(User.id, User.role).where(User.id.in_(user_ids))
+        )).all()
+        role_map = {str(uid): role for uid, role in role_rows}
+
     # Active user list for admin "mark attendance" modal
     users = []
     if _is_privileged(current_user):
@@ -118,6 +127,7 @@ async def attendance_index(
             "today": today,
             "own_record": own_record,
             "records": records,
+            "role_map": role_map,
             "users": users,
             "is_privileged": _is_privileged(current_user),
             "status_choices": ["present", "absent", "half_day", "late", "wfh"],

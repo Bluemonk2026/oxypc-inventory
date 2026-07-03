@@ -210,6 +210,7 @@ async def list_dealers(
             DealerCall.next_followup_date,
             DealerCall.call_date,
             DealerCall.qty,
+            DealerCall.purchase_quantity,
             DealerCall.calling_remark,
             DealerCall.notes,
             DealerCall.category,
@@ -221,8 +222,9 @@ async def list_dealers(
         rc_rows = (await db.execute(
             select(
                 inner.c.id, inner.c.dealer_id, inner.c.call_outcome, inner.c.items_discussed,
-                inner.c.next_followup_date, inner.c.call_date, inner.c.qty, inner.c.calling_remark,
-                inner.c.notes, inner.c.category, inner.c.sale_quantity, inner.c.deals_in, inner.c.whom_to_sell,
+                inner.c.next_followup_date, inner.c.call_date, inner.c.qty, inner.c.purchase_quantity,
+                inner.c.calling_remark, inner.c.notes, inner.c.category, inner.c.sale_quantity,
+                inner.c.deals_in, inner.c.whom_to_sell,
             ).where(inner.c.rn == 1)
         )).all()
         recent_call_map = {
@@ -233,6 +235,7 @@ async def list_dealers(
                 "next_followup_date": r.next_followup_date,
                 "call_date": r.call_date,
                 "qty": r.qty,
+                "purchase_quantity": r.purchase_quantity,
                 "calling_remark": r.calling_remark or "",
                 "notes": r.notes or "",
                 "category": r.category or "",
@@ -331,6 +334,7 @@ async def list_dealers(
         "sales_users": sales_users,
         "per_page": PER_PAGE,
         "today": today,
+        "whom_to_sell_options": (await _tc_field_options(db))["whom_to_sell"],
     })
 
 
@@ -1199,7 +1203,7 @@ async def quick_edit_dealer(
     items_discussed: str = Form(default=""),
     calling_remark: str = Form(default=""),
     notes: str = Form(default=""),
-    category: str = Form(default=""),
+    purchase_quantity: str = Form(default=""),
     sale_quantity: str = Form(default=""),
     deals_in: str = Form(default=""),
     whom_to_sell: str = Form(default=""),
@@ -1235,7 +1239,7 @@ async def quick_edit_dealer(
     call.items_discussed = items_discussed or None
     call.calling_remark = calling_remark or None
     call.notes = notes or None
-    call.category = category or None
+    call.purchase_quantity = int(purchase_quantity) if (purchase_quantity or "").strip().isdigit() else None
     call.sale_quantity = int(sale_quantity) if (sale_quantity or "").strip().isdigit() else None
     call.deals_in = deals_in or None
     call.whom_to_sell = whom_to_sell or None
@@ -1247,6 +1251,72 @@ async def quick_edit_dealer(
 
     await db.commit()
     return RedirectResponse(url="/dealers?success=Dealer+updated", status_code=302)
+
+
+@router.post("/quick-new")
+async def quick_new_dealer(
+    business_name: str = Form(...),
+    contact_person: str = Form(default=None),
+    dealer_type: str = Form(default="retail"),
+    phone: str = Form(default=None),
+    email: str = Form(default=None),
+    address: str = Form(default=None),
+    status: str = Form(default="active"),
+    qty: str = Form(default=""),
+    items_discussed: str = Form(default=""),
+    calling_remark: str = Form(default=""),
+    notes: str = Form(default=""),
+    purchase_quantity: str = Form(default=""),
+    sale_quantity: str = Form(default=""),
+    deals_in: str = Form(default=""),
+    whom_to_sell: str = Form(default=""),
+    next_followup_date: str = Form(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_sales),
+    _perm: User = Depends(require_module_perm("dealers", "add")),
+):
+    """Add Dealer modal on Dealer Management: creates a new Dealer using the
+    same field set as the Edit Dealer modal, plus an initial DealerCall row
+    if any call-log-sourced fields were filled in."""
+    count_result = await db.execute(select(func.count(Dealer.id)))
+    count = count_result.scalar() or 0
+    dealer_code = f"DLR{count+1:04d}"
+
+    dealer = Dealer(
+        dealer_code=dealer_code,
+        business_name=business_name,
+        contact_person=contact_person or None,
+        dealer_type=dealer_type,
+        phone=phone or None,
+        email=email or None,
+        address=address or None,
+        status=status,
+        added_by=current_user.username,
+    )
+    db.add(dealer)
+    await db.flush()
+
+    has_call_data = any((qty, items_discussed, calling_remark, notes, purchase_quantity,
+                          sale_quantity, deals_in, whom_to_sell, next_followup_date))
+    if has_call_data:
+        call = DealerCall(dealer_id=dealer.id, called_by=current_user.username)
+        call.qty = int(qty) if (qty or "").strip().isdigit() else None
+        call.items_discussed = items_discussed or None
+        call.calling_remark = calling_remark or None
+        call.notes = notes or None
+        call.purchase_quantity = int(purchase_quantity) if (purchase_quantity or "").strip().isdigit() else None
+        call.sale_quantity = int(sale_quantity) if (sale_quantity or "").strip().isdigit() else None
+        call.deals_in = deals_in or None
+        call.whom_to_sell = whom_to_sell or None
+        if next_followup_date:
+            try:
+                call.next_followup_date = datetime.strptime(next_followup_date, "%Y-%m-%d")
+            except ValueError:
+                pass
+        db.add(call)
+
+    await db.commit()
+    return RedirectResponse(url=f"/dealers?success=Dealer+{dealer_code}+created", status_code=302)
 
 
 @router.get("/{dealer_id}/call", response_class=HTMLResponse)
@@ -1295,6 +1365,7 @@ async def log_call(
     product_model: str = Form(default=None),
     configuration: str = Form(default=None),
     qty: str = Form(default=None),
+    purchase_quantity: str = Form(default=None),
     asking_price: str = Form(default=None),
     deal_status: str = Form(default=None),
     requirements_preferred_config: str = Form(default=None),
@@ -1311,6 +1382,7 @@ async def log_call(
     _duration = int(duration_mins) if duration_mins and duration_mins.strip() else None
     _quote = float(quote_given) if quote_given and quote_given.strip() else None
     _qty = int(qty) if qty and qty.strip().isdigit() else None
+    _purchase_qty = int(purchase_quantity) if purchase_quantity and purchase_quantity.strip().isdigit() else None
     _asking_price = float(asking_price) if asking_price and asking_price.strip() else None
     _sale_qty = int(sale_quantity) if sale_quantity and sale_quantity.strip().isdigit() else None
 
@@ -1331,6 +1403,7 @@ async def log_call(
         product_model=(product_model or "").strip() or None,
         configuration=(configuration or "").strip() or None,
         qty=_qty,
+        purchase_quantity=_purchase_qty,
         asking_price=_asking_price,
         deal_status=(deal_status or "").strip() or None,
         requirements_preferred_config=(requirements_preferred_config or "").strip() or None,
@@ -1409,6 +1482,7 @@ async def update_call(
     product_model: str = Form(default=None),
     configuration: str = Form(default=None),
     qty: str = Form(default=None),
+    purchase_quantity: str = Form(default=None),
     asking_price: str = Form(default=None),
     deal_status: str = Form(default=None),
     requirements_preferred_config: str = Form(default=None),
@@ -1451,6 +1525,7 @@ async def update_call(
     call.product_model = (product_model or "").strip() or None
     call.configuration = (configuration or "").strip() or None
     call.qty = int(qty) if qty and qty.strip().isdigit() else None
+    call.purchase_quantity = int(purchase_quantity) if purchase_quantity and purchase_quantity.strip().isdigit() else None
     call.asking_price = float(asking_price) if asking_price and asking_price.strip() else None
     call.deal_status = (deal_status or "").strip() or None
     call.requirements_preferred_config = (requirements_preferred_config or "").strip() or None

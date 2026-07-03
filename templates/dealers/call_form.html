@@ -83,6 +83,30 @@
                      placeholder="e.g. Laptop i5, Desktop i7, TFT 22 inch"
                      value="{{ edit_call.items_discussed or '' if edit_call else '' }}">
             </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Required Quantity</label>
+              <input type="number" name="qty" class="form-control" min="0"
+                     value="{{ edit_call.qty if edit_call and edit_call.qty is not none else '' }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Purchase Quantity</label>
+              <input type="number" name="purchase_quantity" class="form-control" min="0"
+                     value="{{ edit_call.purchase_quantity if edit_call and edit_call.purchase_quantity is not none else '' }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Selling Quantity</label>
+              <input type="number" name="sale_quantity" class="form-control" min="0"
+                     value="{{ edit_call.sale_quantity if edit_call and edit_call.sale_quantity is not none else '' }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Deals In Indian/Imported</label>
+              <select name="deals_in" class="form-select">
+                <option value="">Select...</option>
+                {% for val in tc_options.deals_in %}
+                <option value="{{ val }}" {% if edit_call and edit_call.deals_in == val %}selected{% endif %}>{{ val }}</option>
+                {% endfor %}
+              </select>
+            </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">Quote Given (₹)</label>
               <input type="number" name="quote_given" class="form-control" step="0.01" min="0"

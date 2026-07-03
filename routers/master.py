@@ -166,6 +166,14 @@ PERM_MODULES = [
     # ── ADMIN (admin-only) ────────────────────────────────────────────────
     ("qa",                   "QA Dashboard"),
     ("manuals",              "Manuals"),
+    # ── APPLICATION SETTINGS (admin-only by default; grantable via matrix) ─
+    ("move_device_internal", "Move Device Internal"),
+    ("stage_control",        "Stage Control"),
+    ("aging_tracker",        "Aging Tracker"),
+    ("stage_audit_log",      "Stage Audit Log"),
+    ("system_audit_log",     "System Audit Log"),
+    ("landing_pages",        "Landing Pages"),
+    ("wa_audit_log",         "WA Audit Log"),
 ]
 
 PERM_ACTIONS = [

@@ -76,6 +76,14 @@ NAV_PAGE_TITLES = [
     # ── ADMIN (admin-only) ─────────────────────────────────────────────────
     ("qa",                   "QA Dashboard",                  "QA Dashboard",                  "/qa/"),
     ("manuals",              "Manuals",                       "Manuals",                       "/manuals/"),
+    # ── APPLICATION SETTINGS (admin-only by default; grantable via matrix) ─
+    ("move_device_internal", "Move Device Internal",          "Move Device Internal",          "/repair/move/form"),
+    ("stage_control",        "Stage Control",                 "Stage Control",                 "/stage-control"),
+    ("aging_tracker",        "Aging Tracker",                 "Aging Tracker",                 "/stage-control/aging"),
+    ("stage_audit_log",      "Stage Audit Log",               "Stage Audit Log",               "/stage-control/audit"),
+    ("system_audit_log",     "System Audit Log",              "System Audit Log",              "/admin/audit-log"),
+    ("landing_pages",        "Landing Pages",                 "Landing Pages",                 "/admin/landing-pages"),
+    ("wa_audit_log",         "WA Audit Log",                  "WA Audit Log",                  "/whatsapp/audit"),
 ]
 
 

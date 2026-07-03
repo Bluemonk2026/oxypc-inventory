@@ -68,7 +68,7 @@
       <table class="table table-hover mb-0">
         <thead class="table-light">
           <tr>
-            {% if is_privileged %}<th>Employee</th>{% endif %}
+            {% if is_privileged %}<th>Employee</th><th>Role</th>{% endif %}
             <th>Check In</th><th>Check Out</th><th>Duration</th><th>Status</th>
             {% if is_privileged %}<th>Marked By</th><th>Notes</th>{% endif %}
           </tr>
@@ -76,7 +76,10 @@
         <tbody>
           {% for rec in records %}
           <tr>
-            {% if is_privileged %}<td class="fw-semibold">{{ rec.full_name or rec.username }}</td>{% endif %}
+            {% if is_privileged %}
+            <td class="fw-semibold">{{ rec.full_name or rec.username }}</td>
+            <td class="small">{{ role_display(role_map.get(rec.user_id|string)) if role_map.get(rec.user_id|string) else '—' }}</td>
+            {% endif %}
             <td>{% if rec.check_in %}{{ rec.check_in.strftime('%H:%M') }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td>{% if rec.check_out %}{{ rec.check_out.strftime('%H:%M') }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td>

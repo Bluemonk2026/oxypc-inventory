@@ -197,6 +197,32 @@ async def create_location(
     return RedirectResponse("/locations/master?success=Location+created", status_code=303)
 
 
+@router.post("/master/{loc_id}/edit", response_class=HTMLResponse)
+async def edit_location(
+    loc_id: str,
+    zone: str = Form(...),
+    unit_type: str = Form(...),
+    unit_id: str = Form(...),
+    slot: str = Form(""),
+    description: str = Form(""),
+    capacity: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.admin, UserRole.inventory_manager)),
+):
+    result = await db.execute(select(StorageLocation).where(StorageLocation.id == loc_id))
+    loc = result.scalar_one_or_none()
+    if not loc:
+        raise HTTPException(status_code=404)
+    loc.zone = ZoneType(zone)
+    loc.unit_type = UnitType(unit_type)
+    loc.unit_id = unit_id.strip().upper()
+    loc.slot = slot.strip() or None
+    loc.description = description.strip() or None
+    loc.capacity = int(capacity) if capacity.strip() else None
+    await db.flush()
+    return RedirectResponse("/locations/master?success=Location+updated", status_code=303)
+
+
 @router.post("/master/{loc_id}/toggle", response_class=HTMLResponse)
 async def toggle_location(
     loc_id: str,
@@ -829,12 +855,15 @@ async def api_gap_count(
 @router.get("/api/by-zone")
 async def api_locations_by_zone(
     zone: str = "",
+    unit_type: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Return active StorageLocation rows for a given zone, for populating a
-    dependent 'Location ID' dropdown. zone must match a ZoneType enum value
-    (e.g. 'showroom', 'first_floor', 'dispatch')."""
+    """Return active StorageLocation rows for a given zone (and optionally a
+    Location Type / unit_type), for populating a dependent 'Location ID'
+    dropdown. zone must match a ZoneType enum value (e.g. 'showroom',
+    'first_floor', 'dispatch'); unit_type must match a UnitType enum value
+    (e.g. 'rack', 'shelf') when provided."""
     if not zone:
         return JSONResponse([])
     try:
@@ -842,10 +871,15 @@ async def api_locations_by_zone(
     except ValueError:
         return JSONResponse([])
 
+    conditions = [StorageLocation.zone == zone_enum, StorageLocation.is_active == True]
+    if unit_type:
+        try:
+            conditions.append(StorageLocation.unit_type == UnitType(unit_type))
+        except ValueError:
+            return JSONResponse([])
+
     result = await db.execute(
-        select(StorageLocation)
-        .where(StorageLocation.zone == zone_enum, StorageLocation.is_active == True)
-        .order_by(StorageLocation.unit_id)
+        select(StorageLocation).where(*conditions).order_by(StorageLocation.unit_id)
     )
     locations = result.scalars().all()
     return JSONResponse([

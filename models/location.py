@@ -24,10 +24,10 @@ ZONE_LABELS = {
     ZoneType.ground_floor: "Ground Floor",
     ZoneType.first_floor:  "1st Floor",
     ZoneType.second_floor: "2nd Floor",
-    ZoneType.workshop:     "Workshop",
+    ZoneType.workshop:     "TRC Floor",
     ZoneType.dispatch:     "Dispatch Area",
     ZoneType.warehouse:    "Warehouse",
-    ZoneType.holding:      "Holding Zone",
+    ZoneType.holding:      "TRC Store",
 }
 
 

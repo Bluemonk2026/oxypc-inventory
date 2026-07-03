@@ -24,7 +24,7 @@ from models.stock_transfer import StockTransfer
 from models.stock_validation import StockValidation
 from models.part_request import PartRequest
 from models.spare_parts import SparePart
-from models.location import StorageLocation
+from models.location import StorageLocation, ZoneType, ZONE_LABELS, UnitType, UNIT_TYPE_LABELS
 
 router = APIRouter(tags=["stock"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
@@ -924,6 +924,8 @@ async def stock_in_list(
         "departments": STOCK_DEPARTMENTS,
         "cost_parts_map": cost_parts_map, "location_map": location_map,
         "page": page, "page_size": page_size, "total": total, "total_pages": total_pages,
+        "zone_options": [(z.value, ZONE_LABELS.get(z, z.value)) for z in ZoneType],
+        "unit_type_options": [(u.value, UNIT_TYPE_LABELS.get(u, u.value)) for u in UnitType],
     })
 
 

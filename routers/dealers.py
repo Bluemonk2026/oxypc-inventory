@@ -1271,6 +1271,7 @@ async def quick_new_dealer(
     deals_in: str = Form(default=""),
     whom_to_sell: str = Form(default=""),
     next_followup_date: str = Form(default=""),
+    return_to: str = Form(default="/dealers"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_sales),
     _perm: User = Depends(require_module_perm("dealers", "add")),
@@ -1316,7 +1317,9 @@ async def quick_new_dealer(
         db.add(call)
 
     await db.commit()
-    return RedirectResponse(url=f"/dealers?success=Dealer+{dealer_code}+created", status_code=302)
+    safe_return = return_to if return_to.startswith("/") and not return_to.startswith("//") else "/dealers"
+    sep = "&" if "?" in safe_return else "?"
+    return RedirectResponse(url=f"{safe_return}{sep}success=Dealer+{dealer_code}+created", status_code=302)
 
 
 @router.get("/{dealer_id}/call", response_class=HTMLResponse)

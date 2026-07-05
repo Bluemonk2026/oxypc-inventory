@@ -218,7 +218,13 @@ async def upload_devices(
     current_user: User = Depends(allowed),
 ):
     content = await file.read()
-    text = content.decode("utf-8-sig")
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            text = content.decode("utf-16")
+        except UnicodeDecodeError:
+            text = content.decode("latin-1")
     reader = csv.DictReader(io.StringIO(text))
     inserted, errors = 0, []
 
@@ -258,8 +264,8 @@ async def upload_devices(
                 grn_number=row.get("grn_number", "").strip() or None,
                 cpu=row.get("cpu", "").strip() or None,
                 generation=row.get("generation", "").strip() or None,
-                ram_gb=int(ram_gb) if ram_gb else None,
-                storage_gb=int(storage_gb) if storage_gb else None,
+                ram_gb=int(ram_gb) if ram_gb.strip().isdigit() else None,
+                storage_gb=int(storage_gb) if storage_gb.strip().isdigit() else None,
                 storage_type=row.get("storage_type", "").strip() or None,
                 hdd_capacity_gb=int(hdd_gb) if hdd_gb else None,
                 screen_size=row.get("screen_size", "").strip() or None,

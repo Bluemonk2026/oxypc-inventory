@@ -44,9 +44,9 @@
     <a href="/dealers/bulk-upload" class="btn btn-sm btn-outline-success">
       <i class="bi bi-cloud-upload me-1"></i>Upload Bulk
     </a>
-    <a href="/dealers/new" class="btn btn-sm btn-primary">
+    <button type="button" class="btn btn-sm btn-primary" onclick="openDealerAddModal()">
       <i class="bi bi-plus-circle me-1"></i>Add Dealer
-    </a>
+    </button>
   </div>
 </div>
 
@@ -125,7 +125,7 @@
           {% else %}
           <tr>
             <td colspan="15" class="text-center text-muted py-4">
-              No dealers found. <a href="/dealers/new">Add your first dealer</a>
+              No dealers found. <a href="#" onclick="openDealerAddModal(); return false;">Add your first dealer</a>
             </td>
           </tr>
           {% endfor %}
@@ -169,6 +169,106 @@
 <form method="post" id="deleteForm" style="display:none">
   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
 </form>
+
+<!-- Add Dealer Modal (shared with Dealer Management) -->
+<div class="modal fade" id="dealerEditModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form id="dealerEditForm" method="post" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+      <input type="hidden" name="return_to" value="/assign-dealer-leads">
+      <div class="modal-header py-2">
+        <h6 class="modal-title" id="dealerEditModalTitle">Add Dealer</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold">Business Name <span class="text-danger">*</span></label>
+            <input type="text" name="business_name" id="deBusinessName" class="form-control form-control-sm" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Type</label>
+            <select name="dealer_type" id="deType" class="form-select form-select-sm">
+              <option value="retail">Retail</option>
+              <option value="wholesale">Wholesale</option>
+              <option value="corporate">Corporate</option>
+              <option value="service">Service</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Person Name</label>
+            <input type="text" name="contact_person" id="deContactPerson" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Status</label>
+            <select name="status" id="deStatus" class="form-select form-select-sm">
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="blacklisted">Blacklisted</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Phone</label>
+            <input type="text" name="phone" id="dePhone" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Email</label>
+            <input type="text" name="email" id="deEmail" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-12">
+            <label class="form-label small">Address</label>
+            <textarea name="address" id="deAddress" class="form-control form-control-sm" rows="2"></textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Require Quantity</label>
+            <input type="number" name="qty" id="deQty" class="form-control form-control-sm" min="0">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Next Followup</label>
+            <input type="date" name="next_followup_date" id="deNextFollowup" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-12">
+            <label class="form-label small">Interested In</label>
+            <input type="text" name="items_discussed" id="deItems" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-12">
+            <label class="form-label small">Custom Requirements</label>
+            <textarea name="calling_remark" id="deCallingRemark" class="form-control form-control-sm" rows="2"></textarea>
+          </div>
+          <div class="col-md-12">
+            <label class="form-label small">Full Remark</label>
+            <textarea name="notes" id="deNotes" class="form-control form-control-sm" rows="2"></textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Purchase Quantity</label>
+            <input type="number" name="purchase_quantity" id="dePurchaseQty" class="form-control form-control-sm" min="0">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Selling Quantity</label>
+            <input type="number" name="sale_quantity" id="deSaleQty" class="form-control form-control-sm" min="0">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Indian/Imported</label>
+            <input type="text" name="deals_in" id="deDealsIn" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Whom to Sale</label>
+            <select name="whom_to_sell" id="deWhomToSell" class="form-select form-select-sm">
+              <option value="">Select...</option>
+              {% for val in whom_to_sell_options %}
+              <option value="{{ val }}">{{ val }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" id="dealerEditSubmitBtn" class="btn btn-sm btn-primary"><i class="bi bi-save me-1"></i>Create Dealer</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 {% endblock %}
 {% block scripts %}
@@ -234,6 +334,22 @@
   });
 
   updateSelUI();
+
+  if ($('#dealerLeadsTable tbody tr').length > 1 && $.fn.DataTable) {
+    $('#dealerLeadsTable').DataTable({
+      pageLength: 25,
+      order: [],
+      columnDefs: [{ orderable: false, targets: [0, 14] }],
+    });
+  }
 })();
+
+function openDealerAddModal(){
+  document.getElementById('dealerEditForm').action = '/dealers/quick-new';
+  document.getElementById('dealerEditModalTitle').textContent = 'Add Dealer';
+  document.getElementById('dealerEditSubmitBtn').textContent = 'Create Dealer';
+  document.getElementById('dealerEditForm').reset();
+  new bootstrap.Modal(document.getElementById('dealerEditModal')).show();
+}
 </script>
 {% endblock %}

@@ -98,7 +98,7 @@
         <th class="ps-3">Telecaller Name</th><th>Request Date</th><th>Tag Number</th><th>Quantity Requested</th><th>Quantity Available</th><th>Action</th>
       </tr></thead>
       <tbody>
-        {% set _appr = current_user.role.value in ['admin','sales_manager'] %}
+        {% set _appr = role_allowed(current_user.role, 'admin', 'sales_manager') %}
         {% for r in requests %}
         <tr data-telecaller="{{ r.telecaller_username or '' }}" data-barcode="{{ (r.barcode or '')|lower }}">
           <td class="ps-3">{{ r.telecaller_name or r.telecaller_username or '—' }}</td>

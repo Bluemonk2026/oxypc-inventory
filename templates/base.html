@@ -423,7 +423,7 @@
          Consumption permissions still see this accordion — but every admin-only
          item inside is still explicitly gated on role=='admin', so non-admin
          visibility is unchanged from before this reorg. #}
-      {% set app_settings_active = '/stage-control' in request.url.path or '/admin/audit-log' in request.url.path or '/repair/move' in request.url.path or '/admin/landing-pages' in request.url.path or '/admin/sidebar-config' in request.url.path or '/whatsapp/audit' in request.url.path or '/purchase' in request.url.path or '/ram' in request.url.path or '/consume' in request.url.path %}
+      {% set app_settings_active = '/stage-control' in request.url.path or '/admin/audit-log' in request.url.path or '/repair/move' in request.url.path or '/admin/landing-pages' in request.url.path or '/admin/sidebar-config' in request.url.path or '/admin/company-settings' in request.url.path or '/whatsapp/audit' in request.url.path or '/purchase' in request.url.path or '/ram' in request.url.path or '/consume' in request.url.path %}
       {% if role == 'admin' or has_perm(role,'spare_parts_purchase','enable') or has_perm(role,'parts_tracking','enable') or has_perm(role,'parts_consumption','enable')
             or has_perm(role,'move_device_internal','enable') or has_perm(role,'stage_control','enable') or has_perm(role,'aging_tracker','enable')
             or has_perm(role,'stage_audit_log','enable') or has_perm(role,'system_audit_log','enable') or has_perm(role,'sidebar_config','enable')
@@ -472,6 +472,11 @@
             {% if role == 'admin' or has_perm(role,'landing_pages','enable') %}
             <li><a href="/admin/landing-pages" class="nav-link py-1 small {% if '/admin/landing-pages' in request.url.path %}active{% endif %}">
               <i class="bi bi-layout-text-sidebar me-2"></i> {{ sidebar_label('landing_pages', 'Landing Pages') }}
+            </a></li>
+            {% endif %}
+            {% if role == 'admin' %}
+            <li><a href="/admin/company-settings" class="nav-link py-1 small {% if '/admin/company-settings' in request.url.path %}active{% endif %}">
+              <i class="bi bi-building me-2"></i> Company Settings
             </a></li>
             {% endif %}
             {% if role == 'admin' or has_perm(role,'wa_audit_log','enable') %}

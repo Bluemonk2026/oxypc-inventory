@@ -55,16 +55,16 @@
   </div>
 </div>
 
-<div class="row g-3 mb-3">
+<div class="row g-3 mb-3" id="assignDealerSummaryCards">
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm text-center py-3">
-      <div class="fs-4 fw-bold text-primary">{{ total_count }}</div>
+      <div class="fs-4 fw-bold text-primary" id="assignTotalCount">{{ total_count }}</div>
       <div class="small text-muted">Total Dealers</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm text-center py-3">
-      <div class="fs-4 fw-bold text-warning">{{ unassigned_count }}</div>
+      <div class="fs-4 fw-bold text-warning" id="assignUnassignedCount">{{ unassigned_count }}</div>
       <div class="small text-muted">Unassigned</div>
     </div>
   </div>
@@ -72,7 +72,7 @@
 
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
-    <div class="table-responsive">
+    <div class="table-responsive" id="assignDealerTableWrap">
       <table class="table table-hover mb-0" id="dealerLeadsTable">
         <thead class="table-light">
           <tr>
@@ -249,12 +249,29 @@
             <input type="number" name="purchase_quantity" id="dePurchaseQty" class="form-control form-control-sm" min="0">
           </div>
           <div class="col-md-6">
-            <label class="form-label small">Selling Quantity</label>
-            <input type="number" name="sale_quantity" id="deSaleQty" class="form-control form-control-sm" min="0">
+            <label class="form-label small">Call Mode</label>
+            <select name="call_mode" id="deCallMode" class="form-select form-select-sm">
+              {% for val in call_mode_options %}
+              <option value="{{ val }}">{{ val | replace('_',' ') | title }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Call Type</label>
+            <select name="call_type" id="deCallType" class="form-select form-select-sm">
+              {% for val in call_type_options %}
+              <option value="{{ val }}">{{ val | title }}</option>
+              {% endfor %}
+            </select>
           </div>
           <div class="col-md-6">
             <label class="form-label small">Indian/Imported</label>
-            <input type="text" name="deals_in" id="deDealsIn" class="form-control form-control-sm">
+            <select name="deals_in" id="deDealsIn" class="form-select form-select-sm">
+              <option value="">Select...</option>
+              {% for val in deals_in_options %}
+              <option value="{{ val }}">{{ val }}</option>
+              {% endfor %}
+            </select>
           </div>
           <div class="col-md-6">
             <label class="form-label small">Whom to Sale</label>
@@ -318,33 +335,98 @@
     });
   });
 
-  // Per-row Assign icon: populate hidden dealer_ids with just that one dealer
-  document.querySelectorAll('.btnAssignOne').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      assignHiddenIds.innerHTML = '';
-      var inp = document.createElement('input');
-      inp.type = 'hidden'; inp.name = 'dealer_ids'; inp.value = btn.dataset.dealerId;
-      assignHiddenIds.appendChild(inp);
-      assignCountText.textContent = '1';
-    });
-  });
-
-  // Delete (soft — sets status to inactive)
-  document.querySelectorAll('.btnDeleteOne').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      if (!confirm('Deactivate dealer "' + btn.dataset.dealerName + '"? This can be reversed by editing the dealer.')) return;
-      deleteForm.action = '/assign-dealer-leads/' + btn.dataset.dealerId + '/delete';
-      deleteForm.submit();
-    });
-  });
-
   updateSelUI();
 
-  if ($('#dealerLeadsTable tbody tr').length > 1 && $.fn.DataTable) {
-    $('#dealerLeadsTable').DataTable({
-      pageLength: 25,
-      order: [],
-      columnDefs: [{ orderable: false, targets: [0, 14] }],
+  function initDealerLeadsTable(){
+    if ($.fn.DataTable.isDataTable('#dealerLeadsTable')) {
+      $('#dealerLeadsTable').DataTable().destroy();
+    }
+    if ($('#dealerLeadsTable tbody tr').length > 1) {
+      $('#dealerLeadsTable').DataTable({
+        pageLength: 25,
+        order: [],
+        columnDefs: [{ orderable: false, targets: [0, 14] }],
+      });
+    }
+  }
+
+  if ($.fn.DataTable) initDealerLeadsTable();
+  rebindRowHandlers();
+
+  // Refresh just the table + summary cards for the current filter/page state,
+  // without a full page navigation — used after a bulk/one assign succeeds so
+  // the user doesn't lose scroll position or see a full-page flash.
+  function refreshDealerLeadsTable(){
+    return fetch(window.location.href, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function(resp){ return resp.text(); })
+      .then(function(html){
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var newWrap = doc.getElementById('assignDealerTableWrap');
+        var newCards = doc.getElementById('assignDealerSummaryCards');
+        if (newWrap) document.getElementById('assignDealerTableWrap').innerHTML = newWrap.innerHTML;
+        if (newCards) document.getElementById('assignDealerSummaryCards').innerHTML = newCards.innerHTML;
+        initDealerLeadsTable();
+        rebindRowHandlers();
+        updateSelUI();
+      });
+  }
+
+  // Row-level handlers (Assign one / Delete one) need rebinding after the
+  // table HTML is replaced by refreshDealerLeadsTable().
+  function rebindRowHandlers(){
+    document.querySelectorAll('.btnAssignOne').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        assignHiddenIds.innerHTML = '';
+        var inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = 'dealer_ids'; inp.value = btn.dataset.dealerId;
+        assignHiddenIds.appendChild(inp);
+        assignCountText.textContent = '1';
+      });
+    });
+    document.querySelectorAll('.btnDeleteOne').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        if (!confirm('Deactivate dealer "' + btn.dataset.dealerName + '"? This can be reversed by editing the dealer.')) return;
+        deleteForm.action = '/assign-dealer-leads/' + btn.dataset.dealerId + '/delete';
+        deleteForm.submit();
+      });
+    });
+    var newCheckAll = document.getElementById('checkAll');
+    if (newCheckAll) {
+      newCheckAll.addEventListener('change', function(){
+        document.querySelectorAll('.dealerChk').forEach(function(c){ c.checked = newCheckAll.checked; });
+        updateSelUI();
+      });
+    }
+  }
+
+  // Bulk/one Assign submit — AJAX, no full page reload. Falls back to a normal
+  // form submit (full navigation) if the browser has no fetch() support.
+  if (window.fetch) {
+    assignForm.addEventListener('submit', function(e){
+      e.preventDefault();
+      var submitBtn = assignForm.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+      fetch(assignForm.action, {
+        method: 'POST',
+        body: new FormData(assignForm),
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      })
+        .then(function(resp){
+          if (!resp.ok) throw new Error('Assign failed (' + resp.status + ')');
+          return resp.json();
+        })
+        .then(function(){
+          var modalEl = document.getElementById('assignUserModal');
+          var modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+          modal.hide();
+          return refreshDealerLeadsTable();
+        })
+        .catch(function(err){
+          alert(err.message || 'Could not assign dealer(s). Please try again.');
+        })
+        .finally(function(){
+          if (submitBtn) submitBtn.disabled = false;
+        });
     });
   }
 })();

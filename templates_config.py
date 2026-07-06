@@ -63,6 +63,30 @@ def _any_perm(role, *modules):
     return any(_has_perm(role, m, "enable") for m in modules)
 
 
+from models.user import UserRole as _UserRole
+
+_BUILTIN_ROLE_VALUES = {r.value for r in _UserRole}
+
+
+def _role_allowed(role, *allowed_values):
+    """Mirrors auth.dependencies.require_roles: matches an exact allowed value,
+    or lets any custom (admin-created, non-builtin) role through — since those
+    are governed by the Module Permission matrix, not this allow-list — unless
+    the allow-list is admin-only. Use this instead of a raw
+    `current_user.role.value in [...]` check in templates so custom roles
+    (e.g. 'trc_manager') see the same buttons their matching backend
+    `require_roles(...)` dependency already lets them use."""
+    role_val = getattr(role, "value", None) or str(role)
+    if role_val in allowed_values:
+        return True
+    if role_val not in _BUILTIN_ROLE_VALUES and set(allowed_values) != {"admin"}:
+        return True
+    return False
+
+
+templates.env.globals["role_allowed"] = _role_allowed
+
+
 def _resolve_page_title(path: str):
     """Admin-customised page title (Landing Pages tool) for the given request
     path, matched against NAV_PAGE_TITLES by longest url prefix. Returns None

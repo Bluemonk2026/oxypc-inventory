@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Company Settings — OxyPC{% endblock %}
+{% block page_title %}Company Settings{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-12 col-lg-8">
+    {% if success %}
+    <div class="alert alert-success alert-dismissible py-2 mb-3" role="alert">
+      <i class="bi bi-check-circle me-2"></i>{{ success }}
+      <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent d-flex align-items-center gap-2 py-2">
+        <i class="bi bi-building text-primary"></i>
+        <span class="fw-semibold">Company Details</span>
+        <span class="text-muted small ms-2">Used to auto-fill the Company Detail section of Dealer Quotations</span>
+      </div>
+      <div class="card-body">
+        <form method="post" action="/admin/company-settings/save">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Company Name</label>
+              <input type="text" name="company_name" class="form-control" value="{{ settings.company_name }}">
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Company Address</label>
+              <textarea name="company_address" class="form-control" rows="2">{{ settings.company_address }}</textarea>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">GSTIN</label>
+              <input type="text" name="company_gstin" class="form-control" value="{{ settings.company_gstin }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Phone</label>
+              <input type="text" name="company_phone" class="form-control" value="{{ settings.company_phone }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Email</label>
+              <input type="text" name="company_email" class="form-control" value="{{ settings.company_email }}">
+            </div>
+          </div>
+          <div class="mt-3">
+            <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-save me-1"></i>Save Company Settings</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

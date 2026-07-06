@@ -17,6 +17,8 @@ from models.master import MasterData
 from utils.master_data import master_values
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from models.crm import CustomerReceipt
+from models.dealer_quotation import DealerQuotation
+from routers.company_settings import get_company_settings
 from services.audit_engine import audit
 
 router = APIRouter(prefix="/dealers", tags=["dealers"])
@@ -53,7 +55,7 @@ SALES_ROLES = (UserRole.admin, UserRole.sales, UserRole.sales_manager, UserRole.
 require_sales = require_roles(*SALES_ROLES)
 require_sales_mgr = require_roles(UserRole.admin, UserRole.sales_manager)
 OUTSTANDING_STATUSES = ("pending", "confirmed", "delivered")
-PER_PAGE = 50
+PER_PAGE = 25
 
 
 def _ranked_calls_subq(ids_subq):
@@ -103,6 +105,15 @@ def _upsell_suggestions(dealer: Dealer, outstanding_live: float = 0.0) -> list:
     return suggestions
 
 
+async def _recent_quotations(db: AsyncSession, limit: int = 200) -> list:
+    """Most recent Dealer Quotations across all dealers, for the "Quotation
+    Shared" table on the Dealer Management page."""
+    result = await db.execute(
+        select(DealerQuotation).order_by(DealerQuotation.created_at.desc()).limit(limit)
+    )
+    return result.scalars().all()
+
+
 @router.get("", response_class=HTMLResponse)
 async def list_dealers(
     request: Request,
@@ -110,8 +121,13 @@ async def list_dealers(
     status: str = Query(default=""),
     assigned: str = Query(default=""),
     city: str = Query(default=""),
-    last_order_from: str = Query(default=""),
-    last_order_to: str = Query(default=""),
+    calling_date_from: str = Query(default=""),
+    calling_date_to: str = Query(default=""),
+    filter_qty: str = Query(default=""),
+    filter_purchase_qty: str = Query(default=""),
+    filter_sale_qty: str = Query(default=""),
+    filter_whom_to_sell: str = Query(default=""),
+    filter_deals_in: str = Query(default=""),
     followup_from: str = Query(default=""),
     followup_to: str = Query(default=""),
     page: int = Query(default=1, ge=1),
@@ -125,7 +141,9 @@ async def list_dealers(
         base_query = base_query.where(or_(
             Dealer.business_name.ilike(like),
             Dealer.city.ilike(like),
+            Dealer.address.ilike(like),
             Dealer.phone.ilike(like),
+            Dealer.email.ilike(like),
             Dealer.contact_person.ilike(like),
         ))
     if status:
@@ -136,20 +154,52 @@ async def list_dealers(
         base_query = base_query.where(Dealer.assigned_to == current_user.username)
     if city:
         base_query = base_query.where(Dealer.city.ilike(f"%{city}%"))
-    if last_order_from:
-        try:
-            base_query = base_query.where(
-                Dealer.last_sale_date >= datetime.strptime(last_order_from, "%Y-%m-%d")
-            )
-        except ValueError:
-            pass
-    if last_order_to:
-        try:
-            base_query = base_query.where(
-                Dealer.last_sale_date <= datetime.strptime(last_order_to, "%Y-%m-%d")
-            )
-        except ValueError:
-            pass
+
+    # Latest-call-derived filters (calling date range, quantities, whom-to-sell,
+    # deals_in) — all scoped to each dealer's MOST RECENT call, same "rn == 1"
+    # window-function pattern used for the recent_call_map / followup_count.
+    has_latest_call_filter = bool(
+        calling_date_from or calling_date_to
+        or filter_qty.strip().isdigit() or filter_purchase_qty.strip().isdigit()
+        or filter_sale_qty.strip().isdigit() or filter_whom_to_sell or filter_deals_in
+    )
+
+    if has_latest_call_filter:
+        # "Latest call per dealer matches all filters" via a ranked subquery
+        # (rn == 1), same technique as _ranked_calls_subq.
+        latest_call_rn = func.row_number().over(
+            partition_by=DealerCall.dealer_id,
+            order_by=DealerCall.call_date.desc()
+        ).label("rn")
+        ranked_inner = select(
+            DealerCall.dealer_id, DealerCall.call_date, DealerCall.qty,
+            DealerCall.purchase_quantity, DealerCall.sale_quantity,
+            DealerCall.whom_to_sell, DealerCall.deals_in,
+            latest_call_rn,
+        ).subquery()
+        ranked_filters = [ranked_inner.c.rn == 1]
+        if calling_date_from:
+            try:
+                ranked_filters.append(ranked_inner.c.call_date >= datetime.strptime(calling_date_from, "%Y-%m-%d"))
+            except ValueError:
+                pass
+        if calling_date_to:
+            try:
+                ranked_filters.append(ranked_inner.c.call_date <= datetime.strptime(calling_date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59))
+            except ValueError:
+                pass
+        if filter_qty.strip().isdigit():
+            ranked_filters.append(ranked_inner.c.qty == int(filter_qty))
+        if filter_purchase_qty.strip().isdigit():
+            ranked_filters.append(ranked_inner.c.purchase_quantity == int(filter_purchase_qty))
+        if filter_sale_qty.strip().isdigit():
+            ranked_filters.append(ranked_inner.c.sale_quantity == int(filter_sale_qty))
+        if filter_whom_to_sell:
+            ranked_filters.append(ranked_inner.c.whom_to_sell == filter_whom_to_sell)
+        if filter_deals_in:
+            ranked_filters.append(ranked_inner.c.deals_in == filter_deals_in)
+        matching_dealer_ids = select(ranked_inner.c.dealer_id).where(*ranked_filters)
+        base_query = base_query.where(Dealer.id.in_(matching_dealer_ids))
 
     # Followup date filter — filter dealers who have a DealerCall with
     # next_followup_date in the given range
@@ -217,6 +267,8 @@ async def list_dealers(
             DealerCall.sale_quantity,
             DealerCall.deals_in,
             DealerCall.whom_to_sell,
+            DealerCall.call_mode,
+            DealerCall.call_type,
             rn_col,
         ).where(DealerCall.dealer_id.in_(dealer_ids)).subquery()
         rc_rows = (await db.execute(
@@ -224,7 +276,7 @@ async def list_dealers(
                 inner.c.id, inner.c.dealer_id, inner.c.call_outcome, inner.c.items_discussed,
                 inner.c.next_followup_date, inner.c.call_date, inner.c.qty, inner.c.purchase_quantity,
                 inner.c.calling_remark, inner.c.notes, inner.c.category, inner.c.sale_quantity,
-                inner.c.deals_in, inner.c.whom_to_sell,
+                inner.c.deals_in, inner.c.whom_to_sell, inner.c.call_mode, inner.c.call_type,
             ).where(inner.c.rn == 1)
         )).all()
         recent_call_map = {
@@ -242,6 +294,8 @@ async def list_dealers(
                 "sale_quantity": r.sale_quantity,
                 "deals_in": r.deals_in or "",
                 "whom_to_sell": r.whom_to_sell or "",
+                "call_mode": r.call_mode or "",
+                "call_type": r.call_type or "",
             }
             for r in rc_rows
         }
@@ -309,6 +363,7 @@ async def list_dealers(
         )
     )
     outstanding = round(float(out_total_result.scalar() or 0))
+    tc_options = await _tc_field_options(db)
 
     return templates.TemplateResponse("dealers/list.html", {
         "request": request,
@@ -318,8 +373,13 @@ async def list_dealers(
         "status": status,
         "assigned": assigned,
         "city": city,
-        "last_order_from": last_order_from,
-        "last_order_to": last_order_to,
+        "calling_date_from": calling_date_from,
+        "calling_date_to": calling_date_to,
+        "filter_qty": filter_qty,
+        "filter_purchase_qty": filter_purchase_qty,
+        "filter_sale_qty": filter_sale_qty,
+        "filter_whom_to_sell": filter_whom_to_sell,
+        "filter_deals_in": filter_deals_in,
         "followup_from": followup_from,
         "followup_to": followup_to,
         "page": page,
@@ -334,7 +394,12 @@ async def list_dealers(
         "sales_users": sales_users,
         "per_page": PER_PAGE,
         "today": today,
-        "whom_to_sell_options": (await _tc_field_options(db))["whom_to_sell"],
+        "whom_to_sell_options": tc_options["whom_to_sell"],
+        "deals_in_options": tc_options["deals_in"],
+        "call_mode_options": await master_values(db, "call_mode"),
+        "call_type_options": await master_values(db, "call_type"),
+        "quotations": await _recent_quotations(db),
+        "company_settings": await get_company_settings(db),
     })
 
 
@@ -982,6 +1047,11 @@ async def dealer_profile(
     # Open orders eligible for credit-note application (due_amount > 0, non-cancelled)
     open_orders = [o for o in orders if float(o.due_amount or 0) > 0 and o.status in OUTSTANDING_STATUSES]
 
+    quotations = (await db.execute(
+        select(DealerQuotation).where(DealerQuotation.dealer_id == dealer.id)
+        .order_by(DealerQuotation.created_at.desc())
+    )).scalars().all()
+
     today = app_now().date()
     return templates.TemplateResponse("dealers/profile.html", {
         "request": request,
@@ -994,6 +1064,8 @@ async def dealer_profile(
         "upsell_suggestions": _upsell_suggestions(dealer, outstanding_live),
         "credit_notes": credit_notes,
         "open_orders": open_orders,
+        "quotations": quotations,
+        "company_settings": await get_company_settings(db),
     })
 
 
@@ -1204,7 +1276,8 @@ async def quick_edit_dealer(
     calling_remark: str = Form(default=""),
     notes: str = Form(default=""),
     purchase_quantity: str = Form(default=""),
-    sale_quantity: str = Form(default=""),
+    call_mode: str = Form(default=""),
+    call_type: str = Form(default=""),
     deals_in: str = Form(default=""),
     whom_to_sell: str = Form(default=""),
     next_followup_date: str = Form(default=""),
@@ -1213,7 +1286,12 @@ async def quick_edit_dealer(
 ):
     """Combined Edit modal on Dealer Management: updates the Dealer's core
     fields plus the most-recent DealerCall's call-log-sourced fields
-    (creating a minimal DealerCall row if the dealer has none yet)."""
+    (creating a minimal DealerCall row if the dealer has none yet).
+
+    Selling Quantity is intentionally not editable here (removed from this
+    modal) — sale_quantity is left untouched so historical values captured via
+    the full Log Call form (/dealers/{id}/call) aren't wiped on every quick
+    edit."""
     result = await db.execute(select(Dealer).where(Dealer.id == dealer_id))
     dealer = result.scalar_one_or_none()
     if not dealer:
@@ -1240,7 +1318,10 @@ async def quick_edit_dealer(
     call.calling_remark = calling_remark or None
     call.notes = notes or None
     call.purchase_quantity = int(purchase_quantity) if (purchase_quantity or "").strip().isdigit() else None
-    call.sale_quantity = int(sale_quantity) if (sale_quantity or "").strip().isdigit() else None
+    if call_mode:
+        call.call_mode = call_mode
+    if call_type:
+        call.call_type = call_type
     call.deals_in = deals_in or None
     call.whom_to_sell = whom_to_sell or None
     if next_followup_date:
@@ -1267,7 +1348,8 @@ async def quick_new_dealer(
     calling_remark: str = Form(default=""),
     notes: str = Form(default=""),
     purchase_quantity: str = Form(default=""),
-    sale_quantity: str = Form(default=""),
+    call_mode: str = Form(default=""),
+    call_type: str = Form(default=""),
     deals_in: str = Form(default=""),
     whom_to_sell: str = Form(default=""),
     next_followup_date: str = Form(default=""),
@@ -1298,7 +1380,7 @@ async def quick_new_dealer(
     await db.flush()
 
     has_call_data = any((qty, items_discussed, calling_remark, notes, purchase_quantity,
-                          sale_quantity, deals_in, whom_to_sell, next_followup_date))
+                          call_mode, call_type, deals_in, whom_to_sell, next_followup_date))
     if has_call_data:
         call = DealerCall(dealer_id=dealer.id, called_by=current_user.username)
         call.qty = int(qty) if (qty or "").strip().isdigit() else None
@@ -1306,7 +1388,10 @@ async def quick_new_dealer(
         call.calling_remark = calling_remark or None
         call.notes = notes or None
         call.purchase_quantity = int(purchase_quantity) if (purchase_quantity or "").strip().isdigit() else None
-        call.sale_quantity = int(sale_quantity) if (sale_quantity or "").strip().isdigit() else None
+        if call_mode:
+            call.call_mode = call_mode
+        if call_type:
+            call.call_type = call_type
         call.deals_in = deals_in or None
         call.whom_to_sell = whom_to_sell or None
         if next_followup_date:

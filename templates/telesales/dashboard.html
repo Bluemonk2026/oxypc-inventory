@@ -144,4 +144,43 @@
     </div>
   </div>
 </div>
+
+<!-- Quotation Shared -->
+<div class="card border-0 shadow-sm mt-3">
+  <div class="card-header bg-transparent py-2">
+    <span class="fw-semibold small"><i class="bi bi-file-earmark-text me-1"></i>Quotation Shared</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0" style="font-size:0.78rem">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3">Customer Name</th>
+          <th>Customer Type</th>
+          <th>Total Quantity</th>
+          <th>Total Quotation Price</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for q in recent_quotations %}
+        <tr>
+          <td class="ps-3">{{ q.customer_name }}</td>
+          <td><span class="badge bg-secondary">{{ (q.customer_type or '—') | title }}</span></td>
+          <td>{{ q.total_quantity }}</td>
+          <td>₹{{ "{:,.0f}".format(q.total_price or 0) }}</td>
+          <td>
+            {% if q.status == 'confirmed' %}
+            <span class="badge bg-success">Confirmed</span>
+            {% else %}
+            <span class="badge bg-warning text-dark">Shared</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-3">No quotations shared yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}

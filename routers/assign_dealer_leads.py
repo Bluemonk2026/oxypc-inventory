@@ -14,6 +14,7 @@ from models.user import User
 from auth.dependencies import get_current_user, verify_csrf, require_module_perm
 from services.audit_engine import audit
 from routers.dealers import _tc_field_options
+from utils.master_data import master_values
 
 router = APIRouter(prefix="/assign-dealer-leads", tags=["assign-dealer-leads"])
 
@@ -67,6 +68,7 @@ async def list_assign_dealer_leads(
 
     total_count = len(dealers)
     unassigned_count = sum(1 for d in dealers if not d.assigned_to)
+    tc_options = await _tc_field_options(db)
 
     return templates.TemplateResponse("assign_dealer_leads/list.html", {
         "request": request,
@@ -79,7 +81,10 @@ async def list_assign_dealer_leads(
         "assigned": assigned,
         "total_count": total_count,
         "unassigned_count": unassigned_count,
-        "whom_to_sell_options": (await _tc_field_options(db))["whom_to_sell"],
+        "whom_to_sell_options": tc_options["whom_to_sell"],
+        "deals_in_options": tc_options["deals_in"],
+        "call_mode_options": await master_values(db, "call_mode"),
+        "call_type_options": await master_values(db, "call_type"),
     })
 
 
@@ -105,6 +110,15 @@ async def bulk_assign_dealers(
         request=request,
     )
     await db.commit()
+
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        from fastapi.responses import JSONResponse
+        return JSONResponse({
+            "success": True,
+            "count": len(dealers),
+            "assigned_to": assigned_to,
+        })
+
     return RedirectResponse(
         url=f"/assign-dealer-leads?success={len(dealers)}+dealer(s)+assigned+to+{assigned_to}",
         status_code=302,

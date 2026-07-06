@@ -1,0 +1,73 @@
+{# Shared "Quotation Shared" table — included on Dealer Management (all
+   quotations) and Dealer Detail (this dealer's quotations only). Expects a
+   `quotations` list in the including template's context. #}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-transparent py-2 d-flex align-items-center gap-2">
+    <i class="bi bi-file-earmark-text text-info"></i>
+    <span class="fw-semibold small">Quotation Shared</span>
+    <span class="badge bg-secondary ms-1">{{ quotations|length }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 small">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3">Customer Name</th>
+          <th>Customer Type</th>
+          <th>Total Quantity</th>
+          <th>Total Quotation Price</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for q in quotations %}
+        <tr>
+          <td class="ps-3">{{ q.customer_name }} <span class="text-muted small">({{ q.quote_number }})</span></td>
+          <td><span class="badge bg-secondary">{{ (q.customer_type or '—') | title }}</span></td>
+          <td>{{ q.total_quantity }}</td>
+          <td>₹{{ "{:,.0f}".format(q.total_price or 0) }}</td>
+          <td>
+            {% if q.status == 'confirmed' %}
+            <span class="badge bg-success">Confirmed</span>
+            {% else %}
+            <span class="badge bg-warning text-dark">Shared</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="btn-group btn-group-sm">
+              {% if q.status != 'confirmed' %}
+              <form method="post" action="/dealer-quotations/{{ q.id }}/confirm" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+                <input type="hidden" name="return_to" value="{{ request.url.path }}">
+                <button type="submit" class="btn btn-outline-success" title="Confirm"><i class="bi bi-check-lg"></i></button>
+              </form>
+              {% endif %}
+              <button type="button" class="btn btn-outline-danger qtnDeleteBtn" title="Delete"
+                      data-quotation-id="{{ q.id }}" data-customer-name="{{ q.customer_name }}">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-3">No quotations shared yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<form method="post" id="qtnDeleteForm" style="display:none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+  <input type="hidden" name="return_to" value="{{ request.url.path }}">
+</form>
+<script>
+document.querySelectorAll('.qtnDeleteBtn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    if (!confirm('Delete quotation for "' + btn.dataset.customerName + '"? This cannot be undone.')) return;
+    var f = document.getElementById('qtnDeleteForm');
+    f.action = '/dealer-quotations/' + btn.dataset.quotationId + '/delete';
+    f.submit();
+  });
+});
+</script>

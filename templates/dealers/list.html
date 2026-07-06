@@ -7,8 +7,8 @@
   <form method="get" class="d-flex flex-wrap gap-2 align-items-end flex-grow-1">
     <div>
       <label class="form-label form-label-sm mb-1 text-muted small">Search</label>
-      <input type="text" name="q" value="{{ q }}" placeholder="Name, city, phone..."
-             class="form-control form-control-sm" style="width:220px">
+      <input type="text" name="q" value="{{ q }}" placeholder="Company, location, address, mobile, email..."
+             class="form-control form-control-sm" style="width:240px">
     </div>
 
     <div>
@@ -51,14 +51,48 @@
     </div>
 
     <div>
-      <label class="form-label form-label-sm mb-1 text-muted small">Last Order From</label>
-      <input type="date" name="last_order_from" class="form-control form-control-sm"
-             value="{{ last_order_from }}" style="width:145px">
+      <label class="form-label form-label-sm mb-1 text-muted small">Calling Date From</label>
+      <input type="date" name="calling_date_from" class="form-control form-control-sm"
+             value="{{ calling_date_from }}" style="width:145px">
     </div>
     <div>
-      <label class="form-label form-label-sm mb-1 text-muted small">Last Order To</label>
-      <input type="date" name="last_order_to" class="form-control form-control-sm"
-             value="{{ last_order_to }}" style="width:145px">
+      <label class="form-label form-label-sm mb-1 text-muted small">Calling Date To</label>
+      <input type="date" name="calling_date_to" class="form-control form-control-sm"
+             value="{{ calling_date_to }}" style="width:145px">
+    </div>
+
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">Required Qty</label>
+      <input type="number" name="filter_qty" min="0" value="{{ filter_qty }}"
+             class="form-control form-control-sm" style="width:110px">
+    </div>
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">Purchase Qty</label>
+      <input type="number" name="filter_purchase_qty" min="0" value="{{ filter_purchase_qty }}"
+             class="form-control form-control-sm" style="width:110px">
+    </div>
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">Selling Qty</label>
+      <input type="number" name="filter_sale_qty" min="0" value="{{ filter_sale_qty }}"
+             class="form-control form-control-sm" style="width:110px">
+    </div>
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">Whom to Sale</label>
+      <select name="filter_whom_to_sell" class="form-select form-select-sm" style="width:140px">
+        <option value="">All</option>
+        {% for val in whom_to_sell_options %}
+        <option value="{{ val }}" {% if filter_whom_to_sell==val %}selected{% endif %}>{{ val }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">Imported / Indian</label>
+      <select name="filter_deals_in" class="form-select form-select-sm" style="width:140px">
+        <option value="">All</option>
+        {% for val in deals_in_options %}
+        <option value="{{ val }}" {% if filter_deals_in==val %}selected{% endif %}>{{ val }}</option>
+        {% endfor %}
+      </select>
     </div>
 
     <div>
@@ -153,12 +187,14 @@
   {% endfor %}
 </div>
 
+{% include "dealers/_quotation_shared_table.html" %}
+
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
     <div class="table-responsive">
       <table class="table table-hover mb-0" id="dealersTable">
         <thead class="table-light">
-          <tr>
+          <tr class="text-nowrap">
             <th>ID</th>
             <th>Status</th>
             <th>Business Name</th>
@@ -201,6 +237,7 @@
             'phone': d.phone or '',
             'email': d.email or '',
             'address': d.address or '',
+            'gstin': d.gstin or '',
             'status': d.status,
             'call_id': rc.get('call_id', ''),
             'call_date': rc.get('call_date').strftime('%d-%m-%Y %H:%M') if rc.get('call_date') else '',
@@ -212,6 +249,8 @@
             'sale_quantity': rc.get('sale_quantity'),
             'deals_in': rc.get('deals_in', ''),
             'whom_to_sell': rc.get('whom_to_sell', ''),
+            'call_mode': rc.get('call_mode', ''),
+            'call_type': rc.get('call_type', ''),
             'next_followup_date': rc.get('next_followup_date').strftime('%Y-%m-%d') if rc.get('next_followup_date') else '',
             'outcome': rc.get('outcome', ''),
           } %}
@@ -263,6 +302,9 @@
                 <button type="button" class="btn btn-outline-secondary" title="Edit" onclick='openDealerEditModal({{ row_data | tojson }})'>
                   <i class="bi bi-pencil"></i>
                 </button>
+                <button type="button" class="btn btn-outline-info" title="Quotation" onclick='openQuotationModal({{ row_data | tojson }})'>
+                  <i class="bi bi-file-earmark-text"></i>
+                </button>
               </div>
             </td>
           </tr>
@@ -288,7 +330,7 @@
   <ul class="pagination pagination-sm mb-0">
     {% if page > 1 %}
     <li class="page-item">
-      <a class="page-link" href="?q={{ q }}&status={{ status }}&assigned={{ assigned }}&city={{ city }}&last_order_from={{ last_order_from }}&last_order_to={{ last_order_to }}&followup_from={{ followup_from }}&followup_to={{ followup_to }}&page={{ page - 1 }}">&#8249; Prev</a>
+      <a class="page-link" href="?q={{ q }}&status={{ status }}&assigned={{ assigned }}&city={{ city }}&calling_date_from={{ calling_date_from }}&calling_date_to={{ calling_date_to }}&filter_qty={{ filter_qty }}&filter_purchase_qty={{ filter_purchase_qty }}&filter_sale_qty={{ filter_sale_qty }}&filter_whom_to_sell={{ filter_whom_to_sell }}&filter_deals_in={{ filter_deals_in }}&followup_from={{ followup_from }}&followup_to={{ followup_to }}&page={{ page - 1 }}">&#8249; Prev</a>
     </li>
     {% endif %}
     {% for p in range(1, total_pages + 1) %}
@@ -296,7 +338,7 @@
       <li class="page-item active"><span class="page-link">{{ p }}</span></li>
       {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
       <li class="page-item">
-        <a class="page-link" href="?q={{ q }}&status={{ status }}&assigned={{ assigned }}&city={{ city }}&last_order_from={{ last_order_from }}&last_order_to={{ last_order_to }}&followup_from={{ followup_from }}&followup_to={{ followup_to }}&page={{ p }}">{{ p }}</a>
+        <a class="page-link" href="?q={{ q }}&status={{ status }}&assigned={{ assigned }}&city={{ city }}&calling_date_from={{ calling_date_from }}&calling_date_to={{ calling_date_to }}&filter_qty={{ filter_qty }}&filter_purchase_qty={{ filter_purchase_qty }}&filter_sale_qty={{ filter_sale_qty }}&filter_whom_to_sell={{ filter_whom_to_sell }}&filter_deals_in={{ filter_deals_in }}&followup_from={{ followup_from }}&followup_to={{ followup_to }}&page={{ p }}">{{ p }}</a>
       </li>
       {% elif p == page - 3 or p == page + 3 %}
       <li class="page-item disabled"><span class="page-link">…</span></li>
@@ -304,7 +346,7 @@
     {% endfor %}
     {% if page < total_pages %}
     <li class="page-item">
-      <a class="page-link" href="?q={{ q }}&status={{ status }}&assigned={{ assigned }}&city={{ city }}&last_order_from={{ last_order_from }}&last_order_to={{ last_order_to }}&followup_from={{ followup_from }}&followup_to={{ followup_to }}&page={{ page + 1 }}">Next &#8250;</a>
+      <a class="page-link" href="?q={{ q }}&status={{ status }}&assigned={{ assigned }}&city={{ city }}&calling_date_from={{ calling_date_from }}&calling_date_to={{ calling_date_to }}&filter_qty={{ filter_qty }}&filter_purchase_qty={{ filter_purchase_qty }}&filter_sale_qty={{ filter_sale_qty }}&filter_whom_to_sell={{ filter_whom_to_sell }}&filter_deals_in={{ filter_deals_in }}&followup_from={{ followup_from }}&followup_to={{ followup_to }}&page={{ page + 1 }}">Next &#8250;</a>
     </li>
     {% endif %}
   </ul>
@@ -420,12 +462,29 @@
             <input type="number" name="purchase_quantity" id="dePurchaseQty" class="form-control form-control-sm" min="0">
           </div>
           <div class="col-md-6">
-            <label class="form-label small">Selling Quantity</label>
-            <input type="number" name="sale_quantity" id="deSaleQty" class="form-control form-control-sm" min="0">
+            <label class="form-label small">Call Mode</label>
+            <select name="call_mode" id="deCallMode" class="form-select form-select-sm">
+              {% for val in call_mode_options %}
+              <option value="{{ val }}">{{ val | replace('_',' ') | title }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Call Type</label>
+            <select name="call_type" id="deCallType" class="form-select form-select-sm">
+              {% for val in call_type_options %}
+              <option value="{{ val }}">{{ val | title }}</option>
+              {% endfor %}
+            </select>
           </div>
           <div class="col-md-6">
             <label class="form-label small">Indian/Imported</label>
-            <input type="text" name="deals_in" id="deDealsIn" class="form-control form-control-sm">
+            <select name="deals_in" id="deDealsIn" class="form-select form-select-sm">
+              <option value="">Select...</option>
+              {% for val in deals_in_options %}
+              <option value="{{ val }}">{{ val }}</option>
+              {% endfor %}
+            </select>
           </div>
           <div class="col-md-6">
             <label class="form-label small">Whom to Sale</label>
@@ -445,6 +504,8 @@
     </form>
   </div>
 </div>
+
+{% include "dealers/_quotation_modal.html" %}
 
 {% endblock %}
 {% block scripts %}
@@ -487,7 +548,8 @@ function _fillDealerForm(d){
   document.getElementById('deCallingRemark').value = d.calling_remark || '';
   document.getElementById('deNotes').value = d.notes || '';
   document.getElementById('dePurchaseQty').value = (d.purchase_quantity !== null && d.purchase_quantity !== undefined) ? d.purchase_quantity : '';
-  document.getElementById('deSaleQty').value = (d.sale_quantity !== null && d.sale_quantity !== undefined) ? d.sale_quantity : '';
+  document.getElementById('deCallMode').value = d.call_mode || 'phone';
+  document.getElementById('deCallType').value = d.call_type || 'outbound';
   document.getElementById('deDealsIn').value = d.deals_in || '';
   document.getElementById('deWhomToSell').value = d.whom_to_sell || '';
 }

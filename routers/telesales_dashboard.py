@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from database import get_db
 from models.dealers import Dealer
 from models.dispatch_request import TelecallerDispatchRequest
+from models.dealer_quotation import DealerQuotation
 from models.sales import Sale, Return
 from models.user import User, UserRole
 from auth.dependencies import get_current_user, require_module_perm
@@ -108,6 +109,18 @@ async def telesales_dashboard(
         recent_returns_stmt = recent_returns_stmt.where(Sale.sold_by == current_user.username)
     recent_returns = (await db.execute(recent_returns_stmt)).all()
 
+    # Quotation Shared — most recent dealer quotations (read-only here; the
+    # Confirm/Delete actions live on Dealer Management / Dealer Detail)
+    quotations_stmt = (
+        select(DealerQuotation)
+        .join(Dealer, DealerQuotation.dealer_id == Dealer.id)
+        .order_by(DealerQuotation.created_at.desc())
+        .limit(20)
+    )
+    if not is_manager_view:
+        quotations_stmt = quotations_stmt.where(Dealer.assigned_to == current_user.username)
+    recent_quotations = (await db.execute(quotations_stmt)).scalars().all()
+
     return templates.TemplateResponse("telesales/dashboard.html", {
         "request": request,
         "current_user": current_user,
@@ -119,4 +132,5 @@ async def telesales_dashboard(
         "recent_sales": recent_sales,
         "returns_month_count": returns_month_count,
         "recent_returns": recent_returns,
+        "recent_quotations": recent_quotations,
     })

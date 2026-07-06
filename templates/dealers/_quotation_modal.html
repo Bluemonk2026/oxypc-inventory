@@ -1,0 +1,146 @@
+{# Shared Quotation modal — included on both Dealer Management (list.html) and
+   Dealer Detail (profile.html). On list.html it's reused across every row via
+   openQuotationModal(rowData); on profile.html it's opened for the single
+   dealer already in context (see openQuotationModalForThisDealer()). #}
+<div class="modal fade" id="quotationModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <form id="quotationForm" method="post" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+      <div class="modal-header py-2">
+        <h6 class="modal-title"><i class="bi bi-file-earmark-text me-2 text-info"></i>Create Quotation</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <div class="card border-0 bg-light h-100">
+              <div class="card-body py-2">
+                <div class="small fw-semibold text-uppercase text-muted mb-1">Dealer Details</div>
+                <div class="small"><strong>Business Name:</strong> <span id="qtnDealerName">—</span></div>
+                <div class="small"><strong>Type:</strong> <span id="qtnDealerType">—</span></div>
+                <div class="small"><strong>Phone:</strong> <span id="qtnDealerPhone">—</span></div>
+                <div class="small"><strong>Email:</strong> <span id="qtnDealerEmail">—</span></div>
+                <div class="small"><strong>Address:</strong> <span id="qtnDealerAddress">—</span></div>
+                <div class="small"><strong>GSTIN:</strong> <span id="qtnDealerGstin">—</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card border-0 bg-light h-100">
+              <div class="card-body py-2">
+                <div class="small fw-semibold text-uppercase text-muted mb-1">Company Detail</div>
+                <div class="small"><strong>Company Name:</strong> {{ company_settings.company_name or '—' }}</div>
+                <div class="small"><strong>Address:</strong> {{ company_settings.company_address or '—' }}</div>
+                <div class="small"><strong>GSTIN:</strong> {{ company_settings.company_gstin or '—' }}</div>
+                <div class="small"><strong>Phone:</strong> {{ company_settings.company_phone or '—' }}</div>
+                <div class="small"><strong>Email:</strong> {{ company_settings.company_email or '—' }}</div>
+                {% if not company_settings.company_name %}
+                <div class="small text-warning mt-1">
+                  <i class="bi bi-exclamation-triangle"></i> Not set —
+                  <a href="/admin/company-settings" target="_blank">configure Company Settings</a>
+                </div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <div class="small fw-semibold text-uppercase text-muted">Line Items</div>
+          <button type="button" class="btn btn-sm btn-outline-primary" onclick="qtnAddRow()">
+            <i class="bi bi-plus-lg me-1"></i>Add Item
+          </button>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead class="table-light">
+              <tr>
+                <th style="width:26%">Product Name</th>
+                <th style="width:22%">Model Name</th>
+                <th style="width:12%">Quantity</th>
+                <th style="width:16%">Unit Price</th>
+                <th style="width:16%">Total Price</th>
+                <th style="width:8%"></th>
+              </tr>
+            </thead>
+            <tbody id="qtnItemsBody"></tbody>
+            <tfoot>
+              <tr class="table-light">
+                <th colspan="2" class="text-end">Totals</th>
+                <th id="qtnTotalQty">0</th>
+                <th></th>
+                <th id="qtnTotalPrice">0.00</th>
+                <th></th>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div class="row g-3 mt-1">
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold">Payment Terms</label>
+            <textarea name="payment_terms" id="qtnPaymentTerms" class="form-control form-control-sm" rows="3"></textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold">Additional Notes</label>
+            <textarea name="additional_notes" id="qtnAdditionalNotes" class="form-control form-control-sm" rows="3"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-send-check me-1"></i>Create Quotation</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function qtnAddRow(name, model, qty, price){
+  var tbody = document.getElementById('qtnItemsBody');
+  var tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td><input type="text" name="product_name" class="form-control form-control-sm" value="' + (name || '').replace(/"/g, '&quot;') + '" required></td>' +
+    '<td><input type="text" name="model_name" class="form-control form-control-sm" value="' + (model || '').replace(/"/g, '&quot;') + '"></td>' +
+    '<td><input type="number" name="quantity" min="1" value="' + (qty || 1) + '" class="form-control form-control-sm qtnQty"></td>' +
+    '<td><input type="number" name="unit_price" min="0" step="0.01" value="' + (price || 0) + '" class="form-control form-control-sm qtnPrice"></td>' +
+    '<td class="qtnLineTotal small fw-semibold text-end pt-2">0.00</td>' +
+    '<td><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest(\'tr\').remove(); qtnRecalc();"><i class="bi bi-trash"></i></button></td>';
+  tbody.appendChild(tr);
+  tr.querySelectorAll('.qtnQty,.qtnPrice').forEach(function(inp){ inp.addEventListener('input', qtnRecalc); });
+  qtnRecalc();
+}
+
+function qtnRecalc(){
+  var totalQty = 0, totalPrice = 0;
+  document.querySelectorAll('#qtnItemsBody tr').forEach(function(tr){
+    var qty = parseFloat(tr.querySelector('.qtnQty').value) || 0;
+    var price = parseFloat(tr.querySelector('.qtnPrice').value) || 0;
+    var lineTotal = qty * price;
+    tr.querySelector('.qtnLineTotal').textContent = lineTotal.toFixed(2);
+    totalQty += qty;
+    totalPrice += lineTotal;
+  });
+  document.getElementById('qtnTotalQty').textContent = totalQty;
+  document.getElementById('qtnTotalPrice').textContent = totalPrice.toFixed(2);
+}
+
+function qtnResetForm(dealerId){
+  document.getElementById('quotationForm').action = '/dealers/' + dealerId + '/quotations';
+  document.getElementById('qtnPaymentTerms').value = '';
+  document.getElementById('qtnAdditionalNotes').value = '';
+  document.getElementById('qtnItemsBody').innerHTML = '';
+  qtnAddRow();
+}
+
+function openQuotationModal(d){
+  qtnResetForm(d.id);
+  document.getElementById('qtnDealerName').textContent = d.business_name || '—';
+  document.getElementById('qtnDealerType').textContent = d.dealer_type ? d.dealer_type.toUpperCase() : '—';
+  document.getElementById('qtnDealerPhone').textContent = d.phone || '—';
+  document.getElementById('qtnDealerEmail').textContent = d.email || '—';
+  document.getElementById('qtnDealerAddress').textContent = d.address || '—';
+  document.getElementById('qtnDealerGstin').textContent = d.gstin || '—';
+  new bootstrap.Modal(document.getElementById('quotationModal')).show();
+}
+</script>

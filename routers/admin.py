@@ -113,13 +113,36 @@ async def _role_data(db: AsyncSession):
 
 
 @router.get("/users", response_class=HTMLResponse)
-async def list_users(request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
-    result = await db.execute(select(User).order_by(User.created_at.desc()))
+async def list_users(
+    request: Request,
+    role: str = Query(default=""),
+    last_login_date: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    query = select(User)
+    if role:
+        query = query.where(User.role == role)
+    if last_login_date:
+        try:
+            day = datetime.strptime(last_login_date, "%Y-%m-%d").date()
+            query = query.where(func.date(User.last_login) == day)
+        except ValueError:
+            pass
+    result = await db.execute(query.order_by(User.created_at.desc()))
     users = result.scalars().all()
     role_choices, role_label_map = await _role_data(db)
+
+    today = app_now().date()
+    today_login_count = (await db.execute(
+        select(func.count(User.id)).where(func.date(User.last_login) == today)
+    )).scalar() or 0
+
     return templates.TemplateResponse("admin/users.html", {
         "request": request, "users": users, "current_user": current_user,
         "role_choices": role_choices, "role_label_map": role_label_map,
+        "role_filter": role, "last_login_date_filter": last_login_date,
+        "today_login_count": today_login_count,
     })
 
 

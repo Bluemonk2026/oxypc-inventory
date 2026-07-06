@@ -128,7 +128,8 @@ PERM_MODULES = [
     ("parts_tracking",       "Parts Tracking"),
     ("parts_consumption",    "Parts Consumption"),
     # ── CRM ────────────────────────────────────────────────────────
-    ("crm_contacts",         "CRM Dashboard & Contact Leads"),
+    ("crm_dashboard",        "CRM Dashboard"),
+    ("crm_contacts",         "Contact Leads"),
     ("crm_sourcing",         "Sourcing Deals"),
     ("crm_sales_opp",        "Sales Opportunities"),
     ("crm_price_matrix",     "Price Matrix"),

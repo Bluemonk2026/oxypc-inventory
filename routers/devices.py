@@ -536,6 +536,27 @@ async def device_detail(
     req_by_part = {}
     for r in pr_rows:
         req_by_part.setdefault(r.part_name, r)  # latest per part (rows ordered desc)
+
+    # ── Parts Consumed table (#33): every Part Request row whose Action
+    #    flipped to "Part Changed" (status == "received"), priced from the
+    #    live Part Master unit price × the qty actually handed over/verified.
+    changed_part_ids = {r.part_id for r in pr_rows if r.status == "received" and r.part_id}
+    changed_spare_parts = {}
+    if changed_part_ids:
+        sp_rows = (await db.execute(select(SparePart).where(SparePart.id.in_(changed_part_ids)))).scalars().all()
+        changed_spare_parts = {sp.id: sp for sp in sp_rows}
+    changed_parts_consumed = []
+    for r in pr_rows:
+        if r.status != "received":
+            continue
+        sp = changed_spare_parts.get(r.part_id)
+        unit_price = float(sp.unit_price) if sp else 0.0
+        qty = r.qty_handed_over or 0
+        changed_parts_consumed.append({
+            "part_name": r.part_name, "unit_price": unit_price,
+            "qty": qty, "total": unit_price * qty,
+        })
+    total_changed_parts_cost = sum(row["total"] for row in changed_parts_consumed)
     parts_consumption = []
     for row in required_rows:
         sp = (await db.execute(
@@ -613,6 +634,8 @@ async def device_detail(
         "iqc_inspection": iqc_inspection,
         "stress_data": stress_data,
         "parts_consumption": parts_consumption,
+        "changed_parts_consumed": changed_parts_consumed,
+        "total_changed_parts_cost": total_changed_parts_cost,
         "all_spare_parts": all_spare_parts,
         "work_orders": work_orders,
         "repair_status": repair_status,

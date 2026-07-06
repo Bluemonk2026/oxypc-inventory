@@ -16,7 +16,7 @@ from models.lot import Lot
 from models.iqc_inspection import IQCInspection
 from models.repair import RepairJob
 from models.part_request import PartRequest
-from models.spare_parts import SparePartConsumption
+from models.spare_parts import SparePart, SparePartConsumption
 from services.parts_required import compute_required
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 
@@ -128,6 +128,28 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
                                       "changed": bool(req and req.status == "received")})
                 parts_map[str(d.id)] = plist
 
+            # ── Changed parts' pricing (Part Master unit price × Device Detail's
+            #    verified/handed-over qty) — feeds into the Pricing section below.
+            changed_reqs = [r for r in prs if r.status == "received" and r.part_id]
+            changed_part_ids = {r.part_id for r in changed_reqs}
+            spare_parts_by_id = {}
+            if changed_part_ids:
+                sp_rows = (await db.execute(
+                    select(SparePart).where(SparePart.id.in_(changed_part_ids))
+                )).scalars().all()
+                spare_parts_by_id = {sp.id: sp for sp in sp_rows}
+            changed_parts_pricing = {}
+            for r in changed_reqs:
+                sp = spare_parts_by_id.get(r.part_id)
+                if not sp:
+                    continue
+                qty = r.qty_handed_over or 0
+                unit_price = float(sp.unit_price or 0)
+                changed_parts_pricing.setdefault(str(r.device_id), []).append({
+                    "label": r.part_name, "unit_price": unit_price,
+                    "qty": qty, "total": unit_price * qty,
+                })
+
         # ── Pricing: current unit price → after-repair price (parts actually
         #    consumed, real cost) → updated price shown to the user. ─────────
         price_map = {}
@@ -144,10 +166,13 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
             for d, _ in devices:
                 current_price = float(d.device_price or 0)
                 parts_cost = parts_cost_by_device.get(str(d.id), 0.0)
-                after_repair_price = current_price + parts_cost
+                changed_cost = sum(p["total"] for p in changed_parts_pricing.get(str(d.id), []))
+                after_repair_price = current_price + parts_cost + changed_cost
                 price_map[str(d.id)] = {
                     "current_price": current_price,
                     "parts_cost": parts_cost,
+                    "changed_parts": changed_parts_pricing.get(str(d.id), []),
+                    "changed_parts_cost": changed_cost,
                     "after_repair_price": after_repair_price,
                     "updated_price": after_repair_price,
                 }

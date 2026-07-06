@@ -24,6 +24,7 @@ require_view = require_module_perm("assign_dealer_leads", "enable")
 async def list_assign_dealer_leads(
     request: Request,
     q: str = Query(default=""),
+    loc: str = Query(default=""),
     status: str = Query(default=""),
     assigned: str = Query(default=""),
     db: AsyncSession = Depends(get_db),
@@ -38,6 +39,13 @@ async def list_assign_dealer_leads(
             Dealer.phone.ilike(like),
             Dealer.city.ilike(like),
             Dealer.dealer_code.ilike(like),
+        ))
+    if loc:
+        loc_like = f"%{loc}%"
+        base_query = base_query.where(or_(
+            Dealer.city.ilike(loc_like),
+            Dealer.state.ilike(loc_like),
+            Dealer.address.ilike(loc_like),
         ))
     if status:
         base_query = base_query.where(Dealer.status == status)
@@ -66,6 +74,7 @@ async def list_assign_dealer_leads(
         "dealers": dealers,
         "all_users": all_users,
         "q": q,
+        "loc": loc,
         "status": status,
         "assigned": assigned,
         "total_count": total_count,

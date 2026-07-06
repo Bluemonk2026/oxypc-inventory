@@ -508,5 +508,13 @@ function openDealerAddModal(){
   document.getElementById('deId').value = '';
   new bootstrap.Modal(document.getElementById('dealerEditModal')).show();
 }
+
+if ($('#dealersTable tbody tr').length > 1 && $.fn.DataTable) {
+  $('#dealersTable').DataTable({
+    pageLength: 25,
+    order: [],
+    columnDefs: [{ orderable: false, targets: [18] }],
+  });
+}
 </script>
 {% endblock %}

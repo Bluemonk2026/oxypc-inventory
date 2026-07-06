@@ -54,10 +54,30 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     result = await db.execute(select(SparePart).order_by(SparePart.category, SparePart.name))
     parts  = result.scalars().all()
 
+    # "Consumed" per part — qty handed over (Part Request status="handed_over")
+    # that hasn't been deducted from qty_in_stock yet, so the Part Master
+    # table's In Stock column can show live availability instead of raw stock.
+    consumed_rows = (await db.execute(
+        select(PartRequest.part_id, func.sum(PartRequest.qty_handed_over))
+        .where(PartRequest.status == "handed_over", PartRequest.part_id.isnot(None))
+        .group_by(PartRequest.part_id)
+    )).all()
+    consumed_by_part = {str(pid): int(total or 0) for pid, total in consumed_rows}
+
     # Summary stats
     total_part_types = len(parts)
     below_min_count  = sum(1 for p in parts if p.qty_in_stock <= p.min_stock_alert)
+    out_of_stock_count = sum(
+        1 for p in parts if int(p.qty_in_stock or 0) - consumed_by_part.get(str(p.id), 0) <= 0
+    )
     total_stock_value = sum(float(p.unit_price or 0) * int(p.qty_in_stock or 0) for p in parts)
+
+    part_requested_count = (await db.execute(
+        select(func.count(PartRequest.id)).where(PartRequest.status == "requested")
+    )).scalar() or 0
+    part_sourced_count = (await db.execute(
+        select(func.count(PartSourcingRequest.id)).where(PartSourcingRequest.status == "open")
+    )).scalar() or 0
 
     # Last 100 purchases (with part name + code)
     purchases_result = await db.execute(
@@ -116,8 +136,12 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         "purchases": purchases, "consumptions": consumptions,
         "total_part_types": total_part_types,
         "below_min_count": below_min_count,
+        "out_of_stock_count": out_of_stock_count,
+        "part_requested_count": part_requested_count,
+        "part_sourced_count": part_sourced_count,
         "total_stock_value": total_stock_value,
         "consumed_this_month": consumed_this_month,
+        "consumed_by_part": consumed_by_part,
         "part_reqs": part_reqs, "part_stock": part_stock, "sourcing": sourcing,
         "deal_map": deal_map,
         "grn_docs": {},

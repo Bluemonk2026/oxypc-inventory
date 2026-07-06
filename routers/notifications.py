@@ -98,6 +98,55 @@ async def alerts_page(
     )
 
 
+@router.get("/notifications/recent")
+async def recent_notifications(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """JSON feed for the topbar bell's slide-in panel — last 30 days, newest first."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    result = await db.execute(
+        select(Notification)
+        .where(
+            Notification.created_at >= cutoff,
+            or_(
+                Notification.user_id == current_user.id,
+                Notification.user_id == None,  # noqa: E711
+            ),
+        )
+        .order_by(Notification.created_at.desc())
+        .limit(50)
+    )
+    notifs = result.scalars().all()
+
+    await db.execute(
+        update(Notification)
+        .where(
+            or_(
+                Notification.user_id == current_user.id,
+                Notification.user_id == None,  # noqa: E711
+            ),
+            Notification.is_read == False,  # noqa: E712
+        )
+        .values(is_read=True)
+    )
+    await db.commit()
+
+    return JSONResponse({
+        "notifications": [
+            {
+                "id": n.id,
+                "barcode": n.barcode or "",
+                "title": n.title,
+                "message": n.message,
+                "notification_type": n.notification_type,
+                "created_at": n.created_at.strftime("%d-%m-%Y %H:%M") if n.created_at else "",
+            }
+            for n in notifs
+        ]
+    })
+
+
 @router.get("/notifications/unread-count")
 async def unread_count(
     db: AsyncSession = Depends(get_db),

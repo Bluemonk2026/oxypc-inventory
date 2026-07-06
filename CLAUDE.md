@@ -40,3 +40,13 @@ Lot Management cleanup: cascade delete just shipped. Next: verify in app, then m
 - `is_trashed.isnot(True)` — always, not `== False`
 - All outputs to `C:\Users\Pankaj.sehgal\Claude\output\`
 - Audit log before `db.delete()` — record is gone after commit
+
+## Project Skills (`.claude/skills/`)
+Invoke these for this project's recurring workflows — they encode patterns
+already proven to catch real bugs in this codebase:
+| Skill | When to use |
+|---|---|
+| `verify-feature` | After any router/template change, before saying "done" — compile + Jinja-parse + `db_validator.py` + throwaway httpx functional script |
+| `regression-sweep` | Before reporting a batch done if it touched `base.html`, a Jinja global, or a shared macro — full 159-template parse + `_scan_routes.py` (baseline: exactly 9 flagged routes) |
+| `bulk-csv-import` | Any CSV import of devices/dealers/inventory — always ask local-vs-production, verify encoding fallback, report exact skip counts |
+| `commit-deploy-gate` | Before any `git commit`/`push`/server restart — a prior "yes" never carries forward to a new batch |

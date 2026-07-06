@@ -10,30 +10,42 @@
 </div>
 {% endif %}
 
-<!-- ── Summary Cards ── -->
+<!-- ── Summary Cards (counts reflect all tables across all tabs) ── -->
 <div class="row g-3 mb-4">
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-2">
     <div class="card border-0 shadow-sm text-center p-3">
       <div class="fs-3 fw-bold text-primary">{{ total_part_types }}</div>
       <div class="text-muted small">Part Types</div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-2">
     <div class="card border-0 shadow-sm text-center p-3 {{ 'border-danger' if below_min_count > 0 else '' }}">
       <div class="fs-3 fw-bold {{ 'text-danger' if below_min_count > 0 else 'text-success' }}">{{ below_min_count }}</div>
       <div class="text-muted small">Below Min Stock</div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
-    <div class="card border-0 shadow-sm text-center p-3">
-      <div class="fs-3 fw-bold text-success">&#8377;{{ "{:,.0f}".format(total_stock_value) }}</div>
-      <div class="text-muted small">Total Stock Value</div>
+  <div class="col-6 col-md-2">
+    <div class="card border-0 shadow-sm text-center p-3 {{ 'border-danger' if out_of_stock_count > 0 else '' }}">
+      <div class="fs-3 fw-bold {{ 'text-danger' if out_of_stock_count > 0 else 'text-success' }}">{{ out_of_stock_count }}</div>
+      <div class="text-muted small">Out of Stock</div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-2">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-3 fw-bold text-warning">{{ part_requested_count }} <span class="fs-6 text-muted">/</span> {{ part_sourced_count }}</div>
+      <div class="text-muted small">Requests (Requested / Sourced)</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
     <div class="card border-0 shadow-sm text-center p-3">
       <div class="fs-3 fw-bold text-info">{{ consumed_this_month }}</div>
       <div class="text-muted small">Consumed This Month</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-3 fw-bold text-success">&#8377;{{ "{:,.0f}".format(total_stock_value) }}</div>
+      <div class="text-muted small">Total Stock Value</div>
     </div>
   </div>
 </div>
@@ -103,7 +115,7 @@
           <tr>
             <th><input type="checkbox" class="form-check-input sp-sa" data-tbl="partsTable"></th>
             <th>Code</th><th>Added As</th><th>Name</th><th>Category</th>
-            <th>Unit Price</th><th>In Stock</th><th>Min Alert</th>
+            <th>Unit Price</th><th>Consumed</th><th>In Stock</th><th>Min Alert</th>
             <th>Stock Value</th><th>Supplier</th>
             <th>Invoice</th><th>PO</th><th>E-way Bill</th>
             <th>Actions</th>
@@ -111,7 +123,9 @@
         </thead>
         <tbody>
           {% for part in parts %}
-          <tr class="{{ 'table-danger' if part.qty_in_stock <= part.min_stock_alert else '' }}">
+          {% set consumed = consumed_by_part.get(part.id|string, 0) %}
+          {% set live_stock = part.qty_in_stock - consumed %}
+          <tr class="{{ 'table-danger' if live_stock <= part.min_stock_alert else '' }}">
             <td><input type="checkbox" class="form-check-input sp-cb" data-tbl="partsTable"></td>
             <td><code>{{ part.part_code }}</code></td>
             <td>
@@ -124,13 +138,14 @@
             <td class="fw-semibold">{{ part.name }}</td>
             <td><span class="badge bg-secondary">{{ part.category }}</span></td>
             <td>&#8377;{{ "{:,.2f}".format(part.unit_price) }}</td>
+            <td>{% if consumed %}<span class="badge bg-info text-dark">{{ consumed }}</span>{% else %}0{% endif %}</td>
             <td>
-              <span class="badge {{ 'bg-danger' if part.qty_in_stock <= part.min_stock_alert else 'bg-success' }}">
-                {{ part.qty_in_stock }}
+              <span class="badge {{ 'bg-danger' if live_stock <= part.min_stock_alert else 'bg-success' }}">
+                {{ live_stock }}
               </span>
             </td>
             <td>{{ part.min_stock_alert }}</td>
-            <td>&#8377;{{ "{:,.0f}".format(part.unit_price * part.qty_in_stock) }}</td>
+            <td>&#8377;{{ "{:,.0f}".format(part.unit_price * live_stock) }}</td>
             <td class="text-muted">{{ part.supplier or '—' }}</td>
             {% set gdoc = grn_docs.get(part.id|string, {}) %}
             <td>{% if gdoc.get('invoice_file') %}<a href="/uploads/parts_grn/{{ gdoc.invoice_file }}" target="_blank" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1"><i class="bi bi-file-earmark"></i></a>{% else %}<span class="text-muted">—</span>{% endif %}</td>

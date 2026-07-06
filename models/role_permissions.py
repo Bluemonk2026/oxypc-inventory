@@ -94,6 +94,20 @@ def set_cached_sidebar_label(module_key: str, label: str) -> None:
     _SIDEBAR_LABEL_CACHE[module_key] = label
 
 
+# ── Landing Pages: custom page titles (AppSetting key=f"page_title_{module_key}").
+#    Structure: {module_key: custom_title}. Read by resolve_page_title() in
+#    templates_config.py, matched against NAV_PAGE_TITLES' url column.
+_PAGE_TITLE_CACHE: dict = {}
+
+
+def get_cached_page_title(module_key: str) -> str | None:
+    return _PAGE_TITLE_CACHE.get(module_key) or None
+
+
+def set_cached_page_title(module_key: str, title: str) -> None:
+    _PAGE_TITLE_CACHE[module_key] = title
+
+
 def get_cached_additional_perms(role_name: str) -> dict:
     return _ADDITIONAL_PERM_CACHE.get(role_name, {})
 

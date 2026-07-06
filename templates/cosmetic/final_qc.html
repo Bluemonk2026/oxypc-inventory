@@ -177,6 +177,14 @@
               <th class="text-muted fw-normal">Current Unit Price</th>
               <td class="text-end">₹{{ "%.2f"|format(price.current_price) }}</td>
             </tr>
+            {% if price.changed_parts %}
+            {% for cp in price.changed_parts %}
+            <tr>
+              <th class="text-muted fw-normal">{{ cp.label }} <small class="text-muted">(Changed — {{ cp.qty }} × ₹{{ "%.2f"|format(cp.unit_price) }})</small></th>
+              <td class="text-end">₹{{ "%.2f"|format(cp.total) }}</td>
+            </tr>
+            {% endfor %}
+            {% endif %}
             <tr>
               <th class="text-muted fw-normal">After Repair Price <small class="text-muted">(+ parts changed)</small></th>
               <td class="text-end">₹{{ "%.2f"|format(price.after_repair_price) }}</td>

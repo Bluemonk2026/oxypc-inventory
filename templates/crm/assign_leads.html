@@ -185,23 +185,23 @@
   <div id="gc-{{ gid }}" class="accordion-collapse collapse" data-bs-parent="">
     <div class="accordion-body p-0">
       <div class="table-responsive">
-        <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.82rem">
+        <table class="table table-sm table-hover mb-0 align-middle asl-sortable-table" style="font-size:.82rem">
           <thead class="table-light">
             <tr>
-              <th class="ps-3">Lead ID</th>
-              <th>Status</th>
-              <th>Name</th>
-              <th>Phone</th>
-              <th>Email</th>
-              <th>Address</th>
-              <th>Calling Date</th>
-              <th>Require Quantity</th>
-              <th>Interested In</th>
-              <th style="min-width:120px">Full Remark</th>
-              <th>Deals In</th>
-              <th>Purchase Qty</th>
-              <th>Selling Qty</th>
-              <th>Indian/Imported</th>
+              <th class="ps-3 asl-sort-th">Lead ID</th>
+              <th class="asl-sort-th">Status</th>
+              <th class="asl-sort-th">Name</th>
+              <th class="asl-sort-th">Phone</th>
+              <th class="asl-sort-th">Email</th>
+              <th class="asl-sort-th">Address</th>
+              <th class="asl-sort-th">Calling Date</th>
+              <th class="asl-sort-th">Require Quantity</th>
+              <th class="asl-sort-th">Interested In</th>
+              <th class="asl-sort-th" style="min-width:120px">Full Remark</th>
+              <th class="asl-sort-th">Deals In</th>
+              <th class="asl-sort-th">Purchase Qty</th>
+              <th class="asl-sort-th">Selling Qty</th>
+              <th class="asl-sort-th">Indian/Imported</th>
               <th style="width:110px">Actions</th>
             </tr>
           </thead>
@@ -853,10 +853,10 @@ function newGroupItemHtml(gid, name) {
           <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.82rem">
             <thead class="table-light">
               <tr>
-                <th class="ps-3">Lead ID</th><th>Status</th><th>Name</th><th>Phone</th><th>Email</th>
-                <th>Address</th><th>Calling Date</th><th>Require Quantity</th><th>Interested In</th>
-                <th style="min-width:120px">Full Remark</th><th>Deals In</th><th>Purchase Qty</th>
-                <th>Selling Qty</th><th>Indian/Imported</th><th style="width:110px">Actions</th>
+                <th class="ps-3 asl-sort-th">Lead ID</th><th class="asl-sort-th">Status</th><th class="asl-sort-th">Name</th><th class="asl-sort-th">Phone</th><th class="asl-sort-th">Email</th>
+                <th class="asl-sort-th">Address</th><th class="asl-sort-th">Calling Date</th><th class="asl-sort-th">Require Quantity</th><th class="asl-sort-th">Interested In</th>
+                <th class="asl-sort-th" style="min-width:120px">Full Remark</th><th class="asl-sort-th">Deals In</th><th class="asl-sort-th">Purchase Qty</th>
+                <th class="asl-sort-th">Selling Qty</th><th class="asl-sort-th">Indian/Imported</th><th style="width:110px">Actions</th>
               </tr>
             </thead>
             <tbody id="tbody-${gid}">
@@ -1158,6 +1158,49 @@ async function showHistoryModal(leadId, leadName) {
       `<p class="text-danger text-center py-3 small">${e.message}</p>`;
   }
 }
+
+/* ── Column sorting for each lead group's table (re-queries live DOM on
+   every click, so it keeps working after refreshGroup() replaces rows) ── */
+function aslSortTable(th) {
+  const table = th.closest('table');
+  const tbody = table.querySelector('tbody');
+  if (!tbody) return;
+  const headerRow = th.parentElement;
+  const colIdx = Array.prototype.indexOf.call(headerRow.children, th);
+  const rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+  if (rows.length < 2) return;
+
+  const asc = th.dataset.sortDir !== 'asc';
+  headerRow.querySelectorAll('.asl-sort-th').forEach(h => { h.dataset.sortDir = ''; h.classList.remove('asl-sort-asc', 'asl-sort-desc'); });
+  th.dataset.sortDir = asc ? 'asc' : 'desc';
+  th.classList.add(asc ? 'asl-sort-asc' : 'asl-sort-desc');
+
+  rows.sort((a, b) => {
+    const av = (a.children[colIdx]?.textContent || '').trim();
+    const bv = (b.children[colIdx]?.textContent || '').trim();
+    const an = parseFloat(av.replace(/[^0-9.-]/g, ''));
+    const bn = parseFloat(bv.replace(/[^0-9.-]/g, ''));
+    let cmp;
+    if (av !== '' && bv !== '' && !isNaN(an) && !isNaN(bn) && /^[\d.,₹\s-]+$/.test(av) && /^[\d.,₹\s-]+$/.test(bv)) {
+      cmp = an - bn;
+    } else {
+      cmp = av.localeCompare(bv, undefined, { sensitivity: 'base' });
+    }
+    return asc ? cmp : -cmp;
+  });
+  rows.forEach(r => tbody.appendChild(r));
+}
+
+document.addEventListener('click', function(e) {
+  const th = e.target.closest('.asl-sort-th');
+  if (th) aslSortTable(th);
+});
 </script>
+<style>
+.asl-sort-th { cursor: pointer; user-select: none; position: relative; }
+.asl-sort-th:hover { background: rgba(0,0,0,.04); }
+.asl-sort-th.asl-sort-asc::after { content: ' \25B2'; font-size: .7em; }
+.asl-sort-th.asl-sort-desc::after { content: ' \25BC'; font-size: .7em; }
+</style>
 
 {% endblock %}

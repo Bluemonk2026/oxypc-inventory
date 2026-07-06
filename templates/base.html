@@ -221,12 +221,14 @@
       {% endif %}
 
       {# ── CRM ─────────────────────────────────────────────────────────── #}
-      {% if any_perm(role,'crm_contacts','crm_sourcing','crm_sales_opp','crm_price_matrix','crm_purchase_orders','crm_analytics','crm_assign_leads') %}
+      {% if any_perm(role,'crm_dashboard','crm_contacts','crm_sourcing','crm_sales_opp','crm_price_matrix','crm_purchase_orders','crm_analytics','crm_assign_leads') %}
       <li class="nav-section">CRM</li>
-      {% if has_perm(role,'crm_contacts','enable') %}
-      <li><a href="/crm/" class="nav-link {% if request.url.path.startswith('/crm') %}active{% endif %}">
-        <i class="bi bi-diagram-3 me-2"></i> {{ sidebar_label('crm_contacts', 'CRM Dashboard') }}
+      {% if has_perm(role,'crm_dashboard','enable') %}
+      <li><a href="/crm/" class="nav-link {% if request.url.path == '/crm/' %}active{% endif %}">
+        <i class="bi bi-diagram-3 me-2"></i> {{ sidebar_label('crm_dashboard', 'CRM Dashboard') }}
       </a></li>
+      {% endif %}
+      {% if has_perm(role,'crm_contacts','enable') %}
       <li><a href="/crm/contacts" class="nav-link {% if request.url.path.startswith('/crm/contacts') %}active{% endif %}">
         <i class="bi bi-people me-2"></i> {{ sidebar_label('crm_contacts', 'Contact Leads') }}
       </a></li>
@@ -541,16 +543,16 @@
     <!-- Topbar -->
     <nav class="navbar navbar-expand topbar px-3">
       <button class="btn btn-link me-3" id="sidebarToggle"><i class="bi bi-list fs-5"></i></button>
-      <span class="navbar-brand mb-0 h1 fw-bold text-primary">{% block page_title %}{% endblock %}</span>
+      <span class="navbar-brand mb-0 h1 fw-bold text-primary">{% set _default_page_title %}{% block page_title %}{% endblock %}{% endset %}{{ resolve_page_title(request.url.path) or _default_page_title }}</span>
       <div class="ms-auto d-flex align-items-center gap-3">
         <a href="/auth/profile" class="text-decoration-none fw-bold text-dark" style="font-size:0.95rem">{{ current_user.full_name }}</a>
         <span class="badge bg-primary">{{ role_display(role) }}</span>
         <!-- Notification Bell -->
         <div class="position-relative d-inline-block">
-          <a href="/notifications/alerts" class="btn btn-link text-dark p-1 text-decoration-none" title="Alerts">
+          <button type="button" class="btn btn-link text-dark p-1 text-decoration-none" title="Alerts" onclick="openNotifPanel()">
             <i class="bi bi-bell fs-5"></i>
             <span id="notifBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none" style="font-size:0.65rem;min-width:1.2rem">0</span>
-          </a>
+          </button>
         </div>
         <button type="button" class="btn btn-warning btn-sm fw-semibold"
                 data-bs-toggle="modal" data-bs-target="#raiseTicketModal"
@@ -937,6 +939,63 @@
   // overlay is shown, so recovery is detected on the very next tick.
   setInterval(checkHealth, 4000);
 })();
+</script>
+
+<!-- Notification bell slide-in panel -->
+<div id="notifPanelBackdrop" class="d-none" style="position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:2050" onclick="closeNotifPanel()"></div>
+<div id="notifPanel" style="position:fixed;top:0;right:-320px;height:100vh;width:300px;max-width:300px;background:#fff;box-shadow:-2px 0 12px rgba(0,0,0,.15);z-index:2060;transition:right .25s ease;display:flex;flex-direction:column">
+  <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom">
+    <span class="fw-semibold"><i class="bi bi-bell me-2"></i>Alerts</span>
+    <button type="button" class="btn-close" onclick="closeNotifPanel()"></button>
+  </div>
+  <div id="notifPanelBody" class="flex-grow-1 overflow-auto p-2">
+    <div class="text-center text-muted py-4 small">
+      <span class="spinner-border spinner-border-sm"></span> Loading…
+    </div>
+  </div>
+</div>
+<script>
+function esc_notif(s) {
+  return (s ?? '').toString().replace(/[&<>"']/g, function(m) {
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[m];
+  });
+}
+function openNotifPanel() {
+  document.getElementById('notifPanel').style.right = '0';
+  document.getElementById('notifPanelBackdrop').classList.remove('d-none');
+  var body = document.getElementById('notifPanelBody');
+  body.innerHTML = '<div class="text-center text-muted py-4 small"><span class="spinner-border spinner-border-sm"></span> Loading…</div>';
+  fetch('/notifications/recent', { credentials: 'same-origin' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var badge = document.getElementById('notifBadge');
+      if (badge) badge.classList.add('d-none');
+      var sbadge = document.getElementById('sidebarNotifBadge');
+      if (sbadge) sbadge.classList.add('d-none');
+      if (!d.notifications || !d.notifications.length) {
+        body.innerHTML = '<div class="text-center text-muted py-4 small">No alerts in the last 30 days.</div>';
+        return;
+      }
+      var typeColor = { info: 'primary', success: 'success', warning: 'warning', alert: 'danger' };
+      body.innerHTML = d.notifications.map(function(n) {
+        var color = typeColor[n.notification_type] || 'secondary';
+        return '<div class="card border-0 shadow-sm mb-2">' +
+          '<div class="card-body p-2">' +
+          (n.barcode ? '<div class="small text-muted mb-1"><i class="bi bi-upc-scan me-1"></i>' + esc_notif(n.barcode) + '</div>' : '') +
+          '<div class="fw-semibold small mb-1"><span class="badge bg-' + color + ' me-1">&nbsp;</span>' + esc_notif(n.title) + '</div>' +
+          '<div class="small text-muted mb-1">' + esc_notif(n.message) + '</div>' +
+          '<div class="small text-muted">' + esc_notif(n.created_at) + '</div>' +
+          '</div></div>';
+      }).join('');
+    })
+    .catch(function() {
+      body.innerHTML = '<div class="text-center text-danger py-4 small">Could not load alerts.</div>';
+    });
+}
+function closeNotifPanel() {
+  document.getElementById('notifPanel').style.right = '-320px';
+  document.getElementById('notifPanelBackdrop').classList.add('d-none');
+}
 </script>
 </body>
 </html>

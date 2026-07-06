@@ -5,6 +5,7 @@ from sqlalchemy import select, delete
 from database import get_db
 from models.user import User, UserRole
 from models.settings import AppSetting
+from models.role_permissions import set_cached_page_title, _PAGE_TITLE_CACHE
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from templates_config import templates
 
@@ -14,6 +15,21 @@ router = APIRouter(
     dependencies=[Depends(verify_csrf)],
 )
 admin_only = require_roles(UserRole.admin)
+
+SETTING_PREFIX = "page_title_"
+
+
+async def load_page_titles_to_cache(db: AsyncSession) -> None:
+    """Populate the in-memory page-title cache from AppSetting rows.
+    Called at app startup and after every save/reset."""
+    rows = (await db.execute(
+        select(AppSetting).where(AppSetting.key.like(f"{SETTING_PREFIX}%"))
+    )).scalars().all()
+    _PAGE_TITLE_CACHE.clear()
+    for r in rows:
+        module_key = r.key[len(SETTING_PREFIX):]
+        if r.value:
+            _PAGE_TITLE_CACHE[module_key] = r.value
 
 # (module_key, nav_label, default_page_title, route_url)
 NAV_PAGE_TITLES = [
@@ -42,7 +58,8 @@ NAV_PAGE_TITLES = [
     ("spare_parts_purchase", "Parts Purchased",               "Parts Purchased",               "/spare-parts/purchase"),
     ("parts_tracking",       "Parts Tracking",                "Parts Tracking",                "/ram-tracking"),
     ("parts_consumption",    "Parts Consumption",             "Parts Consumption",             "/spare-parts/consume"),
-    ("crm_contacts",         "CRM Dashboard & Contact Leads", "CRM Dashboard",                 "/crm/"),
+    ("crm_dashboard",        "CRM Dashboard",                 "CRM Dashboard",                 "/crm/"),
+    ("crm_contacts",         "Contact Leads",                 "Contact Leads",                 "/crm/contacts"),
     ("crm_sourcing",         "Sourcing Deals",                "Sourcing Deals",                "/crm/sourcing"),
     ("crm_sales_opp",        "Sales Opportunities",           "Sales Opportunities",           "/crm/sales"),
     ("crm_price_matrix",     "Price Matrix",                  "Price Matrix",                  "/crm/price-matrix"),
@@ -153,6 +170,7 @@ async def save_landing_page_title(
         ))
 
     await db.commit()
+    set_cached_page_title(module_key, new_title)
     return RedirectResponse(
         url=f"/admin/landing-pages/?success=Title+saved+for+{module_key}",
         status_code=302,
@@ -179,6 +197,7 @@ async def reset_landing_page_title(
     if existing:
         await db.execute(delete(AppSetting).where(AppSetting.key == setting_key))
         await db.commit()
+        _PAGE_TITLE_CACHE.pop(module_key, None)
 
     return RedirectResponse(
         url=f"/admin/landing-pages/?success=Title+reset+to+default+for+{module_key}",

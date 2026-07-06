@@ -424,6 +424,40 @@ async def iqc_create_lot_from_selection(
     return RedirectResponse(url=f"/iqc?success=Lot+{lot.lot_number}+created+with+{len(devices)}+device(s)", status_code=302)
 
 
+@router.post("/bulk-apply-grade-type")
+async def iqc_bulk_apply_grade_type(
+    request: Request,
+    barcodes: list[str] = Form(...),
+    device_type: str = Form(""),
+    grade: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+    _perm: User = Depends(require_module_perm("iqc", "edit")),
+):
+    """Bulk-apply Device Type and/or Grade to a set of Tag Numbers selected on
+    the Product IQC table (checkbox multi-select + Customise modal)."""
+    barcodes = [b.strip() for b in barcodes if b and b.strip()]
+    if not barcodes:
+        return RedirectResponse(url="/iqc?error=No+devices+selected", status_code=302)
+    if not device_type.strip() and not grade.strip():
+        return RedirectResponse(url="/iqc?error=Select+a+Device+Type+or+Grade+to+apply", status_code=302)
+
+    result = await db.execute(select(Device).where(Device.barcode.in_(barcodes)))
+    devices = result.scalars().all()
+    for device in devices:
+        if device_type.strip():
+            device.device_type = device_type.strip()
+        if grade.strip():
+            device.grade = grade.strip()
+
+    await audit(db, action="IQC_BULK_GRADE_TYPE_APPLIED", user=current_user,
+                table_name="devices", record_id=",".join(str(d.id) for d in devices)[:50],
+                new_value={"device_type": device_type or None, "grade": grade or None, "count": len(devices)},
+                request=request)
+    await db.commit()
+    return RedirectResponse(url=f"/iqc?success={len(devices)}+device(s)+updated", status_code=302)
+
+
 @router.get("/export-csv")
 async def iqc_export_csv(
     db: AsyncSession = Depends(get_db),

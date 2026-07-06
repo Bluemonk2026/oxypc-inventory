@@ -418,6 +418,16 @@ async def startup_event():
     except Exception as _se:
         print(f"  [SidebarConfig] Could not load label cache: {_se}")
 
+    # ── Warm Landing Pages custom page-title cache from DB ────────────────────
+    try:
+        from routers.landing_pages import load_page_titles_to_cache
+        from database import AsyncSessionLocal as _ASL4
+        async with _ASL4() as _sess4:
+            await load_page_titles_to_cache(_sess4)
+        print("  [LandingPages] Custom page-title cache loaded")
+    except Exception as _lpe:
+        print(f"  [LandingPages] Could not load page-title cache: {_lpe}")
+
     # ── Warm Master Data dropdown-options cache from DB ───────────────────────
     try:
         from utils.master_data import refresh_master_cache

@@ -52,16 +52,39 @@ templates.env.filters["ist_datetime"] = ist_datetime  # {{ dt | ist_datetime }}
 #   any_perm(role, *modules)        → True if ANY listed module is enabled
 #                                      (used to show a nav SECTION header only when
 #                                       at least one of its modules is visible).
-from models.role_permissions import has_perm as _has_perm, get_cached_sidebar_label as _sidebar_label
+from models.role_permissions import (
+    has_perm as _has_perm,
+    get_cached_sidebar_label as _sidebar_label,
+    get_cached_page_title as _get_cached_page_title,
+)
 
 
 def _any_perm(role, *modules):
     return any(_has_perm(role, m, "enable") for m in modules)
 
 
+def _resolve_page_title(path: str):
+    """Admin-customised page title (Landing Pages tool) for the given request
+    path, matched against NAV_PAGE_TITLES by longest url prefix. Returns None
+    if no custom title is set, so callers fall back to the template's own
+    {% block page_title %} default."""
+    from routers.landing_pages import NAV_PAGE_TITLES  # deferred: avoids a
+    # circular import, since routers/landing_pages.py imports `templates` from
+    # this module at its own top level.
+    best_key, best_len = None, -1
+    for module_key, _nav_label, _default_title, url in NAV_PAGE_TITLES:
+        if path == url or (url != "/" and path.startswith(url)):
+            if len(url) > best_len:
+                best_key, best_len = module_key, len(url)
+    if best_key is None:
+        return None
+    return _get_cached_page_title(best_key)
+
+
 templates.env.globals["has_perm"] = _has_perm
 templates.env.globals["any_perm"] = _any_perm
 templates.env.globals["sidebar_label"] = _sidebar_label
+templates.env.globals["resolve_page_title"] = _resolve_page_title
 
 _ROLE_DISPLAY = {
     "admin": "Admin",

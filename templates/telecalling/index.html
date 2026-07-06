@@ -148,7 +148,7 @@
             <thead class="table-light">
               <tr>
                 <th>Dealer</th><th>Phone</th><th>Last Call</th>
-                <th>Outcome</th><th>Items Discussed</th><th>Action</th>
+                <th>Outcome</th><th>Items Discussed</th><th>User</th><th>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -175,6 +175,7 @@
                   </span>
                 </td>
                 <td>{{ (rec.items_discussed or '—')[:50] }}</td>
+                <td>{{ rec.called_by }}</td>
                 <td>
                   <a href="/dealers/{{ rec.dealer_id }}/call" class="btn btn-sm btn-success">
                     Call Now

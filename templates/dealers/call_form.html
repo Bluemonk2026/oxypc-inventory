@@ -89,14 +89,18 @@
                      value="{{ edit_call.qty if edit_call and edit_call.qty is not none else '' }}">
             </div>
             <div class="col-md-3">
-              <label class="form-label fw-semibold">Purchase Quantity</label>
-              <input type="number" name="purchase_quantity" class="form-control" min="0"
-                     value="{{ edit_call.purchase_quantity if edit_call and edit_call.purchase_quantity is not none else '' }}">
+              <label class="form-label fw-semibold">Monthly Quantity</label>
+              <input type="number" name="monthly_quantity" class="form-control" min="0"
+                     value="{{ edit_call.monthly_quantity if edit_call and edit_call.monthly_quantity is not none else '' }}">
             </div>
             <div class="col-md-3">
-              <label class="form-label fw-semibold">Selling Quantity</label>
-              <input type="number" name="sale_quantity" class="form-control" min="0"
-                     value="{{ edit_call.sale_quantity if edit_call and edit_call.sale_quantity is not none else '' }}">
+              <label class="form-label fw-semibold">Ready / Lot</label>
+              <select name="stock_type" class="form-select">
+                <option value="">Select...</option>
+                {% for val in tc_options.stock_type %}
+                <option value="{{ val }}" {% if edit_call and edit_call.stock_type == val %}selected{% endif %}>{{ val | title }}</option>
+                {% endfor %}
+              </select>
             </div>
             <div class="col-md-3">
               <label class="form-label fw-semibold">Deals In Indian/Imported</label>

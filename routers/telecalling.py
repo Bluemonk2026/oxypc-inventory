@@ -47,7 +47,9 @@ async def index(
         )
         .order_by(DealerCall.next_followup_date)
     )
-    if current_user.role in (UserRole.sales, UserRole.telecaller):
+    if current_user.role == UserRole.telecaller:
+        # Sourcing Sales (UserRole.sales) sees every user's follow-ups, same
+        # as admin/sales_manager — only Telecaller stays scoped to their own.
         fu_stmt = fu_stmt.where(DealerCall.called_by == current_user.username)
     followups_due = (await db.execute(fu_stmt)).scalars().all()
 
@@ -64,7 +66,7 @@ async def index(
 
     if assigned:
         recent_filters.append(DealerCall.called_by == assigned)
-    elif current_user.role not in (UserRole.admin, UserRole.sales_manager):
+    elif current_user.role not in (UserRole.admin, UserRole.sales_manager, UserRole.sales):
         recent_filters.append(DealerCall.called_by == current_user.username)
 
     if outcome:
@@ -145,7 +147,7 @@ async def index(
 
     # ── Sales users list for admin/manager agent-filter dropdown ─────────────
     sales_users: list = []
-    if current_user.role in (UserRole.admin, UserRole.sales_manager):
+    if current_user.role in (UserRole.admin, UserRole.sales_manager, UserRole.sales):
         su_result = await db.execute(
             select(User).where(
                 User.role.in_([UserRole.sales, UserRole.sales_manager, UserRole.telecaller]),
@@ -203,7 +205,7 @@ async def export_calls_csv(
 
     if assigned:
         recent_filters.append(DealerCall.called_by == assigned)
-    elif current_user.role not in (UserRole.admin, UserRole.sales_manager):
+    elif current_user.role not in (UserRole.admin, UserRole.sales_manager, UserRole.sales):
         recent_filters.append(DealerCall.called_by == current_user.username)
 
     if outcome:

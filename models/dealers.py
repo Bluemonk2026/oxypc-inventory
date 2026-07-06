@@ -90,6 +90,7 @@ class DealerCall(Base):
     sale_quantity    = Column(Integer, nullable=True)
     deals_in         = Column(String(20), nullable=True)   # indian, imported
     stock_type       = Column(String(20), nullable=True)   # ready, lot
+    monthly_quantity = Column(Integer, nullable=True)       # Monthly Quantity (recurring order size)
     assigned_to      = Column(String(50), nullable=True)   # per-deal assignee (may differ from called_by)
 
     dealer = relationship("Dealer", back_populates="calls")

@@ -150,7 +150,9 @@ async def list_dealers(
         base_query = base_query.where(Dealer.status == status)
     if assigned:
         base_query = base_query.where(Dealer.assigned_to == assigned)
-    elif current_user.role in (UserRole.sales, UserRole.telecaller):
+    elif current_user.role == UserRole.telecaller:
+        # Sourcing Sales (UserRole.sales) sees every user's dealers, same as
+        # admin/sales_manager — only Telecaller stays scoped to their own.
         base_query = base_query.where(Dealer.assigned_to == current_user.username)
     if city:
         base_query = base_query.where(Dealer.city.ilike(f"%{city}%"))
@@ -245,6 +247,16 @@ async def list_dealers(
 
     dealer_ids = [d.id for d in dealers]
 
+    # Username -> full name, for the "Assigned" column (built regardless of
+    # viewer role — display-only, not a permission surface).
+    assignee_usernames = {d.assigned_to for d in dealers if d.assigned_to}
+    assignee_name_map: dict = {}
+    if assignee_usernames:
+        au_result = await db.execute(
+            select(User.username, User.full_name).where(User.username.in_(assignee_usernames))
+        )
+        assignee_name_map = {row.username: row.full_name for row in au_result.all()}
+
     # Most recent call outcome + items per dealer (for pills) using window function
     recent_call_map: dict = {}
     if dealer_ids:
@@ -310,8 +322,8 @@ async def list_dealers(
     outcome_stats: dict = {(row.call_outcome or ""): row.cnt for row in outcome_rows}
 
     # ── Follow-up counts — scoped to the logged-in user's own dealers unless
-    # admin (admin sees the count across all dealers, ignoring assignment) ───
-    if current_user.role == UserRole.admin:
+    # admin/Sourcing Sales (see the count across all dealers, ignoring assignment) ───
+    if current_user.role in (UserRole.admin, UserRole.sales):
         followup_scope_ids = select(Dealer.id)
     else:
         followup_scope_ids = select(Dealer.id).where(Dealer.assigned_to == current_user.username)
@@ -343,9 +355,9 @@ async def list_dealers(
     today_followup_count = int(today_fu_result.scalar() or 0)
     # ──────────────────────────────────────────────────────────────────────────
 
-    # Sales users list for admin user-filter dropdown
+    # Sales users list for admin/Sourcing Sales user-filter dropdown
     sales_users: list = []
-    if current_user.role == UserRole.admin:
+    if current_user.role in (UserRole.admin, UserRole.sales):
         su_result = await db.execute(
             select(User).where(
                 User.role.in_([UserRole.sales, UserRole.sales_manager, UserRole.telecaller]),
@@ -392,6 +404,7 @@ async def list_dealers(
         "recent_call_map": recent_call_map,
         "outcome_stats": outcome_stats,
         "sales_users": sales_users,
+        "assignee_name_map": assignee_name_map,
         "per_page": PER_PAGE,
         "today": today,
         "whom_to_sell_options": tc_options["whom_to_sell"],
@@ -436,7 +449,7 @@ async def followups_due(
     )
     if today_only:
         stmt = stmt.where(func.date(DealerCall.next_followup_date) == today)
-    if current_user.role not in (UserRole.admin,):
+    if current_user.role not in (UserRole.admin, UserRole.sales):
         stmt = stmt.where(Dealer.assigned_to == current_user.username)
     rows = (await db.execute(stmt)).all()
     return templates.TemplateResponse("dealers/followups.html", {
@@ -1453,12 +1466,11 @@ async def log_call(
     product_model: str = Form(default=None),
     configuration: str = Form(default=None),
     qty: str = Form(default=None),
-    purchase_quantity: str = Form(default=None),
+    monthly_quantity: str = Form(default=None),
     asking_price: str = Form(default=None),
     deal_status: str = Form(default=None),
     requirements_preferred_config: str = Form(default=None),
     whom_to_sell: str = Form(default=None),
-    sale_quantity: str = Form(default=None),
     deals_in: str = Form(default=None),
     stock_type: str = Form(default=None),
     assigned_to: str = Form(default=None),
@@ -1470,9 +1482,8 @@ async def log_call(
     _duration = int(duration_mins) if duration_mins and duration_mins.strip() else None
     _quote = float(quote_given) if quote_given and quote_given.strip() else None
     _qty = int(qty) if qty and qty.strip().isdigit() else None
-    _purchase_qty = int(purchase_quantity) if purchase_quantity and purchase_quantity.strip().isdigit() else None
+    _monthly_qty = int(monthly_quantity) if monthly_quantity and monthly_quantity.strip().isdigit() else None
     _asking_price = float(asking_price) if asking_price and asking_price.strip() else None
-    _sale_qty = int(sale_quantity) if sale_quantity and sale_quantity.strip().isdigit() else None
 
     call = DealerCall(
         dealer_id=dealer_id,
@@ -1491,12 +1502,11 @@ async def log_call(
         product_model=(product_model or "").strip() or None,
         configuration=(configuration or "").strip() or None,
         qty=_qty,
-        purchase_quantity=_purchase_qty,
+        monthly_quantity=_monthly_qty,
         asking_price=_asking_price,
         deal_status=(deal_status or "").strip() or None,
         requirements_preferred_config=(requirements_preferred_config or "").strip() or None,
         whom_to_sell=(whom_to_sell or "").strip() or None,
-        sale_quantity=_sale_qty,
         deals_in=(deals_in or "").strip() or None,
         stock_type=(stock_type or "").strip() or None,
         assigned_to=(assigned_to or "").strip() or None,
@@ -1570,12 +1580,11 @@ async def update_call(
     product_model: str = Form(default=None),
     configuration: str = Form(default=None),
     qty: str = Form(default=None),
-    purchase_quantity: str = Form(default=None),
+    monthly_quantity: str = Form(default=None),
     asking_price: str = Form(default=None),
     deal_status: str = Form(default=None),
     requirements_preferred_config: str = Form(default=None),
     whom_to_sell: str = Form(default=None),
-    sale_quantity: str = Form(default=None),
     deals_in: str = Form(default=None),
     stock_type: str = Form(default=None),
     assigned_to: str = Form(default=None),
@@ -1613,12 +1622,15 @@ async def update_call(
     call.product_model = (product_model or "").strip() or None
     call.configuration = (configuration or "").strip() or None
     call.qty = int(qty) if qty and qty.strip().isdigit() else None
-    call.purchase_quantity = int(purchase_quantity) if purchase_quantity and purchase_quantity.strip().isdigit() else None
+    # purchase_quantity / sale_quantity are no longer collected on this form
+    # (removed per the Dealer Call Log field revision) — deliberately left
+    # untouched here so historical values captured via the old form (or the
+    # Dealer Management quick-edit modal) are not silently wiped on save.
+    call.monthly_quantity = int(monthly_quantity) if monthly_quantity and monthly_quantity.strip().isdigit() else None
     call.asking_price = float(asking_price) if asking_price and asking_price.strip() else None
     call.deal_status = (deal_status or "").strip() or None
     call.requirements_preferred_config = (requirements_preferred_config or "").strip() or None
     call.whom_to_sell = (whom_to_sell or "").strip() or None
-    call.sale_quantity = int(sale_quantity) if sale_quantity and sale_quantity.strip().isdigit() else None
     call.deals_in = (deals_in or "").strip() or None
     call.stock_type = (stock_type or "").strip() or None
     call.assigned_to = (assigned_to or "").strip() or None

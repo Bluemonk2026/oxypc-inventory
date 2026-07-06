@@ -213,6 +213,7 @@
             <th>Indian/Imported</th>
             <th>Whom to Sale</th>
             <th>Next Followup</th>
+            <th>Assigned</th>
             <th>Action</th>
           </tr>
         </thead>
@@ -253,6 +254,7 @@
             'call_type': rc.get('call_type', ''),
             'next_followup_date': rc.get('next_followup_date').strftime('%Y-%m-%d') if rc.get('next_followup_date') else '',
             'outcome': rc.get('outcome', ''),
+            'assigned_to': d.assigned_to or '',
           } %}
           <tr>
             <td><code>{{ d.dealer_code }}</code></td>
@@ -288,6 +290,10 @@
               <span class="text-muted">—</span>
               {% endif %}
             </td>
+            <td class="small">
+              {% if d.assigned_to %}{{ assignee_name_map.get(d.assigned_to, d.assigned_to) }}
+              {% else %}<span class="text-muted">Unassigned</span>{% endif %}
+            </td>
             <td>
               <div class="btn-group btn-group-sm">
                 <button type="button" class="btn btn-outline-primary" title="View" onclick='openDealerViewModal({{ row_data | tojson }})'>
@@ -310,7 +316,7 @@
           </tr>
           {% else %}
           <tr>
-            <td colspan="19" class="text-center text-muted py-4">
+            <td colspan="20" class="text-center text-muted py-4">
               No dealers found. <a href="#" onclick="openDealerAddModal(); return false;">Add your first dealer</a>
             </td>
           </tr>

@@ -50,3 +50,6 @@ already proven to catch real bugs in this codebase:
 | `regression-sweep` | Before reporting a batch done if it touched `base.html`, a Jinja global, or a shared macro — full 159-template parse + `_scan_routes.py` (baseline: exactly 9 flagged routes) |
 | `bulk-csv-import` | Any CSV import of devices/dealers/inventory — always ask local-vs-production, verify encoding fallback, report exact skip counts |
 | `commit-deploy-gate` | Before any `git commit`/`push`/server restart — a prior "yes" never carries forward to a new batch |
+| `custom-role-permissions` | Any button/section gated on `current_user.role` — use `role_allowed()` global, never hardcode a role list (custom roles like `trc_manager` will silently fail) |
+| `ajax-partial-refresh` | User asks that a page "not fully reload" after a form submit — AJAX + DOMParser swap pattern, with rebind-handlers discipline |
+| `server-side-financial-snapshot` | Any priced-document feature (quotations, invoices) — server-side Decimal totals, snapshot referenced records as columns, reuse `AppSetting` for settings |

@@ -162,17 +162,29 @@ try{
   if($bigDisks.Count -gt 0){
     # Prefer real SMART/NVMe wear-level data (Wear = % of rated life used) so
     # Storage Health % reflects actual drive wear, not just a healthy/unhealthy flag.
+    # Get-StorageReliabilityCounter commonly requires elevation — on a standard
+    # (non-admin) user session it throws "Access to a CIM resource was not
+    # available", caught below, falling through to the status-based check.
+    # Some drivers also misreport Wear=100 as an "unsupported" sentinel rather
+    # than $null when the counter genuinely isn't tracked, which would read as
+    # a fully-worn (0% health) drive — reject exactly 100 as unreliable too.
     $wears=@()
     foreach($d in $bigDisks){
-      try{$rc=$d|Get-StorageReliabilityCounter -EA SilentlyContinue;if($rc -and $rc.Wear -ne $null -and $rc.Wear -ge 0){$wears+=(100-[double]$rc.Wear)}}catch{}
+      try{$rc=$d|Get-StorageReliabilityCounter -EA SilentlyContinue;if($rc -and $rc.Wear -ne $null -and $rc.Wear -ge 0 -and $rc.Wear -lt 100){$wears+=(100-[double]$rc.Wear)}}catch{}
     }
     if($wears.Count -gt 0){
       $storage_health=[math]::Round(($wears|Measure-Object -Average).Average)
     } else {
-      # Fallback: fraction of disks reporting a Healthy operational status.
-      $disksHealth=@($bigDisks|Select-Object HealthStatus,MediaType,OperationalStatus)
-      $h2=$disksHealth|Where-Object{$_.HealthStatus -eq 'Healthy'}
-      $storage_health=[math]::Round(($h2.Count/$disksHealth.Count)*100)
+      # Fallback: fraction of disks reporting Healthy/OK status. Never collapse
+      # to a bare 0 when the signal is inconclusive (e.g. HealthStatus reports
+      # something other than the exact string 'Healthy' even though the disk
+      # is fine per OperationalStatus) — leave blank rather than falsely
+      # implying a dead drive.
+      $disksHealth=@($bigDisks|Select-Object HealthStatus,OperationalStatus)
+      $okCount=($disksHealth|Where-Object{$_.HealthStatus -eq 'Healthy' -or $_.OperationalStatus -eq 'OK'}).Count
+      if($okCount -eq $disksHealth.Count){$storage_health=100}
+      elseif($okCount -gt 0){$storage_health=[math]::Round(($okCount/$disksHealth.Count)*100)}
+      # else: leave $storage_health as $null (inconclusive) instead of 0
     }
   }
 }catch{}

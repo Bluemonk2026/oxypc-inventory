@@ -88,14 +88,37 @@ def _new_part_id() -> str:
 
 @router.get("", response_class=HTMLResponse)
 async def grn_list(request: Request, db: AsyncSession = Depends(get_db),
-                   current_user: User = Depends(allowed)):
+                   current_user: User = Depends(allowed),
+                   error: str = "", success: str = ""):
     result = await db.execute(
-        select(PartsGRN).order_by(PartsGRN.created_at.desc()).limit(200)
+        select(PartsGRN).where(PartsGRN.is_trashed == False)
+        .order_by(PartsGRN.created_at.desc()).limit(200)
     )
     grns = result.scalars().all()
     return templates.TemplateResponse("spare_parts/parts_grn_list.html", {
         "request": request, "current_user": current_user, "grns": grns,
+        "error": error, "success": success,
     })
+
+
+@router.post("/{grn_id}/delete")
+async def grn_delete(grn_id: str, request: Request,
+                     db: AsyncSession = Depends(get_db),
+                     current_user: User = Depends(allowed)):
+    import uuid as _uuid
+    try:
+        gid = _uuid.UUID(grn_id)
+    except ValueError:
+        raise HTTPException(404, "GRN not found")
+    grn = (await db.execute(select(PartsGRN).where(PartsGRN.id == gid))).scalar_one_or_none()
+    if not grn:
+        raise HTTPException(404, "GRN not found")
+    grn.is_trashed = True
+    grn.trashed_at = app_now()
+    await audit(db, action="PARTS_GRN_DELETE", user=current_user,
+                table_name="parts_grn", record_id=str(grn.id))
+    await db.commit()
+    return RedirectResponse(url="/parts-grn?success=GRN+deleted", status_code=302)
 
 
 @router.get("/new", response_class=HTMLResponse)
@@ -205,19 +228,32 @@ async def grn_create(
 
         # Mirror into Part Master so GRN line items appear on the Parts Dashboard
         # (Added As "New"), matching the existing Harvest-part mirror below.
+        # Upsert by part_code (rather than a blind insert) so a code collision
+        # never raises a UNIQUE-constraint error that would abort the whole
+        # GRN transaction — instead it just restocks the existing part.
         sp_qty = _i(item.get("physical_qty")) or _i(item.get("invoice_qty")) or 0
         sp_price = _d(item.get("price"))
-        db.add(SparePart(
-            part_code=part_id,
-            name=_f(item.get("part_name")) or _f(item.get("item_name")) or _f(item.get("product_description")) or "GRN Part",
-            category=_f(item.get("category")) or "Other",
-            unit_price=float(sp_price) if sp_price is not None else 0.0,
-            qty_in_stock=sp_qty,
-            min_stock_alert=5,
-            supplier=_f(item.get("vendor_name")) or grn.vendor_name,
-            notes=_f(item.get("product_description")),
-            source="new",
-        ))
+        existing_part = (await db.execute(
+            select(SparePart).where(SparePart.part_code == part_id)
+        )).scalar_one_or_none()
+        if existing_part:
+            existing_part.qty_in_stock = int(existing_part.qty_in_stock or 0) + sp_qty
+            if sp_price is not None:
+                existing_part.unit_price = float(sp_price)
+            existing_part.is_trashed = False
+            existing_part.trashed_at = None
+        else:
+            db.add(SparePart(
+                part_code=part_id,
+                name=_f(item.get("part_name")) or _f(item.get("item_name")) or _f(item.get("product_description")) or "GRN Part",
+                category=_f(item.get("category")) or "Other",
+                unit_price=float(sp_price) if sp_price is not None else 0.0,
+                qty_in_stock=sp_qty,
+                min_stock_alert=5,
+                supplier=_f(item.get("vendor_name")) or grn.vendor_name,
+                notes=_f(item.get("product_description")),
+                source="new",
+            ))
 
     await db.commit()
     await audit(db, action="PARTS_GRN_CREATE", user=current_user,

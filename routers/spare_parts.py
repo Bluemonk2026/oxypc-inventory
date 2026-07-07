@@ -51,7 +51,10 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     from datetime import date
 
     # Part master
-    result = await db.execute(select(SparePart).order_by(SparePart.category, SparePart.name))
+    result = await db.execute(
+        select(SparePart).where(SparePart.is_trashed == False)
+        .order_by(SparePart.category, SparePart.name)
+    )
     parts  = result.scalars().all()
 
     # "Consumed" per part — qty handed over (Part Request status="handed_over")
@@ -241,6 +244,22 @@ async def update_part(
         part.qty_in_stock = new_qty
     await db.commit()
     return RedirectResponse(url="/spare-parts?success=Part+updated", status_code=302)
+
+
+@router.post("/spare-parts/{part_id}/delete")
+async def delete_part(part_id: str, request: Request,
+                      db: AsyncSession = Depends(get_db),
+                      current_user: User = Depends(allowed)):
+    result = await db.execute(select(SparePart).where(SparePart.id == part_id))
+    part = result.scalar_one_or_none()
+    if not part:
+        raise HTTPException(404, "Part not found")
+    part.is_trashed = True
+    part.trashed_at = datetime.utcnow()
+    await audit(db, action="PART_MASTER_DELETE", user=current_user,
+                table_name="spare_parts", record_id=str(part.id))
+    await db.commit()
+    return RedirectResponse(url="/spare-parts?success=Part+deleted", status_code=302)
 
 
 @router.get("/spare-parts/purchase", response_class=HTMLResponse)

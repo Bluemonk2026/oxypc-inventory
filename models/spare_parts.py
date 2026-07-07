@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from utils.timezone import app_now
-from sqlalchemy import Column, String, DateTime, Numeric, Integer, ForeignKey, Text
+from sqlalchemy import Column, String, DateTime, Numeric, Integer, ForeignKey, Text, Boolean, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from database import Base
@@ -30,6 +30,8 @@ class SparePart(Base):
     notes = Column(Text, nullable=True)
     source = Column(String(10), nullable=True)
     created_at = Column(DateTime, default=app_now)
+    is_trashed = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    trashed_at = Column(DateTime, nullable=True)
 
     purchases = relationship("SparePartPurchase", back_populates="part", lazy="select")
     consumptions = relationship("SparePartConsumption", back_populates="part", lazy="select")

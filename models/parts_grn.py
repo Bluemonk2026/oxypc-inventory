@@ -1,6 +1,6 @@
 import uuid
 from utils.timezone import app_now
-from sqlalchemy import Column, String, DateTime, Numeric, Integer, Text, Boolean, ForeignKey
+from sqlalchemy import Column, String, DateTime, Numeric, Integer, Text, Boolean, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from database import Base
@@ -44,6 +44,8 @@ class PartsGRN(Base):
 
     created_by = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=app_now)
+    is_trashed = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    trashed_at = Column(DateTime, nullable=True)
 
     line_items = relationship("PartsGRNLineItem", back_populates="grn", lazy="select")
 

@@ -130,7 +130,6 @@ async def list_dealers(
     filter_deals_in: str = Query(default=""),
     followup_from: str = Query(default=""),
     followup_to: str = Query(default=""),
-    page: int = Query(default=1, ge=1),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_sales),
 ):
@@ -226,8 +225,6 @@ async def list_dealers(
     # Total count
     count_result = await db.execute(select(func.count()).select_from(base_query.subquery()))
     total_count = count_result.scalar() or 0
-    total_pages = max(1, math.ceil(total_count / PER_PAGE))
-    page = min(page, total_pages)
 
     # Active count
     active_q = base_query.where(Dealer.status == "active")
@@ -239,10 +236,9 @@ async def list_dealers(
 
     today = app_now().date()
 
-    # Paginated dealer rows
-    offset = (page - 1) * PER_PAGE
+    # All matching dealer rows (client-side DataTables pagination)
     dealers = (await db.execute(
-        base_query.order_by(Dealer.business_name).offset(offset).limit(PER_PAGE)
+        base_query.order_by(Dealer.business_name)
     )).scalars().all()
 
     dealer_ids = [d.id for d in dealers]
@@ -394,8 +390,6 @@ async def list_dealers(
         "filter_deals_in": filter_deals_in,
         "followup_from": followup_from,
         "followup_to": followup_to,
-        "page": page,
-        "total_pages": total_pages,
         "total_count": total_count,
         "active_count": active_count,
         "followup_count": followup_count,

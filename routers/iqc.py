@@ -332,8 +332,6 @@ async def iqc_list(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=200),
     device_type: str = Query(default=""),
 ):
     base_filters = [Device.current_stage == DeviceStage.iqc, Device.is_active.is_(True), Device.is_trashed == False]
@@ -345,22 +343,14 @@ async def iqc_list(
         .join(Lot, Device.lot_id == Lot.id)
         .where(*base_filters)
     )
-    total_result = await db.execute(select(func.count()).select_from(
-        select(Device.id).where(*base_filters).subquery()
-    ))
-    total = total_result.scalar() or 0
-    total_pages = max(1, (total + page_size - 1) // page_size)
-
-    result = await db.execute(
-        base_q.order_by(Device.created_at.desc())
-        .offset((page - 1) * page_size).limit(page_size)
-    )
+    result = await db.execute(base_q.order_by(Device.created_at.desc()))
     devices = result.all()
+    total = len(devices)
     lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
     lots = lots_result.scalars().all()
     return templates.TemplateResponse("iqc/list.html", {
         "request": request, "devices": devices, "lots": lots, "current_user": current_user,
-        "page": page, "page_size": page_size, "total": total, "total_pages": total_pages,
+        "total": total,
         "device_type": device_type, "device_type_options": await master_values(db, "device_type"),
     })
 

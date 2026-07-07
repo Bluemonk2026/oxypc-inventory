@@ -37,25 +37,15 @@ def compute_grade(total_score: int) -> str:
 
 @router.get("", response_class=HTMLResponse)
 async def qc_list(request: Request, db: AsyncSession = Depends(get_db),
-                  current_user: User = Depends(allowed),
-                  page: int = Query(default=1, ge=1),
-                  page_size: int = Query(default=50, ge=1, le=200)):
-    total_result = await db.execute(select(func.count()).select_from(
-        select(Device.id)
-        .where(Device.current_stage == DeviceStage.qc_check, Device.is_active == True)
-        .subquery()
-    ))
-    total = total_result.scalar() or 0
-    total_pages = max(1, (total + page_size - 1) // page_size)
-
+                  current_user: User = Depends(allowed)):
     result = await db.execute(
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id)
         .where(Device.current_stage == DeviceStage.qc_check, Device.is_active == True)
         .order_by(Device.updated_at.desc())
-        .offset((page - 1) * page_size).limit(page_size)
     )
     devices = result.all()
+    total = len(devices)
 
     uuid_ids = [d.id for d, _ in devices]  # UUID objects from SQLAlchemy
     location_map = {}
@@ -101,8 +91,7 @@ async def qc_list(request: Request, db: AsyncSession = Depends(get_db),
     return templates.TemplateResponse("qc/list.html", {
         "request": request, "devices": devices, "current_user": current_user,
         "location_map": location_map, "stress_map": stress_map,
-        "page": page, "page_size": page_size,
-        "total": total, "total_pages": total_pages,
+        "total": total,
     })
 
 

@@ -1057,12 +1057,10 @@ async def wa_audit_log(
     user:         str = Query(default=""),
     msg_type:     str = Query(default=""),
     status:       str = Query(default=""),
-    page:         int = Query(default=1),
     db:           AsyncSession = Depends(get_db),
     current_user: User = Depends(_admin_only),
 ):
     from sqlalchemy import or_
-    PAGE_SIZE = 50
     query = select(WhatsAppMessage)
     if q:
         like = f"%{q}%"
@@ -1078,19 +1076,11 @@ async def wa_audit_log(
     if status:
         query = query.where(WhatsAppMessage.status == status)
 
-    # Count
-    from sqlalchemy import func as sa_func
-    count_result = await db.execute(
-        select(sa_func.count()).select_from(query.subquery())
-    )
-    total = count_result.scalar() or 0
-
-    offset = (page - 1) * PAGE_SIZE
     msgs_result = await db.execute(
         query.order_by(WhatsAppMessage.created_at.desc())
-        .offset(offset).limit(PAGE_SIZE)
     )
     msgs = msgs_result.scalars().all()
+    total = len(msgs)
 
     # Distinct senders for filter
     users_result = await db.execute(
@@ -1106,9 +1096,7 @@ async def wa_audit_log(
         "user":         user,
         "msg_type":     msg_type,
         "status":       status,
-        "page":         page,
         "total":        total,
-        "pages":        (total + PAGE_SIZE - 1) // PAGE_SIZE,
         "all_users":    all_users,
     })
 

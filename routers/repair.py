@@ -50,29 +50,19 @@ def stage_allowed(stage: str):
 @router.get("/{stage}", response_class=HTMLResponse)
 async def repair_list(stage: str, request: Request,
                       db: AsyncSession = Depends(get_db),
-                      current_user: User = Depends(get_current_user),
-                      page: int = Query(default=1, ge=1),
-                      page_size: int = Query(default=50, ge=1, le=200)):
+                      current_user: User = Depends(get_current_user)):
     if stage not in STAGE_MAP:
         raise HTTPException(404)
     device_stage = STAGE_MAP[stage]
-
-    total_result = await db.execute(select(func.count()).select_from(
-        select(Device.id)
-        .where(Device.current_stage == device_stage, Device.is_active == True)
-        .subquery()
-    ))
-    total = total_result.scalar() or 0
-    total_pages = max(1, (total + page_size - 1) // page_size)
 
     result = await db.execute(
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id)
         .where(Device.current_stage == device_stage, Device.is_active == True)
         .order_by(Device.updated_at.desc())
-        .offset((page - 1) * page_size).limit(page_size)
     )
     devices = result.all()
+    total = len(devices)
     jobs_result = await db.execute(
         select(RepairJob, Device.barcode, Device.brand, Device.model)
         .join(Device, RepairJob.device_id == Device.id)
@@ -224,8 +214,7 @@ async def repair_list(stage: str, request: Request,
         "parts_requested_map": parts_requested_map,
         "bucket_map": bucket_map,
         "started_ids": {str(j.device_id) for j, *_ in open_jobs},
-        "page": page, "page_size": page_size,
-        "total": total, "total_pages": total_pages,
+        "total": total,
     })
 
 

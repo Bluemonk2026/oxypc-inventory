@@ -45,7 +45,6 @@ async def market_dashboard(
     category: str = Query(default=""),
     trade:    str = Query(default=""),   # buy / sell / ""
     active:   str = Query(default="1"),  # 1 = active only
-    page:     int = Query(default=1),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -69,15 +68,11 @@ async def market_dashboard(
     if trade in ("buy", "sell"):
         query = query.where(MarketAvailability.trade_type == trade)
 
-    count_result = await db.execute(select(sa_func.count()).select_from(query.subquery()))
-    total = count_result.scalar() or 0
-
-    offset = (page - 1) * PAGE_SIZE
     result = await db.execute(
         query.order_by(MarketAvailability.posted_date.desc())
-        .offset(offset).limit(PAGE_SIZE)
     )
     entries = result.scalars().all()
+    total = len(entries)
 
     # Summary stats
     sell_total = (await db.execute(
@@ -115,8 +110,6 @@ async def market_dashboard(
         "current_user":  current_user,
         "entries":       entries,
         "total":         total,
-        "page":          page,
-        "pages":         max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE),
         "q":             q,
         "brand":         brand,
         "category":      category,

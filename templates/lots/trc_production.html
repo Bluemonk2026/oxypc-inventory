@@ -95,14 +95,6 @@
   </div>
 </div>
 
-{% if total_pages and total_pages > 1 %}
-<nav class="mt-3"><ul class="pagination pagination-sm justify-content-center mb-0">
-  <li class="page-item {% if page <= 1 %}disabled{% endif %}"><a class="page-link" href="?page={{ page - 1 }}&page_size={{ page_size }}">&#8249; Prev</a></li>
-  <li class="page-item active"><span class="page-link">{{ page }} / {{ total_pages }}</span></li>
-  <li class="page-item {% if page >= total_pages %}disabled{% endif %}"><a class="page-link" href="?page={{ page + 1 }}&page_size={{ page_size }}">Next &#8250;</a></li>
-</ul></nav>
-{% endif %}
-
 <!-- Bucket Allocation section -->
 <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
   <h6 class="fw-bold mb-0"><i class="bi bi-box me-2"></i>Bucket Allocation</h6>
@@ -274,7 +266,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-$(document).ready(function(){ if ($('#trcTable tbody tr td').length > 1) $('#trcTable').DataTable({paging:false}); });
+$(document).ready(function(){ if ($('#trcTable tbody tr td').length > 1) $('#trcTable').DataTable({}); });
 var vm = document.getElementById('validateModal');
 if (vm) { vm.addEventListener('show.bs.modal', function(e){
   var b = e.relatedTarget;

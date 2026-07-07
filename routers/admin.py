@@ -321,16 +321,12 @@ async def login_log(request: Request, db: AsyncSession = Depends(get_db), curren
     })
 
 
-AUDIT_PER_PAGE = 50
-
-
 @router.get("/audit-log", response_class=HTMLResponse)
 async def audit_log_view(
     request: Request,
     username: str = Query(default=""),
     action: str = Query(default=""),
     table_name: str = Query(default=""),
-    page: int = Query(default=1, ge=1),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -342,17 +338,10 @@ async def audit_log_view(
     if table_name:
         q = q.where(AuditLog.table_name == table_name)
 
-    # Total count for pagination
-    count_result = await db.execute(select(func.count()).select_from(q.subquery()))
-    total_count = count_result.scalar() or 0
-    total_pages = max(1, math.ceil(total_count / AUDIT_PER_PAGE))
-    page = min(page, total_pages)
-
     logs = (await db.execute(
         q.order_by(AuditLog.timestamp.desc())
-         .offset((page - 1) * AUDIT_PER_PAGE)
-         .limit(AUDIT_PER_PAGE)
     )).scalars().all()
+    total_count = len(logs)
 
     # Distinct table names for the filter dropdown
     table_names_result = await db.execute(
@@ -364,14 +353,11 @@ async def audit_log_view(
         "request": request,
         "current_user": current_user,
         "logs": logs,
-        "page": page,
-        "total_pages": total_pages,
         "total_count": total_count,
         "username": username,
         "action": action,
         "table_name": table_name,
         "table_names": table_names,
-        "per_page": AUDIT_PER_PAGE,
     })
 
 

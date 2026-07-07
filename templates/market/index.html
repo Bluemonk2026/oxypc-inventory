@@ -84,12 +84,11 @@
     <span><i class="bi bi-table me-2"></i>{{ total }} entries
       {% if q or brand or category or trade %}<span class="text-muted ms-2">(filtered)</span>{% endif %}
     </span>
-    <span class="text-muted">Page {{ page }}/{{ pages }}</span>
   </div>
   <div class="card-body p-0">
     {% if entries %}
     <div class="table-responsive">
-      <table class="table table-hover mb-0 small align-middle">
+      <table class="table table-hover mb-0 small align-middle" id="marketEntriesTable">
         <thead class="table-light">
           <tr>
             <th>Trade</th>
@@ -164,16 +163,6 @@
         </tbody>
       </table>
     </div>
-
-    {# Pagination #}
-    {% if pages > 1 %}
-    <div class="d-flex justify-content-center gap-1 py-2 border-top">
-      {% for p in range(1, pages+1) %}
-      <a href="?q={{ q }}&brand={{ brand }}&category={{ category }}&trade={{ trade }}&active={{ active }}&page={{ p }}"
-         class="btn btn-sm {% if p == page %}btn-primary{% else %}btn-outline-secondary{% endif %}">{{ p }}</a>
-      {% endfor %}
-    </div>
-    {% endif %}
 
     {% else %}
     <div class="text-center py-5 text-muted">
@@ -393,6 +382,11 @@
 {% endblock %}
 {% block scripts %}
 <script>
+$(document).ready(function(){
+  if ($('#marketEntriesTable tbody tr td').length > 1) {
+    $('#marketEntriesTable').DataTable({ order: [], columnDefs: [{ orderable: false, targets: [9] }] });
+  }
+});
 function toggleSource(btn) {
   btn.nextElementSibling?.classList.toggle('d-none');
 }

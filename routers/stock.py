@@ -124,14 +124,10 @@ async def list_lots(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=200),
     q: str = Query(default=""),
     date_from: str = Query(default=""),
     date_to: str = Query(default=""),
 ):
-    offset = (page - 1) * page_size
-
     # Build filtered base statement — exclude trashed lots
     base_stmt = select(Lot).where(Lot.is_trashed.isnot(True))
     if q:
@@ -152,16 +148,12 @@ async def list_lots(
         except ValueError:
             pass
 
-    # Total count for pagination (filtered)
-    total_result = await db.execute(select(func.count()).select_from(base_stmt.subquery()))
-    total = total_result.scalar() or 0
-    total_pages = max(1, (total + page_size - 1) // page_size)
-
-    # Fetch the page of lots — one query
+    # Fetch all matching lots — one query (client-side DataTables pagination)
     lots_result = await db.execute(
-        base_stmt.order_by(Lot.created_at.desc()).offset(offset).limit(page_size)
+        base_stmt.order_by(Lot.created_at.desc())
     )
     lots = lots_result.scalars().all()
+    total = len(lots)
     lot_ids = [lot.id for lot in lots]
 
     # Batch-fetch device counts and sold counts — two queries instead of 2N
@@ -188,7 +180,7 @@ async def list_lots(
     ]
     return templates.TemplateResponse("lots/list.html", {
         "request": request, "lot_stats": lot_stats, "current_user": current_user,
-        "page": page, "page_size": page_size, "total": total, "total_pages": total_pages,
+        "total": total,
         "q": q, "date_from": date_from, "date_to": date_to,
     })
 
@@ -1076,20 +1068,16 @@ async def trc_production_list(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=200),
 ):
-    offset = (page - 1) * page_size
     base_stmt = (
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id)
         .where(Device.current_stage == DeviceStage.trc_production, Device.is_active == True)
     )
-    total = (await db.execute(select(func.count()).select_from(base_stmt.subquery()))).scalar() or 0
-    total_pages = max(1, (total + page_size - 1) // page_size)
     devices = (await db.execute(
-        base_stmt.order_by(Device.updated_at.desc()).offset(offset).limit(page_size)
+        base_stmt.order_by(Device.updated_at.desc())
     )).all()
+    total = len(devices)
 
     device_ids = [d.id for d, _ in devices]
     assigned_dept_map = {}
@@ -1119,7 +1107,7 @@ async def trc_production_list(
         "request": request, "devices": devices, "current_user": current_user,
         "assigned_dept_map": assigned_dept_map, "departments": STOCK_DEPARTMENTS,
         "cost_parts_map": cost_parts_map, "location_map": location_map,
-        "page": page, "page_size": page_size, "total": total, "total_pages": total_pages,
+        "total": total,
     })
 
 

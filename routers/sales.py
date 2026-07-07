@@ -433,8 +433,6 @@ async def sales_list(
     lot_id: str = Query(default=""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=200),
 ):
     from sqlalchemy import case as sa_case
 
@@ -464,38 +462,9 @@ async def sales_list(
     if lot_id:
         base_q = base_q.where(Device.lot_id == lot_id)
 
-    # ── Pagination ───────────────────────────────────────────────────────────
-    count_q = (
-        select(func.count(Sale.id))
-        .join(Device, Sale.device_id == Device.id)
-        .join(Lot, Device.lot_id == Lot.id)
-    )
-    if q:
-        like = f"%{q}%"
-        count_q = count_q.where(or_(
-            Device.barcode.ilike(like),
-            Device.brand.ilike(like),
-            Device.model.ilike(like),
-        ))
-    if sale_no:
-        count_q = count_q.where(Sale.sale_number.ilike(f"%{sale_no}%"))
-    if sold_by_filter:
-        count_q = count_q.where(Sale.sold_by == sold_by_filter)
-    if customer:
-        count_q = count_q.where(Sale.customer_name.ilike(f"%{customer}%"))
-    if grade:
-        count_q = count_q.where(Device.grade == grade)
-    if lot_id:
-        count_q = count_q.where(Device.lot_id == lot_id)
-
-    total = (await db.execute(count_q)).scalar() or 0
-    total_pages = max(1, (total + page_size - 1) // page_size)
-
-    result = await db.execute(
-        base_q.order_by(Sale.sold_at.desc())
-        .offset((page - 1) * page_size).limit(page_size)
-    )
+    result = await db.execute(base_q.order_by(Sale.sold_at.desc()))
     sales = result.all()
+    total = len(sales)
 
     # ── Registered device stats (single query) ───────────────────────────────
     dev_stats = (await db.execute(
@@ -525,10 +494,7 @@ async def sales_list(
         "sellers": sellers,
         "selected_lot": lot_id,
         "current_user": current_user,
-        "page": page,
-        "page_size": page_size,
         "total": total,
-        "total_pages": total_pages,
         # Filters
         "q": q,
         "sale_no": sale_no,

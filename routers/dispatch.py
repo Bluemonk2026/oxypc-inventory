@@ -57,6 +57,11 @@ async def dispatch_list(request: Request, db: AsyncSession = Depends(get_db),
         if r.status == "approved":
             approved_qty[str(r.device_id)] = approved_qty.get(str(r.device_id), 0) + r.qty_requested
 
+    # Lot-level requests (raised from Ready to Sale's Model Summary) get their
+    # own "Sales Request for Lot" table, separate from per-device requests.
+    device_requests = [r for r in dr if r.source != "lot"]
+    lot_requests = [r for r in dr if r.source == "lot"]
+
     sold_by = {}
     if device_ids:
         sold_rows = (await db.execute(
@@ -182,7 +187,8 @@ async def dispatch_list(request: Request, db: AsyncSession = Depends(get_db),
 
     return templates.TemplateResponse("dispatch/list.html", {
         "request": request, "current_user": current_user,
-        "buckets": buckets, "card_stats": card_stats, "requests": dr,
+        "buckets": buckets, "card_stats": card_stats, "requests": device_requests,
+        "lot_requests": lot_requests,
         "telecaller_options": telecaller_options,
         "ready_summary": ready_summary,
         "returned_within_warranty": returned_within_warranty,
@@ -192,11 +198,14 @@ async def dispatch_list(request: Request, db: AsyncSession = Depends(get_db),
 
 @router.post("/dispatch/request")
 async def create_dispatch_request(request: Request, barcode: list[str] = Form(...), qty: int = Form(1),
+                                  source: str = Form("device"), model_name: str = Form(None),
+                                  model_make: str = Form(None),
                                   db: AsyncSession = Depends(get_db),
                                   current_user: User = Depends(request_allowed)):
     barcodes = [b.strip() for b in barcode if b and b.strip()]
     if not barcodes:
         raise HTTPException(404, "Device not found")
+    _source = "lot" if source == "lot" else "device"
     raised, not_found = [], []
     for bc in barcodes:
         device = (await db.execute(select(Device).where(Device.barcode == bc))).scalar_one_or_none()
@@ -208,6 +217,7 @@ async def create_dispatch_request(request: Request, barcode: list[str] = Form(..
             telecaller_username=current_user.username, telecaller_name=current_user.full_name,
             qty_requested=max(1, qty), qty_available=device.qty or 1,
             grade=device.grade.value if device.grade else None, status="requested",
+            source=_source, model_name=(model_name or None), model_make=(model_make or None),
         ))
         raised.append(bc)
     if not raised:

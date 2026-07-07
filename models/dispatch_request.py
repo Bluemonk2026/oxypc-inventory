@@ -27,6 +27,14 @@ class TelecallerDispatchRequest(Base):
 
     status = Column(String(20), nullable=False, default="requested", index=True)  # requested | approved
 
+    # ── Lot-level requests (Model Summary "Request" button on Ready to Sale) ──
+    # source distinguishes a bulk request raised against a model group from the
+    # regular per-device Request; model_name/model_make identify the group for
+    # the TRC Dashboard's separate "Sales Request for Lot" table.
+    source = Column(String(20), nullable=False, default="device")  # device | lot
+    model_name = Column(String(150), nullable=True)
+    model_make = Column(String(100), nullable=True)
+
     created_at = Column(DateTime, default=app_now)
     approved_at = Column(DateTime, nullable=True)
     approved_by = Column(String(50), nullable=True)

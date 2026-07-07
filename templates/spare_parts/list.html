@@ -549,6 +549,10 @@
               <input type="text" name="part_model" class="form-control form-control-sm">
             </div>
             <div class="col-md-3">
+              <label class="form-label small fw-semibold">Low Stock Alert</label>
+              <input type="number" name="min_stock_alert" class="form-control form-control-sm" min="0" value="5">
+            </div>
+            <div class="col-md-3">
               <label class="form-label small fw-semibold">Physical Qty</label>
               <input type="number" name="physical_qty" id="hv_phys_qty" class="form-control form-control-sm" min="1" value="1">
             </div>
@@ -642,10 +646,8 @@ function submitHarvestPart() {
     .then(function(r) { return r.json(); })
     .then(function(j) {
       if (j.ok) {
-        bootstrap.Modal.getInstance(document.getElementById('harvestModal')).hide();
         alert('Harvest part saved. Part ID: ' + j.part_id);
-        form.reset();
-        document.getElementById('hv_inv_qty').value = '1';
+        location.reload();
       }
     })
     .catch(function() { alert('Error saving harvest part.'); });

@@ -122,6 +122,48 @@
   </div>
 </div>
 
+<!-- Sales Request for Lot (raised from Ready to Sale's Model Summary "Request" button) -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-transparent">
+    <span class="fw-semibold">
+      <i class="bi bi-collection me-2"></i>Sales Request for Lot
+      <span class="badge bg-warning text-dark ms-1">{{ lot_requests|selectattr('status','equalto','requested')|list|length }} pending</span>
+    </span>
+  </div>
+  <div class="card-body p-0">
+    <table id="lotRequestsTable" class="table table-hover mb-0 small align-middle">
+      <thead class="table-dark"><tr>
+        <th class="ps-3">Telecaller Name</th><th>Request Date</th><th>Model</th><th>Make</th>
+        <th>Tag Number</th><th>Quantity Requested</th><th>Quantity Available</th><th>Action</th>
+      </tr></thead>
+      <tbody>
+        {% for r in lot_requests %}
+        <tr>
+          <td class="ps-3">{{ r.telecaller_name or r.telecaller_username or '—' }}</td>
+          <td class="text-muted small">{{ r.created_at.strftime('%d-%m-%Y') if r.created_at else '—' }}</td>
+          <td>{{ r.model_name or '—' }}</td>
+          <td>{{ r.model_make or '—' }}</td>
+          <td><a href="/devices/{{ r.barcode }}" class="font-monospace text-decoration-none">{{ r.barcode }}</a></td>
+          <td>{{ r.qty_requested }}</td>
+          <td>{{ r.qty_available }}</td>
+          <td>
+            {% if r.status == 'approved' %}<span class="badge bg-success"><i class="bi bi-check-lg"></i> Approved</span>
+            {% elif _appr %}
+            <form method="post" action="/dispatch/{{ r.id }}/approve" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+              <button class="btn btn-sm btn-success py-0 px-2"><i class="bi bi-check-lg"></i> Approve</button>
+            </form>
+            {% else %}<span class="badge bg-warning text-dark">Requested</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted small py-3">No lot-level requests raised.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <!-- Grade tables split into two halves (1/2 + 1/2): A/B left, C/D right -->
 {% macro grade_accordion(parent_id, grades) %}
 <div class="accordion" id="{{ parent_id }}">
@@ -255,6 +297,12 @@ $(document).ready(function(){
     });
     if (filterSel) filterSel.addEventListener('change', function(){ tcDt.draw(); });
     if (searchBox) searchBox.addEventListener('input', function(){ tcDt.search(this.value).draw(); });
+  }
+
+  // ── Sales Request for Lot: 6 rows + pagination, newest-first (server order) ──
+  var $lr = $('#lotRequestsTable');
+  if ($lr.length && $lr.find('tbody tr td').length > 1){
+    $lr.DataTable({ pageLength:6, ordering:false, dom:'rtip' });
   }
 });
 </script>

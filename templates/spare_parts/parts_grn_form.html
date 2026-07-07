@@ -295,6 +295,10 @@
             <input type="text" id="li_part_model" class="form-control form-control-sm">
           </div>
           <div class="col-md-2">
+            <label class="form-label small fw-semibold">Low Stock Alert</label>
+            <input type="number" id="li_min_stock_alert" class="form-control form-control-sm" min="0" value="5">
+          </div>
+          <div class="col-md-2">
             <label class="form-label small fw-semibold">Invoice Qty</label>
             <input type="number" id="li_invoice_qty" class="form-control form-control-sm" min="0">
           </div>
@@ -379,6 +383,7 @@ function addLineItem() {
     part_name: document.getElementById('li_part_name').value,
     part_brand: document.getElementById('li_part_brand').value,
     part_model: document.getElementById('li_part_model').value,
+    min_stock_alert: document.getElementById('li_min_stock_alert').value,
     invoice_qty: document.getElementById('li_invoice_qty').value,
     physical_qty: document.getElementById('li_physical_qty').value,
     price: document.getElementById('li_price').value,
@@ -397,6 +402,7 @@ function addLineItem() {
    'li_price','li_invoice_ref','li_remarks'].forEach(function(id) {
     document.getElementById(id).value = '';
   });
+  document.getElementById('li_min_stock_alert').value = '5';
   document.getElementById('li_main_category').value = '';
   document.getElementById('li_category').value = '';
   bootstrap.Modal.getInstance(document.getElementById('addItemModal')).hide();

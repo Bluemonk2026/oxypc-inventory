@@ -74,11 +74,27 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
         g = model_summary_ready.setdefault(key, {
             "model": key[0], "make": key[1], "device_type": device.device_type or "—",
             "total_count": 0, "total_purchase_price": 0.0, "total_sale_price": 0.0,
+            "barcodes": [],
         })
         g["total_count"] += 1
         g["total_purchase_price"] += unit_cost
         g["total_sale_price"] += unit_sale
+        g["barcodes"].append(device.barcode)
     model_summary_ready = sorted(model_summary_ready.values(), key=lambda g: g["total_count"], reverse=True)
+
+    # ── Total Count Sold (item 2): historical sales count for this model/make,
+    # regardless of current stage — lets the telecaller see how well a model sells. ──
+    sold_count_by_model = {}
+    if model_summary_ready:
+        sold_rows = (await db.execute(
+            select(Device.model, Device.brand, func.count(Sale.id))
+            .join(Sale, Sale.device_id == Device.id)
+            .group_by(Device.model, Device.brand)
+        )).all()
+        for model, brand, cnt in sold_rows:
+            sold_count_by_model[(model or "Unknown Model", brand or "Unknown Make")] = cnt
+    for g in model_summary_ready:
+        g["total_sold"] = sold_count_by_model.get((g["model"], g["make"]), 0)
 
     # ── Dispatch-request state (#21): Sell enabled only after approval ───────
     device_ids = [d.id for d, *_ in devices]

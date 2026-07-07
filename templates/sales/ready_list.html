@@ -131,30 +131,80 @@
 </div>
 
 <div class="card border-0 shadow-sm mt-3">
-  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-collection me-2"></i>Model Summary for Ready to Sale</div>
+  <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-collection me-2"></i>Model Summary for Ready to Sale</span>
+    <button type="button" id="modelSumRequestBtn" class="btn btn-sm btn-outline-primary" disabled>
+      <i class="bi bi-telephone-outbound me-1"></i>Request Selected (<span id="modelSumSelCount">0</span>)
+    </button>
+  </div>
   <div class="card-body p-0">
     <table id="readyModelSummaryTable" class="table table-hover mb-0 small">
       <thead class="table-dark">
         <tr>
+          <th><input type="checkbox" id="modelSumSelectAll"></th>
           <th>Model Name</th><th>Model Make</th><th>Device Type</th>
           <th>Total Count</th><th>Total Purchase Price</th><th>Total Sale Price</th>
+          <th>Total Count Sold</th><th>Action</th>
         </tr>
       </thead>
       <tbody>
         {% for g in model_summary_ready %}
         <tr>
+          <td><input type="checkbox" class="modelSumChk" value="{{ loop.index0 }}"
+                     data-model="{{ g.model }}" data-make="{{ g.make }}"
+                     data-barcodes='{{ g.barcodes | tojson }}'></td>
           <td class="small">{{ g.model }}</td>
           <td class="small">{{ g.make }}</td>
           <td class="small">{{ g.device_type }}</td>
           <td class="small">{{ g.total_count }}</td>
           <td class="small">₹{{ "{:,.0f}".format(g.total_purchase_price) }}</td>
           <td class="small">{% if g.total_sale_price %}₹{{ "{:,.0f}".format(g.total_sale_price) }}{% else %}—{% endif %}</td>
+          <td class="small">{{ g.total_sold }}</td>
+          <td class="small">
+            <div class="d-flex gap-1">
+              <button type="button" class="btn btn-sm btn-outline-primary modelReqBtn"
+                      data-model="{{ g.model }}" data-make="{{ g.make }}"
+                      data-barcodes='{{ g.barcodes | tojson }}' data-max="{{ g.total_count }}">Request</button>
+              {% if g.barcodes %}
+              <a href="/sales/new?barcode={{ g.barcodes[0] }}" class="btn btn-sm btn-outline-success">Sell</a>
+              {% endif %}
+            </div>
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="text-center text-muted small py-3">No ready-to-sale devices.</td></tr>
+        <tr><td colspan="9" class="text-center text-muted small py-3">No ready-to-sale devices.</td></tr>
         {% endfor %}
       </tbody>
     </table>
+  </div>
+</div>
+
+<!-- Model Summary request modal: enter quantity, requests that many units from the
+     selected model(s)' ready barcodes (#Parts Dashboard batch) -->
+<div class="modal fade" id="modelReqModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" action="/dispatch/request" class="modal-content" id="modelReqForm">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="source" value="lot">
+      <input type="hidden" name="model_name" id="mr_model_name">
+      <input type="hidden" name="model_make" id="mr_model_make">
+      <input type="hidden" name="qty" value="1">
+      <div id="mr_barcodes_container"></div>
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-telephone-outbound me-2"></i>Request for Lot</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3"><span class="text-muted small">Model:</span> <strong id="mr_model_label">—</strong></div>
+        <label class="form-label fw-semibold">Quantity</label>
+        <input type="number" id="mr_qty_input" class="form-control" min="1" value="1" required>
+        <div class="form-text" id="mr_max_hint"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="bi bi-send me-1"></i>Submit Request</button>
+      </div>
+    </form>
   </div>
 </div>
 <!-- Dispatch request modal (#21) -->
@@ -250,6 +300,68 @@ document.getElementById('multiRequestBtn').addEventListener('click', function(){
     container.appendChild(inp);
   });
   document.getElementById('multiRequestForm').submit();
+});
+
+// ── Model Summary: checkboxes + per-row Request modal + Request Selected ──
+if (!$.fn.dataTable.isDataTable('#readyModelSummaryTable'))
+  $('#readyModelSummaryTable').DataTable({pageLength:12, columnDefs:[{orderable:false, targets:[0,8]}]});
+
+function selectedModelSumRows(){ return Array.from(document.querySelectorAll('.modelSumChk:checked')); }
+function updateModelSumSel(){
+  var n = selectedModelSumRows().length;
+  $('#modelSumSelCount').text(n);
+  $('#modelSumRequestBtn').prop('disabled', n === 0);
+}
+$('#readyModelSummaryTable').on('change', '.modelSumChk', updateModelSumSel);
+document.getElementById('modelSumSelectAll').addEventListener('change', function(){
+  var ck = this.checked;
+  document.querySelectorAll('.modelSumChk').forEach(function(c){ c.checked = ck; });
+  updateModelSumSel();
+});
+
+function openModelReqModal(models, makes, barcodes){
+  document.getElementById('mr_model_name').value = models.join(', ');
+  document.getElementById('mr_model_make').value = makes.join(', ');
+  document.getElementById('mr_model_label').textContent = models.join(', ') + ' (' + makes.join(', ') + ')';
+  document.getElementById('mr_qty_input').value = 1;
+  document.getElementById('mr_qty_input').max = barcodes.length;
+  document.getElementById('mr_max_hint').textContent = barcodes.length + ' unit(s) available';
+  document.getElementById('modelReqForm').dataset.barcodes = JSON.stringify(barcodes);
+  new bootstrap.Modal(document.getElementById('modelReqModal')).show();
+}
+
+document.querySelectorAll('.modelReqBtn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var bcs = JSON.parse(this.getAttribute('data-barcodes') || '[]');
+    openModelReqModal([this.getAttribute('data-model')], [this.getAttribute('data-make')], bcs);
+  });
+});
+
+document.getElementById('modelSumRequestBtn').addEventListener('click', function(){
+  var rows = selectedModelSumRows();
+  if (!rows.length) return;
+  var models = [], makes = [], barcodes = [];
+  rows.forEach(function(c){
+    models.push(c.getAttribute('data-model'));
+    makes.push(c.getAttribute('data-make'));
+    barcodes = barcodes.concat(JSON.parse(c.getAttribute('data-barcodes') || '[]'));
+  });
+  openModelReqModal(models, makes, barcodes);
+});
+
+document.getElementById('modelReqForm').addEventListener('submit', function(e){
+  e.preventDefault();
+  var form = this;
+  var qty = parseInt(document.getElementById('mr_qty_input').value, 10) || 1;
+  var barcodes = JSON.parse(form.dataset.barcodes || '[]').slice(0, qty);
+  var container = document.getElementById('mr_barcodes_container');
+  container.innerHTML = '';
+  barcodes.forEach(function(bc){
+    var inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'barcode'; inp.value = bc;
+    container.appendChild(inp);
+  });
+  form.submit();
 });
 </script>
 {% endblock %}

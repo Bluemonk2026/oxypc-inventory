@@ -236,10 +236,13 @@ async def grn_create(
         existing_part = (await db.execute(
             select(SparePart).where(SparePart.part_code == part_id)
         )).scalar_one_or_none()
+        sp_min_alert = _i(item.get("min_stock_alert"))
         if existing_part:
             existing_part.qty_in_stock = int(existing_part.qty_in_stock or 0) + sp_qty
             if sp_price is not None:
                 existing_part.unit_price = float(sp_price)
+            if sp_min_alert is not None:
+                existing_part.min_stock_alert = sp_min_alert
             existing_part.is_trashed = False
             existing_part.trashed_at = None
         else:
@@ -249,7 +252,7 @@ async def grn_create(
                 category=_f(item.get("category")) or "Other",
                 unit_price=float(sp_price) if sp_price is not None else 0.0,
                 qty_in_stock=sp_qty,
-                min_stock_alert=5,
+                min_stock_alert=sp_min_alert or 5,
                 supplier=_f(item.get("vendor_name")) or grn.vendor_name,
                 notes=_f(item.get("product_description")),
                 source="new",
@@ -302,6 +305,7 @@ async def harvest_part(
     vehicle_number: str = Form(default=""),
     invoice_ref: str = Form(default=""),
     remarks: str = Form(default=""),
+    min_stock_alert: str = Form(default="5"),
 ):
     grn_number = await _next_grn_number(db)
     grn = PartsGRN(
@@ -348,7 +352,7 @@ async def harvest_part(
         category=sp_cat,
         unit_price=float(sp_price) if sp_price is not None else 0.0,
         qty_in_stock=qty,
-        min_stock_alert=5,
+        min_stock_alert=_i(min_stock_alert) or 5,
         supplier="Internal",
         notes=_f(product_description),
         source="harvest",

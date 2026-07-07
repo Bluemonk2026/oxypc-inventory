@@ -191,22 +191,34 @@ async def dispatch_list(request: Request, db: AsyncSession = Depends(get_db),
 
 
 @router.post("/dispatch/request")
-async def create_dispatch_request(request: Request, barcode: str = Form(...), qty: int = Form(1),
+async def create_dispatch_request(request: Request, barcode: list[str] = Form(...), qty: int = Form(1),
                                   db: AsyncSession = Depends(get_db),
                                   current_user: User = Depends(request_allowed)):
-    device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
-    if not device:
+    barcodes = [b.strip() for b in barcode if b and b.strip()]
+    if not barcodes:
         raise HTTPException(404, "Device not found")
-    db.add(TelecallerDispatchRequest(
-        device_id=device.id, barcode=device.barcode,
-        telecaller_username=current_user.username, telecaller_name=current_user.full_name,
-        qty_requested=max(1, qty), qty_available=device.qty or 1,
-        grade=device.grade.value if device.grade else None, status="requested",
-    ))
+    raised, not_found = [], []
+    for bc in barcodes:
+        device = (await db.execute(select(Device).where(Device.barcode == bc))).scalar_one_or_none()
+        if not device:
+            not_found.append(bc)
+            continue
+        db.add(TelecallerDispatchRequest(
+            device_id=device.id, barcode=device.barcode,
+            telecaller_username=current_user.username, telecaller_name=current_user.full_name,
+            qty_requested=max(1, qty), qty_available=device.qty or 1,
+            grade=device.grade.value if device.grade else None, status="requested",
+        ))
+        raised.append(bc)
+    if not raised:
+        return RedirectResponse(url="/sales/ready?error=No+valid+devices+found", status_code=302)
     await audit(db, user=current_user, action="DISPATCH_REQUESTED", table_name="telecaller_dispatch_requests",
-                record_id=None, new_value={"barcode": barcode, "qty": qty}, request=request)
+                record_id=None, new_value={"barcodes": raised, "qty": qty}, request=request)
     await db.commit()
-    return RedirectResponse(url="/sales/ready?success=Dispatch+request+raised+for+" + barcode, status_code=302)
+    msg = f"Dispatch+request+raised+for+{len(raised)}+device(s)"
+    if not_found:
+        msg += f"+({len(not_found)}+not+found)"
+    return RedirectResponse(url=f"/sales/ready?success={msg}", status_code=302)
 
 
 @router.post("/dispatch/{req_id}/approve")

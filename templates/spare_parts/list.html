@@ -133,10 +133,9 @@
         <thead class="table-dark">
           <tr>
             <th><input type="checkbox" class="form-check-input sp-sa" data-tbl="partsTable"></th>
-            <th>Code</th><th>Added As</th><th>Name</th><th>Category</th>
-            <th>Unit Price</th><th>Consumed</th><th>In Stock</th><th>Min Alert</th>
-            <th>Stock Value</th><th>Supplier</th>
-            <th>Invoice</th><th>PO</th><th>E-way Bill</th>
+            <th>Code</th><th>GRN</th><th>Added As</th><th>Name</th><th>Category</th>
+            <th>Min Alert</th><th>In Stock</th><th>Consumed</th><th>Unit Price</th>
+            <th>Stock Value</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -148,6 +147,16 @@
             <td><input type="checkbox" class="form-check-input sp-cb" data-tbl="partsTable"></td>
             <td><code>{{ part.part_code }}</code></td>
             <td>
+              {% set grn = grn_by_part_code.get(part.part_code, {}) %}
+              {% if part.source == 'harvest' or grn.get('is_harvest') %}
+              <span class="badge bg-warning text-dark">Harvested</span>
+              {% elif grn.get('grn_number') %}
+              <a href="/parts-grn/{{ grn.grn_id }}" class="font-monospace small text-decoration-none">{{ grn.grn_number }}</a>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>
               {% if part.source == 'harvest' %}
               <span class="badge bg-warning text-dark">Harvest</span>
               {% else %}
@@ -156,20 +165,15 @@
             </td>
             <td class="fw-semibold">{{ part.name }}</td>
             <td><span class="badge bg-secondary">{{ part.category }}</span></td>
-            <td>&#8377;{{ "{:,.2f}".format(part.unit_price) }}</td>
-            <td>{% if consumed %}<span class="badge bg-info text-dark">{{ consumed }}</span>{% else %}0{% endif %}</td>
+            <td>{{ part.min_stock_alert }}</td>
             <td>
               <span class="badge {{ 'bg-danger' if live_stock <= part.min_stock_alert else 'bg-success' }}">
                 {{ live_stock }}
               </span>
             </td>
-            <td>{{ part.min_stock_alert }}</td>
+            <td>{% if consumed %}<span class="badge bg-info text-dark">{{ consumed }}</span>{% else %}0{% endif %}</td>
+            <td>&#8377;{{ "{:,.2f}".format(part.unit_price) }}</td>
             <td>&#8377;{{ "{:,.0f}".format(part.unit_price * live_stock) }}</td>
-            <td class="text-muted">{{ part.supplier or '—' }}</td>
-            {% set gdoc = grn_docs.get(part.id|string, {}) %}
-            <td>{% if gdoc.get('invoice_file') %}<a href="/uploads/parts_grn/{{ gdoc.invoice_file }}" target="_blank" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1"><i class="bi bi-file-earmark"></i></a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-            <td>{% if gdoc.get('po_file') %}<a href="/uploads/parts_grn/{{ gdoc.po_file }}" target="_blank" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1"><i class="bi bi-file-earmark"></i></a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-            <td>{% if gdoc.get('eway_file') %}<a href="/uploads/parts_grn/{{ gdoc.eway_file }}" target="_blank" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1"><i class="bi bi-file-earmark"></i></a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td>
               <div class="d-flex gap-1 flex-wrap">
                 <a href="/spare-parts/{{ part.id }}/edit"
@@ -602,7 +606,7 @@
 $(document).ready(function() {
   var cdNone = {orderable: false, targets: 0};
   if (!$.fn.dataTable.isDataTable('#partsTable'))
-    $('#partsTable').DataTable({ pageLength: 25, order: [[3, 'asc']], columnDefs: [cdNone], language: { emptyTable: 'No parts registered.' } });
+    $('#partsTable').DataTable({ pageLength: 25, order: [[4, 'asc']], columnDefs: [cdNone], language: { emptyTable: 'No parts registered.' } });
   if (!$.fn.dataTable.isDataTable('#purchasesTable'))
     $('#purchasesTable').DataTable({ pageLength: 25, order: [[8, 'desc']], columnDefs: [cdNone], language: { emptyTable: 'No purchases recorded.' } });
   if (!$.fn.dataTable.isDataTable('#consumptionTable'))

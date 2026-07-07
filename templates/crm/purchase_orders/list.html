@@ -18,7 +18,7 @@
   <div class="card-body p-0">
     <table class="table table-hover mb-0 small">
       <thead class="table-dark">
-        <tr><th>PO #</th><th>Supplier</th><th>Deal</th><th>Date</th><th>Delivery</th><th>Amount</th><th>Status</th><th></th></tr>
+        <tr><th>PO #</th><th>Supplier</th><th>Deal</th><th>Date</th><th>Delivery</th><th>Amount</th><th>Status</th><th>Download</th><th></th></tr>
       </thead>
       <tbody>
         {% for po in pos %}
@@ -34,12 +34,15 @@
             <span class="badge bg-{{ sc.get(po.status,'secondary') }}">{{ po.status|capitalize }}</span>
           </td>
           <td>
+            <a href="/crm/purchase-orders/{{ po.id }}/print" target="_blank" class="btn btn-sm btn-success"><i class="bi bi-download me-1"></i>Generate PO</a>
+          </td>
+          <td>
             <a href="/crm/purchase-orders/{{ po.id }}" class="btn btn-sm btn-outline-primary">View</a>
             <a href="/crm/purchase-orders/{{ po.id }}/print" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer"></i></a>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="text-center text-muted py-4">No purchase orders yet.</td></tr>
+        <tr><td colspan="9" class="text-center text-muted py-4">No purchase orders yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>

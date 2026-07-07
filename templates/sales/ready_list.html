@@ -37,11 +37,20 @@
 {% endif %}
 
 <div class="card border-0 shadow-sm">
-  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-upc-scan me-2"></i>Ready to Sale Tag Numbers</div>
+  <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-upc-scan me-2"></i>Ready to Sale Tag Numbers</span>
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+      <input type="text" id="readyScanInput" class="form-control form-control-sm" style="max-width:220px" placeholder="Scan tag or serial number">
+      <button type="button" id="multiRequestBtn" class="btn btn-sm btn-outline-primary" disabled>
+        <i class="bi bi-telephone-outbound me-1"></i>Multi-Request with selected (<span id="readySelCount">0</span>)
+      </button>
+    </div>
+  </div>
   <div class="card-body p-0">
     <table id="readyTable" class="table table-hover mb-0 small">
       <thead class="table-dark">
         <tr>
+          <th><input type="checkbox" id="readySelectAll" class="form-check-input"></th>
           <th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th>
           <th>RAM</th><th>Storage</th><th>Grade</th>
           <th title="Device-specific price if set, otherwise Lot Buying Price ÷ Lot Qty">Unit Cost</th>
@@ -62,7 +71,10 @@
           {% set unit_cost = 0 %}
           {% set cost_source = 'none' %}
         {% endif %}
-        <tr>
+        {% set _approved = approved_ids is defined and (device.id|string in approved_ids) %}
+        {% set _requested = requested_ids is defined and (device.id|string in requested_ids) %}
+        <tr data-barcode="{{ device.barcode }}" data-serial="{{ device.serial_no or '' }}">
+          <td>{% if not _approved and not _requested %}<input type="checkbox" class="form-check-input readyChk" value="{{ device.barcode }}">{% endif %}</td>
           <td class="text-nowrap"><a href="/devices/{{ device.barcode }}" class="text-decoration-none"><code class="fw-bold">{{ device.barcode }}</code></a>
             <span class="badge rounded-pill bg-secondary ms-1" title="Quantity">{{ device.qty or 1 }}</span></td>
           <td><a href="/devices?lot={{ lot_number }}" class="btn btn-sm py-0 px-2 small text-decoration-none" style="background-color:#ffffff;border:1px solid #6C757D;color:#6C757D;">{{ lot_number }}</a></td>
@@ -95,8 +107,6 @@
             {% endif %}
           </td>
           <td>
-            {% set _approved = approved_ids is defined and (device.id|string in approved_ids) %}
-            {% set _requested = requested_ids is defined and (device.id|string in requested_ids) %}
             <div class="d-flex gap-1 flex-wrap">
               {% if _approved %}
               <a href="/sales/new?barcode={{ device.barcode }}" class="btn btn-sm btn-success">Sell</a>
@@ -170,10 +180,19 @@
     </form>
   </div>
 </div>
+<!-- Multi-request hidden form: submits all selected barcodes at once -->
+<form method="post" action="/dispatch/request" id="multiRequestForm" class="d-none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+  <input type="hidden" name="qty" value="1">
+  <div id="multiRequestBarcodes"></div>
+</form>
 {% endblock %}
 {% block scripts %}
 <script>
-$(document).ready(function(){ $('#readyTable').DataTable({pageLength:25}); });
+var readyDt;
+$(document).ready(function(){
+  readyDt = $('#readyTable').DataTable({pageLength:12, columnDefs:[{orderable:false, targets:0}]});
+});
 var _dm = document.getElementById('dispatchModal');
 if (_dm) {
   _dm.addEventListener('show.bs.modal', function (e) {
@@ -183,5 +202,54 @@ if (_dm) {
     document.getElementById('dm_model').textContent = b.getAttribute('data-model') || '—';
   });
 }
+
+// ── Scan tag/serial to auto-select the matching row (across all pages) ──
+var readyScanVal = '';
+$.fn.dataTable.ext.search.push(function(settings, data, dataIndex){
+  if (settings.nTable.id !== 'readyTable' || !readyScanVal) return true;
+  var row = settings.aoData[dataIndex].nTr;
+  var bc = (row.getAttribute('data-barcode') || '').toLowerCase();
+  var sn = (row.getAttribute('data-serial') || '').toLowerCase();
+  return bc.indexOf(readyScanVal) !== -1 || sn.indexOf(readyScanVal) !== -1;
+});
+document.getElementById('readyScanInput').addEventListener('input', function(){
+  readyScanVal = this.value.trim().toLowerCase();
+  readyDt.draw();
+  if (!readyScanVal) return;
+  setTimeout(function(){
+    var row = document.querySelector('#readyTable tbody tr[data-barcode], #readyTable tbody tr[data-serial]');
+    if (row) {
+      var chk = row.querySelector('.readyChk');
+      if (chk) { chk.checked = true; updateReadySel(); }
+      row.scrollIntoView({block:'center'});
+    }
+  }, 50);
+});
+
+// ── Multi-select + Multi-Request ──
+function selectedReadyBarcodes(){ return Array.from(document.querySelectorAll('.readyChk:checked')).map(function(c){ return c.value; }); }
+function updateReadySel(){
+  var n = selectedReadyBarcodes().length;
+  $('#readySelCount').text(n);
+  $('#multiRequestBtn').prop('disabled', n === 0);
+}
+$('#readyTable').on('change', '.readyChk', updateReadySel);
+document.getElementById('readySelectAll').addEventListener('change', function(){
+  var ck = this.checked;
+  document.querySelectorAll('.readyChk').forEach(function(c){ c.checked = ck; });
+  updateReadySel();
+});
+document.getElementById('multiRequestBtn').addEventListener('click', function(){
+  var bcs = selectedReadyBarcodes();
+  if (!bcs.length) return;
+  var container = document.getElementById('multiRequestBarcodes');
+  container.innerHTML = '';
+  bcs.forEach(function(bc){
+    var inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'barcode'; inp.value = bc;
+    container.appendChild(inp);
+  });
+  document.getElementById('multiRequestForm').submit();
+});
 </script>
 {% endblock %}

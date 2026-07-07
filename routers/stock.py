@@ -850,12 +850,11 @@ async def stock_in_list(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=200),
     device_type: str = Query(default=""),
 ):
-    offset = (page - 1) * page_size
-
+    # Full dataset (no server-side page cap) so the scan/search box can match
+    # against every stock-in device, not just the current page; pagination is
+    # client-side (DataTable, 12/page) — see stock_in.html.
     stock_filters = [Device.current_stage == DeviceStage.stock_in, Device.is_active == True]
     if device_type:
         stock_filters.append(Device.device_type == device_type)
@@ -866,16 +865,9 @@ async def stock_in_list(
         .where(*stock_filters)
     )
 
-    total_result = await db.execute(
-        select(func.count()).select_from(base_stmt.subquery())
-    )
-    total = total_result.scalar() or 0
-    total_pages = max(1, (total + page_size - 1) // page_size)
-
-    result = await db.execute(
-        base_stmt.order_by(Device.updated_at.desc()).offset(offset).limit(page_size)
-    )
+    result = await db.execute(base_stmt.order_by(Device.updated_at.desc()))
     devices = result.all()
+    total = len(devices)
 
     # ── Analytics count cards (#17) ──────────────────────────────────────────
     count_rows = (await db.execute(
@@ -928,7 +920,7 @@ async def stock_in_list(
         "analytics": analytics, "assigned_dept_map": assigned_dept_map,
         "departments": STOCK_DEPARTMENTS,
         "cost_parts_map": cost_parts_map, "location_map": location_map,
-        "page": page, "page_size": page_size, "total": total, "total_pages": total_pages,
+        "total": total,
         "device_type": device_type,
         "device_type_options": ["Laptop", "Desktop", "AIO", "Workstation", "Mini PC", "Server", "Tablet"],
         "zone_options": [

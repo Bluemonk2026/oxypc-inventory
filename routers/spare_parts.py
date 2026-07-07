@@ -147,6 +147,25 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         for d in dm_r.scalars().all():
             deal_map[str(d.id)] = d
 
+    # ── GRN mapping for Part Master (#new): PartsGRNLineItem.part_id stores the
+    # SparePart.part_code (see routers/parts_grn.py _new_part_id upsert). Map
+    # each part_code to its most recent GRN line item + parent GRN number.
+    part_codes = [p.part_code for p in parts if p.part_code]
+    grn_by_part_code = {}
+    if part_codes:
+        li_rows = (await db.execute(
+            select(PartsGRNLineItem, PartsGRN.grn_number)
+            .join(PartsGRN, PartsGRNLineItem.grn_id == PartsGRN.id)
+            .where(PartsGRNLineItem.part_id.in_(part_codes))
+            .order_by(PartsGRN.date_received.desc().nullslast())
+        )).all()
+        for li, grn_number in li_rows:
+            if li.part_id not in grn_by_part_code:
+                grn_by_part_code[li.part_id] = {
+                    "grn_id": str(li.grn_id), "grn_number": grn_number,
+                    "is_harvest": li.is_harvest,
+                }
+
     return templates.TemplateResponse("spare_parts/list.html", {
         "request": request, "parts": parts, "current_user": current_user,
         "purchases": purchases, "consumptions": consumptions,
@@ -161,6 +180,7 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         "part_reqs": part_reqs, "part_stock": part_stock, "sourcing": sourcing,
         "deal_map": deal_map,
         "grn_docs": {},
+        "grn_by_part_code": grn_by_part_code,
         "harvest_categories": await master_values(db, "iqc_part_category"),
     })
 

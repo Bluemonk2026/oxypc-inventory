@@ -23,9 +23,10 @@
 <div class="page">
   <div class="header">
     <div>
-      <div class="company-name">OxyPC</div>
-      <div>Delhi, India</div>
-      <div style="font-size:11px;color:#555">GSTIN: 07XXXXX0000X1XX</div>
+      <div class="company-name">{{ company.name }}</div>
+      <div>{{ company.address }}</div>
+      <div style="font-size:11px;color:#555">GSTIN: {{ company.gstin }} | State: {{ company.state }}</div>
+      <div style="font-size:11px;color:#555">Ph: {{ company.phone }} | {{ company.email }}</div>
     </div>
     <div style="text-align:right">
       <div class="po-title">PURCHASE ORDER</div>
@@ -41,11 +42,11 @@
       <div><strong>{{ po.contact.company_name if po.contact else '—' }}</strong></div>
       {% if po.contact and po.contact.contact_person %}<div>Attn: {{ po.contact.contact_person }}</div>{% endif %}
       {% if po.contact and po.contact.phone %}<div>Ph: {{ po.contact.phone }}</div>{% endif %}
-      {% if po.contact and po.contact.gstin %}<div>GSTIN: {{ po.contact.gstin }}</div>{% endif %}
+      {% if po.supplier_gstin or (po.contact and po.contact.gstin) %}<div>GSTIN: {{ po.supplier_gstin or po.contact.gstin }}</div>{% endif %}
     </div>
     <div>
       <div class="section-title">Delivery Details</div>
-      <div><strong>Deliver To:</strong> {{ po.delivery_address or 'OxyPC, Delhi' }}</div>
+      <div><strong>Deliver To:</strong> {{ po.delivery_address or company.address }}{% if po.delivery_city or po.delivery_state or po.delivery_pincode %}, {{ [po.delivery_city, po.delivery_state, po.delivery_pincode] | select | join(' - ') }}{% endif %}</div>
       <div><strong>Expected By:</strong> {{ po.expected_delivery_date.strftime('%d %B %Y') if po.expected_delivery_date else '—' }}</div>
       <div><strong>Payment Terms:</strong> {{ po.payment_terms or '—' }}</div>
       {% if po.advance_amount %}<div><strong>Advance:</strong> ₹{{ "{:,.0f}".format(po.advance_amount) }}</div>{% endif %}
@@ -54,12 +55,15 @@
 
   <div class="section-title">Items Ordered</div>
   <table>
-    <thead><tr><th>#</th><th>Description</th><th>Qty</th><th style="text-align:right">Unit Price (₹)</th><th style="text-align:right">Total (₹)</th></tr></thead>
+    <thead><tr><th>#</th><th>Item Name</th><th>Description</th><th>PO Category</th><th>Lot No</th><th>Qty</th><th style="text-align:right">Unit Price (₹)</th><th style="text-align:right">Total (₹)</th></tr></thead>
     <tbody>
       {% for item in po.line_items %}
       <tr>
         <td>{{ loop.index }}</td>
-        <td>{{ item.description }}</td>
+        <td>{{ item.item_name or item.description or '—' }}</td>
+        <td>{{ item.description or '—' }}</td>
+        <td>{{ item.po_category or '—' }}</td>
+        <td>{{ item.lot_number or '—' }}</td>
         <td>{{ item.quantity }}</td>
         <td style="text-align:right">{{ "{:,.2f}".format(item.unit_price) }}</td>
         <td style="text-align:right">{{ "{:,.2f}".format(item.total_price) }}</td>
@@ -67,7 +71,7 @@
       {% endfor %}
     </tbody>
     <tfoot>
-      <tr class="grand-total"><td colspan="4">Grand Total</td><td style="text-align:right">&#8377; {{ "{:,.2f}".format(po.total_amount or 0) }}</td></tr>
+      <tr class="grand-total"><td colspan="7">Grand Total</td><td style="text-align:right">&#8377; {{ "{:,.2f}".format(po.total_amount or 0) }}</td></tr>
     </tfoot>
   </table>
 

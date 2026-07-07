@@ -18,6 +18,7 @@ from models.crm import (
     CRMPurchaseOrder, CRMPOLineItem, CRMContact, CRMSourcingDeal,
     GRADES,
 )
+from routers.settings import get_company_settings
 
 router = APIRouter(prefix="/crm/purchase-orders", tags=["crm-purchase-orders"], dependencies=[Depends(verify_csrf)])
 
@@ -114,7 +115,11 @@ async def create_po(
                 contact_id=form.get("contact_id") or None,
                 po_date=_d(form.get("po_date")),
                 expected_delivery_date=_d(form.get("expected_delivery_date")),
+                supplier_gstin=form.get("supplier_gstin") or None,
                 delivery_address=form.get("delivery_address") or None,
+                delivery_city=form.get("delivery_city") or None,
+                delivery_state=form.get("delivery_state") or None,
+                delivery_pincode=form.get("delivery_pincode") or None,
                 payment_terms=form.get("payment_terms") or None,
                 advance_amount=_n(form.get("advance_amount")),
                 status="draft",
@@ -124,10 +129,13 @@ async def create_po(
             db.add(po)
             await db.flush()
 
+            item_names = form.getlist("item_name[]")
             descriptions = form.getlist("description[]")
+            po_categories = form.getlist("po_category[]")
+            lot_numbers = form.getlist("lot_number[]")
             qtys = form.getlist("qty[]")
             prices = form.getlist("unit_price[]")
-            if not any(d.strip() for d in descriptions):
+            if not any(n.strip() for n in item_names):
                 return templates.TemplateResponse("crm/purchase_orders/form.html", {
                     "request": request, "current_user": current_user,
                     "po": None, "deal": None, "contacts": [],
@@ -136,16 +144,19 @@ async def create_po(
                     "error": "At least one line item is required.",
                 }, status_code=400)
             total = 0.0
-            for i, desc in enumerate(descriptions):
-                if not desc.strip():
+            for i, name in enumerate(item_names):
+                if not name.strip():
                     continue
                 qty = _i(qtys[i] if i < len(qtys) else "1")
                 up = _n(prices[i] if i < len(prices) else "0") or 0.0
                 tp = round(qty * up, 2)
                 total += tp
                 db.add(CRMPOLineItem(
-                    po_id=po.id, description=desc, quantity=qty,
-                    unit_price=up, total_price=tp, sort_order=i,
+                    po_id=po.id, item_name=name,
+                    description=(descriptions[i].strip() if i < len(descriptions) and descriptions[i].strip() else None),
+                    po_category=(po_categories[i].strip() if i < len(po_categories) and po_categories[i].strip() else None),
+                    lot_number=(lot_numbers[i].strip() if i < len(lot_numbers) and lot_numbers[i].strip() else None),
+                    quantity=qty, unit_price=up, total_price=tp, sort_order=i,
                 ))
             po.total_amount = round(total, 2)
             await db.commit()
@@ -226,6 +237,7 @@ async def print_po(
     po = r.scalar_one_or_none()
     if not po:
         return RedirectResponse(url="/crm/purchase-orders?error=Not+found", status_code=302)
+    company = await get_company_settings(db)
     return templates.TemplateResponse("crm/purchase_orders/print.html", {
-        "request": request, "current_user": current_user, "po": po,
+        "request": request, "current_user": current_user, "po": po, "company": company,
     })

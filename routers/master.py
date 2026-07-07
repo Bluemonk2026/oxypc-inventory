@@ -231,6 +231,7 @@ CATEGORIES = [
     ("supplier",            "Suppliers",                    "inventory"),
     ("data_destruction_method", "Data Destruction Methods", "inventory"),
     ("transfer_type",       "Transfers: Transfer Type",     "inventory"),
+    ("po_category",         "Purchase Orders: PO Category", "inventory"),
     ("spare_parts_ram_action", "Spare Parts: RAM Action",    "inventory"),
     ("spare_parts_ram_gb",  "Spare Parts: RAM Capacity (GB)", "inventory"),
     ("spare_parts_consume_stage", "Spare Parts: Consumption Stage", "inventory"),

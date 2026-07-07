@@ -25,12 +25,22 @@
         </div>
         <div class="col-md-6">
           <label class="form-label fw-semibold">Supplier Contact</label>
-          <select name="contact_id" class="form-select">
+          <select name="contact_id" id="supplierSelect" class="form-select">
             <option value="">— Select Supplier —</option>
             {% for c in contacts %}
-            <option value="{{ c.id }}" {% if deal and deal.contact_id == c.id %}selected{% endif %}>{{ c.company_name }} {% if c.contact_person %}({{ c.contact_person }}){% endif %}</option>
+            <option value="{{ c.id }}"
+                    data-gstin="{{ c.gstin or '' }}"
+                    data-address="{{ c.address or '' }}"
+                    data-city="{{ c.city or '' }}"
+                    data-state="{{ c.state or '' }}"
+                    data-pincode="{{ c.pincode or '' }}"
+                    {% if deal and deal.contact_id == c.id %}selected{% endif %}>{{ c.company_name }} {% if c.contact_person %}({{ c.contact_person }}){% endif %}</option>
             {% endfor %}
           </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Supplier GSTIN</label>
+          <input type="text" name="supplier_gstin" id="supplierGstin" class="form-control" placeholder="Supplier GSTIN">
         </div>
         {% if deal %}
         <div class="col-md-6">
@@ -45,7 +55,19 @@
         </div>
         <div class="col-md-6">
           <label class="form-label">Delivery Address</label>
-          <input type="text" name="delivery_address" class="form-control" placeholder="Delivery address">
+          <input type="text" name="delivery_address" id="deliveryAddress" class="form-control" placeholder="Delivery address">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">City</label>
+          <input type="text" name="delivery_city" id="deliveryCity" class="form-control" placeholder="City">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">State</label>
+          <input type="text" name="delivery_state" id="deliveryState" class="form-control" placeholder="State">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Pincode</label>
+          <input type="text" name="delivery_pincode" id="deliveryPincode" class="form-control" placeholder="Pincode">
         </div>
         <div class="col-12">
           <label class="form-label">Notes</label>
@@ -57,11 +79,30 @@
       <div class="fw-semibold mb-2 mt-3"><i class="bi bi-list-ul me-1"></i>Line Items</div>
       <table class="table table-bordered small" id="lineItemsTable">
         <thead class="table-light">
-          <tr><th>Description <span class="text-danger">*</span></th><th style="width:110px">PO Quantity</th><th style="width:130px">Unit Price (₹)</th><th style="width:130px">Total (₹)</th><th style="width:40px"></th></tr>
+          <tr>
+            <th>Item Name <span class="text-danger">*</span></th>
+            <th>Description</th>
+            <th style="width:150px">PO Category</th>
+            <th style="width:110px">Lot No</th>
+            <th style="width:100px">PO Quantity</th>
+            <th style="width:120px">Unit Price (₹)</th>
+            <th style="width:120px">Total (₹)</th>
+            <th style="width:40px"></th>
+          </tr>
         </thead>
         <tbody id="lineItemsBody">
           <tr>
-            <td><input type="text" name="description[]" class="form-control form-control-sm" placeholder="Item description" required></td>
+            <td><input type="text" name="item_name[]" class="form-control form-control-sm" placeholder="Item name" required></td>
+            <td><input type="text" name="description[]" class="form-control form-control-sm" placeholder="Description (optional)"></td>
+            <td>
+              <select name="po_category[]" class="form-select form-select-sm">
+                <option value="">— Select —</option>
+                {% for cat in master_options('po_category') %}
+                <option value="{{ cat }}">{{ cat }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td><input type="text" name="lot_number[]" class="form-control form-control-sm" placeholder="Lot No (optional)"></td>
             <td><input type="number" name="qty[]" class="form-control form-control-sm qty-input" value="1" min="1"></td>
             <td><input type="number" name="unit_price[]" class="form-control form-control-sm price-input" min="0" step="0.01" placeholder="0"></td>
             <td><input type="text" class="form-control form-control-sm line-total" readonly placeholder="0.00"></td>
@@ -70,7 +111,7 @@
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="3" class="text-end fw-semibold">Grand Total:</td>
+            <td colspan="5" class="text-end fw-semibold">Grand Total:</td>
             <td><input type="text" id="grandTotal" class="form-control form-control-sm fw-bold" readonly placeholder="0.00"></td>
             <td></td>
           </tr>
@@ -105,6 +146,7 @@ function newRow() {
     else if (i.classList.contains('line-total')) i.value = '0.00';
     else if (i.tagName === 'INPUT') i.value = '';
   });
+  tr.querySelectorAll('select').forEach(s => s.value = '');
   tr.querySelector('.remove-row').addEventListener('click', () => {
     if (document.querySelectorAll('#lineItemsBody tr').length > 1) { tr.remove(); calcGrandTotal(); }
   });
@@ -122,5 +164,15 @@ document.querySelectorAll('#lineItemsBody tr').forEach(tr => {
   });
 });
 document.getElementById('addRow').addEventListener('click', newRow);
+
+// Autofill GSTIN + delivery address/city/state/pincode from selected supplier
+document.getElementById('supplierSelect').addEventListener('change', function(){
+  const opt = this.options[this.selectedIndex];
+  document.getElementById('supplierGstin').value   = opt.getAttribute('data-gstin') || '';
+  document.getElementById('deliveryAddress').value = opt.getAttribute('data-address') || '';
+  document.getElementById('deliveryCity').value    = opt.getAttribute('data-city') || '';
+  document.getElementById('deliveryState').value   = opt.getAttribute('data-state') || '';
+  document.getElementById('deliveryPincode').value = opt.getAttribute('data-pincode') || '';
+});
 </script>
 {% endblock %}

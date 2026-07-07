@@ -108,6 +108,20 @@ def set_cached_page_title(module_key: str, title: str) -> None:
     _PAGE_TITLE_CACHE[module_key] = title
 
 
+# ── Landing Pages: per-page breadcrumb toggle (AppSetting key=f"breadcrumb_{module_key}").
+#    Structure: {module_key: bool}. Missing key => breadcrumb shown (default on,
+#    matches pre-existing behavior before this toggle existed).
+_BREADCRUMB_CACHE: dict = {}
+
+
+def get_cached_breadcrumb_enabled(module_key: str) -> bool:
+    return _BREADCRUMB_CACHE.get(module_key, True)
+
+
+def set_cached_breadcrumb_enabled(module_key: str, enabled: bool) -> None:
+    _BREADCRUMB_CACHE[module_key] = enabled
+
+
 def get_cached_additional_perms(role_name: str) -> dict:
     return _ADDITIONAL_PERM_CACHE.get(role_name, {})
 

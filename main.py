@@ -462,6 +462,16 @@ async def startup_event():
     except Exception as _lpe:
         print(f"  [LandingPages] Could not load page-title cache: {_lpe}")
 
+    # ── Warm Landing Pages breadcrumb-toggle cache from DB ────────────────────
+    try:
+        from routers.landing_pages import load_breadcrumb_settings_to_cache
+        from database import AsyncSessionLocal as _ASL6
+        async with _ASL6() as _sess6:
+            await load_breadcrumb_settings_to_cache(_sess6)
+        print("  [LandingPages] Breadcrumb toggle cache loaded")
+    except Exception as _bce:
+        print(f"  [LandingPages] Could not load breadcrumb cache: {_bce}")
+
     # ── Warm Master Data dropdown-options cache from DB ───────────────────────
     try:
         from utils.master_data import refresh_master_cache

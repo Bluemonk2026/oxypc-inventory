@@ -5,7 +5,10 @@ from sqlalchemy import select, delete
 from database import get_db
 from models.user import User, UserRole
 from models.settings import AppSetting
-from models.role_permissions import set_cached_page_title, _PAGE_TITLE_CACHE
+from models.role_permissions import (
+    set_cached_page_title, _PAGE_TITLE_CACHE,
+    set_cached_breadcrumb_enabled, _BREADCRUMB_CACHE,
+)
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from templates_config import templates
 
@@ -30,6 +33,22 @@ async def load_page_titles_to_cache(db: AsyncSession) -> None:
         module_key = r.key[len(SETTING_PREFIX):]
         if r.value:
             _PAGE_TITLE_CACHE[module_key] = r.value
+
+
+BREADCRUMB_PREFIX = "breadcrumb_"
+
+
+async def load_breadcrumb_settings_to_cache(db: AsyncSession) -> None:
+    """Populate the in-memory breadcrumb-toggle cache from AppSetting rows.
+    Called at app startup and after every toggle. Missing rows default to
+    enabled (True) via get_cached_breadcrumb_enabled()."""
+    rows = (await db.execute(
+        select(AppSetting).where(AppSetting.key.like(f"{BREADCRUMB_PREFIX}%"))
+    )).scalars().all()
+    _BREADCRUMB_CACHE.clear()
+    for r in rows:
+        module_key = r.key[len(BREADCRUMB_PREFIX):]
+        _BREADCRUMB_CACHE[module_key] = (r.value == "1")
 
 # (module_key, nav_label, default_page_title, route_url)
 NAV_PAGE_TITLES = [
@@ -116,6 +135,11 @@ async def landing_pages_list(
     )).scalars().all()
     custom_titles = {r.key[len("page_title_"):]: r.value for r in rows}
 
+    bc_rows = (await db.execute(
+        select(AppSetting).where(AppSetting.key.like(f"{BREADCRUMB_PREFIX}%"))
+    )).scalars().all()
+    breadcrumb_overrides = {r.key[len(BREADCRUMB_PREFIX):]: (r.value == "1") for r in bc_rows}
+
     modules = [
         {
             "key": mod_key,
@@ -124,6 +148,7 @@ async def landing_pages_list(
             "current_title": custom_titles.get(mod_key, default_title),
             "is_custom": mod_key in custom_titles,
             "url": url,
+            "breadcrumb_enabled": breadcrumb_overrides.get(mod_key, True),
         }
         for mod_key, nav_label, default_title, url in NAV_PAGE_TITLES
     ]
@@ -203,3 +228,41 @@ async def reset_landing_page_title(
         url=f"/admin/landing-pages/?success=Title+reset+to+default+for+{module_key}",
         status_code=302,
     )
+
+
+@router.post("/toggle-breadcrumb")
+async def toggle_breadcrumb(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(admin_only),
+):
+    """AJAX toggle: enable/disable the breadcrumb trail for one page."""
+    from fastapi.responses import JSONResponse
+
+    form = await request.form()
+    module_key = (form.get("module_key") or "").strip()
+    enabled = (form.get("enabled") or "").strip() == "1"
+
+    if not module_key:
+        return JSONResponse({"error": "module_key required"}, status_code=400)
+
+    setting_key = f"{BREADCRUMB_PREFIX}{module_key}"
+    existing = (await db.execute(
+        select(AppSetting).where(AppSetting.key == setting_key)
+    )).scalar_one_or_none()
+
+    value = "1" if enabled else "0"
+    if existing:
+        existing.value = value
+        existing.updated_by = current_user.username
+    else:
+        db.add(AppSetting(
+            key=setting_key,
+            value=value,
+            description=f"Breadcrumb enabled for {module_key}",
+            updated_by=current_user.username,
+        ))
+
+    await db.commit()
+    set_cached_breadcrumb_enabled(module_key, enabled)
+    return JSONResponse({"success": True, "module_key": module_key, "enabled": enabled})

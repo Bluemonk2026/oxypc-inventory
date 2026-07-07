@@ -87,11 +87,10 @@ def _role_allowed(role, *allowed_values):
 templates.env.globals["role_allowed"] = _role_allowed
 
 
-def _resolve_page_title(path: str):
-    """Admin-customised page title (Landing Pages tool) for the given request
-    path, matched against NAV_PAGE_TITLES by longest url prefix. Returns None
-    if no custom title is set, so callers fall back to the template's own
-    {% block page_title %} default."""
+def _resolve_module_key(path: str):
+    """Match a request path against NAV_PAGE_TITLES by longest url prefix,
+    returning the module_key (or None if no page in the nav list covers this
+    path). Shared by _resolve_page_title and _breadcrumb_enabled below."""
     from routers.landing_pages import NAV_PAGE_TITLES  # deferred: avoids a
     # circular import, since routers/landing_pages.py imports `templates` from
     # this module at its own top level.
@@ -100,13 +99,33 @@ def _resolve_page_title(path: str):
         if path == url or (url != "/" and path.startswith(url)):
             if len(url) > best_len:
                 best_key, best_len = module_key, len(url)
-    if best_key is None:
+    return best_key
+
+
+def _resolve_page_title(path: str):
+    """Admin-customised page title (Landing Pages tool) for the given request
+    path. Returns None if no custom title is set, so callers fall back to the
+    template's own {% block page_title %} default."""
+    module_key = _resolve_module_key(path)
+    if module_key is None:
         return None
-    return _get_cached_page_title(best_key)
+    return _get_cached_page_title(module_key)
+
+
+def _breadcrumb_enabled(path: str) -> bool:
+    """Whether the breadcrumb trail should render for this request path.
+    Defaults to True (shown) for any path not in NAV_PAGE_TITLES, matching
+    the auto-generated-breadcrumb behavior that existed before this toggle."""
+    from models.role_permissions import get_cached_breadcrumb_enabled
+    module_key = _resolve_module_key(path)
+    if module_key is None:
+        return True
+    return get_cached_breadcrumb_enabled(module_key)
 
 
 templates.env.globals["has_perm"] = _has_perm
 templates.env.globals["any_perm"] = _any_perm
+templates.env.globals["breadcrumb_enabled"] = _breadcrumb_enabled
 templates.env.globals["sidebar_label"] = _sidebar_label
 templates.env.globals["resolve_page_title"] = _resolve_page_title
 

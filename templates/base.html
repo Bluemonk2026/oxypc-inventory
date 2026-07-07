@@ -575,7 +575,7 @@
 
     <!-- Breadcrumb trail (auto-generated from request path) -->
     {% set path_parts = request.url.path.strip('/').split('/') | select | list %}
-    {% if path_parts %}
+    {% if path_parts and breadcrumb_enabled(request.url.path) %}
     <nav aria-label="breadcrumb">
       <ol class="breadcrumb small mb-2 px-3 text-muted">
         <li class="breadcrumb-item"><a href="/dashboard" class="text-decoration-none">Home</a></li>

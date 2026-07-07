@@ -28,8 +28,9 @@
           <table class="table table-sm table-hover mb-0">
             <thead class="table-light">
               <tr>
-                <th style="width:40%">Navigation Label</th>
-                <th style="width:40%">Page Title</th>
+                <th style="width:35%">Navigation Label</th>
+                <th style="width:30%">Page Title</th>
+                <th style="width:15%">Breadcrumb</th>
                 <th style="width:20%">Actions</th>
               </tr>
             </thead>
@@ -55,6 +56,16 @@
                          class="form-control form-control-sm d-none"
                          value="{{ m.current_title }}"
                          placeholder="Enter page title">
+                </td>
+                <td class="align-middle">
+                  <div class="form-check form-switch mb-0">
+                    <input class="form-check-input breadcrumb-toggle" type="checkbox"
+                           role="switch" id="bc-{{ m.key }}" data-module-key="{{ m.key }}"
+                           {% if m.breadcrumb_enabled %}checked{% endif %}>
+                    <label class="form-check-label small" for="bc-{{ m.key }}">
+                      <span id="bc-label-{{ m.key }}">{{ "On" if m.breadcrumb_enabled else "Off" }}</span>
+                    </label>
+                  </div>
                 </td>
                 <td class="align-middle">
                   {# View mode buttons #}
@@ -123,6 +134,38 @@ document.querySelectorAll('[id^="form-"]').forEach(function(form) {
   form.addEventListener('submit', function() {
     var key = form.id.replace('form-', '');
     document.getElementById('hidden-' + key).value = document.getElementById('title-input-' + key).value;
+  });
+});
+
+// Breadcrumb toggle switches — instant AJAX save, no page reload
+document.querySelectorAll('.breadcrumb-toggle').forEach(function (sw) {
+  sw.addEventListener('change', function () {
+    var key = this.dataset.moduleKey;
+    var enabled = this.checked;
+    var label = document.getElementById('bc-label-' + key);
+    var csrf = (document.cookie.split('; ').find(r => r.startsWith('csrf_token=')) || '').split('=')[1] || '';
+
+    var body = new URLSearchParams();
+    body.set('module_key', key);
+    body.set('enabled', enabled ? '1' : '0');
+
+    fetch('/admin/landing-pages/toggle-breadcrumb', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-CSRF-Token': csrf,
+      },
+      body: body.toString(),
+    })
+      .then(r => r.json())
+      .then(function (data) {
+        if (!data.success) throw new Error('failed');
+        if (label) label.textContent = enabled ? 'On' : 'Off';
+      })
+      .catch(function () {
+        sw.checked = !enabled; // revert on failure
+        alert('Could not update breadcrumb setting.');
+      });
   });
 });
 </script>

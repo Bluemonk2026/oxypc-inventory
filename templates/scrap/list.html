@@ -87,7 +87,7 @@
 {% block scripts %}
 <script>
 $(document).ready(function(){
-  if ($('#scrapTable tbody tr td').length > 1) $('#scrapTable').DataTable({pageLength:25, order:[]});
+  if ($('#scrapTable tbody tr td').length > 1) $('#scrapTable').DataTable({pageLength: 12, order:[]});
 });
 
 function openVerifyModal(barcode, name) {

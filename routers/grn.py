@@ -66,7 +66,7 @@ async def grn_import_list(request: Request, db: AsyncSession = Depends(get_db),
         select(GRNImport)
         .where(or_(GRNImport.source != "post_iqc", GRNImport.source.is_(None)),
                GRNImport.is_deleted == False)
-        .order_by(GRNImport.created_at.desc()).limit(500)
+        .order_by(GRNImport.created_at.desc())
     )).scalars().all()
     return templates.TemplateResponse("grn/import.html", {
         "request": request, "grns": rows, "current_user": current_user,
@@ -83,7 +83,7 @@ async def grn_post_iqc(request: Request, db: AsyncSession = Depends(get_db),
     grns = (await db.execute(
         select(GRNImport).where(GRNImport.source == "post_iqc",
                                 GRNImport.is_deleted == False)
-        .order_by(GRNImport.created_at.desc()).limit(500)
+        .order_by(GRNImport.created_at.desc())
     )).scalars().all()
     # Pending = devices currently in IQC stage whose GRN field is still empty
     pending = (await db.execute(
@@ -91,7 +91,7 @@ async def grn_post_iqc(request: Request, db: AsyncSession = Depends(get_db),
             Device.current_stage == DeviceStage.iqc,
             or_(Device.grn_number.is_(None), Device.grn_number == ""),
             Device.is_active == True, Device.is_trashed == False,
-        ).order_by(Device.created_at.desc()).limit(1000)
+        ).order_by(Device.created_at.desc())
     )).scalars().all()
     return templates.TemplateResponse("grn/post_iqc.html", {
         "request": request, "grns": grns, "pending": pending,
@@ -172,12 +172,12 @@ async def grn_records(request: Request, db: AsyncSession = Depends(get_db),
     # GRN Assigned — tag numbers that already have a GRN value
     assigned = (await db.execute(
         base.where(Device.grn_number.isnot(None), Device.grn_number != "")
-        .order_by(Device.updated_at.desc()).limit(5000)
+        .order_by(Device.updated_at.desc())
     )).all()
     # GRN Not Mapped — tag numbers whose GRN value is still empty
     not_mapped = (await db.execute(
         base.where(or_(Device.grn_number.is_(None), Device.grn_number == ""))
-        .order_by(Device.updated_at.desc()).limit(5000)
+        .order_by(Device.updated_at.desc())
     )).all()
     return templates.TemplateResponse("grn/records.html", {
         "request": request, "assigned": assigned, "not_mapped": not_mapped,

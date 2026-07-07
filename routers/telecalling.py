@@ -130,9 +130,9 @@ async def index(
         "connected":      _interested + _callback + _not_interested,
     }
 
-    # ── Recent calls table — same filters, capped at 50 rows for display ─────
-    # Note: .join() enables Dealer.* filtering (q, city).
-    # selectinload handles eager-loading for template access.
+    # ── Recent calls table — same filters, all matching rows (client-side
+    # DataTables pagination handles display). Note: .join() enables Dealer.*
+    # filtering (q, city). selectinload handles eager-loading for template access.
     recent_stmt = (
         select(DealerCall)
         .options(selectinload(DealerCall.dealer))
@@ -142,7 +142,7 @@ async def index(
     if dealer_filters:
         recent_stmt = recent_stmt.where(*dealer_filters)
 
-    recent_stmt = recent_stmt.order_by(DealerCall.call_date.desc()).limit(50)
+    recent_stmt = recent_stmt.order_by(DealerCall.call_date.desc())
     recent_calls = (await db.execute(recent_stmt)).scalars().all()
 
     # ── Sales users list for admin/manager agent-filter dropdown ─────────────

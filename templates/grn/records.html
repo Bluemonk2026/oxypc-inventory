@@ -62,8 +62,8 @@
 {% block scripts %}
 <script>
 $(document).ready(function(){
-  if ($('#assignedTable tbody tr td').length > 1) { $('#assignedTable').DataTable({pageLength:10, lengthChange:false, order:[]}); }
-  if ($('#notMappedTable tbody tr td').length > 1) { $('#notMappedTable').DataTable({pageLength:10, lengthChange:false, order:[]}); }
+  if ($('#assignedTable tbody tr td').length > 1) { $('#assignedTable').DataTable({pageLength: 12, lengthChange:false, order:[]}); }
+  if ($('#notMappedTable tbody tr td').length > 1) { $('#notMappedTable').DataTable({pageLength: 12, lengthChange:false, order:[]}); }
 });
 
 function exportGrnTable(tableId) {

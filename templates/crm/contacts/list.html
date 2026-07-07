@@ -293,7 +293,7 @@ $(document).ready(function(){
   if($('#contactsTable tbody tr').length > 5){
     // col index: 0=Type,1=Category,2=Company,3=Address,4=City,5=Phone,6=Person,7=Recent Contact Date,8=Status,9=Notes,10=Actions
     $('#contactsTable').DataTable({
-      pageLength: 25,
+      pageLength: 12,
       order: [[2, 'asc']],  // default sort by Company
       columnDefs: [{ orderable: false, targets: [10] }]
     });

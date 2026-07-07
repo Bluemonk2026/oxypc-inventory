@@ -92,7 +92,7 @@ async def grn_list(request: Request, db: AsyncSession = Depends(get_db),
                    error: str = "", success: str = ""):
     result = await db.execute(
         select(PartsGRN).where(PartsGRN.is_trashed == False)
-        .order_by(PartsGRN.created_at.desc()).limit(200)
+        .order_by(PartsGRN.created_at.desc())
     )
     grns = result.scalars().all()
     return templates.TemplateResponse("spare_parts/parts_grn_list.html", {

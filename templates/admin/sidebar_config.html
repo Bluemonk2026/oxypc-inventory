@@ -101,7 +101,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-$(document).ready(function(){ $('#sidebarConfigTable').DataTable({ pageLength: 50, order: [] }); });
+$(document).ready(function(){ $('#sidebarConfigTable').DataTable({ pageLength: 12, order: [] }); });
 
 function startEdit(key) {
   document.getElementById('label-view-' + key).classList.add('d-none');

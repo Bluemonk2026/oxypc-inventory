@@ -136,7 +136,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-$(document).ready(function(){ $('#usersTable').DataTable({pageLength:25}); });
+$(document).ready(function(){ $('#usersTable').DataTable({pageLength: 12}); });
 document.getElementById('resetModal').addEventListener('show.bs.modal', function(e) {
   const btn = e.relatedTarget;
   document.getElementById('resetForm').action = '/admin/users/' + btn.dataset.uid + '/reset-password';

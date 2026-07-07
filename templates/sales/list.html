@@ -200,7 +200,7 @@ function exportSelected() {
 // ── DataTable ───────────────────────────────────────────────────────────────
 $(document).ready(function() {
   $('#salesTable').DataTable({
-    pageLength: 25,
+    pageLength: 12,
     order: [[1, 'desc']],
     columnDefs: [
       { orderable: false, targets: [0, 13, 14] }  // checkbox, download and actions not sortable

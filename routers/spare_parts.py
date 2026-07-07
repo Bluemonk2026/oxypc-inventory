@@ -123,13 +123,13 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
 
     # ── Part requests raised by engineers (#11/#14) ──────────────────────────
     part_reqs = (await db.execute(
-        select(PartRequest).order_by(PartRequest.created_at.desc()).limit(200)
+        select(PartRequest).order_by(PartRequest.created_at.desc())
     )).scalars().all()
     part_stock = {str(p.id): int(p.qty_in_stock or 0) for p in parts}
 
     # ── Pending part-sourcing requests, mirrored read-only from CRM (#15) ────
     sourcing = (await db.execute(
-        select(PartSourcingRequest).order_by(PartSourcingRequest.created_at.desc()).limit(200)
+        select(PartSourcingRequest).order_by(PartSourcingRequest.created_at.desc())
     )).scalars().all()
 
     # map source_deal_id (UUID string) -> CRMSourcingDeal for download links + display

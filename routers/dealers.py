@@ -105,11 +105,11 @@ def _upsell_suggestions(dealer: Dealer, outstanding_live: float = 0.0) -> list:
     return suggestions
 
 
-async def _recent_quotations(db: AsyncSession, limit: int = 200) -> list:
-    """Most recent Dealer Quotations across all dealers, for the "Quotation
-    Shared" table on the Dealer Management page."""
+async def _recent_quotations(db: AsyncSession) -> list:
+    """All Dealer Quotations across all dealers, for the "Quotation Shared"
+    table on the Dealer Management page (client-side DataTables pagination)."""
     result = await db.execute(
-        select(DealerQuotation).order_by(DealerQuotation.created_at.desc()).limit(limit)
+        select(DealerQuotation).order_by(DealerQuotation.created_at.desc())
     )
     return result.scalars().all()
 

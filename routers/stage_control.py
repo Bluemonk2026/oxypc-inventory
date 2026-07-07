@@ -149,7 +149,7 @@ async def trigger_aging_refresh(
 async def audit_log_view(request: Request, db: AsyncSession = Depends(get_db),
                           current_user: User = Depends(admin_only)):
     result = await db.execute(
-        select(AuditLog).order_by(AuditLog.timestamp.desc()).limit(500)
+        select(AuditLog).order_by(AuditLog.timestamp.desc())
     )
     logs = result.scalars().all()
     return templates.TemplateResponse("stage_control/audit.html", {

@@ -100,7 +100,7 @@ async def list_transfers(
         stmt = stmt.where(StockTransfer.barcode.ilike(f"%{q}%"))
     if transfer_type:
         stmt = stmt.where(StockTransfer.transfer_type == transfer_type)
-    result = await db.execute(stmt.limit(500))
+    result = await db.execute(stmt)
     transfers = result.scalars().all()
     return templates.TemplateResponse("transfers/list.html", {
         "request": request, "transfers": transfers, "q": q,

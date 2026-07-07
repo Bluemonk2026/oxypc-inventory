@@ -122,7 +122,6 @@ async def stage_movement_report(request: Request, db: AsyncSession = Depends(get
         select(StageMovement, Device.barcode, Device.brand, Device.model)
         .join(Device, StageMovement.device_id == Device.id)
         .order_by(StageMovement.moved_at.desc())
-        .limit(500)
     )
     movements = result.all()
     return templates.TemplateResponse("reports/stage_movement.html", {
@@ -153,7 +152,6 @@ async def sales_report(request: Request, db: AsyncSession = Depends(get_db), cur
         .join(Lot, Device.lot_id == Lot.id)
         .where(Sale.sold_at >= from_dt, Sale.sold_at <= to_dt)
         .order_by(Sale.sold_at.desc())
-        .limit(1000)
     )
     sales = result.all()
     total = sum(float(s.Sale.sale_price or 0) for s in sales)
@@ -505,7 +503,6 @@ async def overdue_report(
         .join(Lot, Device.lot_id == Lot.id, isouter=True)
         .where(*filters)
         .order_by(Device.updated_at.asc())
-        .limit(500)
     )
 
     result = await db.execute(stmt)

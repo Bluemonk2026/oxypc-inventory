@@ -314,7 +314,6 @@ async def login_log(request: Request, db: AsyncSession = Depends(get_db), curren
         select(LoginLog, User.username, User.full_name)
         .join(User, LoginLog.user_id == User.id)
         .order_by(LoginLog.timestamp.desc())
-        .limit(500)
     )
     logs = result.all()
     return templates.TemplateResponse("admin/login_log.html", {

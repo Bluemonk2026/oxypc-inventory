@@ -215,7 +215,7 @@
 
 {% block scripts %}
 <script>
-$(document).ready(function(){ $('#locTable').DataTable({pageLength:50, order:[[0,'asc']]}); });
+$(document).ready(function(){ $('#locTable').DataTable({pageLength: 12, order:[[0,'asc']]}); });
 
 function openEditLocationModal(loc){
   document.getElementById('editLocationForm').action = '/locations/master/' + loc.id + '/edit';

@@ -372,13 +372,12 @@ async def link_sale_form(
     # already linked sale IDs
     existing_ids = set((opp.linked_sale_ids or "").split(",")) - {""}
 
-    # fetch recent sales (last 200), join device + lot for context
+    # fetch all sales (client-side DataTables pagination), join device + lot for context
     sale_q = (
         select(Sale, Device.barcode, Device.brand, Device.model, Device.grade, Lot.lot_number)
         .join(Device, Sale.device_id == Device.id)
         .join(Lot, Device.lot_id == Lot.id)
         .order_by(Sale.sold_at.desc())
-        .limit(200)
     )
     if q:
         like = f"%{q}%"

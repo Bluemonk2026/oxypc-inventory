@@ -367,7 +367,7 @@
 <script>
 $(document).ready(function() {
   var dt = $('#devicesTable').DataTable({
-    pageLength: 10,
+    pageLength: 12,
     order: [],
     columnDefs: [{ orderable: false, targets: [0, -1] }],
     dom: '<"d-flex justify-content-between align-items-center mb-2"lf>t<"d-flex justify-content-between"ip>',
@@ -391,7 +391,7 @@ $(document).ready(function() {
 
   // Model Based table — paginated + Model Names search box
   var dtModel = $('#modelSummaryTable').DataTable({
-    pageLength: 10,
+    pageLength: 12,
     order: [],
     columnDefs: [{ orderable: false, targets: [-1] }],
     dom: '<"d-flex justify-content-between align-items-center mb-2"lp>t<"d-flex justify-content-between"ip>',
@@ -402,7 +402,7 @@ $(document).ready(function() {
 
   // Lot Based table — paginated + search box
   var dtLot = $('#lotSummaryTable').DataTable({
-    pageLength: 10,
+    pageLength: 12,
     order: [],
     columnDefs: [{ orderable: false, targets: [-1] }],
     dom: '<"d-flex justify-content-between align-items-center mb-2"lp>t<"d-flex justify-content-between"ip>',

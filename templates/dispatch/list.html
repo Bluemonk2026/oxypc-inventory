@@ -268,7 +268,7 @@ $(document).ready(function(){
   ['A','B','C'].forEach(function(g){
     var $t = $('#gradeTable' + g);
     if ($t.length && $t.find('tbody tr').length){
-      $t.DataTable({ pageLength:6, ordering:false, searching:false,
+      $t.DataTable({ pageLength: 12, ordering:false, searching:false,
                      lengthChange:false, info:true });
     }
   });
@@ -284,7 +284,7 @@ $(document).ready(function(){
   // ── Telecaller Requests: 6 rows + pagination, newest-first (server order) ──
   var $tc = $('#tcRequestsTable');
   if ($tc.length && $tc.find('tbody tr[data-barcode]').length){
-    var tcDt = $tc.DataTable({ pageLength:6, ordering:false, dom:'rtip', searching:true });
+    var tcDt = $tc.DataTable({ pageLength: 12, ordering:false, dom:'rtip', searching:true });
     var filterSel = document.getElementById('tcFilter');
     var searchBox = document.getElementById('tcSearch');
     // filter by telecaller via the row's data-telecaller attribute (not visible text)
@@ -302,7 +302,7 @@ $(document).ready(function(){
   // ── Sales Request for Lot: 6 rows + pagination, newest-first (server order) ──
   var $lr = $('#lotRequestsTable');
   if ($lr.length && $lr.find('tbody tr td').length > 1){
-    $lr.DataTable({ pageLength:6, ordering:false, dom:'rtip' });
+    $lr.DataTable({ pageLength: 12, ordering:false, dom:'rtip' });
   }
 });
 </script>

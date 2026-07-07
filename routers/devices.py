@@ -198,7 +198,7 @@ async def device_search(
     for f in filters:
         query = query.where(f)
 
-    query = query.order_by(Device.updated_at.desc()).limit(500)
+    query = query.order_by(Device.updated_at.desc())
     result = await db.execute(query)
     devices = result.all()
 

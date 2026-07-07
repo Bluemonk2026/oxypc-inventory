@@ -253,7 +253,7 @@
 <script>
 $(document).ready(function(){
   if ($('#grnTable tbody tr td').length > 1) {
-    var dt = $('#grnTable').DataTable({pageLength:5, lengthChange:false, order:[]});
+    var dt = $('#grnTable').DataTable({pageLength: 12, lengthChange:false, order:[]});
     $.fn.dataTable.ext.search.push(function(settings, data){
       if (settings.nTable.id !== 'grnTable') return true;
       var from = document.getElementById('fFrom').value;
@@ -277,7 +277,7 @@ $(document).ready(function(){
   }
   if ($('#pendingTable tbody tr td').length > 1) {
     var dtPend = $('#pendingTable').DataTable({
-      pageLength:25, order:[],
+      pageLength: 12, order:[],
       columnDefs:[{orderable:false, targets:0}, {visible:false, targets:[8,9]}],
     });
     $.fn.dataTable.ext.search.push(function(settings, data){

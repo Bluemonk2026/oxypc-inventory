@@ -1,6 +1,0 @@
-# Adds the PostgreSQL client tools (pg_dump, psql) to the Railway build image.
-# Required by scripts/backup_db.py — Nixpacks' default Python provider does not
-# include postgresql-client, so pg_dump was missing entirely in production
-# (confirmed via audit_logs: "ERROR: pg_dump not found").
-[phases.setup]
-nixPkgs = ["postgresql"]

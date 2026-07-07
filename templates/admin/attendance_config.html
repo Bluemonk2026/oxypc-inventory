@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Attendance Config — OxyPC{% endblock %}
+{% block page_title %}Attendance Config{% endblock %}
+{% block content %}
+
+{% if success %}<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>{% endif %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h5 class="mb-0 fw-bold">Attendance Groups</h5>
+    <small class="text-muted">Group employees under a manager who can view Attendance Report scoped to their group.</small>
+  </div>
+  <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createGroupModal">
+    <i class="bi bi-plus-circle me-1"></i>New Group
+  </button>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small">
+        <thead class="table-dark">
+          <tr><th>Group Name</th><th>Manager</th><th>Members</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          {% for g in groups %}
+          {% set gmembers = member_map.get(g.id|string, []) %}
+          <tr>
+            <td class="fw-semibold">{{ g.name }}</td>
+            <td>{{ g.manager_username }}</td>
+            <td>
+              {% if gmembers %}
+              <span class="badge bg-secondary">{{ gmembers|length }} member(s)</span>
+              <span class="text-muted small">{{ gmembers|join(', ') }}</span>
+              {% else %}<span class="text-muted">No members</span>{% endif %}
+            </td>
+            <td class="text-nowrap">
+              <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
+                      data-bs-toggle="modal" data-bs-target="#editGroupModal"
+                      data-id="{{ g.id }}" data-name="{{ g.name }}" data-manager="{{ g.manager_username }}"
+                      data-members="{{ gmembers|join(',') }}">
+                <i class="bi bi-pencil"></i> Edit
+              </button>
+              <form method="post" action="/admin/attendance-config/{{ g.id }}/delete" class="d-inline"
+                    onsubmit="return confirm('Delete group {{ g.name }}?');">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2"><i class="bi bi-trash3"></i></button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="text-center text-muted py-4">No attendance groups yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Create Group Modal -->
+<div class="modal fade" id="createGroupModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form method="post" action="/admin/attendance-config/create" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header">
+        <h5 class="modal-title">New Attendance Group</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Group Name <span class="text-danger">*</span></label>
+          <input type="text" name="name" class="form-control" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Manager <span class="text-danger">*</span></label>
+          <select name="manager_username" class="form-select" required>
+            <option value="">— Select manager —</option>
+            {% for u in users %}
+            <option value="{{ u.username }}">{{ u.full_name }} ({{ u.username }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Members</label>
+          <div class="border rounded p-2" style="max-height:260px; overflow-y:auto;">
+            {% for u in users %}
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="members" value="{{ u.username }}" id="cm_{{ u.username }}">
+              <label class="form-check-label small" for="cm_{{ u.username }}">{{ u.full_name }} ({{ u.username }})</label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Group</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Group Modal -->
+<div class="modal fade" id="editGroupModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form method="post" id="editGroupForm" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Attendance Group</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Group Name <span class="text-danger">*</span></label>
+          <input type="text" name="name" id="eg_name" class="form-control" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Manager <span class="text-danger">*</span></label>
+          <select name="manager_username" id="eg_manager" class="form-select" required>
+            <option value="">— Select manager —</option>
+            {% for u in users %}
+            <option value="{{ u.username }}">{{ u.full_name }} ({{ u.username }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Members</label>
+          <div class="border rounded p-2" id="eg_members" style="max-height:260px; overflow-y:auto;">
+            {% for u in users %}
+            <div class="form-check">
+              <input class="form-check-input eg-member-chk" type="checkbox" name="members" value="{{ u.username }}" id="em_{{ u.username }}">
+              <label class="form-check-label small" for="em_{{ u.username }}">{{ u.full_name }} ({{ u.username }})</label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+var egModal = document.getElementById('editGroupModal');
+egModal.addEventListener('show.bs.modal', function (e) {
+  var b = e.relatedTarget;
+  document.getElementById('editGroupForm').action = '/admin/attendance-config/' + b.getAttribute('data-id') + '/update';
+  document.getElementById('eg_name').value = b.getAttribute('data-name') || '';
+  document.getElementById('eg_manager').value = b.getAttribute('data-manager') || '';
+  var members = (b.getAttribute('data-members') || '').split(',').filter(Boolean);
+  document.querySelectorAll('.eg-member-chk').forEach(function(chk) {
+    chk.checked = members.indexOf(chk.value) !== -1;
+  });
+});
+</script>
+{% endblock %}

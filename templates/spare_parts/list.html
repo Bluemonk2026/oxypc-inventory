@@ -107,6 +107,25 @@
         <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addPartModal">
           <i class="bi bi-plus-circle me-1"></i>Add Part
         </button>
+        <a href="/spare-parts/bulk-template" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-download me-1"></i>Download Sample
+        </a>
+        <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('bulkUploadNewInput').click()">
+          <i class="bi bi-cloud-upload me-1"></i>Upload New
+        </button>
+        <button type="button" class="btn btn-outline-warning btn-sm" onclick="document.getElementById('bulkUploadHarvestInput').click()">
+          <i class="bi bi-cloud-upload me-1"></i>Upload Harvest
+        </button>
+        <form id="bulkUploadNewForm" method="post" action="/spare-parts/bulk-upload" enctype="multipart/form-data" class="d-none">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+          <input type="hidden" name="source" value="new">
+          <input type="file" name="file" id="bulkUploadNewInput" accept=".csv" onchange="document.getElementById('bulkUploadNewForm').submit()">
+        </form>
+        <form id="bulkUploadHarvestForm" method="post" action="/spare-parts/bulk-upload" enctype="multipart/form-data" class="d-none">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+          <input type="hidden" name="source" value="harvest">
+          <input type="file" name="file" id="bulkUploadHarvestInput" accept=".csv" onchange="document.getElementById('bulkUploadHarvestForm').submit()">
+        </form>
       </div>
     </div>
     <div class="table-responsive">
@@ -514,26 +533,6 @@
               <input type="text" id="hv_lot_number" name="lot_number" class="form-control form-control-sm">
             </div>
             <div class="col-md-4">
-              <label class="form-label small fw-semibold">PO Number</label>
-              <input type="text" class="form-control form-control-sm" value="Harvest" readonly>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold">GRN Number</label>
-              <input type="text" class="form-control form-control-sm" value="Not Available" readonly>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold">Vendor Name</label>
-              <input type="text" class="form-control form-control-sm" value="Internal" readonly>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold">Invoice Number</label>
-              <input type="text" class="form-control form-control-sm" value="Internal" readonly>
-            </div>
-            <div class="col-md-12">
-              <label class="form-label small fw-semibold">Product Description</label>
-              <input type="text" name="product_description" class="form-control form-control-sm">
-            </div>
-            <div class="col-md-4">
               <label class="form-label small fw-semibold">Part Name</label>
               <input type="text" name="part_name" class="form-control form-control-sm">
             </div>
@@ -557,10 +556,6 @@
               <label class="form-label small fw-semibold">Price (₹)</label>
               <input type="number" name="price" step="0.01" min="0" class="form-control form-control-sm">
             </div>
-            <div class="col-md-3">
-              <label class="form-label small fw-semibold">Vehicle Number</label>
-              <input type="text" name="vehicle_number" class="form-control form-control-sm">
-            </div>
             <div class="col-md-4">
               <label class="form-label small fw-semibold">Main Category</label>
               <select name="main_category" class="form-select form-select-sm">
@@ -578,6 +573,10 @@
             <div class="col-md-4">
               <label class="form-label small fw-semibold">Invoice Ref</label>
               <input type="text" name="invoice_ref" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-12">
+              <label class="form-label small fw-semibold">Product Description</label>
+              <input type="text" name="product_description" class="form-control form-control-sm">
             </div>
             <div class="col-md-12">
               <label class="form-label small fw-semibold">Remarks</label>

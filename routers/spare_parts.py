@@ -1,10 +1,13 @@
 """
 Spare Parts Router — double-entry ledger + negative stock guard + audit
 """
+import csv
+import io
+import secrets
 from templates_config import templates
 from datetime import datetime
-from fastapi import APIRouter, Depends, Form, Request, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Form, File, UploadFile, Request, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -13,6 +16,7 @@ from models.user import User, UserRole
 from models.device import Device
 from models.lot import Lot
 from models.spare_parts import SparePart, SparePartPurchase, SparePartConsumption, RAMTracking
+from models.parts_grn import PartsGRN, PartsGRNLineItem
 from utils.master_data import master_values
 from models.repair import RepairJob, RepairStatus
 from models.engines import SparePartsLedger
@@ -22,6 +26,15 @@ from services.audit_engine import audit
 
 router = APIRouter(tags=["spare_parts"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.spare_parts_manager)
+
+BULK_CSV_HEADERS = ["part_name", "category", "part_brand", "part_model", "physical_qty",
+                    "price", "invoice_number", "po_number", "vendor_name", "grn_number"]
+BULK_CSV_EXAMPLE = ["DDR4 8GB RAM", "RAM", "Samsung", "M471A1K43", "10",
+                    "500", "Internal", "Internal", "Internal", "Internal"]
+
+
+def _new_bulk_part_id() -> str:
+    return f"{secrets.randbelow(90_000_000) + 10_000_000:08d}"
 
 
 async def _next_part_code(db: AsyncSession) -> str:
@@ -260,6 +273,126 @@ async def delete_part(part_id: str, request: Request,
                 table_name="spare_parts", record_id=str(part.id))
     await db.commit()
     return RedirectResponse(url="/spare-parts?success=Part+deleted", status_code=302)
+
+
+@router.get("/spare-parts/bulk-template")
+async def download_bulk_template(current_user: User = Depends(get_current_user)):
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(BULK_CSV_HEADERS)
+    writer.writerow(BULK_CSV_EXAMPLE)
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=part_master_bulk_template.csv"},
+    )
+
+
+@router.post("/spare-parts/bulk-upload")
+async def bulk_upload_parts(
+    request: Request,
+    file: UploadFile = File(...),
+    source: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Bulk-add Part Master rows from CSV via Download Sample / Upload New /
+    Upload Harvest on the Parts Dashboard. Mirrors the manual Part GRN 'Add
+    Item' flow: creates a PartsGRN header for the batch, a PartsGRNLineItem
+    per row, and upserts the row into SparePart with the given source
+    ('new' or 'harvest')."""
+    if source not in ("new", "harvest"):
+        raise HTTPException(400, "Invalid source")
+
+    content = await file.read()
+    for enc in ("utf-8-sig", "utf-16", "latin-1"):
+        try:
+            text = content.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        raise HTTPException(400, "Could not decode file")
+
+    reader = csv.DictReader(io.StringIO(text))
+    rows = list(reader)
+    if not rows:
+        return RedirectResponse(url="/spare-parts?error=No+rows+found+in+file", status_code=302)
+
+    grn_number = f"BULK-{secrets.randbelow(900_000) + 100_000}"
+    grn = PartsGRN(
+        grn_number=grn_number,
+        po_number="Internal" if source == "harvest" else None,
+        vendor_name="Internal" if source == "harvest" else None,
+        invoice_number="Internal" if source == "harvest" else None,
+        created_by=current_user.username,
+    )
+    db.add(grn)
+    await db.flush()
+
+    inserted, errors = 0, []
+    for i, row in enumerate(rows, start=2):
+        try:
+            part_name = (row.get("part_name") or "").strip()
+            if not part_name:
+                errors.append(f"Row {i}: part_name is required")
+                continue
+            part_id = _new_bulk_part_id()
+            qty = int((row.get("physical_qty") or "0").strip() or 0)
+            price_raw = (row.get("price") or "").strip()
+            price = float(price_raw) if price_raw else 0.0
+            category = (row.get("category") or "Other").strip() or "Other"
+            invoice_number = (row.get("invoice_number") or "Internal").strip() or "Internal"
+            po_number = (row.get("po_number") or "Internal").strip() or "Internal"
+            vendor_name = (row.get("vendor_name") or "Internal").strip() or "Internal"
+            row_grn_number = (row.get("grn_number") or "Internal").strip() or "Internal"
+
+            db.add(PartsGRNLineItem(
+                grn_id=grn.id,
+                part_id=part_id,
+                grn_number=row_grn_number,
+                po_number=po_number,
+                vendor_name=vendor_name,
+                invoice_number=invoice_number,
+                part_name=part_name,
+                part_brand=(row.get("part_brand") or "").strip() or None,
+                part_model=(row.get("part_model") or "").strip() or None,
+                invoice_qty=qty,
+                physical_qty=qty,
+                price=price,
+                category=category,
+                is_harvest=(source == "harvest"),
+            ))
+
+            existing_part = (await db.execute(
+                select(SparePart).where(SparePart.part_code == part_id)
+            )).scalar_one_or_none()
+            if existing_part:
+                existing_part.qty_in_stock = int(existing_part.qty_in_stock or 0) + qty
+                existing_part.unit_price = price
+                existing_part.is_trashed = False
+                existing_part.trashed_at = None
+            else:
+                db.add(SparePart(
+                    part_code=part_id, name=part_name, category=category,
+                    unit_price=price, qty_in_stock=qty, min_stock_alert=5,
+                    supplier=vendor_name, source=source,
+                ))
+            inserted += 1
+        except Exception as e:
+            errors.append(f"Row {i}: {str(e)}")
+
+    await audit(db, action="PART_MASTER_BULK_UPLOAD", user=current_user,
+                table_name="spare_parts", record_id=str(grn.id),
+                new_value={"source": source, "inserted": inserted, "errors": len(errors)})
+    await db.commit()
+    return templates.TemplateResponse("bulk_upload/result.html", {
+        "request": request, "current_user": current_user,
+        "upload_type": f"Part Master ({'Harvest' if source == 'harvest' else 'New'})",
+        "inserted": inserted, "errors": errors,
+        "back_url": "/spare-parts",
+    })
 
 
 @router.get("/spare-parts/purchase", response_class=HTMLResponse)

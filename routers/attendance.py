@@ -12,6 +12,7 @@ from sqlalchemy import select, func, and_, extract
 from database import get_db
 from models.attendance import Attendance
 from models.user import User, UserRole
+from models.attendance_group import AttendanceGroup, AttendanceGroupMember
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 
 router = APIRouter(prefix="/attendance", tags=["attendance"], dependencies=[Depends(verify_csrf)])
@@ -21,6 +22,29 @@ ADMIN_ROLES = (UserRole.admin, UserRole.inventory_manager)
 
 def _is_privileged(user: User) -> bool:
     return user.role in (UserRole.admin, UserRole.inventory_manager)
+
+
+async def _attendance_report_scope(db: AsyncSession, current_user: User):
+    """Returns (allowed, member_usernames) for /attendance/report access.
+    Admin -> (True, None) sees everyone. A user configured as an Attendance
+    Group manager (Application Settings -> Attendance Config) -> (True, [...])
+    scoped to just that group's members. Anyone else -> (False, None)."""
+    role_val = getattr(current_user.role, "value", None) or str(current_user.role)
+    if role_val == "admin":
+        return True, None
+    groups = (await db.execute(
+        select(AttendanceGroup).where(
+            AttendanceGroup.manager_username == current_user.username,
+            AttendanceGroup.is_active == True,
+        )
+    )).scalars().all()
+    if not groups:
+        return False, None
+    group_ids = [g.id for g in groups]
+    member_rows = (await db.execute(
+        select(AttendanceGroupMember.username).where(AttendanceGroupMember.group_id.in_(group_ids))
+    )).scalars().all()
+    return True, list(set(member_rows))
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +357,9 @@ async def history(
 
 
 # ---------------------------------------------------------------------------
-# GET /attendance/report  – admin only
+# GET /attendance/report  – admin, or a user configured as an Attendance
+# Group manager (Application Settings -> Attendance Config), scoped to their
+# group's members only.
 # ---------------------------------------------------------------------------
 @router.get("/report", response_class=HTMLResponse)
 async def report(
@@ -344,8 +370,12 @@ async def report(
     status_filter: str = Query(default=None),
     export: str = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.admin)),
+    current_user: User = Depends(get_current_user),
 ):
+    allowed, scope_usernames = await _attendance_report_scope(db, current_user)
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     today = app_now().date()
 
     # Default view is today only — older history is opt-in via the date
@@ -368,6 +398,10 @@ async def report(
         Attendance.date >= d_from,
         Attendance.date <= d_to,
     ]
+    if scope_usernames is not None:
+        # Group manager — restrict to just their group's members (empty group
+        # means the manager sees nothing rather than everyone).
+        filters.append(Attendance.username.in_(scope_usernames) if scope_usernames else Attendance.id.is_(None))
     if user_id:
         filters.append(Attendance.user_id == user_id)
     if status_filter:
@@ -429,9 +463,13 @@ async def report(
             headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
 
-    # Users for filter dropdown
+    # Users for filter dropdown — scoped to the group's members for a group
+    # manager, all active users for admin.
+    user_filters = [User.status == True]
+    if scope_usernames is not None:
+        user_filters.append(User.username.in_(scope_usernames) if scope_usernames else User.id.is_(None))
     u_res = await db.execute(
-        select(User).where(User.status == True).order_by(User.full_name)
+        select(User).where(*user_filters).order_by(User.full_name)
     )
     users = u_res.scalars().all()
 

@@ -36,19 +36,25 @@
 {% endmacro %}
 
 <div class="card border-0 shadow-sm mb-4">
-  <div class="card-header bg-transparent fw-semibold">
-    <i class="bi bi-check2-circle me-2"></i>GRN Assigned
-    <span class="badge bg-success ms-1">{{ assigned|length }}</span>
-    <span class="text-muted small ms-2">Tag numbers that have a GRN value</span>
+  <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-check2-circle me-2"></i>GRN Assigned
+      <span class="badge bg-success ms-1">{{ assigned|length }}</span>
+      <span class="text-muted small ms-2">Tag numbers that have a GRN value</span></span>
+    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="exportGrnTable('assignedTable')">
+      <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
+    </button>
   </div>
   <div class="card-body p-0">{{ tag_table('assignedTable', assigned, true) }}</div>
 </div>
 
 <div class="card border-0 shadow-sm">
-  <div class="card-header bg-transparent fw-semibold">
-    <i class="bi bi-exclamation-circle me-2"></i>GRN Not Mapped
-    <span class="badge bg-danger ms-1">{{ not_mapped|length }}</span>
-    <span class="text-muted small ms-2">Tag numbers with an empty GRN value</span>
+  <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-exclamation-circle me-2"></i>GRN Not Mapped
+      <span class="badge bg-danger ms-1">{{ not_mapped|length }}</span>
+      <span class="text-muted small ms-2">Tag numbers with an empty GRN value</span></span>
+    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="exportGrnTable('notMappedTable')">
+      <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
+    </button>
   </div>
   <div class="card-body p-0">{{ tag_table('notMappedTable', not_mapped, false) }}</div>
 </div>
@@ -59,5 +65,26 @@ $(document).ready(function(){
   if ($('#assignedTable tbody tr td').length > 1) { $('#assignedTable').DataTable({pageLength:10, lengthChange:false, order:[]}); }
   if ($('#notMappedTable tbody tr td').length > 1) { $('#notMappedTable').DataTable({pageLength:10, lengthChange:false, order:[]}); }
 });
+
+function exportGrnTable(tableId) {
+  var table = document.getElementById(tableId);
+  if (!table) return;
+  var headers = Array.from(table.querySelectorAll('thead th')).map(function(th){
+    return '"' + th.textContent.trim().replace(/"/g, '""') + '"';
+  });
+  var rows = [];
+  table.querySelectorAll('tbody tr').forEach(function(tr){
+    if (tr.cells.length <= 1) return;
+    rows.push(Array.from(tr.cells).map(function(td){
+      return '"' + td.textContent.trim().replace(/\s+/g, ' ').replace(/"/g, '""') + '"';
+    }).join(','));
+  });
+  if (!rows.length) { alert('No rows to export.'); return; }
+  var csv = [headers.join(',')].concat(rows).join('\r\n');
+  var a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent('﻿' + csv);
+  a.download = tableId + '.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
 </script>
 {% endblock %}

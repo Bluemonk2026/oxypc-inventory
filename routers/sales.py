@@ -51,12 +51,34 @@ async def _next_sale_number(db: AsyncSession) -> str:
 async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
                      current_user: User = Depends(ready_allowed)):
     result = await db.execute(
-        select(Device, Lot.lot_number, Lot.buying_price, Lot.qty)
+        select(Device, Lot.lot_number, Lot.buying_price, Lot.qty, Lot.selling_price)
         .join(Lot, Device.lot_id == Lot.id)
         .where(Device.current_stage == DeviceStage.ready_to_sale)
         .order_by(Device.updated_at.desc())
     )
     devices = result.all()
+
+    # ── Model Summary for Ready to Sale: one row per (model, brand), aggregated
+    # purchase/sale price using the same per-device-else-lot-average logic as
+    # the main table's Unit Cost column. ──────────────────────────────────────
+    model_summary_ready: dict = {}
+    for device, lot_number, buying_price, lot_qty, selling_price in devices:
+        if device.device_price:
+            unit_cost = float(device.device_price)
+        elif lot_qty:
+            unit_cost = float(buying_price or 0) / lot_qty
+        else:
+            unit_cost = 0.0
+        unit_sale = (float(selling_price) / lot_qty) if (selling_price and lot_qty) else 0.0
+        key = (device.model or "Unknown Model", device.brand or "Unknown Make")
+        g = model_summary_ready.setdefault(key, {
+            "model": key[0], "make": key[1], "device_type": device.device_type or "—",
+            "total_count": 0, "total_purchase_price": 0.0, "total_sale_price": 0.0,
+        })
+        g["total_count"] += 1
+        g["total_purchase_price"] += unit_cost
+        g["total_sale_price"] += unit_sale
+    model_summary_ready = sorted(model_summary_ready.values(), key=lambda g: g["total_count"], reverse=True)
 
     # ── Dispatch-request state (#21): Sell enabled only after approval ───────
     device_ids = [d.id for d, *_ in devices]
@@ -114,7 +136,7 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
         "request": request, "devices": devices, "current_user": current_user,
         "interested_dealers": interested_dealers,
         "approved_ids": approved_ids, "requested_ids": requested_ids,
-        "warranty_map": warranty_map,
+        "warranty_map": warranty_map, "model_summary_ready": model_summary_ready,
     })
 
 

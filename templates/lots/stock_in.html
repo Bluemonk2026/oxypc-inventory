@@ -58,13 +58,18 @@
   <i class="bi bi-box me-1"></i>Assign Bucket/Carton (<span id="bktSelCount">0</span>)
 </button>
 <div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span class="fw-semibold"><i class="bi bi-archive me-2"></i>Inventory Stock</span>
+    <input type="text" id="stockScanInput" class="form-control form-control-sm font-monospace"
+           placeholder="Scan / type Tag Number or Serial Number…" style="width:280px" autocomplete="off">
+  </div>
   <div class="card-body p-0">
     <div class="table-responsive">
       <table id="stockTable" class="table table-hover mb-0 small">
         <thead class="table-dark"><tr><th style="width:32px"><input type="checkbox" id="selectAllStock" class="form-check-input"></th><th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Device Type</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Inside Bucket</th><th>Assigned User</th><th>Action</th></tr></thead>
         <tbody>
           {% for device, lot_number in devices %}
-          <tr>
+          <tr id="stock-row-{{ device.barcode }}" data-barcode="{{ device.barcode }}" data-serial="{{ device.serial_no or '' }}">
             <td><input type="checkbox" class="form-check-input stockChk" value="{{ device.barcode }}"></td>
             <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none"><code>{{ device.barcode }}</code></a></td>
             <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
@@ -94,6 +99,8 @@
 <!-- Cost & Parts table (Batch D Task 1) -->
 <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
   <h6 class="fw-bold mb-0"><i class="bi bi-cash-coin me-2"></i>Cost &amp; Parts</h6>
+  <input type="text" id="costPartsScanInput" class="form-control form-control-sm font-monospace"
+         placeholder="Search Tag Number or Serial Number…" style="width:280px" autocomplete="off">
 </div>
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body p-0">
@@ -110,7 +117,7 @@
           {% set loc = location_map.get(device.location_id) if (location_map is defined and device.location_id) else None %}
           {% set stock_cost = device.device_price or 0 %}
           {% set repair_cost = cp.repair_cost if cp else 0 %}
-          <tr>
+          <tr data-serial="{{ device.serial_no or '' }}">
             <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none"><code>{{ device.barcode }}</code></a></td>
             <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
             <td>{{ device.brand or '—' }}</td>
@@ -373,7 +380,7 @@ function getCsrf(){ var c=document.cookie.split('; ').find(function(r){return r.
 
 $(document).ready(function(){
   // ── Device table: 8 per page, Assign Bucket button on left of search row ──
-  $('#stockTable').DataTable({
+  var dtStock = $('#stockTable').DataTable({
     pageLength: 8,
     lengthChange: false,
     dom: '<"d-flex align-items-center justify-content-between px-3 py-2 border-bottom"<"#stkBtnArea">f>t<"d-flex align-items-center justify-content-between px-3 py-2"ip>',
@@ -381,6 +388,58 @@ $(document).ready(function(){
   });
   // Move hidden Assign button into the DT toolbar slot
   $('#stkBtnArea').append($('#assignBucketBtn').removeClass('d-none'));
+
+  // Scan tag/serial number -> filter to + auto-select that row (Inventory Stock).
+  // Matches against data-barcode/data-serial (not just visible column text) so
+  // a serial-number scan works even though Serial isn't a displayed column.
+  var stockScanVal = '';
+  $.fn.dataTable.ext.search.push(function(settings, data, dataIndex, rowData, counter){
+    if (settings.nTable.id !== 'stockTable' || !stockScanVal) return true;
+    var row = settings.aoData[dataIndex].nTr;
+    var bc = (row.getAttribute('data-barcode') || '').toLowerCase();
+    var sn = (row.getAttribute('data-serial') || '').toLowerCase();
+    var term = stockScanVal.toLowerCase();
+    return bc.indexOf(term) !== -1 || sn.indexOf(term) !== -1;
+  });
+  var stockScan = document.getElementById('stockScanInput');
+  if (stockScan) {
+    stockScan.addEventListener('input', function(){
+      stockScanVal = this.value.trim();
+      dtStock.draw();
+      if (!stockScanVal) return;
+      setTimeout(function(){
+        var row = document.querySelector('#stockTable tbody tr[data-barcode="' + stockScanVal + '"], #stockTable tbody tr[data-serial="' + stockScanVal + '"]');
+        if (row) {
+          var chk = row.querySelector('.stockChk');
+          if (chk) { chk.checked = true; updateStockSel(); }
+          row.scrollIntoView({behavior:'smooth', block:'center'});
+        }
+      }, 50);
+    });
+  }
+
+  // Cost & Parts table: 10 per page + Tag/Serial search
+  var dtCostParts = $('#costPartsTable').DataTable({
+    pageLength: 10,
+    lengthChange: false,
+    dom: 't<"d-flex align-items-center justify-content-between px-3 py-2"ip>',
+  });
+  var costPartsScanVal = '';
+  $.fn.dataTable.ext.search.push(function(settings, data, dataIndex, rowData, counter){
+    if (settings.nTable.id !== 'costPartsTable' || !costPartsScanVal) return true;
+    var row = settings.aoData[dataIndex].nTr;
+    var sn = (row.getAttribute('data-serial') || '').toLowerCase();
+    var term = costPartsScanVal.toLowerCase();
+    if (sn.indexOf(term) !== -1) return true;
+    return (data[0] || '').toLowerCase().indexOf(term) !== -1;
+  });
+  var costPartsScan = document.getElementById('costPartsScanInput');
+  if (costPartsScan) {
+    costPartsScan.addEventListener('input', function(){
+      costPartsScanVal = this.value.trim();
+      dtCostParts.draw();
+    });
+  }
 });
 
 function selectedStockBarcodes(){ return Array.from(document.querySelectorAll('.stockChk:checked')).map(function(c){return c.value;}); }
@@ -508,7 +567,7 @@ function loadBucketTable(){
         '<td><span class="badge bg-secondary">'+b.device_count+'</span></td>'+
         '<td class="text-nowrap">'+
           '<button class="btn btn-xs btn-outline-secondary btn-sm py-0 px-2 me-1 edit-bkt" data-id="'+b.id+'" data-name="'+(b.name||'')+'" data-location="'+(b.location||'')+'"><i class="bi bi-pencil"></i></button>'+
-          '<button class="btn btn-xs btn-outline-warning btn-sm py-0 px-2 move-bkt-trc" data-id="'+b.id+'" data-number="'+b.bucket_number+'">Move to TRC</button>'+
+          '<button class="btn btn-xs btn-outline-warning btn-sm py-0 px-2 move-bkt-trc" data-id="'+b.id+'" data-number="'+b.bucket_number+'">Move to Production</button>'+
         '</td>'+
       '</tr>';
     }).join('');

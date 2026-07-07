@@ -203,6 +203,7 @@
           <tr>
             <th>Model Names</th>
             <th>Model Make</th>
+            <th>Device Type</th>
             <th>Total Count</th>
             <th>Total Price</th>
             <th>Repaired</th>
@@ -214,6 +215,7 @@
           <tr>
             <td class="small">{{ g.model }}</td>
             <td class="small">{{ g.make }}</td>
+            <td class="small">{{ g.device_type }}</td>
             <td class="small">{{ g.total_count }}</td>
             <td class="small">₹{{ "{:,.0f}".format(g.total_price) }}</td>
             <td class="small">{{ g.repaired_count }}</td>
@@ -226,7 +228,7 @@
           </tr>
           {% endfor %}
           {% if not model_summary %}
-          <tr><td colspan="6" class="text-center text-muted small py-3">No models found.</td></tr>
+          <tr><td colspan="7" class="text-center text-muted small py-3">No models found.</td></tr>
           {% endif %}
         </tbody>
       </table>
@@ -251,6 +253,7 @@
             <th>Supplier Name</th>
             <th>Date of Material Received</th>
             <th>Vendor Name</th>
+            <th>Device Type</th>
             <th>Total Quantity</th>
             <th>Condition</th>
             <th>Buying Price</th>
@@ -274,6 +277,7 @@
             <td class="small">{{ l.supplier_name }}</td>
             <td class="small">{{ l.grn_date.strftime('%d-%m-%Y') if l.grn_date else '—' }}</td>
             <td class="small">{{ l.vendor_name }}</td>
+            <td class="small">{{ l.device_type }}</td>
             <td class="small">{{ l.qty }}</td>
             <td class="small">{{ l.condition }}</td>
             <td class="small">₹{{ "{:,.0f}".format(l.buying_price) }}</td>
@@ -289,7 +293,7 @@
           </tr>
           {% endfor %}
           {% if not lot_summary %}
-          <tr><td colspan="12" class="text-center text-muted small py-3">No lots found.</td></tr>
+          <tr><td colspan="13" class="text-center text-muted small py-3">No lots found.</td></tr>
           {% endif %}
         </tbody>
       </table>

@@ -1,5 +1,6 @@
 import csv
 import io
+import uuid
 from datetime import datetime
 from utils.timezone import app_now
 from templates_config import templates
@@ -232,14 +233,21 @@ async def upload_devices(
     lots_result = await db.execute(select(Lot))
     lot_map = {lot.lot_number: lot.id for lot in lots_result.scalars().all()}
 
+    # Existing barcodes, fetched once up front (not per row) so a large CSV
+    # doesn't do a DB round-trip per row — this is what was slow enough to
+    # trip a reverse-proxy timeout ("upstream error"). Also tracks barcodes
+    # added earlier in this same batch (no longer flushed row-by-row) so
+    # in-batch duplicates are still caught instead of failing the whole
+    # commit with a unique-constraint error.
+    existing_barcodes = set((await db.execute(select(Device.barcode))).scalars().all())
+
     for i, row in enumerate(reader, start=2):
         try:
             barcode = row.get("barcode", "").strip()
             if not barcode:
                 errors.append(f"Row {i}: barcode is required")
                 continue
-            existing = await db.execute(select(Device).where(Device.barcode == barcode))
-            if existing.scalar_one_or_none():
+            if barcode in existing_barcodes:
                 errors.append(f"Row {i}: barcode '{barcode}' already exists")
                 continue
             lot_number = row.get("lot_number", "").strip()
@@ -254,8 +262,13 @@ async def upload_devices(
             bios_pwd = row.get("bios_password", "no").strip().lower() == "yes"
             dev_price_raw = row.get("device_price", "").strip()
             dev_price = float(dev_price_raw) if dev_price_raw else None
+            # Generate the PK explicitly rather than relying on the column
+            # default — that default only fires on flush, so device.id would
+            # still be None when building the StageMovement below now that
+            # rows are no longer flushed one at a time.
+            dev_id = uuid.uuid4()
             device = Device(
-                barcode=barcode, lot_id=lot_id,
+                id=dev_id, barcode=barcode, lot_id=lot_id,
                 sub_category=row.get("sub_category", "").strip() or None,
                 brand=row.get("brand", "").strip() or None,
                 model=row.get("model", "").strip() or None,
@@ -280,7 +293,7 @@ async def upload_devices(
                 current_stage=DeviceStage.iqc,
             )
             db.add(device)
-            await db.flush()
+            existing_barcodes.add(barcode)
             movement = StageMovement(
                 device_id=device.id, from_stage=None, to_stage=DeviceStage.iqc,
                 moved_by=current_user.username, notes="Bulk Upload - IQC Entry"
@@ -290,6 +303,9 @@ async def upload_devices(
         except Exception as e:
             errors.append(f"Row {i}: {str(e)}")
 
+    # Single flush/commit for the whole batch — a flush per row was causing a
+    # DB round-trip per device, slow enough on larger CSVs to trip a reverse
+    # proxy's upstream timeout ("upstream error") before the response returned.
     await db.commit()
     return templates.TemplateResponse("bulk_upload/result.html", {
         "request": request, "current_user": current_user,

@@ -37,6 +37,7 @@
 {% endif %}
 
 <div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-upc-scan me-2"></i>Ready to Sale Tag Numbers</div>
   <div class="card-body p-0">
     <table id="readyTable" class="table table-hover mb-0 small">
       <thead class="table-dark">
@@ -49,7 +50,7 @@
         </tr>
       </thead>
       <tbody>
-        {% for device, lot_number, buying_price, lot_qty in devices %}
+        {% for device, lot_number, buying_price, lot_qty, selling_price in devices %}
         {# Unit cost: device-level price from P&L (device_price) takes priority over avg lot cost #}
         {% if device.device_price %}
           {% set unit_cost = device.device_price %}
@@ -113,6 +114,34 @@
             </div>
           </td>
         </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mt-3">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-collection me-2"></i>Model Summary for Ready to Sale</div>
+  <div class="card-body p-0">
+    <table id="readyModelSummaryTable" class="table table-hover mb-0 small">
+      <thead class="table-dark">
+        <tr>
+          <th>Model Name</th><th>Model Make</th><th>Device Type</th>
+          <th>Total Count</th><th>Total Purchase Price</th><th>Total Sale Price</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in model_summary_ready %}
+        <tr>
+          <td class="small">{{ g.model }}</td>
+          <td class="small">{{ g.make }}</td>
+          <td class="small">{{ g.device_type }}</td>
+          <td class="small">{{ g.total_count }}</td>
+          <td class="small">₹{{ "{:,.0f}".format(g.total_purchase_price) }}</td>
+          <td class="small">{% if g.total_sale_price %}₹{{ "{:,.0f}".format(g.total_sale_price) }}{% else %}—{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted small py-3">No ready-to-sale devices.</td></tr>
         {% endfor %}
       </tbody>
     </table>

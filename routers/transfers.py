@@ -266,7 +266,7 @@ async def lot_lookup(
 @router.post("/transfers/new")
 async def create_transfer(
     request: Request,
-    barcode: str = Form(...),
+    barcode: list[str] = Form(...),
     transfer_type: str = Form(...),
     from_warehouse: str = Form(""),
     to_warehouse: str = Form(""),
@@ -281,85 +281,91 @@ async def create_transfer(
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("transfers", "add")),
 ):
-    # Lookup device
-    result = await db.execute(
-        select(Device, Lot.lot_number)
-        .join(Lot, Device.lot_id == Lot.id, isouter=True)
-        .where(Device.barcode == barcode)
-    )
-    row = result.first()
-    if not row:
-        return templates.TemplateResponse("transfers/form.html", {
-            "request": request, "device": None, "barcode": barcode,
-            "warehouses": FALLBACK_WAREHOUSES, "departments": DEPARTMENTS,
-            "current_user": current_user, "error": f"Device '{barcode}' not found",
-        })
-    device, lot_number = row
+    """Move Item tab — scanned barcodes are accumulated client-side into a
+    list (see stockScan-style multi-scan JS); one StockTransfer row is
+    created per barcode with the same transfer options applied to all."""
+    barcodes = [b.strip() for b in barcode if b and b.strip()]
+    if not barcodes:
+        return RedirectResponse(url="/transfers/new?error=No+tag+numbers+scanned", status_code=302)
 
     try:
         t_date = datetime.strptime(transfer_date, "%Y-%m-%d") if transfer_date else app_now()
     except Exception:
         t_date = app_now()
 
-    # Resolve destination StorageLocation (Task 4 Floor/Zone + Location ID cascade)
     _to_loc_id = None
     if to_location_id:
         try:
             _to_loc_id = uuid.UUID(to_location_id)
         except Exception:
             _to_loc_id = None
+
+    target_stage = DEPT_TO_STAGE.get(department)
+    assign_uid = None
+    if target_stage and assigned_user_id:
+        try:
+            assign_uid = uuid.UUID(assigned_user_id)
+        except Exception:
+            assign_uid = None
+    assigned_user = (
+        (await db.execute(select(User).where(User.id == assign_uid))).scalar_one_or_none()
+        if assign_uid else None
+    )
+
+    moved, not_found, work_ids = [], [], []
+    for bc in barcodes:
+        result = await db.execute(
+            select(Device, Lot.lot_number)
+            .join(Lot, Device.lot_id == Lot.id, isouter=True)
+            .where(Device.barcode == bc)
+        )
+        row = result.first()
+        if not row:
+            not_found.append(bc)
+            continue
+        device, lot_number = row
+
         if _to_loc_id:
             device.location_id = _to_loc_id
             device.updated_at = app_now()
 
-    # from/to_warehouse are NOT NULL. For a department/engineer assignment the user
-    # picks no destination warehouse → fall back so we never insert NULL (was a 500).
-    _from_wh = from_warehouse or getattr(device, "warehouse", None) or "—"
-    _to_wh = to_warehouse or _from_wh
-    transfer = StockTransfer(
-        device_id=device.id,
-        move_kind="device",
-        to_location_id=_to_loc_id,
-        transfer_type=transfer_type,
-        from_warehouse=_from_wh,
-        to_warehouse=_to_wh,
-        transferred_by=transferred_by or current_user.username,
-        received_by=received_by or None,
-        department=department or None,
-        barcode=device.barcode,
-        serial_no=device.serial_no,
-        make=device.brand,
-        model=device.model,
-        cpu=getattr(device, "cpu", None),
-        generation=getattr(device, "generation", None),
-        ram=str(device.ram_gb) + " GB" if device.ram_gb else None,
-        hdd=str(device.storage_gb) + " GB" if device.storage_gb else None,
-        category=device.sub_category,
-        lot_number=lot_number,
-        product_stage=device.current_stage.value if device.current_stage else None,
-        transfer_date=t_date,
-        notes=notes or None,
-        created_by=current_user.username,
-    )
-    # Update device warehouse field if it exists
-    if hasattr(device, "warehouse") and to_warehouse:
-        device.warehouse = to_warehouse
-        device.updated_at = app_now()
+        _from_wh = from_warehouse or getattr(device, "warehouse", None) or "—"
+        _to_wh = to_warehouse or _from_wh
+        transfer = StockTransfer(
+            device_id=device.id,
+            move_kind="device",
+            to_location_id=_to_loc_id,
+            transfer_type=transfer_type,
+            from_warehouse=_from_wh,
+            to_warehouse=_to_wh,
+            transferred_by=transferred_by or current_user.username,
+            received_by=received_by or None,
+            department=department or None,
+            barcode=device.barcode,
+            serial_no=device.serial_no,
+            make=device.brand,
+            model=device.model,
+            cpu=getattr(device, "cpu", None),
+            generation=getattr(device, "generation", None),
+            ram=str(device.ram_gb) + " GB" if device.ram_gb else None,
+            hdd=str(device.storage_gb) + " GB" if device.storage_gb else None,
+            category=device.sub_category,
+            lot_number=lot_number,
+            product_stage=device.current_stage.value if device.current_stage else None,
+            transfer_date=t_date,
+            notes=notes or None,
+            created_by=current_user.username,
+        )
+        if hasattr(device, "warehouse") and to_warehouse:
+            device.warehouse = to_warehouse
+            device.updated_at = app_now()
+        db.add(transfer)
+        await db.flush()
 
-    db.add(transfer)
-
-    # ── Work assignment: assigning to an L1/L2/L3 engineer creates a 12-digit
-    #    WorkID and moves the device into that repair stage so the barcode shows
-    #    in the engineer's repair Pending list (with WorkID + Timeline). ─────────
-    work_id = None
-    target_stage = DEPT_TO_STAGE.get(department)
-    if target_stage and assigned_user_id:
-        try:
-            uid = uuid.UUID(assigned_user_id)
-        except Exception:
-            uid = None
-        u = (await db.execute(select(User).where(User.id == uid))).scalar_one_or_none() if uid else None
-        if u:
+        # ── Work assignment: assigning to an L1/L2/L3 engineer creates a 12-digit
+        #    WorkID and moves the device into that repair stage. ─────────
+        if target_stage and assigned_user:
+            u = assigned_user
             new_stage = STAGE_ENUM[target_stage]
             prev_stage = device.current_stage
             prev_mv = (await db.execute(
@@ -386,39 +392,39 @@ async def create_transfer(
                 assigned_name=u.full_name, status="pending",
                 source_transfer_id=transfer.id, created_by=current_user.username,
             ))
-            # Notify the assigned engineer
+            work_ids.append(work_id)
             _device_label = f"{device.brand or ''} {device.model or ''}".strip()
             await create_notification(
-                db,
-                user_id=u.id,
-                title="Device Assigned to You",
+                db, user_id=u.id, title="Device Assigned to You",
                 message=(
                     f"{device.barcode}"
                     + (f" ({_device_label})" if _device_label else "")
                     + f" has been assigned to you for {department} (WorkID: {work_id})."
                 ),
                 notification_type="info",
-                barcode=device.barcode,
-                brand=device.brand,
-                model=device.model,
+                barcode=device.barcode, brand=device.brand, model=device.model,
                 stage=new_stage.value if hasattr(new_stage, "value") else str(new_stage),
             )
+        moved.append(bc)
 
     await audit(db, user=current_user, action="STOCK_TRANSFER",
-                table_name="stock_transfers",
-                record_id=None,
+                table_name="stock_transfers", record_id=None,
                 new_value={
-                    "barcode": barcode,
-                    "transfer_type": transfer_type,
-                    "from_warehouse": from_warehouse,
-                    "to_warehouse": to_warehouse,
+                    "barcodes": moved, "transfer_type": transfer_type,
+                    "from_warehouse": from_warehouse, "to_warehouse": to_warehouse,
                 },
                 request=request)
     await db.commit()
-    if work_id:
-        msg = f"Moved+{barcode}+to+{department}+—+WorkID+{work_id}"
-    else:
-        msg = f"Transfer+recorded+for+{barcode}"
+
+    if not moved:
+        return RedirectResponse(
+            url=f"/transfers/new?error=None+of+the+scanned+tag+numbers+were+found:+{','.join(not_found)}",
+            status_code=302)
+    msg = f"Moved+{len(moved)}+tag+number(s)"
+    if work_ids:
+        msg += f"+—+{len(work_ids)}+WorkID(s)+created"
+    if not_found:
+        msg += f"+({len(not_found)}+not+found)"
     return RedirectResponse(url=f"/transfers?success={msg}", status_code=302)
 
 
@@ -502,7 +508,7 @@ async def _move_devices_bulk(
 @router.post("/transfers/new/bucket")
 async def create_bucket_transfer(
     request: Request,
-    unit_id: str = Form(...),
+    unit_id: list[str] = Form(...),
     transfer_type: str = Form(...),
     department: str = Form(""),
     transfer_date: str = Form(""),
@@ -514,35 +520,46 @@ async def create_bucket_transfer(
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("transfers", "add")),
 ):
-    """Move Bucket tab — resolves the StorageLocation by unit_id, moves every
-    active device currently at that location as one batch of StockTransfer rows."""
-    loc = (await db.execute(
-        select(StorageLocation).where(StorageLocation.unit_id.ilike(unit_id.strip()))
-    )).scalar_one_or_none()
-    if not loc:
-        return RedirectResponse(
-            url=f"/transfers/new?error=Bucket/Location+'{unit_id}'+not+found", status_code=302)
+    """Move Bucket tab — one or more scanned bucket/location unit IDs; moves
+    every active device at each of those locations as StockTransfer rows."""
+    unit_ids = [u.strip() for u in unit_id if u and u.strip()]
+    if not unit_ids:
+        return RedirectResponse(url="/transfers/new?error=No+bucket+IDs+scanned", status_code=302)
 
-    devices = (await db.execute(
-        select(Device).where(Device.location_id == loc.id, Device.is_active == True)
-    )).scalars().all()
-    if not devices:
-        return RedirectResponse(
-            url=f"/transfers/new?error=No+active+devices+found+at+location+'{unit_id}'", status_code=302)
+    total_moved, not_found = [], []
+    for uid in unit_ids:
+        loc = (await db.execute(
+            select(StorageLocation).where(StorageLocation.unit_id.ilike(uid))
+        )).scalar_one_or_none()
+        if not loc:
+            not_found.append(uid)
+            continue
+        devices = (await db.execute(
+            select(Device).where(Device.location_id == loc.id, Device.is_active == True)
+        )).scalars().all()
+        if not devices:
+            continue
+        moved = await _move_devices_bulk(
+            db, request, current_user, devices, "bucket", None, None, uid,
+            transfer_type, department, transfer_date, transferred_by, received_by,
+            notes, to_location_id,
+        )
+        total_moved.extend(moved)
 
-    moved = await _move_devices_bulk(
-        db, request, current_user, devices, "bucket", None, None, unit_id,
-        transfer_type, department, transfer_date, transferred_by, received_by,
-        notes, to_location_id,
-    )
-    return RedirectResponse(
-        url=f"/transfers?success=Moved+{len(moved)}+device(s)+from+bucket+{unit_id}", status_code=302)
+    if not total_moved:
+        return RedirectResponse(
+            url=f"/transfers/new?error=No+active+devices+found+for+bucket(s):+{','.join(unit_ids)}",
+            status_code=302)
+    msg = f"Moved+{len(total_moved)}+device(s)+from+{len(unit_ids) - len(not_found)}+bucket(s)"
+    if not_found:
+        msg += f"+({len(not_found)}+bucket(s)+not+found)"
+    return RedirectResponse(url=f"/transfers?success={msg}", status_code=302)
 
 
 @router.post("/transfers/new/lot")
 async def create_lot_transfer(
     request: Request,
-    lot_number: str = Form(...),
+    lot_number: list[str] = Form(...),
     transfer_type: str = Form(...),
     department: str = Form(""),
     transfer_date: str = Form(""),
@@ -554,29 +571,40 @@ async def create_lot_transfer(
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("transfers", "add")),
 ):
-    """Move Lot tab — resolves the Lot by lot_number, moves every active member
-    device as one batch of StockTransfer rows."""
-    lot = (await db.execute(
-        select(Lot).where(Lot.lot_number.ilike(lot_number.strip()))
-    )).scalar_one_or_none()
-    if not lot:
-        return RedirectResponse(
-            url=f"/transfers/new?error=Lot+'{lot_number}'+not+found", status_code=302)
+    """Move Lot tab — one or more scanned lot numbers; moves every active
+    member device of each lot as StockTransfer rows."""
+    lot_numbers = [n.strip() for n in lot_number if n and n.strip()]
+    if not lot_numbers:
+        return RedirectResponse(url="/transfers/new?error=No+lot+numbers+scanned", status_code=302)
 
-    devices = (await db.execute(
-        select(Device).where(Device.lot_id == lot.id, Device.is_active == True)
-    )).scalars().all()
-    if not devices:
-        return RedirectResponse(
-            url=f"/transfers/new?error=No+active+devices+found+in+lot+'{lot_number}'", status_code=302)
+    total_moved, not_found = [], []
+    for ln in lot_numbers:
+        lot = (await db.execute(
+            select(Lot).where(Lot.lot_number.ilike(ln))
+        )).scalar_one_or_none()
+        if not lot:
+            not_found.append(ln)
+            continue
+        devices = (await db.execute(
+            select(Device).where(Device.lot_id == lot.id, Device.is_active == True)
+        )).scalars().all()
+        if not devices:
+            continue
+        moved = await _move_devices_bulk(
+            db, request, current_user, devices, "lot", None, lot.id, ln,
+            transfer_type, department, transfer_date, transferred_by, received_by,
+            notes, to_location_id,
+        )
+        total_moved.extend(moved)
 
-    moved = await _move_devices_bulk(
-        db, request, current_user, devices, "lot", None, lot.id, lot_number,
-        transfer_type, department, transfer_date, transferred_by, received_by,
-        notes, to_location_id,
-    )
-    return RedirectResponse(
-        url=f"/transfers?success=Moved+{len(moved)}+device(s)+from+lot+{lot_number}", status_code=302)
+    if not total_moved:
+        return RedirectResponse(
+            url=f"/transfers/new?error=No+active+devices+found+for+lot(s):+{','.join(lot_numbers)}",
+            status_code=302)
+    msg = f"Moved+{len(total_moved)}+device(s)+from+{len(lot_numbers) - len(not_found)}+lot(s)"
+    if not_found:
+        msg += f"+({len(not_found)}+lot(s)+not+found)"
+    return RedirectResponse(url=f"/transfers?success={msg}", status_code=302)
 
 
 @router.get("/transfers/{transfer_id}", response_class=HTMLResponse)

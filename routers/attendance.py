@@ -141,6 +141,9 @@ async def attendance_index(
         )
         users = users_result.scalars().all()
 
+    duration_map = {str(r.id): compute_duration(r.check_in, r.check_out, r.date)[1] for r in records}
+    own_duration = compute_duration(own_record.check_in, own_record.check_out, own_record.date)[1] if own_record else None
+
     today = app_now().date()
     return templates.TemplateResponse(
         "attendance/index.html",
@@ -150,7 +153,9 @@ async def attendance_index(
             "target_date": target_date,
             "today": today,
             "own_record": own_record,
+            "own_duration": own_duration,
             "records": records,
+            "duration_map": duration_map,
             "role_map": role_map,
             "users": users,
             "is_privileged": _is_privileged(current_user),
@@ -162,9 +167,53 @@ async def attendance_index(
 # ---------------------------------------------------------------------------
 # POST /attendance/checkin
 # ---------------------------------------------------------------------------
+# Check-in time thresholds (app-local time, i.e. app_now() — already IST per
+# utils/timezone.app_now, no additional UTC offset needed).
+CHECKIN_LATE_MINUTES = 10 * 60        # after 10:00 AM -> late
+CHECKIN_HALF_DAY_MINUTES = 13 * 60    # after 1:00 PM -> half_day
+CHECKIN_ABSENT_MINUTES = 14 * 60      # after 2:00 PM -> absent
+DUTY_CUTOFF_HOUR = 19                 # 7:00 PM — end of day for duration calc
+
+
+def _checkin_status(now: datetime, mode: str) -> str:
+    """Base status from the Check In modal choice (In-Office -> present,
+    Work From Home -> wfh), overridden by how late the check-in was."""
+    base_status = "wfh" if mode == "wfh" else "present"
+    minutes = now.hour * 60 + now.minute
+    if minutes > CHECKIN_ABSENT_MINUTES:
+        return "absent"
+    if minutes > CHECKIN_HALF_DAY_MINUTES:
+        return "half_day"
+    if minutes > CHECKIN_LATE_MINUTES:
+        return "late"
+    return base_status
+
+
+def duty_cutoff_for(d: date) -> datetime:
+    return datetime.combine(d, datetime.min.time()).replace(hour=DUTY_CUTOFF_HOUR)
+
+
+def compute_duration(check_in: datetime | None, check_out: datetime | None, d: date):
+    """Total hours = check-in time to checkout time or the 7 PM cutoff,
+    whichever is earlier (or 'In progress' if neither checkout nor cutoff
+    has passed yet)."""
+    if not check_in:
+        return None, "-"
+    cutoff = duty_cutoff_for(d)
+    if check_out:
+        end = min(check_out, cutoff)
+    elif app_now() >= cutoff:
+        end = cutoff
+    else:
+        return None, "In progress"
+    hours = (end - check_in).total_seconds() / 3600
+    return hours, f"{hours:.1f}h"
+
+
 @router.post("/checkin")
 async def checkin(
     request: Request,
+    mode: str = Form(default="in_office"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -183,15 +232,7 @@ async def checkin(
         )
 
     now = app_now()
-
-    # Determine late status using IST (UTC+5:30)
-    ist_offset_minutes = 330
-    ist_now = now + timedelta(minutes=ist_offset_minutes)
-    if ist_now.hour > 9 or (ist_now.hour == 9 and ist_now.minute > 30):
-        status = "late"
-    else:
-        status = "present"
-
+    status = _checkin_status(now, mode)
     client_ip = request.client.host if request.client else "unknown"
 
     if existing:
@@ -248,12 +289,8 @@ async def checkout(
     now = app_now()
     record.check_out = now
     record.check_out_ip = request.client.host if request.client else "unknown"
-
-    # Half day if worked less than 4.5 hours (unless WFH)
-    if record.status not in ("wfh", "absent"):
-        duration_h = (now - record.check_in).total_seconds() / 3600
-        if duration_h < 4.5:
-            record.status = "half_day"
+    # Status (present/wfh/late/half_day/absent) is fully determined at
+    # check-in time per the configured thresholds — not re-derived here.
 
     await db.commit()
     return RedirectResponse(
@@ -414,18 +451,14 @@ async def report(
     )
     records = rows_result.scalars().all()
 
-    # Enrich with duration
+    # Enrich with duration — checked-in time to checkout time or the 7 PM
+    # duty cutoff, whichever is earlier.
     report_rows = []
     total_hours = 0.0
     for r in records:
-        if r.check_in and r.check_out:
-            dur_h = (r.check_out - r.check_in).total_seconds() / 3600
+        dur_h, duration_str = compute_duration(r.check_in, r.check_out, r.date)
+        if dur_h is not None:
             total_hours += dur_h
-            duration_str = f"{dur_h:.1f}h"
-        elif r.check_in:
-            duration_str = "In progress"
-        else:
-            duration_str = "-"
         report_rows.append({"record": r, "duration": duration_str})
 
     # Status summary

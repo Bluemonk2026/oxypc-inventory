@@ -261,14 +261,18 @@ async def _build_lot_summary(db: AsyncSession) -> list:
     )).all()
     actual_selling_map = {str(lot_id): float(total or 0) for lot_id, total in actual_selling_rows}
 
-    # Per-lot tag numbers (Device -> barcode/qty) for the View modal
+    # Per-lot tag numbers (Device -> barcode/qty) for the View modal, plus
+    # the distinct Device Type(s) present in each lot for the summary column.
     device_rows = (await db.execute(
-        select(Device.lot_id, Device.barcode, Device.qty)
+        select(Device.lot_id, Device.barcode, Device.qty, Device.device_type)
         .where(Device.lot_id.in_([l.id for l in lots]), Device.is_trashed == False)
     )).all()
     tags_by_lot: dict = {}
-    for lot_id, barcode, qty in device_rows:
+    device_types_by_lot: dict = {}
+    for lot_id, barcode, qty, device_type in device_rows:
         tags_by_lot.setdefault(str(lot_id), []).append({"barcode": barcode, "qty": qty or 1})
+        if device_type:
+            device_types_by_lot.setdefault(str(lot_id), set()).add(device_type)
 
     summary = []
     for l in lots:
@@ -280,6 +284,7 @@ async def _build_lot_summary(db: AsyncSession) -> list:
             "vendor_name": l.vendor_name or "—",
             "qty": l.qty,
             "condition": l.condition or "—",
+            "device_type": ", ".join(sorted(device_types_by_lot.get(str(l.id), []))) or "—",
             "buying_price": float(l.buying_price or 0),
             "selling_price": float(l.selling_price) if l.selling_price is not None else None,
             "actual_selling": actual_selling_map.get(str(l.id), 0.0),
@@ -340,7 +345,7 @@ async def _build_model_summary(db: AsyncSession, filters: list) -> list:
     for d, _lot_number in rows:
         key = (d.model or "Unknown Model", d.brand or "Unknown Make")
         g = groups.setdefault(key, {
-            "model": key[0], "make": key[1],
+            "model": key[0], "make": key[1], "device_type": d.device_type or "—",
             "total_count": 0, "total_price": 0.0, "repaired_count": 0,
             "grade_counts": {"A": 0, "B": 0, "C": 0},
             "tags": [],

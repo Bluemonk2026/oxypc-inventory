@@ -47,11 +47,35 @@
     <i class="bi bi-clock fs-2"></i>
     <div class="flex-grow-1">
       <div class="fw-semibold">You haven't checked in today</div>
-      <div class="small text-muted">Check-in marks you as present. After 9:30 AM IST it records as Late.</div>
+      <div class="small text-muted">After 10:00 AM records as Late, after 1:00 PM as Half Day, after 2:00 PM as Absent.</div>
     </div>
-    <form method="post" action="/attendance/checkin">
-      <button class="btn btn-success"><i class="bi bi-box-arrow-in-right me-1"></i>Check In Now</button>
-    </form>
+    <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#checkInModal">
+      <i class="bi bi-box-arrow-in-right me-1"></i>Check In Now
+    </button>
+  </div>
+</div>
+
+<!-- Check In modal: In-Office vs Work From Home -->
+<div class="modal fade" id="checkInModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-box-arrow-in-right me-2"></i>Check In</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body d-flex gap-3 justify-content-center py-4">
+        <form method="post" action="/attendance/checkin">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+          <input type="hidden" name="mode" value="in_office">
+          <button type="submit" class="btn btn-primary btn-lg px-4"><i class="bi bi-building me-2"></i>In-Office</button>
+        </form>
+        <form method="post" action="/attendance/checkin">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+          <input type="hidden" name="mode" value="wfh">
+          <button type="submit" class="btn btn-outline-primary btn-lg px-4"><i class="bi bi-house me-2"></i>Work From Home</button>
+        </form>
+      </div>
+    </div>
   </div>
 </div>
 {% endif %}
@@ -83,11 +107,10 @@
             <td>{% if rec.check_in %}{{ rec.check_in.strftime('%H:%M') }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td>{% if rec.check_out %}{{ rec.check_out.strftime('%H:%M') }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td>
-              {% if rec.check_in and rec.check_out %}
-                {% set dur = ((rec.check_out - rec.check_in).total_seconds() / 3600) | round(1) %}{{ dur }}h
-              {% elif rec.check_in %}
-                <span class="text-info small">In progress</span>
-              {% else %}—{% endif %}
+              {% set d = duration_map.get(rec.id|string, '-') %}
+              {% if d == 'In progress' %}<span class="text-info small">In progress</span>
+              {% elif d == '-' %}—
+              {% else %}{{ d }}{% endif %}
             </td>
             <td>
               {% set sc = {'present':'success','late':'warning','half_day':'info','wfh':'primary','absent':'danger'} %}

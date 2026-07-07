@@ -1109,8 +1109,10 @@ function estimatePowerW(cpuName) {
       document.getElementById('battery_power_w').value = estimatePowerW(cpuName);
     }
     calcBatteryLife();
-    // Storage health
-    setInput('storage_health_pct', d.storage_health_pct || d.storage_health || '');
+    // Storage health — use `!= null` (not `||`) so a legitimate 0 isn't
+    // silently dropped as falsy; d.storage_health_pct is the only key the
+    // agent actually sends (d.storage_health never exists in the payload).
+    setInput('storage_health_pct', d.storage_health_pct != null ? d.storage_health_pct : '');
     // Fan
     setSelect('fan_working', d.fan_working || '');
     if (d.fan_rpm) {

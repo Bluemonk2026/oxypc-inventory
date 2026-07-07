@@ -158,7 +158,7 @@ $batt_wh=$null
 if($full -gt 0){$batt_wh=[math]::Round($full/1000.0, 1)}
 $storage_health=$null
 try{
-  $bigDisks=@(Get-PhysicalDisk|Where-Object{$_.Size -gt 30GB})
+  $bigDisks=@(Get-PhysicalDisk -EA SilentlyContinue|Where-Object{$_.Size -gt 30GB})
   if($bigDisks.Count -gt 0){
     # Prefer real SMART/NVMe wear-level data (Wear = % of rated life used) so
     # Storage Health % reflects actual drive wear, not just a healthy/unhealthy flag.
@@ -188,6 +188,20 @@ try{
     }
   }
 }catch{}
+if($storage_health -eq $null){
+  # Last resort: Get-PhysicalDisk / the Storage Management module can be
+  # missing entirely on some Windows editions/builds, throwing before
+  # $bigDisks is even populated above. Win32_DiskDrive is the classic WMI
+  # class (present since Windows XP) and needs no extra module.
+  try{
+    $legacyDisks=@(Get-CimInstance Win32_DiskDrive -EA SilentlyContinue|Where-Object{$_.Size -gt 30GB*1})
+    if($legacyDisks.Count -gt 0){
+      $okCount2=($legacyDisks|Where-Object{$_.Status -eq 'OK'}).Count
+      if($okCount2 -eq $legacyDisks.Count){$storage_health=100}
+      elseif($okCount2 -gt 0){$storage_health=[math]::Round(($okCount2/$legacyDisks.Count)*100)}
+    }
+  }catch{}
+}
 $fan_working=$null;$fan_rpm=$null
 try{$allFans=@(Get-CimInstance -Namespace root\wmi -ClassName Win32_Fan -EA SilentlyContinue);if($allFans.Count -gt 0){$fan_working='Yes';$spd=$allFans|Where-Object{$_.DesiredSpeed -gt 0};if($spd){$fan_rpm=[int]$spd[0].DesiredSpeed}}}catch{}
 if(-not $fan_working){try{$fd=@(Get-CimInstance Win32_PnPEntity -EA SilentlyContinue|Where-Object{$_.DeviceID -match 'ACPI\\PNP0C0B'});if($fd.Count -gt 0){$ok=$fd|Where-Object{$_.ConfigManagerErrorCode -eq 0 -or $_.ConfigManagerErrorCode -eq $null};$fan_working=if($ok){'Yes'}else{'No'}}}catch{}}
@@ -414,21 +428,32 @@ def _mac_storage_health():
     healths = []
     for disk_id in _mac_physical_disk_ids():
         try:
+            # smartctl usually needs root to open the raw device on macOS — under
+            # a normal (non-sudo) technician session this typically fails and
+            # either raises here or returns incomplete JSON with the fields
+            # below simply absent, which the .get() chains below already treat
+            # as "no data" rather than a fabricated value.
             r = subprocess.run([smartctl, "-a", "-j", f"/dev/{disk_id}"],
                                 capture_output=True, text=True, timeout=15)
             data = json.loads(r.stdout or "{}")
         except Exception:
             continue
-        # NVMe: percentage_used is "% of rated endurance consumed" -> health = 100 - used
+        # NVMe: percentage_used is "% of rated endurance consumed" -> health = 100 - used.
+        # Reject out-of-range readings (e.g. 255, a common raw "field not
+        # populated" sentinel in some firmware) rather than letting them clamp
+        # to a false 0% — same class of bug fixed on the Windows side.
         used = (data.get("nvme_smart_health_information_log") or {}).get("percentage_used")
-        if used is not None:
-            healths.append(max(0, 100 - int(used)))
+        if isinstance(used, (int, float)) and 0 <= used <= 100:
+            healths.append(100 - used)
             continue
         # SATA SSD: attribute 202 (SSD Life Left) or 177 (Wear Leveling Count) is
-        # already a remaining-life percentage.
+        # already a remaining-life percentage. A raw value of exactly 0 is far
+        # more often an unsupported/placeholder field than a genuinely dead
+        # drive, so treat it as inconclusive rather than reporting 0% health.
         for attr in (data.get("ata_smart_attributes") or {}).get("table", []):
-            if attr.get("id") in (202, 177) and attr.get("value") is not None:
-                healths.append(int(attr["value"]))
+            value = attr.get("value")
+            if attr.get("id") in (202, 177) and isinstance(value, (int, float)) and 0 < value <= 100:
+                healths.append(value)
                 break
     if not healths:
         return None

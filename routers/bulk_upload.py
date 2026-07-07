@@ -11,6 +11,7 @@ from sqlalchemy import select
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
+from models.iqc_inspection import IQCInspection
 from models.lot import Lot
 from models.spare_parts import SparePart
 from models.telecalling import TelecallingRecord
@@ -18,6 +19,58 @@ from auth.dependencies import get_current_user, require_roles, verify_csrf
 
 router = APIRouter(prefix="/bulk-upload", tags=["bulk_upload"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
+
+# ── Devices template column order — mirrors every field on the IQC entry
+# page (templates/iqc/form.html) so a bulk upload can fully replace manual
+# entry. First 9 columns per the fixed lead-in spec; everything else (the
+# remaining Device columns, then the full physical inspection checklist)
+# follows. Shared by both the template download and the upload parser so
+# the two can never drift apart. ────────────────────────────────────────────
+DEVICE_CORE_FIELDS = [
+    "Tag No", "serial_no", "brand", "model", "cpu", "ram_gb", "storage_gb",
+    "category", "lot_number",
+]
+DEVICE_REST_FIELDS = [
+    "device_type", "generation", "storage_type", "hdd_capacity_gb",
+    "screen_size", "battery_health_pct", "bios_password", "color", "grade",
+    "floor", "warehouse", "grn_number", "qty", "device_price", "notes",
+]
+IQC_INSPECTION_FIELDS = [
+    "power_on", "all_ok", "status",
+    "screen_dot", "screen_line", "screen_functional", "screen_discoloration",
+    "screen_patch", "screen_broken", "screen_flickering", "screen_scratch",
+    "screen_loose", "screen_missing", "screen_hinge_broken", "screen_colour_spread",
+    "screen_keyboard_mark", "screen_hard_press",
+    "panel_a_scratch", "panel_a_broken", "panel_a_missing", "panel_a_dent", "panel_a_colour_fade",
+    "panel_b_scratch", "panel_b_colour_fade", "panel_b_rubber_cut", "panel_b_broken", "panel_b_missing",
+    "panel_c_scratch", "panel_c_broken", "panel_c_missing", "panel_c_dent", "panel_c_colour_fade",
+    "panel_d_dent", "panel_d_colour_fade", "panel_d_scratch", "panel_d_broken", "panel_d_missing",
+    "keyboard_working", "keyboard_colour_fade", "keyboard_key_missing", "keyboard_hard_press",
+    "speaker_status",
+    "touchpad_working", "touchpad_click_working", "touchpad_scratch", "touchpad_colour_fade", "touchpad_missing",
+    "port_hdmi", "port_usb_working", "port_audio_jack", "usb_a_ports", "usb_c_ports", "ethernet_ports",
+    "wifi_status", "webcam_status", "hdd_connector", "hdd_casing", "battery_present", "battery_cable",
+    "charging_port", "dvd_drive",
+    "cover_ram", "cover_dvd", "cover_storage",
+    "hinge_condition", "hinge_cover", "touchpad_logicboard",
+    "storage_health_pct", "fan_sound_dba", "fan_working",
+    "r2v3_grade_category", "remarks",
+]
+DEVICE_CSV_HEADERS = DEVICE_CORE_FIELDS + DEVICE_REST_FIELDS + IQC_INSPECTION_FIELDS
+
+# Only a handful of illustrative inspection values in the sample row — the rest
+# are left blank since the checklist is optional and 70+ filled columns would
+# make the example row unreadable.
+_IQC_EXAMPLE_MAP = {
+    "power_on": "Yes", "all_ok": "Yes", "status": "Power On",
+    "screen_functional": "Yes", "screen_scratch": "No",
+    "keyboard_working": "Yes", "touchpad_working": "Yes",
+    "port_hdmi": "Yes", "port_usb_working": "Yes", "port_audio_jack": "Yes",
+    "usb_a_ports": "2", "usb_c_ports": "1", "ethernet_ports": "1",
+    "wifi_status": "Working", "webcam_status": "Ok",
+    "battery_present": "Yes", "fan_working": "Yes",
+    "r2v3_grade_category": "C3",
+}
 
 # CSV template headers
 TEMPLATES = {
@@ -47,16 +100,14 @@ TEMPLATES = {
     },
     "devices": {
         "filename": "devices_template.csv",
-        "headers": ["barcode", "lot_number", "sub_category", "brand", "model", "device_type",
-                    "serial_no", "grn_number", "cpu", "generation",
-                    "ram_gb", "storage_gb", "storage_type", "hdd_capacity_gb",
-                    "screen_size", "battery_health_pct", "bios_password",
-                    "color", "grade", "floor", "warehouse", "device_price", "notes"],
-        "example": ["OXY-00001", "LOT-001", "Laptop", "HP", "EliteBook 840 G6", "Laptop",
-                    "SN123456", "GRN-001", "Intel Core i5-8250U", "8th Gen",
-                    "8", "256", "SSD", "",
-                    "14.0 FHD", "78", "no",
-                    "Silver", "B", "Floor 1", "TRC 1st Floor", "5500", "Minor scratch on lid"],
+        "headers": DEVICE_CSV_HEADERS,
+        "example": (
+            ["OXY-00001", "SN123456", "HP", "EliteBook 840 G6", "Intel Core i5-8250U",
+             "8", "256", "Laptop", "LOT-001"]
+            + ["Laptop", "8th Gen", "SSD", "", "14.0 FHD", "78", "no", "Silver", "B",
+               "Floor 1", "TRC 1st Floor", "GRN-001", "1", "5500", "Minor scratch on lid"]
+            + [_IQC_EXAMPLE_MAP.get(f, "") for f in IQC_INSPECTION_FIELDS]
+        ),
     },
     "spare_parts": {
         "filename": "spare_parts_template.csv",
@@ -241,26 +292,30 @@ async def upload_devices(
     # commit with a unique-constraint error.
     existing_barcodes = set((await db.execute(select(Device.barcode))).scalars().all())
 
+    def _s(row, key):
+        return (row.get(key) or "").strip() or None
+
+    def _i(row, key):
+        v = (row.get(key) or "").strip()
+        return int(v) if v.lstrip("-").isdigit() else None
+
     for i, row in enumerate(reader, start=2):
         try:
-            barcode = row.get("barcode", "").strip()
+            barcode = _s(row, "Tag No")
             if not barcode:
-                errors.append(f"Row {i}: barcode is required")
+                errors.append(f"Row {i}: Tag No is required")
                 continue
             if barcode in existing_barcodes:
-                errors.append(f"Row {i}: barcode '{barcode}' already exists")
+                errors.append(f"Row {i}: Tag No '{barcode}' already exists")
                 continue
-            lot_number = row.get("lot_number", "").strip()
+            lot_number = _s(row, "lot_number")
             lot_id = lot_map.get(lot_number)
             if not lot_id:
                 errors.append(f"Row {i}: lot_number '{lot_number}' not found")
                 continue
-            ram_gb = row.get("ram_gb", "").strip()
-            storage_gb = row.get("storage_gb", "").strip()
-            hdd_gb = row.get("hdd_capacity_gb", "").strip()
-            battery = row.get("battery_health_pct", "").strip()
-            bios_pwd = row.get("bios_password", "no").strip().lower() == "yes"
-            dev_price_raw = row.get("device_price", "").strip()
+            bios_pwd_raw = (row.get("bios_password") or "").strip().lower()
+            qty_raw = _i(row, "qty")
+            dev_price_raw = (row.get("device_price") or "").strip()
             dev_price = float(dev_price_raw) if dev_price_raw else None
             # Generate the PK explicitly rather than relying on the column
             # default — that default only fires on flush, so device.id would
@@ -269,27 +324,23 @@ async def upload_devices(
             dev_id = uuid.uuid4()
             device = Device(
                 id=dev_id, barcode=barcode, lot_id=lot_id,
-                sub_category=row.get("sub_category", "").strip() or None,
-                brand=row.get("brand", "").strip() or None,
-                model=row.get("model", "").strip() or None,
-                device_type=row.get("device_type", "").strip() or None,
-                serial_no=row.get("serial_no", "").strip() or None,
-                grn_number=row.get("grn_number", "").strip() or None,
-                cpu=row.get("cpu", "").strip() or None,
-                generation=row.get("generation", "").strip() or None,
-                ram_gb=int(ram_gb) if ram_gb.strip().isdigit() else None,
-                storage_gb=int(storage_gb) if storage_gb.strip().isdigit() else None,
-                storage_type=row.get("storage_type", "").strip() or None,
-                hdd_capacity_gb=int(hdd_gb) if hdd_gb else None,
-                screen_size=row.get("screen_size", "").strip() or None,
-                battery_health_pct=int(battery) if battery else None,
-                bios_password=bios_pwd,
-                color=row.get("color", "").strip() or None,
-                grade=row.get("grade", "").strip() or None,
-                floor=row.get("floor", "").strip() or None,
-                warehouse=row.get("warehouse", "").strip() or None,
+                sub_category=_s(row, "category"),
+                brand=_s(row, "brand"), model=_s(row, "model"),
+                device_type=_s(row, "device_type"),
+                serial_no=_s(row, "serial_no"),
+                grn_number=_s(row, "grn_number"),
+                cpu=_s(row, "cpu"), generation=_s(row, "generation"),
+                ram_gb=_i(row, "ram_gb"), storage_gb=_i(row, "storage_gb"),
+                storage_type=_s(row, "storage_type"),
+                hdd_capacity_gb=_i(row, "hdd_capacity_gb"),
+                screen_size=_s(row, "screen_size"),
+                battery_health_pct=_i(row, "battery_health_pct"),
+                bios_password=(bios_pwd_raw == "yes"),
+                color=_s(row, "color"), grade=_s(row, "grade"),
+                floor=_s(row, "floor"), warehouse=_s(row, "warehouse"),
+                qty=qty_raw or 1,
                 device_price=dev_price,
-                notes=row.get("notes", "").strip() or None,
+                notes=_s(row, "notes"),
                 current_stage=DeviceStage.iqc,
             )
             db.add(device)
@@ -299,6 +350,22 @@ async def upload_devices(
                 moved_by=current_user.username, notes="Bulk Upload - IQC Entry"
             )
             db.add(movement)
+
+            # ── Physical inspection checklist (mirrors the manual IQC entry
+            # form's IQCInspection creation) — entirely optional per-row. ──
+            inspection = IQCInspection(
+                device_id=device.id,
+                inspector_name=current_user.full_name,
+                bios_password=("Yes" if bios_pwd_raw == "yes" else "No" if bios_pwd_raw == "no" else None),
+                **{f: _s(row, f) for f in IQC_INSPECTION_FIELDS
+                   if f not in ("usb_a_ports", "usb_c_ports", "ethernet_ports",
+                                 "storage_health_pct", "fan_sound_dba", "bios_password")},
+                usb_a_ports=_i(row, "usb_a_ports"), usb_c_ports=_i(row, "usb_c_ports"),
+                ethernet_ports=_i(row, "ethernet_ports"),
+                storage_health_pct=_i(row, "storage_health_pct"),
+                fan_sound_dba=_i(row, "fan_sound_dba"),
+            )
+            db.add(inspection)
             inserted += 1
         except Exception as e:
             errors.append(f"Row {i}: {str(e)}")

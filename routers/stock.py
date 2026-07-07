@@ -398,8 +398,8 @@ async def create_lot(
     background_tasks: BackgroundTasks,
     lot_number: str = Form(...),
     supplier_name: str = Form(...),
-    buying_price: str = Form(...),
-    qty: int = Form(...),
+    buying_price: str = Form(default=""),
+    qty: str = Form(default=""),
     purchase_date: str = Form(...),
     grn_system_number: str = Form(""),
     grn_number_new: str = Form(""),
@@ -428,11 +428,14 @@ async def create_lot(
             "request": request, "next_lot_number": next_num, "current_user": current_user,
             "error": "Lot number already exists", "lot": None,
         })
+    # Quantity defaults to 1 (never 0) — several downstream calculations divide
+    # by lot.qty (e.g. per-unit cost = buying_price / qty), so 0 would crash them.
+    qty_val = int(qty) if qty.strip().isdigit() else 1
     lot = Lot(
         lot_number=lot_number,
         supplier_name=supplier_name,
-        buying_price=float(buying_price),
-        qty=qty,
+        buying_price=float(buying_price) if buying_price.strip() else 0,
+        qty=qty_val,
         purchase_date=datetime.strptime(purchase_date, "%Y-%m-%d"),
         grn_system_number=grn_system_number or None,
         grn_number_new=int(grn_number_new) if grn_number_new else None,
@@ -457,7 +460,7 @@ async def create_lot(
     await audit(db, action="LOT_CREATED", user=current_user,
                 table_name="lots", record_id=str(lot.id),
                 new_value={"lot_number": lot_number, "supplier": supplier_name,
-                           "qty": qty, "buying_price": buying_price},
+                           "qty": qty_val, "buying_price": buying_price},
                 request=request)
 
     # ── CRM integration: back-link sourcing deal to this lot ──────────────
@@ -476,7 +479,7 @@ async def create_lot(
         "lot_id": str(lot.id),
         "lot_number": lot.lot_number,
         "supplier": supplier_name,
-        "qty": qty,
+        "qty": qty_val,
         "buying_price": buying_price,
         "_source": "stock_html",
     }, background_tasks)
@@ -506,8 +509,8 @@ async def edit_lot(
     request: Request,
     lot_number: str = Form(...),
     supplier_name: str = Form(...),
-    buying_price: str = Form(...),
-    qty: int = Form(...),
+    buying_price: str = Form(default=""),
+    qty: str = Form(default=""),
     purchase_date: str = Form(...),
     grn_system_number: str = Form(""),
     grn_number_new: str = Form(""),
@@ -533,8 +536,8 @@ async def edit_lot(
         raise HTTPException(404)
     lot.lot_number = lot_number
     lot.supplier_name = supplier_name
-    lot.buying_price = float(buying_price)
-    lot.qty = qty
+    lot.buying_price = float(buying_price) if buying_price.strip() else 0
+    lot.qty = int(qty) if qty.strip().isdigit() else 1
     lot.purchase_date = datetime.strptime(purchase_date, "%Y-%m-%d")
     lot.grn_system_number = grn_system_number or None
     lot.grn_number_new = int(grn_number_new) if grn_number_new else None

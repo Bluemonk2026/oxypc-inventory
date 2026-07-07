@@ -59,6 +59,50 @@ _admin = require_roles(UserRole.admin, UserRole.inventory_manager)
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 _HARDCODED_COMMITS = [
+    # ── 2026-07-07 ──────────────────────────────────────────────────────────────
+    {"date": "2026-07-07", "msg": "Lot Add/Edit: Quantity and Buying Price made optional (default qty=1, price=0 when left blank)", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-07", "msg": "Dealer Bulk Upload: business name duplicate check is now case-insensitive; phone field rejects multi-number/garbage entries instead of storing them silently", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-07", "msg": "Move Device page: removed forced-uppercase on all 3 tabs' scan fields; Tag Number lookup made case-insensitive to match", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-07", "msg": "Fixed Product IQC showing only 50 of 4500+ records — converted 9 pages (IQC, Sales List, Dealers List, WhatsApp Audit, Stress Test, L1/L2/L3 Repair, Lot Overview, TRC Production, Market Intel, System Audit Log) from server-side page/page_size pagination to full-fetch + client-side pagination; also found and fixed 4 tables with paging disabled entirely", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-07", "msg": "App-wide: standardized every DataTable to 12 rows/page with pagination centered at the bottom; removed 18 hard backend row-caps (500/1000/5000 etc.) that were silently truncating list pages across devices, GRN, transfers, dealers, telecalling, admin, reports and more", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-07", "msg": "Devices bulk upload expanded to cover every IQC entry field — full physical inspection checklist (screen/panel/keyboard/touchpad/ports) now included in the template and parser, not just core device fields; removed redundant CSV Template button from Product IQC page", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-07", "msg": "Wired Device Type filter dropdowns (Overall Inventory, Stock Inward/TRC, IQC list + bulk modal + entry form) to Master Data instead of hardcoded lists; fixed 'Purchase Orders: PO Category' missing from the Master Data configuration page", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-07", "msg": "Purchase Order form reworked with Item Name/Description/PO Category/Lot No line items, GSTIN + City/State/Pincode with supplier autofill; PO list gets a Generate PO download button using real Company Settings", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-07", "msg": "Part Master table: added GRN column with Harvested badge, reordered columns; Ready to Sale: Model Summary gets checkboxes, Total Count Sold, and Request/Sell actions; TRC Dashboard: new Sales Request for Lot table", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-07", "msg": "Fixed GRN→Part Master sync failing silently on part-code collisions (now upserts instead of erroring the whole GRN); added soft-delete to GRN and Part Master records", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-07", "msg": "Added Attendance Config (group-manager scoping), Part Master bulk upload, PO Quantity field rename, and Harvest modal cleanup (table now auto-refreshes on save instead of requiring a manual reload)", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-07", "msg": "Fixed a bulk-upload upstream/timeout error on large CSVs; Move Item multi-scan support; Attendance Check In modal with duration rules", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-07", "msg": "Mirrored Part GRN line items into Part Master automatically; renamed L1 Engineer role label", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-07", "msg": "Added Invoice Number/PO Number fields to the IQC Customise (bulk Apply Grade/Device Type) modal; Device Type column added across inventory pages", "category": "Enhancement", "badge": "success"},
+    # ── 2026-07-06 ──────────────────────────────────────────────────────────────
+    {"date": "2026-07-06", "msg": "Sourcing Sales role now sees all-user dealer/call records (previously scoped only to Telecaller); Dealer Call Log field revisions; Assigned/User columns added", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-06", "msg": "Fixed TRC Manager Approve button visibility for custom roles; Dealer Management filter/pagination/AJAX overhaul; added Dealer Quotation feature", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-06", "msg": "Added Parts Consumption/IQC/Dashboard feature batch; fixed a page-title caching bug", "category": "Enhancement", "badge": "success"},
+    # ── 2026-07-05 ──────────────────────────────────────────────────────────────
+    {"date": "2026-07-05", "msg": "Fixed a 500 error on Assign User; added pagination; shared the Add Dealer modal across pages; hardened bulk upload error handling", "category": "Bug Fix", "badge": "danger"},
+    # ── 2026-07-04 ──────────────────────────────────────────────────────────────
+    {"date": "2026-07-04", "msg": "Fixed admin ticket visibility bug; Attendance Report gets a Role column defaulting to today-only view", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-04", "msg": "Removed the inline qty field from Parts Consumption's Action column; fixed In Stock not crediting correctly after a Sourcing Request is closed post-verification", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-04", "msg": "Part Request lifecycle status sync; Inventory Search gets pagination + search; Lot Detail page improvements", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-04", "msg": "Device Profile Parts Consumption: added Verify button and a Changed pill for handed-over parts", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-04", "msg": "Added Sidebar Config module for renaming sidebar labels, plus Permission Matrix updates", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-04", "msg": "Renamed the Assign Social Leads route path; fixed an accordion status-filter bug; reordered Zone dropdown options", "category": "Bug Fix", "badge": "danger"},
+    # ── 2026-07-03 ──────────────────────────────────────────────────────────────
+    {"date": "2026-07-03", "msg": "Added production DB drift-fix migration scripts (already applied to production)", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-03", "msg": "Fixed two production 500 errors and removed an N+1 query on Storage Location Master", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-03", "msg": "Dealer Call Log quantities; Application Settings permission matrix; Stock Inward location cascade; Attendance Role column; Storage Location edit", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-03", "msg": "Device Edit/IQC parity; Model/Lot-based tables; optional Lot + text-box specs; Dealer Management overhaul", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-03", "msg": "Unified Part Category across all parts modals; wired CRM detail dropdowns; fixed Device Detail Location fields and Inventory Search export", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-03", "msg": "Added 34 new Master Data dropdown categories with a cache-backed master_options() Jinja global", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-03", "msg": "Added Not In Stock/High Price/Invalid Number statuses, a Status filter, and accordion pill counts to Assign Social Leads", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-03", "msg": "Fixed sidebar scroll position to be exact — no visible jump on nav click", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-03", "msg": "Added a connection watchdog — full-screen loader instead of a raw 502 page during backend downtime", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-03", "msg": "Fixed the sidebar resetting scroll to top on every navigation", "category": "Bug Fix", "badge": "danger"},
+    {"date": "2026-07-03", "msg": "Renamed Category to Part Category app-wide; added Part Category cascade to the New Request/Replace modal", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-03", "msg": "Reworked Assign Social Leads: no-reload modals, deal-detail fields, summary cards", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-03", "msg": "Added telecalling deal-detail fields to the call log and dashboard, admin-managed via Master Data", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-03", "msg": "Added one-shot migration/verification scripts, uploaded manuals, and a warranty-agent Phase 2 scoping doc", "category": "Enhancement", "badge": "success"},
+    {"date": "2026-07-03", "msg": "Added a 24-item UI/feature batch: session-expiry fix, IQC location cascade, Move Device 3-tab rework, Stock Inward/TRC cost tables, CRM sourcing docs, Part Master sync fix", "category": "Enhancement", "badge": "success"},
     # ── 2026-07-01 ──────────────────────────────────────────────────────────────
     {"date": "2026-07-01", "msg": "Left nav: WA Audit Log + Parts Purchased/Tracking/Consumption moved into Application Settings; Company Setting + Cost Config moved into FINANCE section", "category": "Enhancement", "badge": "success"},
     {"date": "2026-07-01", "msg": "Sidebar auto-scroll-to-bottom on page load fixed (stale scroll-position restore removed)", "category": "Bug Fix", "badge": "danger"},

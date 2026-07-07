@@ -107,9 +107,9 @@
                        value="{{ lot.e_way_bill or '' if lot else '' }}">
               </div>
               <div class="col-md-4">
-                <label class="form-label fw-semibold">Quantity <span class="text-danger">*</span></label>
+                <label class="form-label fw-semibold">Quantity</label>
                 <input type="number" name="qty" class="form-control"
-                       placeholder="Total units" min="1" required
+                       placeholder="Total units (default 1)" min="1"
                        value="{{ lot.qty if lot else (prefill.qty if prefill else '') }}">
               </div>
             </div>
@@ -120,11 +120,11 @@
             <h6 class="fw-bold text-primary mb-3"><i class="bi bi-currency-rupee me-2"></i>Financial & GST</h6>
             <div class="row g-3">
               <div class="col-md-4">
-                <label class="form-label fw-semibold">Total Buying Price (₹) <span class="text-danger">*</span></label>
+                <label class="form-label fw-semibold">Total Buying Price (₹)</label>
                 <div class="input-group">
                   <span class="input-group-text">₹</span>
                   <input type="number" name="buying_price" class="form-control"
-                         placeholder="0.00" min="0" step="0.01" required
+                         placeholder="0.00 (default 0)" min="0" step="0.01"
                          value="{{ lot.buying_price if lot else (prefill.price if prefill else '') }}">
                 </div>
               </div>

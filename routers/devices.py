@@ -44,7 +44,7 @@ async def device_brief(barcode: str, db: AsyncSession = Depends(get_db),
     if not bc:
         return JSONResponse({"found": False})
     device = (await db.execute(
-        select(Device).where(or_(Device.barcode == bc, Device.serial_no == bc))
+        select(Device).where(or_(Device.barcode.ilike(bc), Device.serial_no.ilike(bc)))
     )).scalar_one_or_none()
     if not device:
         return JSONResponse({"found": False})

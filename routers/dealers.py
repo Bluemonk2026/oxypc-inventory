@@ -4,6 +4,7 @@ from utils.timezone import app_now
 import csv
 import io
 import math
+import re
 from decimal import Decimal
 from fastapi import APIRouter, Depends, Form, Request, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -756,23 +757,42 @@ async def dealers_bulk_upload_submit(
     phones_result = await db.execute(select(Dealer.phone).where(Dealer.phone.isnot(None)))
     existing_phones = {r for r in phones_result.scalars().all()}
 
+    # Existing business names — matched case-insensitively so "ABC Traders" and
+    # "abc traders" are treated as the same dealer, not two separate ones.
+    names_result = await db.execute(select(Dealer.business_name).where(Dealer.business_name.isnot(None)))
+    existing_names_lower = {r.strip().lower() for r in names_result.scalars().all()}
+
     added = []
     skipped = []
     errors = []
 
     seq = 0
     valid_types = {"retail", "wholesale", "online", "corporate"}
+    # A single phone number, optionally with a leading + and separator chars
+    # (spaces/dashes/dots) between digits — rejects anything with more than
+    # one number crammed into the same cell (comma/slash/semicolon-joined, etc).
+    _phone_re = re.compile(r"^\+?[\d][\d\-\.\s]{5,17}\d$")
 
     for i, row in enumerate(rows_data, start=2):  # row 1 = header
         business_name = row.get("business_name", "").strip()
         if not business_name:
             skipped.append({"row": i, "reason": "business_name is empty"})
             continue
-
-        phone = row.get("phone", "").strip() or None
-        if phone and phone in existing_phones:
-            skipped.append({"row": i, "business_name": business_name, "reason": f"Phone {phone} already exists"})
+        if business_name.lower() in existing_names_lower:
+            skipped.append({"row": i, "business_name": business_name, "reason": f"Business name '{business_name}' already exists"})
             continue
+
+        phone_raw = row.get("phone", "").strip()
+        phone = phone_raw or None
+        if phone:
+            digits_only = re.sub(r"\D", "", phone)
+            if not _phone_re.match(phone) or len(digits_only) > 15 or any(sep in phone_raw for sep in (",", "/", ";", "|")):
+                skipped.append({"row": i, "business_name": business_name,
+                                "reason": f"Phone '{phone_raw}' is not a single valid number (only one number per row)"})
+                continue
+            if phone in existing_phones:
+                skipped.append({"row": i, "business_name": business_name, "reason": f"Phone {phone} already exists"})
+                continue
 
         dealer_type = row.get("dealer_type", "retail").strip().lower() or "retail"
         if dealer_type not in valid_types:
@@ -799,6 +819,7 @@ async def dealers_bulk_upload_submit(
             db.add(dealer)
             if phone:
                 existing_phones.add(phone)
+            existing_names_lower.add(business_name.lower())
             added.append({"row": i, "business_name": business_name, "dealer_code": dealer_code})
         except Exception as exc:
             errors.append({"row": i, "business_name": business_name, "reason": str(exc)})

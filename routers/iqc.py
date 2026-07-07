@@ -239,26 +239,24 @@ async def agent_installer(current_user: User = Depends(allowed)):
 
 @router.get("/agent-installer-mac")
 async def agent_installer_mac(current_user: User = Depends(allowed)):
-    """Download the Diagnose_Device_Agent for macOS.
+    """Download the Diagnose_Device_Agent for macOS as a single .command file.
 
     If a compiled binary has been built ON a Mac (via PyInstaller — cross-
     compiling to macOS from Windows/Linux isn't possible) and dropped into
-    downloads/Diagnose_Device_Agent_mac.zip, serve that directly. Otherwise
-    build a zip on the fly containing the cross-platform agent source plus a
-    double-clickable .command launcher, so the feature works immediately
-    without waiting for a compiled build. Both paths need only python3
-    (pre-installed on macOS 12.3+; older macOS needs Xcode Command Line
-    Tools, no admin/sudo either way)."""
+    downloads/Diagnose_Device_Agent_mac (no extension, a native executable),
+    serve that directly. Otherwise, generate a single double-clickable
+    .command launcher with the cross-platform agent source embedded inline
+    (via a quoted heredoc) — no zip, no separate .py file, nothing to unzip.
+    Needs only python3 (pre-installed on macOS 12.3+; older macOS needs Xcode
+    Command Line Tools, no admin/sudo either way)."""
     import os
-    import io
-    import zipfile
-    from fastapi.responses import FileResponse, StreamingResponse
+    from fastapi.responses import FileResponse, PlainTextResponse
 
     repo_root = os.path.dirname(os.path.dirname(__file__))
     base = os.path.join(repo_root, "downloads")
-    prebuilt = os.path.join(base, "Diagnose_Device_Agent_mac.zip")
+    prebuilt = os.path.join(base, "Diagnose_Device_Agent_mac")
     if os.path.exists(prebuilt):
-        return FileResponse(prebuilt, filename="Diagnose_Device_Agent_mac.zip", media_type="application/zip")
+        return FileResponse(prebuilt, filename="Diagnose_Device_Agent.command", media_type="application/octet-stream")
 
     # Source-only fallback (works immediately, no compiled build required):
     # the agent script bundled inside this repo — same file used to build the
@@ -270,44 +268,31 @@ async def agent_installer_mac(current_user: User = Depends(allowed)):
     with open(agent_src_path, "r", encoding="utf-8") as fh:
         agent_source = fh.read()
 
-    launcher = """#!/bin/bash
+    # Single self-contained launcher: writes the embedded source to a local
+    # support-file path (quoted heredoc — no shell expansion of the embedded
+    # PowerShell-lookalike text/$-signs inside oxyqc_agent.py), then runs it.
+    command_file = f"""#!/bin/bash
 # Diagnose_Device_Agent launcher (macOS) — double-click to run.
-# First run installs itself under ~/Library/Application Support and registers
-# a per-user LaunchAgent (no sudo). After that, it starts automatically at login.
-cd "$(dirname "$0")"
+# Self-contained: no unzip needed. First run writes the agent to
+# ~/Library/Application Support and registers a per-user LaunchAgent (no
+# sudo). After that, it starts automatically at login.
+set -e
 PY=$(command -v python3 || echo "")
 if [ -z "$PY" ]; then
   osascript -e 'display alert "Python 3 not found" message "Install it from python.org or run: xcode-select --install, then double-click this file again."'
   exit 1
 fi
-"$PY" oxyqc_agent.py
+SUPPORT_DIR="$HOME/Library/Application Support/Diagnose_Device_Agent"
+mkdir -p "$SUPPORT_DIR"
+cat <<'OXYQC_AGENT_PY_EOF' > "$SUPPORT_DIR/oxyqc_agent.py"
+{agent_source}
+OXYQC_AGENT_PY_EOF
+"$PY" "$SUPPORT_DIR/oxyqc_agent.py"
 """
 
-    readme = """Diagnose_Device_Agent — macOS setup
-=====================================
-1. Unzip this folder.
-2. Double-click "Diagnose_Device_Agent.command".
-   (First time: right-click it -> Open, to bypass Gatekeeper's
-   "unidentified developer" warning — this is a one-time step.)
-3. Leave the Terminal window open the first time; the agent installs itself
-   under ~/Library/Application Support/Diagnose_Device_Agent and registers
-   to start automatically at login from then on.
-4. Back on the IQC page, click "Diagnose this Device".
-
-No admin password / sudo is needed for any of this.
-"""
-
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("oxyqc_agent.py", agent_source)
-        zi = zipfile.ZipInfo("Diagnose_Device_Agent.command")
-        zi.external_attr = 0o755 << 16  # executable bit, preserved by unzip on macOS
-        zf.writestr(zi, launcher)
-        zf.writestr("README.txt", readme)
-    buf.seek(0)
-    return StreamingResponse(
-        buf, media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=Diagnose_Device_Agent_mac.zip"},
+    return PlainTextResponse(
+        command_file, media_type="application/octet-stream",
+        headers={"Content-Disposition": "attachment; filename=Diagnose_Device_Agent.command"},
     )
 
 

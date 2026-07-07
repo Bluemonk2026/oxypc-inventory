@@ -16,7 +16,7 @@ class Dealer(Base):
     first_name = Column(String(100), nullable=True)   # Contact first name (for WA personalisation)
     last_name = Column(String(100), nullable=True)    # Contact last name
     contact_person = Column(String(100), nullable=True)
-    phone = Column(String(20), nullable=True)
+    phone = Column(String(100), nullable=True)  # may hold multiple comma/slash/semicolon/pipe-separated numbers
     whatsapp_number = Column(String(20), nullable=True)
     email = Column(String(100), nullable=True)
     address = Column(Text, nullable=True)

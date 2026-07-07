@@ -196,6 +196,119 @@
   {% endfor %}
 </div>
 
+<!-- Application Workflow -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent fw-semibold small text-uppercase">
+    <i class="bi bi-diagram-3 me-2"></i>Application Workflow
+  </div>
+  <div class="card-body">
+    <div style="overflow-x:auto">
+      <svg viewBox="0 0 1180 560" xmlns="http://www.w3.org/2000/svg" style="width:100%;min-width:900px;height:auto">
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="#6c757d"/>
+          </marker>
+        </defs>
+        <style>
+          .node   { stroke-width:1.2; rx:8; }
+          .lbl    { font-family:Arial,Helvetica,sans-serif; font-size:12.5px; font-weight:600; fill:#212529; }
+          .lane   { font-family:Arial,Helvetica,sans-serif; font-size:11px; font-weight:700; fill:#6c757d; letter-spacing:.5px; }
+          .edge   { stroke:#6c757d; stroke-width:1.4; fill:none; marker-end:url(#arrow); }
+          .edge-ret { stroke:#dc3545; stroke-width:1.4; fill:none; marker-end:url(#arrow); stroke-dasharray:5,3; }
+        </style>
+
+        <!-- Lane labels -->
+        <text x="10" y="30"  class="lane">INBOUND / SOURCING</text>
+        <text x="10" y="140" class="lane">IQC &amp; REFURBISHMENT</text>
+        <text x="10" y="260" class="lane">QC &amp; SALES-READY</text>
+        <text x="10" y="360" class="lane">DEALER / TELECALLING / CRM</text>
+        <text x="10" y="470" class="lane">RETURNS &amp; SERVICE LOOP</text>
+
+        <!-- Lane 1: Inbound -->
+        <rect x="10"  y="45" width="150" height="50" class="node" fill="#e7f1ff" stroke="#0d6efd"/>
+        <text x="85" y="75" text-anchor="middle" class="lbl">Purchase Order</text>
+
+        <rect x="220" y="45" width="150" height="50" class="node" fill="#e7f1ff" stroke="#0d6efd"/>
+        <text x="295" y="70" text-anchor="middle" class="lbl">GRN</text>
+        <text x="295" y="85" text-anchor="middle" class="lbl" style="font-weight:400;font-size:10.5px">(Goods Receipt)</text>
+
+        <rect x="430" y="45" width="150" height="50" class="node" fill="#e7f1ff" stroke="#0d6efd"/>
+        <text x="505" y="75" text-anchor="middle" class="lbl">Lot / Stock Inward</text>
+
+        <path class="edge" d="M160,70 H220"/>
+        <path class="edge" d="M370,70 H430"/>
+
+        <!-- Lane 2: IQC & Refurbishment -->
+        <rect x="430" y="155" width="150" height="50" class="node" fill="#fff3cd" stroke="#997404"/>
+        <text x="505" y="185" text-anchor="middle" class="lbl">Product IQC</text>
+        <path class="edge" d="M505,95 V155"/>
+
+        <rect x="640" y="155" width="140" height="50" class="node" fill="#fff3cd" stroke="#997404"/>
+        <text x="710" y="177" text-anchor="middle" class="lbl">Grading</text>
+        <text x="710" y="192" text-anchor="middle" class="lbl" style="font-weight:400;font-size:10.5px">(A / B / C)</text>
+        <path class="edge" d="M580,180 H640"/>
+
+        <rect x="840" y="120" width="130" height="42" class="node" fill="#fff3cd" stroke="#997404"/>
+        <text x="905" y="146" text-anchor="middle" class="lbl">Repair L1</text>
+        <rect x="840" y="170" width="130" height="42" class="node" fill="#fff3cd" stroke="#997404"/>
+        <text x="905" y="196" text-anchor="middle" class="lbl">Repair L2</text>
+        <rect x="840" y="220" width="130" height="42" class="node" fill="#fff3cd" stroke="#997404"/>
+        <text x="905" y="246" text-anchor="middle" class="lbl">Repair L3</text>
+        <path class="edge" d="M780,168 H820 V141 H840"/>
+        <path class="edge" d="M780,180 H840"/>
+        <path class="edge" d="M780,192 H820 V241 H840"/>
+
+        <rect x="1010" y="170" width="150" height="50" class="node" fill="#fff3cd" stroke="#997404"/>
+        <text x="1085" y="192" text-anchor="middle" class="lbl">Stress Test / QC</text>
+        <path class="edge" d="M970,141 H990 V195 H1010"/>
+        <path class="edge" d="M970,191 H1010"/>
+        <path class="edge" d="M970,241 H990 V195 H1010"/>
+
+        <!-- Lane 3: QC & Sales-ready -->
+        <rect x="840" y="275" width="150" height="50" class="node" fill="#d1e7dd" stroke="#146c43"/>
+        <text x="915" y="305" text-anchor="middle" class="lbl">Ready to Sale</text>
+        <path class="edge" d="M1085,220 V255 H915 V275"/>
+
+        <rect x="640" y="275" width="150" height="50" class="node" fill="#d1e7dd" stroke="#146c43"/>
+        <text x="715" y="305" text-anchor="middle" class="lbl">Dispatch</text>
+        <path class="edge" d="M840,300 H790"/>
+
+        <rect x="430" y="275" width="150" height="50" class="node" fill="#d1e7dd" stroke="#146c43"/>
+        <text x="505" y="298" text-anchor="middle" class="lbl">Sales / Invoice</text>
+        <text x="505" y="312" text-anchor="middle" class="lbl" style="font-weight:400;font-size:10.5px">&amp; Customer</text>
+        <path class="edge" d="M640,300 H580"/>
+
+        <!-- Lane 4: Dealer / CRM -->
+        <rect x="10"  y="375" width="150" height="50" class="node" fill="#e2e3ff" stroke="#6f42c1"/>
+        <text x="85" y="405" text-anchor="middle" class="lbl">Dealer Mgmt</text>
+
+        <rect x="220" y="375" width="150" height="50" class="node" fill="#e2e3ff" stroke="#6f42c1"/>
+        <text x="295" y="405" text-anchor="middle" class="lbl">Telecalling</text>
+        <path class="edge" d="M160,400 H220"/>
+
+        <rect x="430" y="375" width="150" height="50" class="node" fill="#e2e3ff" stroke="#6f42c1"/>
+        <text x="505" y="405" text-anchor="middle" class="lbl">Quotation</text>
+        <path class="edge" d="M370,400 H430"/>
+        <path class="edge" d="M505,375 V325"/>
+
+        <!-- Lane 5: Returns loop -->
+        <rect x="430" y="480" width="150" height="50" class="node" fill="#f8d7da" stroke="#b02a37"/>
+        <text x="505" y="510" text-anchor="middle" class="lbl">Returns</text>
+        <path class="edge-ret" d="M505,325 V480"/>
+        <path class="edge-ret" d="M480,480 V232 H840"/>
+        <text x="600" y="465" class="lbl" style="font-weight:400;font-size:10.5px;fill:#b02a37">Return-to-Repair / IQC loop</text>
+      </svg>
+    </div>
+    <div class="small text-muted mt-2">
+      <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle me-1">&nbsp;</span> Inbound / Sourcing
+      <span class="badge bg-warning bg-opacity-25 text-dark border border-warning-subtle ms-3 me-1">&nbsp;</span> IQC &amp; Refurbishment
+      <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle ms-3 me-1">&nbsp;</span> QC &amp; Sales-Ready
+      <span class="badge ms-3 me-1" style="background:#e2e3ff;border:1px solid #6f42c1">&nbsp;</span> Dealer / CRM
+      <span class="badge bg-danger bg-opacity-10 text-danger border border-danger-subtle ms-3 me-1">&nbsp;</span> Returns Loop
+    </div>
+  </div>
+</div>
+
 <!-- Recent Changes (last 15 days) -->
 <div class="card border-0 shadow-sm">
   <div class="card-header bg-transparent d-flex justify-content-between align-items-center">

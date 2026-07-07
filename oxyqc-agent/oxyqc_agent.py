@@ -129,7 +129,25 @@ if(-not $bh -and $batt){try{$rf=[System.IO.Path]::Combine($env:TEMP,'bh_'+[guid]
 $batt_wh=$null
 if($full -gt 0){$batt_wh=[math]::Round($full/1000.0, 1)}
 $storage_health=$null
-try{$disksHealth=@(Get-PhysicalDisk|Where-Object{$_.Size -gt 30GB}|Select-Object HealthStatus,MediaType,OperationalStatus);if($disksHealth.Count -gt 0){$h2=$disksHealth|Where-Object{$_.HealthStatus -eq 'Healthy'};$storage_health=[math]::Round(($h2.Count/$disksHealth.Count)*100)}}catch{}
+try{
+  $bigDisks=@(Get-PhysicalDisk|Where-Object{$_.Size -gt 30GB})
+  if($bigDisks.Count -gt 0){
+    # Prefer real SMART/NVMe wear-level data (Wear = % of rated life used) so
+    # Storage Health % reflects actual drive wear, not just a healthy/unhealthy flag.
+    $wears=@()
+    foreach($d in $bigDisks){
+      try{$rc=$d|Get-StorageReliabilityCounter -EA SilentlyContinue;if($rc -and $rc.Wear -ne $null -and $rc.Wear -ge 0){$wears+=(100-[double]$rc.Wear)}}catch{}
+    }
+    if($wears.Count -gt 0){
+      $storage_health=[math]::Round(($wears|Measure-Object -Average).Average)
+    } else {
+      # Fallback: fraction of disks reporting a Healthy operational status.
+      $disksHealth=@($bigDisks|Select-Object HealthStatus,MediaType,OperationalStatus)
+      $h2=$disksHealth|Where-Object{$_.HealthStatus -eq 'Healthy'}
+      $storage_health=[math]::Round(($h2.Count/$disksHealth.Count)*100)
+    }
+  }
+}catch{}
 $fan_working=$null;$fan_rpm=$null
 try{$allFans=@(Get-CimInstance -Namespace root\wmi -ClassName Win32_Fan -EA SilentlyContinue);if($allFans.Count -gt 0){$fan_working='Yes';$spd=$allFans|Where-Object{$_.DesiredSpeed -gt 0};if($spd){$fan_rpm=[int]$spd[0].DesiredSpeed}}}catch{}
 if(-not $fan_working){try{$fd=@(Get-CimInstance Win32_PnPEntity -EA SilentlyContinue|Where-Object{$_.DeviceID -match 'ACPI\\PNP0C0B'});if($fd.Count -gt 0){$ok=$fd|Where-Object{$_.ConfigManagerErrorCode -eq 0 -or $_.ConfigManagerErrorCode -eq $null};$fan_working=if($ok){'Yes'}else{'No'}}}catch{}}
@@ -326,6 +344,57 @@ def _mac_usb_c_estimate(model_name):
     return 0
 
 
+def _mac_physical_disk_ids():
+    """Return internal physical disk identifiers (e.g. ['disk0']) by parsing
+    `diskutil list`, skipping external/virtual disks. No sudo required."""
+    ids = []
+    try:
+        r = subprocess.run(["diskutil", "list"], capture_output=True, text=True, timeout=10)
+        for block in re.split(r"\n(?=/dev/)", r.stdout or ""):
+            m = re.match(r"/dev/(disk\d+)\s*\(([^)]*)\)", block)
+            if m and "internal" in m.group(2) and "physical" in m.group(2):
+                ids.append(m.group(1))
+    except Exception:
+        pass
+    return ids
+
+
+def _mac_storage_health():
+    """Best-effort per-disk wear percentage for internal storage.
+
+    Apple's own internal NVMe controller doesn't expose SMART wear data through
+    any built-in, no-sudo API — so this only produces a real percentage when
+    `smartctl` (smartmontools, e.g. `brew install smartmontools`) is present on
+    the technician's station. Without it, returns None rather than a fabricated
+    number; the technician's own eyes (drive age / diskutil health) still apply.
+    """
+    smartctl = shutil.which("smartctl")
+    if not smartctl:
+        return None
+    healths = []
+    for disk_id in _mac_physical_disk_ids():
+        try:
+            r = subprocess.run([smartctl, "-a", "-j", f"/dev/{disk_id}"],
+                                capture_output=True, text=True, timeout=15)
+            data = json.loads(r.stdout or "{}")
+        except Exception:
+            continue
+        # NVMe: percentage_used is "% of rated endurance consumed" -> health = 100 - used
+        used = (data.get("nvme_smart_health_information_log") or {}).get("percentage_used")
+        if used is not None:
+            healths.append(max(0, 100 - int(used)))
+            continue
+        # SATA SSD: attribute 202 (SSD Life Left) or 177 (Wear Leveling Count) is
+        # already a remaining-life percentage.
+        for attr in (data.get("ata_smart_attributes") or {}).get("table", []):
+            if attr.get("id") in (202, 177) and attr.get("value") is not None:
+                healths.append(int(attr["value"]))
+                break
+    if not healths:
+        return None
+    return round(sum(healths) / len(healths))
+
+
 def _probe_mac():
     """Gather the same info-dict schema as _probe_windows(), using macOS
     command-line tools (system_profiler, ioreg, networksetup) — every command
@@ -437,6 +506,8 @@ def _probe_mac():
 
     dvd_present = False  # no Mac model since ~2016 ships an internal optical drive
 
+    storage_health = _mac_storage_health()
+
     info = {
         "manufacturer": "Apple",
         "model": model_name or model_id,
@@ -466,7 +537,7 @@ def _probe_mac():
         "has_gpu": bool(gpu_name),
         "mons_count": mons_count,
         "battery_wh": battery_wh,
-        "storage_health": None,   # not available without smartctl/third-party tools
+        "storage_health": storage_health,
         "fan_working": None,      # not reliably readable without elevated tools (powermetrics)
         "fan_rpm": None,
     }

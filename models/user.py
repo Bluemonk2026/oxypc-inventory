@@ -28,7 +28,7 @@ ROLE_LABELS = {
     UserRole.admin: "Admin",
     UserRole.inventory_manager: "Inventory Manager",
     UserRole.iqc_inspector: "IQC Handler",
-    UserRole.l1_engineer: "L1 Engineer",
+    UserRole.l1_engineer: "L1/L2 Engineer",
     UserRole.l2_engineer: "L2 Engineer",
     UserRole.l3_engineer: "L3/L4 Engineer",
     UserRole.qc_inspector: "QC Handler",

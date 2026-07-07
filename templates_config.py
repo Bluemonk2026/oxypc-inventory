@@ -114,7 +114,7 @@ _ROLE_DISPLAY = {
     "admin": "Admin",
     "inventory_manager": "Inventory Manager",
     "iqc_inspector": "IQC Handler",
-    "l1_engineer": "L1 Engineer",
+    "l1_engineer": "L1/L2 Engineer",
     "l2_engineer": "L2 Engineer",
     "l3_engineer": "L3/L4 Engineer",
     "qc_inspector": "QC Handler",

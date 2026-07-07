@@ -178,9 +178,10 @@ async def grn_create(
         items = []
 
     for item in items:
+        part_id = item.get("part_id") or _new_part_id()
         db.add(PartsGRNLineItem(
             grn_id=grn.id,
-            part_id=item.get("part_id") or _new_part_id(),
+            part_id=part_id,
             lot_number=_f(item.get("lot_number")),
             po_number=_f(item.get("po_number")) or grn.po_number,
             grn_number=grn_number,
@@ -200,6 +201,22 @@ async def grn_create(
             invoice_ref=_f(item.get("invoice_ref")),
             remarks=_f(item.get("remarks")),
             is_harvest=False,
+        ))
+
+        # Mirror into Part Master so GRN line items appear on the Parts Dashboard
+        # (Added As "New"), matching the existing Harvest-part mirror below.
+        sp_qty = _i(item.get("physical_qty")) or _i(item.get("invoice_qty")) or 0
+        sp_price = _d(item.get("price"))
+        db.add(SparePart(
+            part_code=part_id,
+            name=_f(item.get("part_name")) or _f(item.get("item_name")) or _f(item.get("product_description")) or "GRN Part",
+            category=_f(item.get("category")) or "Other",
+            unit_price=float(sp_price) if sp_price is not None else 0.0,
+            qty_in_stock=sp_qty,
+            min_stock_alert=5,
+            supplier=_f(item.get("vendor_name")) or grn.vendor_name,
+            notes=_f(item.get("product_description")),
+            source="new",
         ))
 
     await db.commit()

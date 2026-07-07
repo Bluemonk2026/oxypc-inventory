@@ -326,6 +326,9 @@ async def usb_import(current_user: User = Depends(allowed)):
     return {"source": str(f), "data": data}
 
 
+DEVICE_TYPE_OPTIONS = ["Laptop", "Desktop", "AIO", "Workstation", "Mini PC", "Server", "Tablet"]
+
+
 @router.get("", response_class=HTMLResponse)
 async def iqc_list(
     request: Request,
@@ -333,14 +336,19 @@ async def iqc_list(
     current_user: User = Depends(allowed),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
+    device_type: str = Query(default=""),
 ):
+    base_filters = [Device.current_stage == DeviceStage.iqc, Device.is_active.is_(True), Device.is_trashed == False]
+    if device_type:
+        base_filters.append(Device.device_type == device_type)
+
     base_q = (
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id)
-        .where(Device.current_stage == DeviceStage.iqc, Device.is_active.is_(True), Device.is_trashed == False)
+        .where(*base_filters)
     )
     total_result = await db.execute(select(func.count()).select_from(
-        select(Device.id).where(Device.current_stage == DeviceStage.iqc, Device.is_active.is_(True), Device.is_trashed == False).subquery()
+        select(Device.id).where(*base_filters).subquery()
     ))
     total = total_result.scalar() or 0
     total_pages = max(1, (total + page_size - 1) // page_size)
@@ -355,6 +363,7 @@ async def iqc_list(
     return templates.TemplateResponse("iqc/list.html", {
         "request": request, "devices": devices, "lots": lots, "current_user": current_user,
         "page": page, "page_size": page_size, "total": total, "total_pages": total_pages,
+        "device_type": device_type, "device_type_options": DEVICE_TYPE_OPTIONS,
     })
 
 
@@ -430,17 +439,19 @@ async def iqc_bulk_apply_grade_type(
     barcodes: list[str] = Form(...),
     device_type: str = Form(""),
     grade: str = Form(""),
+    invoice_number: str = Form(""),
+    po_number: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("iqc", "edit")),
 ):
-    """Bulk-apply Device Type and/or Grade to a set of Tag Numbers selected on
-    the Product IQC table (checkbox multi-select + Customise modal)."""
+    """Bulk-apply Device Type, Grade, Invoice Number and/or PO Number to a set of
+    Tag Numbers selected on the Product IQC table (checkbox multi-select + Customise modal)."""
     barcodes = [b.strip() for b in barcodes if b and b.strip()]
     if not barcodes:
         return RedirectResponse(url="/iqc?error=No+devices+selected", status_code=302)
-    if not device_type.strip() and not grade.strip():
-        return RedirectResponse(url="/iqc?error=Select+a+Device+Type+or+Grade+to+apply", status_code=302)
+    if not device_type.strip() and not grade.strip() and not invoice_number.strip() and not po_number.strip():
+        return RedirectResponse(url="/iqc?error=Select+a+field+to+apply", status_code=302)
 
     result = await db.execute(select(Device).where(Device.barcode.in_(barcodes)))
     devices = result.scalars().all()
@@ -449,10 +460,16 @@ async def iqc_bulk_apply_grade_type(
             device.device_type = device_type.strip()
         if grade.strip():
             device.grade = grade.strip()
+        if invoice_number.strip():
+            device.invoice_number = invoice_number.strip()
+        if po_number.strip():
+            device.po_number = po_number.strip()
 
     await audit(db, action="IQC_BULK_GRADE_TYPE_APPLIED", user=current_user,
                 table_name="devices", record_id=",".join(str(d.id) for d in devices)[:50],
-                new_value={"device_type": device_type or None, "grade": grade or None, "count": len(devices)},
+                new_value={"device_type": device_type or None, "grade": grade or None,
+                           "invoice_number": invoice_number or None, "po_number": po_number or None,
+                           "count": len(devices)},
                 request=request)
     await db.commit()
     return RedirectResponse(url=f"/iqc?success={len(devices)}+device(s)+updated", status_code=302)

@@ -120,12 +120,37 @@
                placeholder="Scan / type tag number…" style="width:220px" autocomplete="off">
       </div>
     </div>
+    <div class="card-body pb-0 pt-2 px-3">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold mb-1">Search Invoice</label>
+          <input type="text" id="fPendInvoice" class="form-control form-control-sm" placeholder="Invoice number…">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold mb-1">Search PO</label>
+          <input type="text" id="fPendPo" class="form-control form-control-sm" placeholder="PO number…">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold mb-1">Device Type</label>
+          <select id="fPendDeviceType" class="form-select form-select-sm">
+            <option value="">All Device Types</option>
+            {% for dt in device_type_options %}
+            <option value="{{ dt }}">{{ dt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <button type="button" id="fPendReset" class="btn btn-outline-secondary btn-sm">Reset Filters</button>
+        </div>
+      </div>
+    </div>
     <div class="card-body p-0">
       <div class="table-responsive">
         <table id="pendingTable" class="table table-hover mb-0 small align-middle">
           <thead class="table-light"><tr>
             <th class="ps-3" style="width:40px"><input type="checkbox" id="checkAll"></th>
-            <th>Tag Number</th><th>Brand</th><th>Model</th><th>RAM</th><th>Storage</th><th>Stage</th>
+            <th>Tag Number</th><th>Brand</th><th>Model</th><th>Device Type</th><th>RAM</th><th>Storage</th><th>Stage</th>
+            <th class="d-none">Invoice</th><th class="d-none">PO</th>
           </tr></thead>
           <tbody>
             {% for d in pending %}
@@ -135,12 +160,15 @@
               <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
               <td>{{ d.brand or '—' }}</td>
               <td>{{ d.model or '—' }}</td>
+              <td>{{ d.device_type or '—' }}</td>
               <td>{{ (d.ram_gb|string ~ ' GB') if d.ram_gb else '—' }}</td>
               <td>{{ (d.storage_gb|string ~ ' GB') if d.storage_gb else '—' }}</td>
               <td><span class="badge bg-{{ d.stage_color }}">{{ d.stage_label }}</span></td>
+              <td class="d-none">{{ d.invoice_number or '' }}</td>
+              <td class="d-none">{{ d.po_number or '' }}</td>
             </tr>
             {% else %}
-            <tr><td colspan="7" class="text-center text-muted py-4">No tag numbers pending a GRN.</td></tr>
+            <tr><td colspan="9" class="text-center text-muted py-4">No tag numbers pending a GRN.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -248,7 +276,33 @@ $(document).ready(function(){
     });
   }
   if ($('#pendingTable tbody tr td').length > 1) {
-    $('#pendingTable').DataTable({pageLength:25, order:[], columnDefs:[{orderable:false, targets:0}]});
+    var dtPend = $('#pendingTable').DataTable({
+      pageLength:25, order:[],
+      columnDefs:[{orderable:false, targets:0}, {visible:false, targets:[8,9]}],
+    });
+    $.fn.dataTable.ext.search.push(function(settings, data){
+      if (settings.nTable.id !== 'pendingTable') return true;
+      var invTerm = document.getElementById('fPendInvoice').value.trim().toLowerCase();
+      var poTerm = document.getElementById('fPendPo').value.trim().toLowerCase();
+      var dtypeTerm = document.getElementById('fPendDeviceType').value;
+      if (dtypeTerm && (data[4] || '') !== dtypeTerm) return false;
+      if (!invTerm && !poTerm) return true;
+      var invVal = (data[8] || '').toLowerCase();
+      var poVal = (data[9] || '').toLowerCase();
+      var matchInv = invTerm && invVal.indexOf(invTerm) !== -1;
+      var matchPo = poTerm && poVal.indexOf(poTerm) !== -1;
+      return !!(matchInv || matchPo);
+    });
+    ['fPendInvoice','fPendPo'].forEach(function(id){
+      document.getElementById(id).addEventListener('input', function(){ dtPend.draw(); });
+    });
+    document.getElementById('fPendDeviceType').addEventListener('change', function(){ dtPend.draw(); });
+    document.getElementById('fPendReset').addEventListener('click', function(){
+      document.getElementById('fPendInvoice').value = '';
+      document.getElementById('fPendPo').value = '';
+      document.getElementById('fPendDeviceType').value = '';
+      dtPend.draw();
+    });
   }
 });
 

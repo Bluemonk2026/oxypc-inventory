@@ -89,6 +89,8 @@ class Device(Base):
     brand = Column(String(50), nullable=True, index=True)
     model = Column(String(100), nullable=True)
     device_type = Column(String(30), nullable=True)
+    invoice_number = Column(String(100), nullable=True)  # bulk-set via Product IQC Customise modal
+    po_number = Column(String(100), nullable=True)        # bulk-set via Product IQC Customise modal
     serial_no = Column(String(100), nullable=True)
     sub_category = Column(String(20), nullable=True, index=True)   # Laptop / Desktop / TFT
     cpu = Column(String(100), nullable=True)

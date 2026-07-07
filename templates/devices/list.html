@@ -43,6 +43,15 @@
           {% endfor %}
         </select>
       </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Device Type</label>
+        <select name="device_type" class="form-select form-select-sm">
+          <option value="">All Device Types</option>
+          {% for dt in device_type_options %}
+          <option value="{{ dt }}" {% if device_type == dt %}selected{% endif %}>{{ dt }}</option>
+          {% endfor %}
+        </select>
+      </div>
       <div class="col-md-2 d-flex gap-2">
         <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
           <i class="bi bi-search me-1"></i>Search
@@ -69,7 +78,7 @@
             onclick="submitBulkTrash()" title="Move selected devices to Trash">
       <i class="bi bi-trash3 me-1"></i>Delete Selected (<span id="selCount">0</span>)
     </button>
-    <a href="/devices/export?q={{ q | urlencode }}&stage={{ stage | urlencode }}&lot={{ lot | urlencode }}&grade={{ grade | urlencode }}&category={{ category | urlencode }}"
+    <a href="/devices/export?q={{ q | urlencode }}&stage={{ stage | urlencode }}&lot={{ lot | urlencode }}&grade={{ grade | urlencode }}&category={{ category | urlencode }}&device_type={{ device_type | urlencode }}"
        class="btn btn-sm btn-outline-success">
       <i class="bi bi-download me-1"></i>Export CSV
     </a>
@@ -88,6 +97,7 @@
             <th>Lot</th>
             <th>Brand</th>
             <th>Model</th>
+            <th>Device Type</th>
             <th>CPU</th>
             <th>RAM</th>
             <th>Storage</th>
@@ -108,6 +118,7 @@
             <td><a href="/devices?lot={{ lot_number }}" class="btn btn-sm py-0 px-2 small text-decoration-none" style="background-color:#ffffff;border:1px solid #6C757D;color:#6C757D;">{{ lot_number }}</a></td>
             <td class="small">{{ device.brand or '—' }}</td>
             <td class="small">{{ device.model or '—' }}</td>
+            <td class="small">{{ device.device_type or '—' }}</td>
             <td class="text-muted small">{{ device.cpu or '—' }}</td>
             <td class="small">{{ device.ram_gb ~ 'GB' if device.ram_gb else '—' }}</td>
             <td class="small">

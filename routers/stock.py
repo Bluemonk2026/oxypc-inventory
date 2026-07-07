@@ -852,13 +852,18 @@ async def stock_in_list(
     current_user: User = Depends(allowed),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
+    device_type: str = Query(default=""),
 ):
     offset = (page - 1) * page_size
+
+    stock_filters = [Device.current_stage == DeviceStage.stock_in, Device.is_active == True]
+    if device_type:
+        stock_filters.append(Device.device_type == device_type)
 
     base_stmt = (
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id)
-        .where(Device.current_stage == DeviceStage.stock_in, Device.is_active == True)
+        .where(*stock_filters)
     )
 
     total_result = await db.execute(
@@ -924,6 +929,8 @@ async def stock_in_list(
         "departments": STOCK_DEPARTMENTS,
         "cost_parts_map": cost_parts_map, "location_map": location_map,
         "page": page, "page_size": page_size, "total": total, "total_pages": total_pages,
+        "device_type": device_type,
+        "device_type_options": ["Laptop", "Desktop", "AIO", "Workstation", "Mini PC", "Server", "Tablet"],
         "zone_options": [
             (z.value, ZONE_LABELS.get(z, z.value))
             for z in [ZoneType.workshop, ZoneType.holding, ZoneType.dispatch, ZoneType.showroom, ZoneType.warehouse]

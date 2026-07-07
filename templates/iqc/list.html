@@ -2,6 +2,25 @@
 {% block title %}IQC List — OxyPC{% endblock %}
 {% block page_title %}IQC Inspection{% endblock %}
 {% block content %}
+<form method="get" action="/iqc" class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold mb-1">Device Type</label>
+        <select name="device_type" class="form-select form-select-sm">
+          <option value="">All Device Types</option>
+          {% for dt in device_type_options %}
+          <option value="{{ dt }}" {% if device_type == dt %}selected{% endif %}>{{ dt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2 d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm flex-grow-1"><i class="bi bi-search me-1"></i>Filter</button>
+        <a href="/iqc" class="btn btn-outline-secondary btn-sm">Reset</a>
+      </div>
+    </div>
+  </div>
+</form>
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <span class="text-muted">{{ devices|length }} device(s) in IQC</span>
   <div class="d-flex gap-2 flex-wrap">
@@ -32,7 +51,7 @@
         <thead class="table-dark">
           <tr>
             <th style="width:32px"><input type="checkbox" id="iqcSelectAllChk" class="form-check-input" title="Select all on this page"></th>
-            <th>Serial Number</th><th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>CPU</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Floor</th><th>Added</th><th>Action</th>
+            <th>Serial Number</th><th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Device Type</th><th>CPU</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Floor</th><th>Added</th><th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -44,6 +63,7 @@
             <td><a href="/devices?lot={{ lot_number }}" class="text-decoration-none"><span class="badge bg-info text-dark">{{ lot_number }}</span></a></td>
             <td>{{ device.brand or '—' }}</td>
             <td>{{ device.model or '—' }}</td>
+            <td>{{ device.device_type or '—' }}</td>
             <td class="text-muted small">{{ device.cpu or '—' }}</td>
             <td>{{ device.ram_gb ~ 'GB' if device.ram_gb else '—' }}</td>
             <td>{{ (device.storage_gb|string ~ 'GB ' ~ (device.storage_type or '')) if device.storage_gb else '—' }}</td>
@@ -171,12 +191,20 @@
               <option>Workstation</option><option>Mini PC</option><option>Server</option><option>Tablet</option>
             </select>
           </div>
-          <div class="mb-2">
+          <div class="mb-3">
             <label class="form-label small">Grade</label>
             <select name="grade" class="form-select form-select-sm">
               <option value="">— Leave unchanged —</option>
               <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="scrap">Scrap</option>
             </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small">Invoice Number</label>
+            <input type="text" name="invoice_number" class="form-control form-control-sm" placeholder="Leave blank to leave unchanged">
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">PO Number</label>
+            <input type="text" name="po_number" class="form-control form-control-sm" placeholder="Leave blank to leave unchanged">
           </div>
         </div>
         <div class="modal-footer py-2">
@@ -194,7 +222,7 @@
 $(document).ready(function(){
   var dt = $('#iqcTable').DataTable({
     pageLength:25,
-    columnDefs:[{visible:false, targets:[10,11]}, {orderable:false, targets:[0,-1]}],
+    columnDefs:[{visible:false, targets:[11,12]}, {orderable:false, targets:[0,-1]}],
   });
   window._dtIqc = dt;
 

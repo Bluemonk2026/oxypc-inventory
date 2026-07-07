@@ -97,6 +97,7 @@ async def grn_post_iqc(request: Request, db: AsyncSession = Depends(get_db),
         "request": request, "grns": grns, "pending": pending,
         "current_user": current_user, "error": error, "success": success,
         "highlight_tag": highlight_tag,
+        "device_type_options": ["Laptop", "Desktop", "AIO", "Workstation", "Mini PC", "Server", "Tablet"],
     })
 
 

@@ -158,6 +158,7 @@ async def device_search(
     lot: str = "",
     grade: str = "",
     category: str = "",
+    device_type: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(view_allowed),
 ):
@@ -190,6 +191,8 @@ async def device_search(
         filters.append(Device.grade == grade)
     if category:
         filters.append(Device.sub_category == category)
+    if device_type:
+        filters.append(Device.device_type == device_type)
 
     for f in filters:
         query = query.where(f)
@@ -232,6 +235,8 @@ async def device_search(
         "devices": devices, "lots": lots,
         "stages": DeviceStage, "stage_labels": STAGE_LABELS,
         "q": q, "stage": stage, "lot": lot, "grade": grade, "category": category,
+        "device_type": device_type,
+        "device_type_options": ["Laptop", "Desktop", "AIO", "Workstation", "Mini PC", "Server", "Tablet"],
         "total": len(devices),
         "location_map": location_map,
         "stock_price_map": stock_price_map, "sale_price_map": sale_price_map,

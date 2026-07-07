@@ -25,10 +25,17 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 import platform
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = 8765
+# Bump this whenever detect()/probe logic changes materially. Lets a freshly
+# downloaded exe recognise a stale already-running instance and replace it
+# (see _shutdown_running_instance) instead of silently no-op'ing behind it.
+AGENT_VERSION = "2026-07-08.1"
 IS_WINDOWS = platform.system() == "Windows"
 IS_MAC = platform.system() == "Darwin"
 
@@ -77,6 +84,26 @@ def _set_autostart(path):
         pass
 
 
+def _shutdown_running_instance():
+    """Ask any already-running instance (old or new) to exit, so this run —
+    whether it's a fresh download replacing a stale install, or the
+    just-installed copy about to bind the port — doesn't fight over the
+    locked exe file or the port. Best-effort; safe no-op if nothing is
+    listening. Polls briefly afterwards so the file lock has time to clear
+    before the caller tries to overwrite it."""
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{PORT}/quit", timeout=1.5)
+    except Exception:
+        return  # nothing was listening, or it didn't respond — nothing to wait for
+    for _ in range(20):  # up to ~4s for the old process to fully exit and release the file
+        time.sleep(0.2)
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{PORT}/ping", timeout=0.3)
+        except Exception:
+            return  # port is free again — old process has exited
+    # gave up waiting; caller's copy/bind attempt will just fail and no-op as before
+
+
 def _self_install():
     """When run as a frozen binary from somewhere other than the canonical
     per-user install dir, copy self there, register autostart, launch that
@@ -92,6 +119,7 @@ def _self_install():
     if os.path.normcase(cur) == os.path.normcase(_TARGET):
         _set_autostart(_TARGET)   # already the canonical copy
         return False
+    _shutdown_running_instance()  # release the lock on _TARGET / the port if an old copy is running
     try:
         shutil.copy2(cur, _TARGET)   # note: drops Mark-of-the-Web -> no SmartScreen on the copy
         if IS_MAC:
@@ -744,13 +772,24 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         if path == "/ping":   # lightweight liveness check (no hardware probe) for the page to poll
-            body = json.dumps({"ok": True, "agent": "OxyQC", "platform": platform.system()}).encode("utf-8")
+            body = json.dumps({"ok": True, "agent": "OxyQC", "platform": platform.system(),
+                                "version": AGENT_VERSION}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self._cors()
             self.end_headers()
             self.wfile.write(body)
+            return
+        if path == "/quit":   # used by a freshly-launched copy to evict a stale running instance
+            body = json.dumps({"ok": True}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self._cors()
+            self.end_headers()
+            self.wfile.write(body)
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
             return
         if path not in ("/diagnose", "/"):
             self.send_response(404)

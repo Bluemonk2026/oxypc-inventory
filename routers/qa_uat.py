@@ -869,3 +869,15 @@ async def rtm_view(
         "total_reqs": len(reqs),
         "covered_reqs": len([r for r in rtm_rows if r["test_cases"]]),
     })
+
+
+@router.get("/workflow", response_class=HTMLResponse)
+async def workflow_view(
+    request: Request,
+    current_user: User = Depends(_view),
+):
+    """Application Workflow — both inbound-sequence diagrams together on one
+    dedicated page (moved out of the Dashboard so it isn't buried in a tab)."""
+    return templates.TemplateResponse("qa/workflow.html", {
+        "request": request, "current_user": current_user,
+    })

@@ -26,6 +26,7 @@ from models.sales import Sale
 from services.parts_required import compute_required
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from utils.warranty import warranty_from_sold_at, warranty_status_for_sale
+from utils.master_data import master_values
 
 router = APIRouter(prefix="/devices", tags=["devices"], dependencies=[Depends(verify_csrf)])
 # All logged-in users can search/view; only admin+invmgr can edit
@@ -236,7 +237,7 @@ async def device_search(
         "stages": DeviceStage, "stage_labels": STAGE_LABELS,
         "q": q, "stage": stage, "lot": lot, "grade": grade, "category": category,
         "device_type": device_type,
-        "device_type_options": ["Laptop", "Desktop", "AIO", "Workstation", "Mini PC", "Server", "Tablet"],
+        "device_type_options": await master_values(db, "device_type"),
         "total": len(devices),
         "location_map": location_map,
         "stock_price_map": stock_price_map, "sale_price_map": sale_price_map,

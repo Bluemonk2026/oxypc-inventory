@@ -148,8 +148,9 @@
               <label class="form-label small">Device Type</label>
               <select name="device_type" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
                 <option value="">—</option>
-                <option>Laptop</option><option>Desktop</option><option>AIO</option>
-                <option>Workstation</option><option>Mini PC</option><option>Server</option><option>Tablet</option>
+                {% for dt in master_options('device_type') %}
+                <option>{{ dt }}</option>
+                {% endfor %}
               </select>
             </div>
             <div class="col-md-3">

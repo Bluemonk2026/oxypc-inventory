@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, update
 from datetime import datetime as _dt
 from utils.timezone import app_now
+from utils.master_data import master_values
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
@@ -922,7 +923,7 @@ async def stock_in_list(
         "cost_parts_map": cost_parts_map, "location_map": location_map,
         "total": total,
         "device_type": device_type,
-        "device_type_options": ["Laptop", "Desktop", "AIO", "Workstation", "Mini PC", "Server", "Tablet"],
+        "device_type_options": await master_values(db, "device_type"),
         "zone_options": [
             (z.value, ZONE_LABELS.get(z, z.value))
             for z in [ZoneType.workshop, ZoneType.holding, ZoneType.dispatch, ZoneType.showroom, ZoneType.warehouse]

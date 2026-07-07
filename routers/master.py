@@ -44,7 +44,7 @@ ACCORDION_SECTIONS = [
         "id": "inventory", "label": "Inventory & Logistics", "icon": "bi-box-seam",
         "cat_keys": [
             "floor", "warehouse", "supplier", "data_destruction_method",
-            "transfer_type", "spare_parts_ram_action", "spare_parts_ram_gb",
+            "transfer_type", "po_category", "spare_parts_ram_action", "spare_parts_ram_gb",
             "spare_parts_consume_stage",
         ],
     },

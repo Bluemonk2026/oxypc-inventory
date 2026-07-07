@@ -14,6 +14,7 @@ from models.iqc_inspection import IQCInspection
 from models.location import StorageLocation
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from services.audit_engine import audit
+from utils.master_data import master_values
 
 router = APIRouter(prefix="/iqc", tags=["iqc"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.iqc_inspector)
@@ -326,9 +327,6 @@ async def usb_import(current_user: User = Depends(allowed)):
     return {"source": str(f), "data": data}
 
 
-DEVICE_TYPE_OPTIONS = ["Laptop", "Desktop", "AIO", "Workstation", "Mini PC", "Server", "Tablet"]
-
-
 @router.get("", response_class=HTMLResponse)
 async def iqc_list(
     request: Request,
@@ -363,7 +361,7 @@ async def iqc_list(
     return templates.TemplateResponse("iqc/list.html", {
         "request": request, "devices": devices, "lots": lots, "current_user": current_user,
         "page": page, "page_size": page_size, "total": total, "total_pages": total_pages,
-        "device_type": device_type, "device_type_options": DEVICE_TYPE_OPTIONS,
+        "device_type": device_type, "device_type_options": await master_values(db, "device_type"),
     })
 
 

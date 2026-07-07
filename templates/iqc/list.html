@@ -187,8 +187,9 @@
             <label class="form-label small">Device Type</label>
             <select name="device_type" class="form-select form-select-sm">
               <option value="">— Leave unchanged —</option>
-              <option>Laptop</option><option>Desktop</option><option>AIO</option>
-              <option>Workstation</option><option>Mini PC</option><option>Server</option><option>Tablet</option>
+              {% for dt in device_type_options %}
+              <option value="{{ dt }}">{{ dt }}</option>
+              {% endfor %}
             </select>
           </div>
           <div class="mb-3">

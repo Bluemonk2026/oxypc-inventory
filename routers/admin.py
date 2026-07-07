@@ -1,5 +1,6 @@
 from templates_config import templates
 import math
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -455,6 +456,71 @@ async def backup_status(current_user: User = Depends(require_admin)):
         },
         "total_backups": len(backups),
     })
+
+
+# Filename must match this pattern exactly — guards backup-download/backup-delete
+# against path traversal (../, absolute paths, or any file outside _BACKUP_DIR).
+_BACKUP_FILENAME_RE = re.compile(r"^oxypc_\d{8}_\d{6}\.sql\.gz$")
+
+
+def _safe_backup_path(filename: str) -> Path:
+    if not _BACKUP_FILENAME_RE.match(filename or ""):
+        raise HTTPException(400, "Invalid backup filename")
+    path = _BACKUP_DIR / filename
+    if not path.is_file():
+        raise HTTPException(404, "Backup file not found")
+    return path
+
+
+@router.get("/backup-list")
+async def backup_list(current_user: User = Depends(require_admin)):
+    """Return every backup file on disk (newest first) — each Run Backup Now
+    click creates a new distinct timestamped file, none are ever overwritten."""
+    if not _BACKUP_DIR.exists():
+        return JSONResponse({"backups": []})
+
+    files = sorted(
+        _BACKUP_DIR.glob("oxypc_*.sql.gz"),
+        key=lambda f: f.stat().st_mtime,
+        reverse=True,
+    )
+    backups = []
+    for f in files:
+        mtime = datetime.utcfromtimestamp(f.stat().st_mtime)
+        backups.append({
+            "filename":  f.name,
+            "size_mb":   round(f.stat().st_size / (1024 * 1024), 2),
+            "age_hours": round((app_now() - mtime).total_seconds() / 3600, 1),
+            "taken_at":  mtime.strftime("%Y-%m-%d %H:%M UTC"),
+        })
+    return JSONResponse({"backups": backups})
+
+
+@router.get("/backup-download/{filename}")
+async def backup_download(filename: str, current_user: User = Depends(require_admin)):
+    """Download a specific backup file."""
+    from fastapi.responses import FileResponse
+    path = _safe_backup_path(filename)
+    return FileResponse(path, filename=filename, media_type="application/gzip")
+
+
+@router.post("/backup-delete/{filename}")
+async def backup_delete(
+    filename: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Delete a specific backup file."""
+    path = _safe_backup_path(filename)
+    path.unlink()
+
+    await audit(db, action="DELETE_BACKUP", user=current_user,
+                table_name="system", new_value={"filename": filename},
+                request=request)
+    await db.commit()
+
+    return JSONResponse({"success": True, "filename": filename})
 
 
 @router.post("/backup-now")

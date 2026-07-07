@@ -263,3 +263,18 @@ class QARelease(Base):
     created_by     = Column(String(100), nullable=True)
     created_at     = Column(DateTime, default=app_now)
     updated_at     = Column(DateTime, default=app_now, onupdate=app_now)
+
+
+# ── Sidebar footer app version: loaded once at startup from the latest
+#    Deployed QARelease (see main.py startup event), same in-process-cache
+#    pattern as _SIDEBAR_LABEL_CACHE in models/role_permissions.py — avoids
+#    an async DB query on every single page render.
+_APP_VERSION_CACHE = {"version": None}
+
+
+def get_cached_app_version(default: str = "v1.0") -> str:
+    return _APP_VERSION_CACHE["version"] or default
+
+
+def set_cached_app_version(version: str) -> None:
+    _APP_VERSION_CACHE["version"] = version

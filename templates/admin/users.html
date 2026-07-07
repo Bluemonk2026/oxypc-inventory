@@ -100,7 +100,7 @@
     </form>
   </div>
   <div class="card-body" id="backup-status-body">
-    <p class="text-muted small mb-0">Loading backup status…</p>
+    <p class="text-muted small mb-0">Loading backups…</p>
   </div>
 </div>
 
@@ -108,30 +108,71 @@
   function _esc(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
-  fetch('/admin/backup-status')
-    .then(r => r.json())
-    .then(data => {
-      const el = document.getElementById('backup-status-body');
-      if (data.status === 'no_backups') {
-        el.innerHTML = '<p class="text-warning mb-0"><i class="bi bi-exclamation-triangle me-1"></i>No backups found. Click <strong>Run Backup Now</strong> to create the first backup.</p>';
-      } else {
-        const b = data.last_backup;
-        const ageClass = b.age_hours > 25 ? 'text-danger' : 'text-success';
-        const fn = _esc(b.filename);
+
+  function loadBackups() {
+    const el = document.getElementById('backup-status-body');
+    fetch('/admin/backup-list')
+      .then(r => r.json())
+      .then(data => {
+        const backups = data.backups || [];
+        if (!backups.length) {
+          el.innerHTML = '<p class="text-warning mb-0"><i class="bi bi-exclamation-triangle me-1"></i>No backups found. Click <strong>Run Backup Now</strong> to create the first backup.</p>';
+          return;
+        }
+        const rows = backups.map(b => {
+          const ageClass = b.age_hours > 25 ? 'text-danger' : 'text-success';
+          const fn = _esc(b.filename);
+          return `
+            <tr>
+              <td class="small">${_esc(b.taken_at)}</td>
+              <td class="small ${ageClass}">${_esc(String(b.age_hours))}h ago</td>
+              <td class="small">${_esc(String(b.size_mb))} MB</td>
+              <td class="small text-truncate" style="max-width:260px" title="${fn}">${fn}</td>
+              <td class="text-end">
+                <a href="/admin/backup-download/${encodeURIComponent(b.filename)}"
+                   class="btn btn-sm btn-outline-primary me-1" title="Download">
+                  <i class="bi bi-download"></i>
+                </a>
+                <button type="button" class="btn btn-sm btn-outline-danger backup-delete-btn"
+                        data-filename="${fn}" title="Delete">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </td>
+            </tr>`;
+        }).join('');
         el.innerHTML = `
-          <div class="row g-3">
-            <div class="col-sm-3"><div class="small text-muted">Last Backup</div><div class="fw-semibold">${_esc(b.taken_at)}</div></div>
-            <div class="col-sm-2"><div class="small text-muted">Age</div><div class="fw-semibold ${ageClass}">${_esc(String(b.age_hours))}h ago</div></div>
-            <div class="col-sm-2"><div class="small text-muted">Size</div><div class="fw-semibold">${_esc(String(b.size_mb))} MB</div></div>
-            <div class="col-sm-2"><div class="small text-muted">Total Files</div><div class="fw-semibold">${_esc(String(data.total_backups))}</div></div>
-            <div class="col-sm-3"><div class="small text-muted">File</div><div class="fw-semibold text-truncate" title="${fn}">${fn}</div></div>
+          <div class="small text-muted mb-2">${backups.length} backup file${backups.length === 1 ? '' : 's'} on disk — each Run Backup Now creates a new file.</div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr><th>Taken At</th><th>Age</th><th>Size</th><th>File</th><th class="text-end">Actions</th></tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
           </div>`;
-      }
-    })
-    .catch(() => {
-      document.getElementById('backup-status-body').innerHTML =
-        '<p class="text-danger mb-0">Could not load backup status.</p>';
-    });
+
+        el.querySelectorAll('.backup-delete-btn').forEach(btn => {
+          btn.addEventListener('click', function () {
+            const fn = this.dataset.filename;
+            if (!confirm(`Delete backup "${fn}"? This cannot be undone.`)) return;
+            const csrf = document.cookie.split('; ').find(r => r.startsWith('csrf_token='));
+            const token = csrf ? csrf.split('=')[1] : '';
+            fetch(`/admin/backup-delete/${encodeURIComponent(fn)}`, {
+              method: 'POST',
+              headers: { 'X-CSRF-Token': token },
+            })
+              .then(r => r.json())
+              .then(() => loadBackups())
+              .catch(() => alert('Could not delete backup.'));
+          });
+        });
+      })
+      .catch(() => {
+        el.innerHTML = '<p class="text-danger mb-0">Could not load backups.</p>';
+      });
+  }
+
+  loadBackups();
 </script>
 {% endblock %}
 {% block scripts %}

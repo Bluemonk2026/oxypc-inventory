@@ -74,6 +74,14 @@ if not logging.getLogger().handlers:          # also echo to console if no root 
 # Static files
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """No favicon asset yet — respond 204 instead of letting the browser's
+    automatic /favicon.ico request 404 (noise in logs, no functional impact)."""
+    from fastapi import Response
+    return Response(status_code=204)
+
 # Uploads directory — CRM file attachments (product records, etc.)
 _uploads_dir = os.path.join(BASE_DIR, "uploads")
 os.makedirs(os.path.join(_uploads_dir, "crm"), exist_ok=True)
@@ -423,6 +431,26 @@ async def startup_event():
         print("  [SidebarConfig] Custom label cache loaded")
     except Exception as _se:
         print(f"  [SidebarConfig] Could not load label cache: {_se}")
+
+    # ── Warm sidebar-footer app version from the latest Deployed QARelease ────
+    try:
+        from models.qa_uat import QARelease, ReleaseStatus, set_cached_app_version
+        from database import AsyncSessionLocal as _ASL5
+        from sqlalchemy import select as _select5
+        async with _ASL5() as _sess5:
+            _rel_res = await _sess5.execute(
+                _select5(QARelease)
+                .where(QARelease.status == ReleaseStatus.deployed)
+                .order_by(QARelease.release_date.desc().nulls_last(),
+                          QARelease.created_at.desc())
+                .limit(1)
+            )
+            _latest_rel = _rel_res.scalar_one_or_none()
+            if _latest_rel:
+                set_cached_app_version(_latest_rel.version)
+        print(f"  [AppVersion] Sidebar footer version: {_latest_rel.version if _latest_rel else '(default)'}")
+    except Exception as _ave:
+        print(f"  [AppVersion] Could not load latest release version: {_ave}")
 
     # ── Warm Landing Pages custom page-title cache from DB ────────────────────
     try:

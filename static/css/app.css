@@ -60,7 +60,7 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f4f8; }
 
 .sidebar-footer {
   border-top: 1px solid rgba(255,255,255,0.15);
-  background: var(--brand-blue);
+  background: #1f3864; /* dark navy blue */
   color: #fff;
 }
 .sidebar-footer small { color: rgba(255,255,255,0.85) !important; }

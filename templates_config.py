@@ -110,6 +110,9 @@ templates.env.globals["any_perm"] = _any_perm
 templates.env.globals["sidebar_label"] = _sidebar_label
 templates.env.globals["resolve_page_title"] = _resolve_page_title
 
+from models.qa_uat import get_cached_app_version as _get_cached_app_version
+templates.env.globals["app_version"] = _get_cached_app_version
+
 _ROLE_DISPLAY = {
     "admin": "Admin",
     "inventory_manager": "Inventory Manager",

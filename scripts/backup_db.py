@@ -19,7 +19,7 @@ import subprocess
 import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BASE_DIR    = Path(__file__).resolve().parent.parent  # repo root
@@ -61,9 +61,11 @@ DB_URL = _RAW_URL.replace("postgresql+asyncpg://", "postgresql://")
 _parsed = urlparse(DB_URL)
 DB_HOST = _parsed.hostname or "localhost"
 DB_PORT = str(_parsed.port or 5432)
-DB_USER = _parsed.username or "postgres"
-DB_PASS = _parsed.password or ""
-DB_NAME = (_parsed.path or "").lstrip("/")
+# urlparse does NOT decode percent-encoded credentials (e.g. a password containing
+# "%40" for "@") — must unquote explicitly, or pg_dump gets the wrong password.
+DB_USER = unquote(_parsed.username or "postgres")
+DB_PASS = unquote(_parsed.password or "")
+DB_NAME = unquote((_parsed.path or "").lstrip("/"))
 
 
 def prune_old_backups():

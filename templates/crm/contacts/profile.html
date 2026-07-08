@@ -191,7 +191,9 @@
     </div>
     {% endif %}
 
-    <!-- Purchase Deals (POs where this contact is the supplier) -->
+    <!-- Purchase Order section (POs where this contact is the supplier) + Add -->
+    {% set po_section_title = 'Purchase Order' %}
+    {% set add_po_url = '/crm/purchase-orders/new?contact_id=' ~ contact.id %}
     {% include "crm/_purchase_deals_table.html" %}
 
     <!-- Activity Timeline -->

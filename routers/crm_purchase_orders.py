@@ -66,6 +66,7 @@ async def list_pos(
 async def new_po_form(
     request: Request,
     deal_id: str = Query(default=None),
+    contact_id: str = Query(default=None),   # prefill supplier directly (e.g. from a contact profile)
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -79,12 +80,24 @@ async def new_po_form(
         select(CRMContact).where(CRMContact.status == "active").order_by(CRMContact.company_name)
     )
     contacts = contacts_r.scalars().all()
+
+    # Resolve the supplier to pre-select: an explicit ?contact_id= wins, else the
+    # deal's contact. Prefill GSTIN from that contact and default advance to 0.
+    pre_cid = contact_id or (str(deal.contact_id) if deal and deal.contact_id else None)
+    prefill_contact = None
+    if pre_cid:
+        pcr = await db.execute(select(CRMContact).where(CRMContact.id == pre_cid))
+        prefill_contact = pcr.scalar_one_or_none()
+
     po_number = await _next_po_number(db)
     return templates.TemplateResponse("crm/purchase_orders/form.html", {
         "request": request, "current_user": current_user,
         "po": None, "deal": deal, "contacts": contacts,
         "po_number": po_number, "grades": GRADES,
         "today": date.today().isoformat(),
+        "prefill_contact_id": str(prefill_contact.id) if prefill_contact else "",
+        "prefill_gstin": (prefill_contact.gstin or "") if prefill_contact else "",
+        "prefill_advance": "0" if pre_cid else "",
     })
 
 

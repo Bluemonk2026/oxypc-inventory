@@ -41,7 +41,16 @@
       </div>
       <div class="col-md-4">
         <label class="form-label fw-semibold">Device Type</label>
-        <input type="text" name="device_type" class="form-control" value="{{ deal.device_type or '' if deal else '' }}" placeholder="e.g. Laptop, Desktop, Mix">
+        {% set _dt = deal.device_type if deal else '' %}
+        <select name="device_type" class="form-select">
+          <option value="">— Select —</option>
+          {% for dt in master_options('device_type') %}
+          <option value="{{ dt }}" {% if _dt == dt %}selected{% endif %}>{{ dt }}</option>
+          {% endfor %}
+          {% if _dt and _dt not in master_options('device_type') %}
+          <option value="{{ _dt }}" selected>{{ _dt }} (current)</option>
+          {% endif %}
+        </select>
       </div>
       <div class="col-md-4">
         <label class="form-label fw-semibold">Est. Quantity</label>
@@ -63,39 +72,34 @@
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-currency-rupee me-2 text-success"></i>Pricing</div>
   <div class="card-body">
-    <div class="row g-3">
-      <div class="col-md-4">
+    {# Asking Price, Asking Price Total, Our Offer, Our Offer Total, Payment Advance — one row #}
+    <div class="row g-3 row-cols-1 row-cols-md-5">
+      <div class="col">
         <label class="form-label fw-semibold">Asking Price / Unit (₹)</label>
         <input type="number" name="asking_price_unit" id="asking_unit" class="form-control" step="0.01" min="0"
           value="{{ deal.asking_price_unit or '' if deal else '' }}" placeholder="0.00"
           onblur="calcTotal('asking_unit','est_quantity','asking_total')">
       </div>
-      <div class="col-md-4">
+      <div class="col">
         <label class="form-label fw-semibold">Asking Price Total (₹)</label>
         <input type="number" name="asking_price_total" id="asking_total" class="form-control" step="0.01" min="0"
           value="{{ deal.asking_price_total or '' if deal else '' }}" placeholder="Auto-calculated" readonly>
       </div>
-      <div class="col-md-4"><!-- spacer --></div>
-      <div class="col-md-4">
+      <div class="col">
         <label class="form-label fw-semibold">Our Offer / Unit (₹)</label>
         <input type="number" name="our_offer_unit" id="offer_unit" class="form-control" step="0.01" min="0"
           value="{{ deal.our_offer_unit or '' if deal else '' }}" placeholder="0.00"
           onblur="calcTotal('offer_unit','est_quantity','offer_total')">
       </div>
-      <div class="col-md-4">
+      <div class="col">
         <label class="form-label fw-semibold">Our Offer Total (₹)</label>
         <input type="number" name="our_offer_total" id="offer_total" class="form-control" step="0.01" min="0"
           value="{{ deal.our_offer_total or '' if deal else '' }}" placeholder="Auto-calculated" readonly>
       </div>
-      <div class="col-md-4"><!-- spacer --></div>
-      <div class="col-md-4">
+      <div class="col">
         <label class="form-label fw-semibold">Payment Advance %</label>
         <input type="number" name="payment_advance_pct" class="form-control" min="0" max="100"
           value="{{ deal.payment_advance_pct or 0 if deal else 0 }}">
-      </div>
-      <div class="col-md-8">
-        <label class="form-label fw-semibold">Payment Terms</label>
-        <textarea name="payment_terms" class="form-control" rows="2">{{ deal.payment_terms or '' if deal else '' }}</textarea>
       </div>
     </div>
   </div>
@@ -117,6 +121,10 @@
         <label class="form-label fw-semibold">Assigned To</label>
         <input type="text" name="assigned_to" class="form-control"
           value="{{ deal.assigned_to if deal else current_user.username }}" placeholder="Username">
+      </div>
+      <div class="col-12">
+        <label class="form-label fw-semibold">Payment Terms</label>
+        <textarea name="payment_terms" class="form-control" rows="2">{{ deal.payment_terms or '' if deal else '' }}</textarea>
       </div>
       <div class="col-12">
         <label class="form-label fw-semibold">Notes</label>

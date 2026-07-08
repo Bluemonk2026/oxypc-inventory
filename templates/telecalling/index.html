@@ -52,7 +52,7 @@
                class="form-control form-control-sm" style="width:210px">
       </div>
 
-      {% if current_user.role.value in ('admin', 'sales_manager') %}
+      {% if current_user.role.value in ('admin', 'sales_manager', 'sales') %}
       <div>
         <label class="form-label form-label-sm mb-1 text-muted small">Agent</label>
         <select name="assigned" class="form-select form-select-sm" style="width:160px">

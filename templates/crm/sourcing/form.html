@@ -57,7 +57,7 @@
         <input type="number" name="est_quantity" id="est_quantity" class="form-control" min="0" value="{{ deal.est_quantity or '' if deal else '' }}" placeholder="0">
       </div>
       <div class="col-md-4">
-        <label class="form-label fw-semibold">Material Type</label>
+        <label class="form-label fw-semibold">Condition Type</label>
         <select name="material_type" class="form-select">
           <option value="">— Select —</option>
           {% for val, label in material_types %}

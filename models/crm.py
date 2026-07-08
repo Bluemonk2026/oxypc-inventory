@@ -146,6 +146,7 @@ class CRMContactNumber(Base):
     contact_id  = Column(UUID(as_uuid=True), ForeignKey("crm_contacts.id"), nullable=False, index=True)
     person_name = Column(String(100), nullable=True)
     phone       = Column(String(20),  nullable=True)
+    email       = Column(String(100), nullable=True)
     sort_order  = Column(Integer,     default=0)
     created_at  = Column(DateTime,    default=app_now)
 
@@ -346,7 +347,8 @@ class CRMPurchaseOrder(Base):
     delivery_pincode      = Column(String(10),   nullable=True)
     payment_terms         = Column(Text,         nullable=True)
     advance_amount        = Column(Numeric(14,2), nullable=True)
-    total_amount          = Column(Numeric(14,2), default=0)
+    total_amount          = Column(Numeric(14,2), default=0)      # sum of line items (grand total)
+    offer_total           = Column(Numeric(14,2), nullable=True)  # our offer price (manually entered)
     status                = Column(String(20),   default="draft")  # draft/issued/acknowledged/received/cancelled
     issued_by             = Column(String(50),   nullable=True)
     issued_at             = Column(DateTime,     nullable=True)

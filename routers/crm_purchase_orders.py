@@ -29,9 +29,22 @@ VIEW_ROLES  = (UserRole.admin, UserRole.sales_manager, UserRole.inventory_manage
 
 
 async def _next_po_number(db: AsyncSession) -> str:
-    result = await db.execute(select(func.count(CRMPurchaseOrder.id)))
-    n = (result.scalar() or 0) + 1
-    return f"PO-{app_now().year}-{n:04d}"
+    # Derive from the highest existing suffix for this year, NOT count(*):
+    # count-based numbering collides whenever a PO has ever been deleted (gap),
+    # producing a duplicate po_number and an IntegrityError on insert.
+    prefix = f"PO-{app_now().year}-"
+    result = await db.execute(
+        select(func.max(CRMPurchaseOrder.po_number))
+        .where(CRMPurchaseOrder.po_number.like(prefix + "%"))
+    )
+    mx = result.scalar()
+    n = 1
+    if mx:
+        try:
+            n = int(str(mx).rsplit("-", 1)[-1]) + 1
+        except (ValueError, IndexError):
+            n = 1
+    return f"{prefix}{n:04d}"
 
 
 @router.get("", response_class=HTMLResponse)
@@ -109,6 +122,10 @@ async def create_po(
 ):
     if current_user.role not in ADMIN_ROLES:
         return RedirectResponse(url="/crm/purchase-orders?error=Permission+denied", status_code=302)
+    # Capture scalar now: a rollback in the retry loop below expires all ORM
+    # objects, so a later current_user.username would trigger a sync lazy-load
+    # (MissingGreenlet) inside the async handler.
+    username = current_user.username
     form = await request.form()
     def _n(v): return float(v) if v and str(v).strip() else None
     def _i(v): return int(v) if v and str(v).strip() else 1
@@ -135,9 +152,10 @@ async def create_po(
                 delivery_pincode=form.get("delivery_pincode") or None,
                 payment_terms=form.get("payment_terms") or None,
                 advance_amount=_n(form.get("advance_amount")),
+                offer_total=_n(form.get("offer_total")),
                 status="draft",
                 notes=form.get("notes") or None,
-                created_by=current_user.username,
+                created_by=username,
             )
             db.add(po)
             await db.flush()

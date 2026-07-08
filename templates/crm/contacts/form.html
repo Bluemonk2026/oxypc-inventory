@@ -49,18 +49,6 @@
         <input type="text" name="company_name" class="form-control" required value="{{ contact.company_name if contact else '' }}" placeholder="e.g. Sharma Recyclers Pvt Ltd">
       </div>
       <div class="col-md-4">
-        <label class="form-label fw-semibold">Contact Person</label>
-        <input type="text" name="contact_person" class="form-control" value="{{ contact.contact_person or '' if contact else '' }}" placeholder="Name of primary contact">
-      </div>
-      <div class="col-md-4">
-        <label class="form-label fw-semibold">Phone</label>
-        <input type="text" name="phone" class="form-control" value="{{ contact.phone or '' if contact else '' }}" placeholder="10-digit mobile">
-      </div>
-      <div class="col-md-4">
-        <label class="form-label fw-semibold">WhatsApp</label>
-        <input type="text" name="whatsapp" class="form-control" value="{{ contact.whatsapp or '' if contact else '' }}" placeholder="WhatsApp number">
-      </div>
-      <div class="col-md-4">
         <label class="form-label fw-semibold">Email</label>
         <input type="email" name="email" class="form-control" value="{{ contact.email or '' if contact else '' }}" placeholder="email@company.com">
       </div>
@@ -89,9 +77,10 @@
       <table class="table table-sm align-middle mb-0" id="contactNumbersTable">
         <thead class="table-light">
           <tr>
-            <th style="width:45%">Person Name</th>
-            <th style="width:45%">Phone Number</th>
-            <th style="width:10%"></th>
+            <th style="width:32%">Person Name</th>
+            <th style="width:29%">Phone Number</th>
+            <th style="width:31%">Email</th>
+            <th style="width:8%"></th>
           </tr>
         </thead>
         <tbody id="contactNumbersBody">
@@ -99,12 +88,14 @@
           <tr>
             <td><input type="text" name="cn_person[]" class="form-control form-control-sm" value="{{ cn.person_name or '' }}" placeholder="Name"></td>
             <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" value="{{ cn.phone or '' }}" placeholder="Phone number"></td>
+            <td><input type="email" name="cn_email[]" class="form-control form-control-sm" value="{{ cn.email or '' }}" placeholder="email@example.com"></td>
             <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button></td>
           </tr>
           {% else %}
           <tr>
             <td><input type="text" name="cn_person[]" class="form-control form-control-sm" placeholder="Name"></td>
             <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" placeholder="Phone number"></td>
+            <td><input type="email" name="cn_email[]" class="form-control form-control-sm" placeholder="email@example.com"></td>
             <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button></td>
           </tr>
           {% endfor %}
@@ -183,6 +174,7 @@
   <tr>
     <td><input type="text" name="cn_person[]" class="form-control form-control-sm" placeholder="Name"></td>
     <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" placeholder="Phone number"></td>
+    <td><input type="email" name="cn_email[]" class="form-control form-control-sm" placeholder="email@example.com"></td>
     <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button></td>
   </tr>
 </template>

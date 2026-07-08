@@ -20,17 +20,19 @@ from models.crm import (
 )
 
 
-def _parse_contact_numbers(form) -> list[tuple[str, str]]:
-    """Extract (person_name, phone) rows from the repeating Contact Numbers
-    section. Skips fully-blank rows. Used by create + update."""
+def _parse_contact_numbers(form) -> list[tuple[str, str, str]]:
+    """Extract (person_name, phone, email) rows from the repeating Contact
+    Numbers section. Skips fully-blank rows. Used by create + update."""
     names = form.getlist("cn_person[]")
     phones = form.getlist("cn_phone[]")
-    rows: list[tuple[str, str]] = []
-    for i in range(max(len(names), len(phones))):
+    emails = form.getlist("cn_email[]")
+    rows: list[tuple[str, str, str]] = []
+    for i in range(max(len(names), len(phones), len(emails))):
         nm = (names[i] if i < len(names) else "").strip()
         ph = (phones[i] if i < len(phones) else "").strip()
-        if nm or ph:
-            rows.append((nm, ph))
+        em = (emails[i] if i < len(emails) else "").strip()
+        if nm or ph or em:
+            rows.append((nm, ph, em))
     return rows
 
 router = APIRouter(prefix="/crm/contacts", tags=["crm-contacts"], dependencies=[Depends(verify_csrf)])
@@ -141,19 +143,23 @@ async def list_contacts(
 
     # Contact-numbers count + tooltip data per contact (one grouped query, no N+1).
     # numbers_map: str(contact_id) -> list[(person_name, phone)]
+    # numbers_map: str(contact_id) -> list[{name, phone, email}]
     numbers_map: dict = {}
     if all_ids:
         num_rows = (await db.execute(
             select(CRMContactNumber.contact_id,
                    CRMContactNumber.person_name,
-                   CRMContactNumber.phone)
+                   CRMContactNumber.phone,
+                   CRMContactNumber.email)
             .where(CRMContactNumber.contact_id.in_(all_ids))
             .order_by(CRMContactNumber.contact_id, CRMContactNumber.sort_order)
         )).all()
         for r in num_rows:
-            numbers_map.setdefault(str(r.contact_id), []).append(
-                (r.person_name or "", r.phone or "")
-            )
+            numbers_map.setdefault(str(r.contact_id), []).append({
+                "name": r.person_name or "",
+                "phone": r.phone or "",
+                "email": r.email or "",
+            })
 
     counts = {
         "total":     len(contacts),
@@ -523,9 +529,6 @@ async def create_contact(
     request: Request,
     contact_type:   str = Form(default="supplier"),
     company_name:   str = Form(...),
-    contact_person: str = Form(default=None),
-    phone:          str = Form(default=None),
-    whatsapp:       str = Form(default=None),
     email:          str = Form(default=None),
     gstin:          str = Form(default=None),
     pan:            str = Form(default=None),
@@ -544,13 +547,13 @@ async def create_contact(
     current_user: User = Depends(get_current_user),
     _perm: User = Depends(require_module_perm("crm_contacts", "add")),
 ):
+    # Contact person / phone / whatsapp now live per-person in Contact Numbers.
     number_rows = _parse_contact_numbers(await request.form())
     for _attempt in range(3):
         code = await _next_code(db)
         contact = CRMContact(
             contact_code=code, contact_type=contact_type,
-            company_name=company_name, contact_person=contact_person or None,
-            phone=phone or None, whatsapp=whatsapp or None,
+            company_name=company_name,
             email=email or None, gstin=gstin or None, pan=pan or None,
             address=address or None, city=city or None,
             state=state or None, pincode=pincode or None,
@@ -566,10 +569,10 @@ async def create_contact(
         except IntegrityError:
             await db.rollback()
             continue
-        for i, (nm, ph) in enumerate(number_rows):
+        for i, (nm, ph, em) in enumerate(number_rows):
             db.add(CRMContactNumber(
                 contact_id=contact.id, person_name=nm or None,
-                phone=ph or None, sort_order=i,
+                phone=ph or None, email=em or None, sort_order=i,
             ))
         await db.commit()
         return RedirectResponse(url=f"/crm/contacts/{contact.id}?success=Contact+created", status_code=302)
@@ -694,9 +697,6 @@ async def update_contact(
     contact_id: str,
     contact_type:   str = Form(default="supplier"),
     company_name:   str = Form(...),
-    contact_person: str = Form(default=None),
-    phone:          str = Form(default=None),
-    whatsapp:       str = Form(default=None),
     email:          str = Form(default=None),
     gstin:          str = Form(default=None),
     pan:            str = Form(default=None),
@@ -721,10 +721,9 @@ async def update_contact(
 
     contact.contact_type = contact_type
     contact.company_name = company_name
-    contact.contact_person = contact_person or None
-    contact.phone = phone or None
-    contact.whatsapp = whatsapp or None
     contact.email = email or None
+    # contact_person / phone / whatsapp are no longer on the form (they live in
+    # Contact Numbers now) — existing DB values are left untouched, not wiped.
     contact.gstin = gstin or None
     contact.pan = pan or None
     contact.address = address or None
@@ -742,10 +741,10 @@ async def update_contact(
     # Replace the Contact Numbers child rows with whatever the form submitted.
     number_rows = _parse_contact_numbers(await request.form())
     await db.execute(delete(CRMContactNumber).where(CRMContactNumber.contact_id == contact.id))
-    for i, (nm, ph) in enumerate(number_rows):
+    for i, (nm, ph, em) in enumerate(number_rows):
         db.add(CRMContactNumber(
             contact_id=contact.id, person_name=nm or None,
-            phone=ph or None, sort_order=i,
+            phone=ph or None, email=em or None, sort_order=i,
         ))
     await db.commit()
     return RedirectResponse(url=f"/crm/contacts/{contact_id}?success=Contact+updated", status_code=302)

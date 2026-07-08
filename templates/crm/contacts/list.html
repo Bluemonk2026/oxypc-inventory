@@ -87,16 +87,16 @@
         'neutral':        'secondary',
         'pending':        'warning',
       } %}
-      {# Column order: Type | Category | Company | Address | City | Phone | Person | Recent Contact Date | Status | Notes | Actions #}
+      {# Column order: Type | Category | Company | Contacts | Address | City | Person | Recent Contact Date | Status | Notes | Actions #}
       <table class="table table-hover mb-0 small" id="contactsTable">
         <thead class="table-light">
           <tr>
             <th>Type</th>
             <th>Category</th>
             <th>Company</th>
+            <th>Contacts</th>
             <th>Address</th>
             <th>City</th>
-            <th>Phone</th>
             <th>Person</th>
             <th>Recent Contact Date</th>
             <th>Status</th>
@@ -152,7 +152,19 @@
                 {% endif %}
               </div>
             </td>
-            {# 4. Address #}
+            {# 4. Contacts count (child Contact Numbers) — hover for names + phones #}
+            <td>
+              {% set nums = numbers_map.get(cid, []) %}
+              {% if nums %}
+              <span class="badge bg-info text-dark" style="cursor:help"
+                    title="{% for n in nums %}{{ n[0] or 'Unnamed' }}: {{ n[1] or '—' }}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
+                <i class="bi bi-people me-1"></i>{{ nums|length }}
+              </span>
+              {% else %}
+              <span class="text-muted">0</span>
+              {% endif %}
+            </td>
+            {# 5. Address #}
             <td>
               {% if c.address %}
               <span title="{{ c.address }}" style="cursor:default">
@@ -162,10 +174,8 @@
               <span class="text-muted">—</span>
               {% endif %}
             </td>
-            {# 5. City #}
+            {# 6. City #}
             <td>{{ c.city or '—' }}</td>
-            {# 6. Phone #}
-            <td>{{ c.phone or '—' }}</td>
             {# 7. Person #}
             <td>{{ c.contact_person or '—' }}</td>
             {# 8. Recent Contact Date (from latest activity log) #}
@@ -291,7 +301,7 @@
 <script>
 $(document).ready(function(){
   if($('#contactsTable tbody tr').length > 5){
-    // col index: 0=Type,1=Category,2=Company,3=Address,4=City,5=Phone,6=Person,7=Recent Contact Date,8=Status,9=Notes,10=Actions
+    // col index: 0=Type,1=Category,2=Company,3=Contacts,4=Address,5=City,6=Person,7=Recent Contact Date,8=Status,9=Notes,10=Actions
     $('#contactsTable').DataTable({
       pageLength: 12,
       order: [[2, 'asc']],  // default sort by Company

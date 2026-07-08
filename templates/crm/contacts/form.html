@@ -77,6 +77,44 @@
 </div>
 
 <div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
+    <span class="fw-semibold"><i class="bi bi-telephone me-2 text-primary"></i>Contact Numbers</span>
+    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addNumberRow()">
+      <i class="bi bi-plus-lg me-1"></i>Add Number
+    </button>
+  </div>
+  <div class="card-body">
+    <div class="text-muted small mb-2">Add one or more people and their phone numbers for this contact.</div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" id="contactNumbersTable">
+        <thead class="table-light">
+          <tr>
+            <th style="width:45%">Person Name</th>
+            <th style="width:45%">Phone Number</th>
+            <th style="width:10%"></th>
+          </tr>
+        </thead>
+        <tbody id="contactNumbersBody">
+          {% for cn in contact_numbers %}
+          <tr>
+            <td><input type="text" name="cn_person[]" class="form-control form-control-sm" value="{{ cn.person_name or '' }}" placeholder="Name"></td>
+            <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" value="{{ cn.phone or '' }}" placeholder="Phone number"></td>
+            <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button></td>
+          </tr>
+          {% else %}
+          <tr>
+            <td><input type="text" name="cn_person[]" class="form-control form-control-sm" placeholder="Name"></td>
+            <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" placeholder="Phone number"></td>
+            <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
   <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-geo-alt me-2 text-primary"></i>Address</div>
   <div class="card-body">
     <div class="row g-3">
@@ -139,4 +177,32 @@
 </form>
 </div>
 </div>
+
+<!-- Row template for a new Contact Number -->
+<template id="contactNumberRowTemplate">
+  <tr>
+    <td><input type="text" name="cn_person[]" class="form-control form-control-sm" placeholder="Name"></td>
+    <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" placeholder="Phone number"></td>
+    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button></td>
+  </tr>
+</template>
+{% endblock %}
+{% block scripts %}
+<script>
+function addNumberRow() {
+  var tpl = document.getElementById('contactNumberRowTemplate');
+  var clone = tpl.content.cloneNode(true);
+  document.getElementById('contactNumbersBody').appendChild(clone);
+}
+function removeNumberRow(btn) {
+  // Always keep at least one row so the section never becomes empty.
+  var rows = document.querySelectorAll('#contactNumbersBody tr');
+  if (rows.length <= 1) {
+    var r = btn.closest('tr');
+    r.querySelectorAll('input').forEach(function (i) { i.value = ''; });
+    return;
+  }
+  btn.closest('tr').remove();
+}
+</script>
 {% endblock %}

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from templates_config import templates
 from database import get_db
@@ -15,7 +16,7 @@ from auth.dependencies import get_current_user, verify_csrf, require_module_perm
 from models.user import User, UserRole
 from services.audit_engine import audit
 from models.crm import (
-    CRMContact, CRMSourcingDeal, CRMActivity,
+    CRMContact, CRMSourcingDeal, CRMActivity, CRMPurchaseOrder,
     SOURCE_TYPES, MATERIAL_TYPES, SOURCING_STAGES, PRIORITIES,
 )
 from models.lot import Lot
@@ -262,9 +263,20 @@ async def deal_detail(
     stage_list = list(enumerate(SOURCING_STAGES))
     current_idx = next((i for i, (v, _) in stage_list if v == deal.stage), 0)
 
+    # Purchase Deals — POs raised from this sourcing deal (eager-load .contact
+    # for the supplier column in the shared partial).
+    pos_r = await db.execute(
+        select(CRMPurchaseOrder)
+        .options(selectinload(CRMPurchaseOrder.contact))
+        .where(CRMPurchaseOrder.deal_id == deal.id)
+        .order_by(CRMPurchaseOrder.created_at.desc())
+    )
+    purchase_orders = pos_r.scalars().all()
+
     return templates.TemplateResponse("crm/sourcing/detail.html", {
         "request": request, "current_user": current_user,
         "deal": deal, "contact": contact, "activities": activities,
+        "purchase_orders": purchase_orders,
         "next_fu": next_fu, "lot": lot,
         "lot_registered": lot_registered,
         "lot_sold": lot_sold,

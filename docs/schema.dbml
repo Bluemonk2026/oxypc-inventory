@@ -823,6 +823,20 @@ Table crm_contacts {
   updated_at datetime [default: `now()`]
 }
 
+// ── crm_contact_numbers ──────────────────────────────────────
+// Extra person+phone entries per contact (one contact → many numbers),
+// added via the "Contact Numbers" section on the New/Edit Contact form.
+// Primary phone/whatsapp stay on crm_contacts.
+Table crm_contact_numbers {
+  id uuid [pk, not null]
+  contact_id uuid [not null, note: 'indexed, FK → crm_contacts.id, cascade delete']
+  person_name varchar(100)
+  phone varchar(20)
+  sort_order int [default: 0]
+  created_at datetime [default: `now()`]
+}
+Ref: crm_contact_numbers.contact_id > crm_contacts.id
+
 // ── crm_sourcing_deals ───────────────────────────────────────
 Table crm_sourcing_deals {
   id uuid [pk, not null]

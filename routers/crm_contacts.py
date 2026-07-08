@@ -5,18 +5,33 @@ import json
 from datetime import datetime
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from templates_config import templates
 from database import get_db
 from auth.dependencies import get_current_user, verify_csrf, require_module_perm
 from models.user import User, UserRole
 from models.crm import (
-    CRMContact, CRMSourcingDeal, CRMSalesOpportunity, CRMActivity,
-    SOURCE_TYPES, BUYER_TYPES,
+    CRMContact, CRMContactNumber, CRMSourcingDeal, CRMSalesOpportunity,
+    CRMActivity, CRMPurchaseOrder, SOURCE_TYPES, BUYER_TYPES,
 )
+
+
+def _parse_contact_numbers(form) -> list[tuple[str, str]]:
+    """Extract (person_name, phone) rows from the repeating Contact Numbers
+    section. Skips fully-blank rows. Used by create + update."""
+    names = form.getlist("cn_person[]")
+    phones = form.getlist("cn_phone[]")
+    rows: list[tuple[str, str]] = []
+    for i in range(max(len(names), len(phones))):
+        nm = (names[i] if i < len(names) else "").strip()
+        ph = (phones[i] if i < len(phones) else "").strip()
+        if nm or ph:
+            rows.append((nm, ph))
+    return rows
 
 router = APIRouter(prefix="/crm/contacts", tags=["crm-contacts"], dependencies=[Depends(verify_csrf)])
 
@@ -124,6 +139,22 @@ async def list_contacts(
 
     contacted_set = set(activity_map.keys())   # contact IDs that have ≥1 activity
 
+    # Contact-numbers count + tooltip data per contact (one grouped query, no N+1).
+    # numbers_map: str(contact_id) -> list[(person_name, phone)]
+    numbers_map: dict = {}
+    if all_ids:
+        num_rows = (await db.execute(
+            select(CRMContactNumber.contact_id,
+                   CRMContactNumber.person_name,
+                   CRMContactNumber.phone)
+            .where(CRMContactNumber.contact_id.in_(all_ids))
+            .order_by(CRMContactNumber.contact_id, CRMContactNumber.sort_order)
+        )).all()
+        for r in num_rows:
+            numbers_map.setdefault(str(r.contact_id), []).append(
+                (r.person_name or "", r.phone or "")
+            )
+
     counts = {
         "total":     len(contacts),
         "suppliers": sum(1 for c in contacts if c.contact_type in ("supplier", "both")),
@@ -136,6 +167,7 @@ async def list_contacts(
         "contacts": contacts, "counts": counts,
         "trashed_contacts": trashed_contacts,
         "activity_map": activity_map,
+        "numbers_map": numbers_map,
         "contacted_set": contacted_set,
         "q": q, "contact_type": contact_type,
         "source_type": source_type, "buyer_type": buyer_type,
@@ -481,7 +513,7 @@ async def new_contact_form(
 ):
     return templates.TemplateResponse("crm/contacts/form.html", {
         "request": request, "current_user": current_user,
-        "contact": None,
+        "contact": None, "contact_numbers": [],
         "source_types": SOURCE_TYPES, "buyer_types": BUYER_TYPES,
     })
 
@@ -512,6 +544,7 @@ async def create_contact(
     current_user: User = Depends(get_current_user),
     _perm: User = Depends(require_module_perm("crm_contacts", "add")),
 ):
+    number_rows = _parse_contact_numbers(await request.form())
     for _attempt in range(3):
         code = await _next_code(db)
         contact = CRMContact(
@@ -529,10 +562,17 @@ async def create_contact(
         )
         db.add(contact)
         try:
-            await db.commit()
-            return RedirectResponse(url=f"/crm/contacts/{contact.id}?success=Contact+created", status_code=302)
+            await db.flush()   # assigns contact.id; raises on duplicate code
         except IntegrityError:
             await db.rollback()
+            continue
+        for i, (nm, ph) in enumerate(number_rows):
+            db.add(CRMContactNumber(
+                contact_id=contact.id, person_name=nm or None,
+                phone=ph or None, sort_order=i,
+            ))
+        await db.commit()
+        return RedirectResponse(url=f"/crm/contacts/{contact.id}?success=Contact+created", status_code=302)
     return RedirectResponse(url="/crm/contacts?error=Failed+to+generate+unique+contact+code,+please+retry", status_code=302)
 
 
@@ -571,6 +611,16 @@ async def contact_profile(
     )
     sales_opps = opps_r.scalars().all()
 
+    # Purchase Deals — POs where this contact is the supplier (eager-load .contact
+    # so the shared partial can show the supplier name without an async lazy load).
+    pos_r = await db.execute(
+        select(CRMPurchaseOrder)
+        .options(selectinload(CRMPurchaseOrder.contact))
+        .where(CRMPurchaseOrder.contact_id == contact.id)
+        .order_by(CRMPurchaseOrder.created_at.desc())
+    )
+    purchase_orders = pos_r.scalars().all()
+
     source_map = dict(SOURCE_TYPES)
     buyer_map  = dict(BUYER_TYPES)
 
@@ -606,6 +656,7 @@ async def contact_profile(
         "request": request, "current_user": current_user,
         "contact": contact, "activities": activities,
         "sourcing_deals": sourcing_deals, "sales_opps": sales_opps,
+        "purchase_orders": purchase_orders,
         "source_map": source_map, "buyer_map": buyer_map,
         "scorecard": scorecard,
     })
@@ -624,9 +675,15 @@ async def edit_contact_form(
     contact = result.scalar_one_or_none()
     if not contact:
         return RedirectResponse(url="/crm/contacts?error=Not+found", status_code=302)
+    nums_r = await db.execute(
+        select(CRMContactNumber)
+        .where(CRMContactNumber.contact_id == contact.id)
+        .order_by(CRMContactNumber.sort_order)
+    )
+    contact_numbers = nums_r.scalars().all()
     return templates.TemplateResponse("crm/contacts/form.html", {
         "request": request, "current_user": current_user,
-        "contact": contact,
+        "contact": contact, "contact_numbers": contact_numbers,
         "source_types": SOURCE_TYPES, "buyer_types": BUYER_TYPES,
     })
 
@@ -681,6 +738,15 @@ async def update_contact(
     contact.notes = notes or None
     contact.status = status
     contact.assigned_to = assigned_to
+
+    # Replace the Contact Numbers child rows with whatever the form submitted.
+    number_rows = _parse_contact_numbers(await request.form())
+    await db.execute(delete(CRMContactNumber).where(CRMContactNumber.contact_id == contact.id))
+    for i, (nm, ph) in enumerate(number_rows):
+        db.add(CRMContactNumber(
+            contact_id=contact.id, person_name=nm or None,
+            phone=ph or None, sort_order=i,
+        ))
     await db.commit()
     return RedirectResponse(url=f"/crm/contacts/{contact_id}?success=Contact+updated", status_code=302)
 

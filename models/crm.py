@@ -127,6 +127,29 @@ class CRMContact(Base):
     sales_opps       = relationship("CRMSalesOpportunity", back_populates="contact", lazy="select")
     activities       = relationship("CRMActivity",         back_populates="contact", lazy="select")
     quotes           = relationship("CRMQuote",            back_populates="contact", lazy="select")
+    contact_numbers  = relationship("CRMContactNumber",    back_populates="contact",
+                                    cascade="all, delete-orphan",
+                                    order_by="CRMContactNumber.sort_order")
+
+
+class CRMContactNumber(Base):
+    """Additional person + phone entries for a contact (one contact → many numbers).
+
+    The parent CRMContact keeps its single primary `phone`/`whatsapp`; this child
+    table holds the extra people/numbers added via the "Contact Numbers" section
+    on the New/Edit Contact form. Managed as line-items (cascade delete-orphan),
+    mirroring CRMQuoteItem / CRMPOLineItem.
+    """
+    __tablename__ = "crm_contact_numbers"
+
+    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    contact_id  = Column(UUID(as_uuid=True), ForeignKey("crm_contacts.id"), nullable=False, index=True)
+    person_name = Column(String(100), nullable=True)
+    phone       = Column(String(20),  nullable=True)
+    sort_order  = Column(Integer,     default=0)
+    created_at  = Column(DateTime,    default=app_now)
+
+    contact = relationship("CRMContact", back_populates="contact_numbers")
 
 
 class CRMSourcingDeal(Base):

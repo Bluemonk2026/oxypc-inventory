@@ -484,11 +484,13 @@ async def upload_documents(
     purchase_invoice: UploadFile = File(default=None),
     purchase_order: UploadFile = File(default=None),
     eway_bill: UploadFile = File(default=None),
+    quote_received: UploadFile = File(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Upload Purchase Invoice / Purchase Order / E-way Bill for a sourcing deal.
-    Reuses the UUID-based safe-filename pattern used for product_records above."""
+    """Upload Purchase Invoice / Purchase Order / E-way Bill / Quote Received for
+    a sourcing deal. Reuses the UUID-based safe-filename pattern used for
+    product_records above."""
     result = await db.execute(select(CRMSourcingDeal).where(CRMSourcingDeal.id == deal_id))
     deal = result.scalar_one_or_none()
     if not deal:
@@ -520,11 +522,16 @@ async def upload_documents(
     if eway_name:
         deal.eway_bill_path = eway_name
         saved_any = True
+    quote_name = await _save(quote_received)
+    if quote_name:
+        deal.quote_received_path = quote_name
+        saved_any = True
 
     if saved_any:
         await audit(db, action="CRM_DEAL_DOCS_UPLOADED", user=current_user,
                     table_name="crm_sourcing_deals", record_id=str(deal.id),
-                    new_value={"purchase_invoice": inv_name, "purchase_order": po_name, "eway_bill": eway_name},
+                    new_value={"purchase_invoice": inv_name, "purchase_order": po_name,
+                               "eway_bill": eway_name, "quote_received": quote_name},
                     request=request)
         await db.commit()
         return RedirectResponse(url=f"/crm/sourcing/{deal_id}?success=Documents+uploaded", status_code=302)

@@ -115,11 +115,32 @@
               <span class="badge bg-{{ priority_colors.get(d.priority,'secondary') }}">{{ d.priority | title }}</span>
             </td>
             <td class="small">{{ d.assigned_to or '—' }}</td>
+            {% set has_po = latest_po_map.get(d.id|string) %}
+            {% set has_any_file = has_po or d.purchase_invoice_path or d.purchase_order_path or d.eway_bill_path or d.quote_received_path %}
             <td class="text-center">
-              {% if latest_po_map.get(d.id|string) %}
-              <a href="/crm/sourcing/{{ d.id }}/download-po" class="btn btn-sm btn-outline-success" title="Download Generated PO">
-                <i class="bi bi-file-earmark-arrow-down me-1"></i>Download
-              </a>
+              {% if has_any_file %}
+              <div class="dropdown">
+                <button class="btn btn-sm btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                  <i class="bi bi-file-earmark-arrow-down me-1"></i>Download
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  {% if has_po %}
+                  <li><a class="dropdown-item small" href="/crm/sourcing/{{ d.id }}/download-po">Generated PO</a></li>
+                  {% endif %}
+                  {% if d.purchase_invoice_path %}
+                  <li><a class="dropdown-item small" href="/uploads/crm/{{ d.purchase_invoice_path }}" target="_blank">Purchase Invoice</a></li>
+                  {% endif %}
+                  {% if d.purchase_order_path %}
+                  <li><a class="dropdown-item small" href="/uploads/crm/{{ d.purchase_order_path }}" target="_blank">Purchase Order</a></li>
+                  {% endif %}
+                  {% if d.eway_bill_path %}
+                  <li><a class="dropdown-item small" href="/uploads/crm/{{ d.eway_bill_path }}" target="_blank">E-way Bill</a></li>
+                  {% endif %}
+                  {% if d.quote_received_path %}
+                  <li><a class="dropdown-item small" href="/uploads/crm/{{ d.quote_received_path }}" target="_blank">Quote Received</a></li>
+                  {% endif %}
+                </ul>
+              </div>
               {% else %}
               <span class="text-muted small">—</span>
               {% endif %}

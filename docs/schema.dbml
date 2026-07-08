@@ -866,6 +866,11 @@ Table crm_sourcing_deals {
   assigned_to varchar(50)
   priority varchar(10) [default: 'medium']
   notes text
+  product_records_file varchar(500) [note: 'stored filename under uploads/crm/']
+  purchase_invoice_path varchar(500) [note: 'stored filename under uploads/crm/']
+  purchase_order_path varchar(500) [note: 'stored filename under uploads/crm/']
+  eway_bill_path varchar(500) [note: 'stored filename under uploads/crm/']
+  quote_received_path varchar(500) [note: 'stored filename under uploads/crm/']
   created_by varchar(50)
   created_at datetime [default: `now()`]
   updated_at datetime [default: `now()`]

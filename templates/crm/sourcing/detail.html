@@ -64,6 +64,24 @@
         <div class="small text-muted fw-semibold mb-1">Notes</div>
         <div class="small">{{ deal.notes }}</div>
         {% endif %}
+        {% if deal.purchase_invoice_path or deal.purchase_order_path or deal.eway_bill_path or deal.quote_received_path %}
+        <hr class="my-2">
+        <div class="small text-muted fw-semibold mb-1">Documents</div>
+        <div class="d-flex flex-column gap-1">
+          {% if deal.purchase_invoice_path %}
+          <a href="/uploads/crm/{{ deal.purchase_invoice_path }}" target="_blank" class="small text-decoration-none"><i class="bi bi-file-earmark-arrow-down me-1"></i>Purchase Invoice</a>
+          {% endif %}
+          {% if deal.purchase_order_path %}
+          <a href="/uploads/crm/{{ deal.purchase_order_path }}" target="_blank" class="small text-decoration-none"><i class="bi bi-file-earmark-arrow-down me-1"></i>Purchase Order</a>
+          {% endif %}
+          {% if deal.eway_bill_path %}
+          <a href="/uploads/crm/{{ deal.eway_bill_path }}" target="_blank" class="small text-decoration-none"><i class="bi bi-file-earmark-arrow-down me-1"></i>E-way Bill</a>
+          {% endif %}
+          {% if deal.quote_received_path %}
+          <a href="/uploads/crm/{{ deal.quote_received_path }}" target="_blank" class="small text-decoration-none"><i class="bi bi-file-earmark-arrow-down me-1"></i>Quote Received</a>
+          {% endif %}
+        </div>
+        {% endif %}
       </div>
     </div>
 
@@ -393,6 +411,20 @@
           <div class="row g-2 mb-3">
             <!-- Inputs -->
             <div class="col-md-3">
+              <label class="form-label small fw-semibold mb-1">PO Line Item</label>
+              <select id="c_po_item" class="form-select form-select-sm">
+                <option value="">— Select —</option>
+                {% for li in deal_po_items %}
+                <option value="{{ li.id }}" data-qty="{{ li.quantity or 0 }}" data-unit="{{ li.unit_price or 0 }}">{{ li.item_name }}</option>
+                {% endfor %}
+                {% if deal_po_items %}
+                <option value="__all__"
+                        data-qty="{{ deal_po_items | sum(attribute='quantity') }}"
+                        data-unit="{{ deal_po_items | sum(attribute='unit_price') }}">All Item</option>
+                {% endif %}
+              </select>
+            </div>
+            <div class="col-md-3">
               <label class="form-label small fw-semibold mb-1">Acquisition ₹/unit</label>
               <input type="number" id="c_acq" class="form-control form-control-sm" step="1" min="0"
                      value="{{ deal.our_offer_unit or deal.asking_price_unit or '' }}" placeholder="0">
@@ -413,10 +445,6 @@
             <div class="col-md-3">
               <label class="form-label small fw-semibold mb-1">Processing ₹/unit</label>
               <input type="number" id="c_process" class="form-control form-control-sm" step="1" min="0" value="0" placeholder="0">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small fw-semibold mb-1">Grade-mix loss %</label>
-              <input type="number" id="c_loss" class="form-control form-control-sm" step="1" min="0" max="100" value="10" placeholder="10">
             </div>
             <div class="col-md-3">
               <label class="form-label small fw-semibold mb-1">Expected sell ₹/unit</label>
@@ -482,25 +510,32 @@
       <div class="card-body">
         <form method="post" action="/crm/sourcing/{{ deal.id }}/upload" enctype="multipart/form-data" class="row g-2 align-items-end">
           <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label small fw-semibold mb-1">Purchase Invoice</label>
             <input type="file" name="purchase_invoice" class="form-control form-control-sm">
             {% if deal.purchase_invoice_path %}
             <a href="/uploads/crm/{{ deal.purchase_invoice_path }}" target="_blank" class="small d-block mt-1"><i class="bi bi-download me-1"></i>Current file</a>
             {% endif %}
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label small fw-semibold mb-1">Purchase Order</label>
             <input type="file" name="purchase_order" class="form-control form-control-sm">
             {% if deal.purchase_order_path %}
             <a href="/uploads/crm/{{ deal.purchase_order_path }}" target="_blank" class="small d-block mt-1"><i class="bi bi-download me-1"></i>Current file</a>
             {% endif %}
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label small fw-semibold mb-1">E-way Bill</label>
             <input type="file" name="eway_bill" class="form-control form-control-sm">
             {% if deal.eway_bill_path %}
             <a href="/uploads/crm/{{ deal.eway_bill_path }}" target="_blank" class="small d-block mt-1"><i class="bi bi-download me-1"></i>Current file</a>
+            {% endif %}
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold mb-1">Quote Received</label>
+            <input type="file" name="quote_received" class="form-control form-control-sm">
+            {% if deal.quote_received_path %}
+            <a href="/uploads/crm/{{ deal.quote_received_path }}" target="_blank" class="small d-block mt-1"><i class="bi bi-download me-1"></i>Current file</a>
             {% endif %}
           </div>
           <div class="col-12">
@@ -592,7 +627,6 @@ function calcProfit() {
   var pickup   = parseFloat(document.getElementById('c_pickup').value)   || 0;
   var transport= parseFloat(document.getElementById('c_transport').value)|| 0;
   var process  = parseFloat(document.getElementById('c_process').value)  || 0;
-  var lossPct  = parseFloat(document.getElementById('c_loss').value)     || 0;
   var sell     = parseFloat(document.getElementById('c_sell').value)     || 0;
 
   if (qty <= 0) { alert('Please enter quantity'); return; }
@@ -603,9 +637,7 @@ function calcProfit() {
   var totalCost      = totalAcq + pickup + transport + totalProcess;
   var costPerUnit    = qty > 0 ? totalCost / qty : 0;
 
-  // Revenue after grade-mix loss (e.g. 10% units are C/D grade, sold at lower price)
-  var sellableQty    = qty * (1 - lossPct / 100);
-  var totalRevenue   = sell * sellableQty;
+  var totalRevenue   = sell * qty;
 
   var grossProfit    = totalRevenue - totalCost;
   var marginPct      = totalRevenue > 0 ? (grossProfit / totalRevenue * 100) : 0;
@@ -640,6 +672,18 @@ function calcProfit() {
   }
 
   document.getElementById('calcResults').style.display = 'block';
+}
+// PO Line Item selector: fills Acquisition ₹/unit and Qty from the selected
+// line item (or, for "All Item", the sum of Unit Price and the sum of Qty
+// across all line items).
+var _cPoItem = document.getElementById('c_po_item');
+if (_cPoItem) {
+  _cPoItem.addEventListener('change', function () {
+    var opt = _cPoItem.options[_cPoItem.selectedIndex];
+    if (!opt || !opt.value) return;
+    document.getElementById('c_acq').value = opt.getAttribute('data-unit') || 0;
+    document.getElementById('c_qty').value = opt.getAttribute('data-qty') || 0;
+  });
 }
 // Auto-run if all key fields populated
 window.addEventListener('DOMContentLoaded', function() {

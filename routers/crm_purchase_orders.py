@@ -1,5 +1,6 @@
 # routers/crm_purchase_orders.py
 """CRM Purchase Orders — formal PO to supplier, linked from sourcing deal."""
+import json
 from datetime import datetime, date
 from utils.timezone import app_now
 from uuid import UUID
@@ -160,13 +161,14 @@ async def create_po(
             db.add(po)
             await db.flush()
 
-            item_names = form.getlist("item_name[]")
-            descriptions = form.getlist("description[]")
-            po_categories = form.getlist("po_category[]")
-            lot_numbers = form.getlist("lot_number[]")
-            qtys = form.getlist("qty[]")
-            prices = form.getlist("unit_price[]")
-            if not any(n.strip() for n in item_names):
+            # Line items now come from the "Add PO Line Items" modal as JSON.
+            try:
+                items = json.loads(form.get("line_items_json") or "[]")
+            except (json.JSONDecodeError, TypeError):
+                items = []
+            items = [it for it in items if isinstance(it, dict) and str(it.get("item_name", "")).strip()]
+            if not items:
+                await db.rollback()
                 return templates.TemplateResponse("crm/purchase_orders/form.html", {
                     "request": request, "current_user": current_user,
                     "po": None, "deal": None, "contacts": [],
@@ -175,18 +177,16 @@ async def create_po(
                     "error": "At least one line item is required.",
                 }, status_code=400)
             total = 0.0
-            for i, name in enumerate(item_names):
-                if not name.strip():
-                    continue
-                qty = _i(qtys[i] if i < len(qtys) else "1")
-                up = _n(prices[i] if i < len(prices) else "0") or 0.0
+            for i, it in enumerate(items):
+                qty = _i(it.get("qty"))
+                up = _n(it.get("unit_price")) or 0.0
                 tp = round(qty * up, 2)
                 total += tp
                 db.add(CRMPOLineItem(
-                    po_id=po.id, item_name=name,
-                    description=(descriptions[i].strip() if i < len(descriptions) and descriptions[i].strip() else None),
-                    po_category=(po_categories[i].strip() if i < len(po_categories) and po_categories[i].strip() else None),
-                    lot_number=(lot_numbers[i].strip() if i < len(lot_numbers) and lot_numbers[i].strip() else None),
+                    po_id=po.id, item_name=str(it.get("item_name")).strip(),
+                    description=(str(it.get("description")).strip() or None) if it.get("description") else None,
+                    po_category=(str(it.get("po_category")).strip() or None) if it.get("po_category") else None,
+                    lot_number=(str(it.get("lot_number")).strip() or None) if it.get("lot_number") else None,
                     quantity=qty, unit_price=up, total_price=tp, sort_order=i,
                 ))
             po.total_amount = round(total, 2)

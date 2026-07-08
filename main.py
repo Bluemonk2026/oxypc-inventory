@@ -149,6 +149,7 @@ from routers.notifications import router as notifications_router
 from routers.manuals import router as manuals_router
 from routers.landing_pages import router as landing_pages_router
 from routers.company_settings import router as company_settings_router
+from routers.terms_conditions import router as terms_conditions_router
 from routers.dealer_quotations import router as dealer_quotations_router
 from routers.sidebar_config import router as sidebar_config_router
 from routers.buckets import router as buckets_router
@@ -214,6 +215,7 @@ app.include_router(notifications_router)
 app.include_router(manuals_router)
 app.include_router(landing_pages_router)
 app.include_router(company_settings_router)
+app.include_router(terms_conditions_router)
 app.include_router(dealer_quotations_router)
 app.include_router(sidebar_config_router)
 app.include_router(stress_api_router)

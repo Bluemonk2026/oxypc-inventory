@@ -73,40 +73,28 @@
         </div>
       </div>
 
-      <!-- Line Items -->
-      <div class="fw-semibold mb-2 mt-3"><i class="bi bi-list-ul me-1"></i>Line Items</div>
+      <!-- Line Items (added via modal; serialized to hidden line_items_json) -->
+      <div class="d-flex justify-content-between align-items-center mb-2 mt-3">
+        <div class="fw-semibold"><i class="bi bi-list-ul me-1"></i>Line Items</div>
+        <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addLineItemModal">
+          <i class="bi bi-plus-lg me-1"></i>Add PO Line Items
+        </button>
+      </div>
+      <input type="hidden" name="line_items_json" id="lineItemsJson" value="[]">
       <table class="table table-bordered small" id="lineItemsTable">
         <thead class="table-light">
           <tr>
-            <th>Item Name <span class="text-danger">*</span></th>
+            <th>Item Name</th>
             <th>Description</th>
             <th style="width:150px">PO Category</th>
             <th style="width:110px">Lot No</th>
-            <th style="width:100px">PO Quantity</th>
-            <th style="width:120px">Unit Price (₹)</th>
-            <th style="width:120px">Total (₹)</th>
+            <th style="width:90px">Qty</th>
+            <th style="width:110px">Unit Price (₹)</th>
+            <th style="width:110px">Total (₹)</th>
             <th style="width:40px"></th>
           </tr>
         </thead>
-        <tbody id="lineItemsBody">
-          <tr>
-            <td><input type="text" name="item_name[]" class="form-control form-control-sm" placeholder="Item name" required></td>
-            <td><input type="text" name="description[]" class="form-control form-control-sm" placeholder="Description (optional)"></td>
-            <td>
-              <select name="po_category[]" class="form-select form-select-sm">
-                <option value="">— Select —</option>
-                {% for cat in master_options('po_category') %}
-                <option value="{{ cat }}">{{ cat }}</option>
-                {% endfor %}
-              </select>
-            </td>
-            <td><input type="text" name="lot_number[]" class="form-control form-control-sm" placeholder="Lot No (optional)"></td>
-            <td><input type="number" name="qty[]" class="form-control form-control-sm qty-input" value="1" min="1"></td>
-            <td><input type="number" name="unit_price[]" class="form-control form-control-sm price-input" min="0" step="0.01" placeholder="0"></td>
-            <td><input type="text" class="form-control form-control-sm line-total" readonly placeholder="0.00"></td>
-            <td><button type="button" class="btn btn-sm btn-outline-danger remove-row"><i class="bi bi-trash"></i></button></td>
-          </tr>
-        </tbody>
+        <tbody id="lineItemsBody"></tbody>
         <tfoot>
           <tr>
             <td colspan="6" class="text-end fw-semibold">Grand Total:</td>
@@ -120,7 +108,6 @@
           </tr>
         </tfoot>
       </table>
-      <button type="button" class="btn btn-outline-secondary btn-sm mb-3" id="addRow"><i class="bi bi-plus-circle me-1"></i>Add Row</button>
 
       <div class="d-flex gap-2 mt-2">
         <button type="submit" class="btn btn-success px-4"><i class="bi bi-check-circle me-2"></i>Create PO</button>
@@ -129,44 +116,67 @@
     </form>
   </div>
 </div>
+<!-- Add PO Line Item modal -->
+<div class="modal fade" id="addLineItemModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header py-2"><h6 class="modal-title">Add PO Line Item</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="row g-2">
+          <div class="col-md-6"><label class="form-label small">Item Name <span class="text-danger">*</span></label><input type="text" id="li_item_name" class="form-control form-control-sm" placeholder="Item name"></div>
+          <div class="col-md-6"><label class="form-label small">Description</label><input type="text" id="li_description" class="form-control form-control-sm" placeholder="Optional"></div>
+          <div class="col-md-4"><label class="form-label small">PO Category</label>
+            <select id="li_po_category" class="form-select form-select-sm"><option value="">— Select —</option>{% for cat in master_options('po_category') %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}</select>
+          </div>
+          <div class="col-md-3"><label class="form-label small">Lot No</label><input type="text" id="li_lot_number" class="form-control form-control-sm" placeholder="Optional"></div>
+          <div class="col-md-2"><label class="form-label small">Qty</label><input type="number" id="li_qty" class="form-control form-control-sm" value="1" min="1"></div>
+          <div class="col-md-3"><label class="form-label small">Unit Price (₹)</label><input type="number" id="li_unit_price" class="form-control form-control-sm" min="0" step="0.01" placeholder="0"></div>
+        </div>
+        <div id="liError" class="text-danger small mt-2 d-none">Item Name is required.</div>
+      </div>
+      <div class="modal-footer py-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary btn-sm" onclick="addLineItem()">Add to List</button></div>
+    </div>
+  </div>
+</div>
 <script>
-function calcRow(row) {
-  const qty = parseFloat(row.querySelector('.qty-input').value) || 0;
-  const price = parseFloat(row.querySelector('.price-input').value) || 0;
-  const total = qty * price;
-  row.querySelector('.line-total').value = total.toFixed(2);
-  calcGrandTotal();
+let lineItems = [];
+{% if po and po.line_items %}
+lineItems = [{% for li in po.line_items %}{item_name: {{ li.item_name|tojson }}, description: {{ (li.description or '')|tojson }}, po_category: {{ (li.po_category or '')|tojson }}, lot_number: {{ (li.lot_number or '')|tojson }}, qty: {{ li.quantity or 1 }}, unit_price: {{ li.unit_price or 0 }}}{% if not loop.last %}, {% endif %}{% endfor %}];
+{% endif %}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function renderLineItems(){
+  const body=document.getElementById('lineItemsBody');
+  if(!lineItems.length){
+    body.innerHTML='<tr><td colspan="8" class="text-center text-muted py-2">No line items yet. Click "Add PO Line Items".</td></tr>';
+  } else {
+    body.innerHTML=lineItems.map(function(it,i){
+      const tot=((parseFloat(it.qty)||0)*(parseFloat(it.unit_price)||0)).toFixed(2);
+      return '<tr><td>'+esc(it.item_name)+'</td><td>'+esc(it.description)+'</td><td>'+esc(it.po_category)+'</td><td>'+esc(it.lot_number)+'</td><td>'+esc(it.qty)+'</td><td>'+(parseFloat(it.unit_price)||0).toFixed(2)+'</td><td>'+tot+'</td><td><button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" onclick="removeLineItem('+i+')"><i class="bi bi-trash"></i></button></td></tr>';
+    }).join('');
+  }
+  let grand=0; lineItems.forEach(function(it){grand+=(parseFloat(it.qty)||0)*(parseFloat(it.unit_price)||0);});
+  document.getElementById('grandTotal').value=grand.toFixed(2);
+  document.getElementById('lineItemsJson').value=JSON.stringify(lineItems);
 }
-function calcGrandTotal() {
-  let grand = 0;
-  document.querySelectorAll('.line-total').forEach(el => grand += parseFloat(el.value) || 0);
-  document.getElementById('grandTotal').value = grand.toFixed(2);
-}
-function newRow() {
-  const tr = document.querySelector('#lineItemsBody tr').cloneNode(true);
-  tr.querySelectorAll('input').forEach(i => {
-    if (i.classList.contains('qty-input')) i.value = '1';
-    else if (i.classList.contains('line-total')) i.value = '0.00';
-    else if (i.tagName === 'INPUT') i.value = '';
+function addLineItem(){
+  const name=document.getElementById('li_item_name').value.trim();
+  if(!name){document.getElementById('liError').classList.remove('d-none');return;}
+  document.getElementById('liError').classList.add('d-none');
+  lineItems.push({
+    item_name:name,
+    description:document.getElementById('li_description').value.trim(),
+    po_category:document.getElementById('li_po_category').value,
+    lot_number:document.getElementById('li_lot_number').value.trim(),
+    qty:parseInt(document.getElementById('li_qty').value)||1,
+    unit_price:parseFloat(document.getElementById('li_unit_price').value)||0
   });
-  tr.querySelectorAll('select').forEach(s => s.value = '');
-  tr.querySelector('.remove-row').addEventListener('click', () => {
-    if (document.querySelectorAll('#lineItemsBody tr').length > 1) { tr.remove(); calcGrandTotal(); }
-  });
-  bindRow(tr);
-  document.getElementById('lineItemsBody').appendChild(tr);
+  renderLineItems();
+  ['li_item_name','li_description','li_lot_number','li_unit_price'].forEach(function(id){document.getElementById(id).value='';});
+  document.getElementById('li_qty').value='1'; document.getElementById('li_po_category').value='';
+  bootstrap.Modal.getInstance(document.getElementById('addLineItemModal')).hide();
 }
-function bindRow(tr) {
-  tr.querySelector('.qty-input').addEventListener('input', () => calcRow(tr));
-  tr.querySelector('.price-input').addEventListener('input', () => calcRow(tr));
-}
-document.querySelectorAll('#lineItemsBody tr').forEach(tr => {
-  bindRow(tr);
-  tr.querySelector('.remove-row')?.addEventListener('click', () => {
-    if (document.querySelectorAll('#lineItemsBody tr').length > 1) { tr.remove(); calcGrandTotal(); }
-  });
-});
-document.getElementById('addRow').addEventListener('click', newRow);
+function removeLineItem(i){lineItems.splice(i,1);renderLineItems();}
+renderLineItems();
 
 // Autofill GSTIN + delivery address/city/state/pincode from selected supplier
 document.getElementById('supplierSelect').addEventListener('change', function(){

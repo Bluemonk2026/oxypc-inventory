@@ -4,9 +4,11 @@ import uuid as _uuid
 from datetime import datetime
 from utils.timezone import app_now
 from config import UPLOADS_DIR
+import io
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import select, func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -15,10 +17,14 @@ from database import get_db
 from auth.dependencies import get_current_user, verify_csrf, require_module_perm
 from models.user import User, UserRole
 from services.audit_engine import audit
+from services.po_pdf import build_po_pdf
 from models.crm import (
-    CRMContact, CRMSourcingDeal, CRMActivity, CRMPurchaseOrder,
-    SOURCE_TYPES, MATERIAL_TYPES, SOURCING_STAGES, PRIORITIES,
+    CRMContact, CRMSourcingDeal, CRMActivity, CRMPurchaseOrder, CRMPOLineItem,
+    CRMSourcingDealLineItem, SOURCE_TYPES, MATERIAL_TYPES, SOURCING_STAGES, PRIORITIES,
 )
+from routers.settings import get_company_settings
+from routers.terms_conditions import get_active_terms
+from routers.crm_purchase_orders import _next_po_number
 from models.lot import Lot
 from models.device import Device, DeviceStage
 
@@ -273,10 +279,21 @@ async def deal_detail(
     )
     purchase_orders = pos_r.scalars().all()
 
+    # Draft PO line items on this deal (the "PO Line Items" section)
+    dpi_r = await db.execute(
+        select(CRMSourcingDealLineItem)
+        .where(CRMSourcingDealLineItem.deal_id == deal.id)
+        .order_by(CRMSourcingDealLineItem.sort_order)
+    )
+    deal_po_items = dpi_r.scalars().all()
+    deal_po_items_total = sum(float(li.total_price or 0) for li in deal_po_items)
+
     return templates.TemplateResponse("crm/sourcing/detail.html", {
         "request": request, "current_user": current_user,
         "deal": deal, "contact": contact, "activities": activities,
         "purchase_orders": purchase_orders,
+        "deal_po_items": deal_po_items,
+        "deal_po_items_total": deal_po_items_total,
         "next_fu": next_fu, "lot": lot,
         "lot_registered": lot_registered,
         "lot_sold": lot_sold,
@@ -506,3 +523,148 @@ async def link_lot(
     db.add(activity)
     await db.commit()
     return RedirectResponse(url=f"/crm/sourcing/{deal_id}?success=Linked+to+Lot+%26+marked+Received", status_code=302)
+
+
+# ── PO LINE ITEMS (on the deal) + GENERATE PO ─────────────────────────────────
+
+def _num(v):
+    try:
+        return float(v) if v is not None and str(v).strip() else 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
+
+@router.post("/{deal_id}/po-items/add")
+async def add_deal_po_item(
+    request: Request,
+    deal_id: str,
+    item_name: str = Form(...),
+    description: str = Form(default=None),
+    po_category: str = Form(default=None),
+    lot_number: str = Form(default=None),
+    qty: str = Form(default="1"),
+    unit_price: str = Form(default="0"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    deal = (await db.execute(select(CRMSourcingDeal).where(CRMSourcingDeal.id == deal_id))).scalar_one_or_none()
+    if not deal:
+        return RedirectResponse(url="/crm/sourcing?error=Deal+not+found", status_code=302)
+    if not item_name.strip():
+        return RedirectResponse(url=f"/crm/sourcing/{deal_id}?error=Item+name+required", status_code=302)
+    try:
+        q = int(float(qty)) if qty and str(qty).strip() else 1
+    except (ValueError, TypeError):
+        q = 1
+    up = _num(unit_price)
+    n = (await db.execute(
+        select(func.count(CRMSourcingDealLineItem.id)).where(CRMSourcingDealLineItem.deal_id == deal.id)
+    )).scalar() or 0
+    db.add(CRMSourcingDealLineItem(
+        deal_id=deal.id, item_name=item_name.strip(),
+        description=(description or None), po_category=(po_category or None),
+        lot_number=(lot_number or None), quantity=q, unit_price=up,
+        total_price=round(q * up, 2), sort_order=n,
+    ))
+    await db.commit()
+    return RedirectResponse(url=f"/crm/sourcing/{deal_id}?success=PO+item+added", status_code=302)
+
+
+@router.post("/{deal_id}/po-items/{item_id}/delete")
+async def delete_deal_po_item(
+    deal_id: str,
+    item_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    row = (await db.execute(
+        select(CRMSourcingDealLineItem).where(
+            CRMSourcingDealLineItem.id == item_id,
+            CRMSourcingDealLineItem.deal_id == deal_id,
+        )
+    )).scalar_one_or_none()
+    if row:
+        await db.delete(row)
+        await db.commit()
+    return RedirectResponse(url=f"/crm/sourcing/{deal_id}?success=PO+item+removed", status_code=302)
+
+
+@router.post("/{deal_id}/generate-po")
+async def generate_po_from_deal(
+    request: Request,
+    deal_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    username = current_user.username   # capture before any rollback (MissingGreenlet guard)
+    form = await request.form()
+    sections = {
+        "account":    bool(form.get("include_account")),
+        "company":    bool(form.get("include_company")),
+        "items":      bool(form.get("include_items")),
+        "payment":    bool(form.get("include_payment")),
+        "delivery":   bool(form.get("include_delivery")),
+        "conditions": bool(form.get("include_conditions")),
+    }
+
+    deal = (await db.execute(select(CRMSourcingDeal).where(CRMSourcingDeal.id == deal_id))).scalar_one_or_none()
+    if not deal:
+        return RedirectResponse(url="/crm/sourcing?error=Deal+not+found", status_code=302)
+
+    items = (await db.execute(
+        select(CRMSourcingDealLineItem)
+        .where(CRMSourcingDealLineItem.deal_id == deal.id)
+        .order_by(CRMSourcingDealLineItem.sort_order)
+    )).scalars().all()
+
+    contact = None
+    if deal.contact_id:
+        contact = (await db.execute(select(CRMContact).where(CRMContact.id == deal.contact_id))).scalar_one_or_none()
+
+    # Create the PO record (gap-safe numbering; retry on the rare collision).
+    total = round(sum(float(li.total_price or 0) for li in items), 2)
+    po = None
+    for _attempt in range(3):
+        po = CRMPurchaseOrder(
+            po_number=await _next_po_number(db),
+            deal_id=deal.id, contact_id=deal.contact_id,
+            supplier_gstin=(contact.gstin if contact else None),
+            total_amount=total, status="draft", created_by=username,
+        )
+        db.add(po)
+        try:
+            await db.flush()
+        except IntegrityError:
+            await db.rollback()
+            po = None
+            continue
+        for i, li in enumerate(items):
+            db.add(CRMPOLineItem(
+                po_id=po.id, item_name=li.item_name, description=li.description,
+                po_category=li.po_category, lot_number=li.lot_number,
+                device_type=li.device_type, grade=li.grade,
+                quantity=li.quantity, unit_price=li.unit_price,
+                total_price=li.total_price, sort_order=i,
+            ))
+        await db.commit()
+        break
+    if po is None:
+        return RedirectResponse(url=f"/crm/sourcing/{deal_id}?error=Could+not+generate+PO+number", status_code=302)
+
+    # Gather company + active terms for the selected sections.
+    company = await get_company_settings(db)
+    payment_terms  = await get_active_terms(db, "payment")    if sections["payment"]    else []
+    delivery_terms = await get_active_terms(db, "delivery")   if sections["delivery"]   else []
+    disclaimers    = await get_active_terms(db, "disclaimer") if sections["conditions"] else []
+
+    pdf_bytes = build_po_pdf(
+        po_number=po.po_number, po_date=po.po_date.strftime("%d %b %Y") if po.po_date else "",
+        company=company, contact=contact, line_items=items,
+        payment_terms=payment_terms, delivery_terms=delivery_terms, disclaimers=disclaimers,
+        sections=sections, total_amount=total, offer_total=None,
+    )
+    filename = f"{po.po_number}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes), media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

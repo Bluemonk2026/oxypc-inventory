@@ -999,6 +999,40 @@ Table crm_po_line_items {
   sort_order int [default: 0]
 }
 
+// ── crm_sourcing_deal_line_items ─────────────────────────────
+// Draft PO line items accumulated on a sourcing deal; copied into
+// crm_po_line_items when a PO is generated from the deal.
+Table crm_sourcing_deal_line_items {
+  id uuid [pk, not null]
+  deal_id uuid [not null, note: 'indexed, FK → crm_sourcing_deals.id, cascade delete']
+  item_name varchar(200) [not null]
+  description text
+  po_category varchar(100)
+  lot_number varchar(50)
+  device_type varchar(100)
+  grade varchar(10)
+  quantity int [not null, default: 1]
+  unit_price decimal(10,2) [not null, default: 0]
+  total_price decimal(14,2) [not null, default: 0]
+  sort_order int [default: 0]
+}
+Ref: crm_sourcing_deal_line_items.deal_id > crm_sourcing_deals.id
+
+// ── terms_conditions ─────────────────────────────────────────
+// Reusable long-form policies (payment/delivery/disclaimer) embedded
+// into generated PO documents; managed in admin Terms & Conditions.
+Table terms_conditions {
+  id uuid [pk, not null]
+  term_type varchar(20) [not null, note: 'indexed: payment/delivery/disclaimer']
+  title varchar(200) [not null]
+  content text [not null]
+  is_active boolean [not null, default: true]
+  display_order int [default: 0]
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+}
+
 // ── supplier_payments ────────────────────────────────────────
 Table supplier_payments {
   id uuid [pk, not null]

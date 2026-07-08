@@ -202,6 +202,9 @@ class CRMSourcingDeal(Base):
                               primaryjoin="and_(CRMActivity.deal_id == CRMSourcingDeal.id, "
                                           "CRMActivity.deal_type == 'sourcing')",
                               lazy="select", overlaps="activities")
+    po_line_items = relationship("CRMSourcingDealLineItem", back_populates="deal",
+                                 cascade="all, delete-orphan",
+                                 order_by="CRMSourcingDealLineItem.sort_order")
 
 
 class CRMSalesOpportunity(Base):
@@ -361,6 +364,28 @@ class CRMPurchaseOrder(Base):
     deal       = relationship("CRMSourcingDeal",  foreign_keys=[deal_id])
     line_items = relationship("CRMPOLineItem",    back_populates="po",
                               cascade="all, delete-orphan", order_by="CRMPOLineItem.sort_order")
+
+
+class CRMSourcingDealLineItem(Base):
+    """Draft PO line items accumulated on a Sourcing Deal (via 'Add PO Items').
+    Copied into CRMPOLineItem when a PO is generated from the deal. Mirrors the
+    CRMPOLineItem shape."""
+    __tablename__ = "crm_sourcing_deal_line_items"
+
+    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    deal_id     = Column(UUID(as_uuid=True), ForeignKey("crm_sourcing_deals.id"), nullable=False, index=True)
+    item_name   = Column(String(200), nullable=False)
+    description = Column(Text,         nullable=True)
+    po_category = Column(String(100),  nullable=True)
+    lot_number  = Column(String(50),   nullable=True)
+    device_type = Column(String(100),  nullable=True)
+    grade       = Column(String(10),   nullable=True)
+    quantity    = Column(Integer,      nullable=False, default=1)
+    unit_price  = Column(Numeric(10, 2), nullable=False, default=0)
+    total_price = Column(Numeric(14, 2), nullable=False, default=0)
+    sort_order  = Column(Integer,      default=0)
+
+    deal = relationship("CRMSourcingDeal", back_populates="po_line_items")
 
 
 class CRMPOLineItem(Base):

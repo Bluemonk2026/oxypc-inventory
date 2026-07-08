@@ -51,6 +51,7 @@ Thumbs.db
 # ─── Throwaway verification harnesses (not part of the app) ─────────
 /verify_*.py
 /_scan_*.py
+/_repro_*.py
 /_wrap_sidebar_labels.py
 /verify_sprint.py
 /_check2.py

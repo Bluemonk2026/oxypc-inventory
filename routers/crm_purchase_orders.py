@@ -184,7 +184,7 @@ async def create_po(
                 total += tp
                 db.add(CRMPOLineItem(
                     po_id=po.id, item_name=str(it.get("item_name")).strip(),
-                    description=(str(it.get("description")).strip() or None) if it.get("description") else None,
+                    description=(str(it.get("description")).strip() if it.get("description") else ""),  # NOT NULL
                     po_category=(str(it.get("po_category")).strip() or None) if it.get("po_category") else None,
                     lot_number=(str(it.get("lot_number")).strip() or None) if it.get("lot_number") else None,
                     quantity=qty, unit_price=up, total_price=tp, sort_order=i,

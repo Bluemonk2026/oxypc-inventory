@@ -640,7 +640,8 @@ async def generate_po_from_deal(
             continue
         for i, li in enumerate(items):
             db.add(CRMPOLineItem(
-                po_id=po.id, item_name=li.item_name, description=li.description,
+                po_id=po.id, item_name=li.item_name,
+                description=li.description or "",   # column is NOT NULL
                 po_category=li.po_category, lot_number=li.lot_number,
                 device_type=li.device_type, grade=li.grade,
                 quantity=li.quantity, unit_price=li.unit_price,

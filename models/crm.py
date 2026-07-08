@@ -383,6 +383,7 @@ class CRMSourcingDealLineItem(Base):
     quantity    = Column(Integer,      nullable=False, default=1)
     unit_price  = Column(Numeric(10, 2), nullable=False, default=0)
     total_price = Column(Numeric(14, 2), nullable=False, default=0)
+    offer_price = Column(Numeric(14, 2), nullable=True)   # our negotiated offer for this line, set via the Offer Price modal
     sort_order  = Column(Integer,      default=0)
 
     deal = relationship("CRMSourcingDeal", back_populates="po_line_items")

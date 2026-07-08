@@ -105,10 +105,10 @@
                 {{ stage_labels.get(d.stage, d.stage | replace('_',' ') | title) }}
               </span>
             </td>
-            <td class="small">{{ d.est_quantity or '—' }}</td>
+            {% set line_totals = line_totals_map.get(d.id|string) %}
+            <td class="small">{{ line_totals.qty if line_totals else '—' }}</td>
             <td class="small">
-              {% if d.our_offer_total %}₹{{ "{:,.0f}".format(d.our_offer_total) }}
-              {% elif d.asking_price_total %}₹{{ "{:,.0f}".format(d.asking_price_total) }}
+              {% if line_totals and line_totals.value %}₹{{ "{:,.0f}".format(line_totals.value) }}
               {% else %}—{% endif %}
             </td>
             <td>
@@ -116,8 +116,8 @@
             </td>
             <td class="small">{{ d.assigned_to or '—' }}</td>
             <td class="text-center">
-              {% if d.product_records_file %}
-              <a href="/uploads/crm/{{ d.product_records_file }}" class="btn btn-sm btn-outline-success" title="Download Product Records" target="_blank" download>
+              {% if latest_po_map.get(d.id|string) %}
+              <a href="/crm/sourcing/{{ d.id }}/download-po" class="btn btn-sm btn-outline-success" title="Download Generated PO">
                 <i class="bi bi-file-earmark-arrow-down me-1"></i>Download
               </a>
               {% else %}

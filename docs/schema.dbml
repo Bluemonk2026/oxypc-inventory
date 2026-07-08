@@ -1014,6 +1014,7 @@ Table crm_sourcing_deal_line_items {
   quantity int [not null, default: 1]
   unit_price decimal(10,2) [not null, default: 0]
   total_price decimal(14,2) [not null, default: 0]
+  offer_price decimal(14,2) [note: 'our negotiated offer for this line, set via the Offer Price modal']
   sort_order int [default: 0]
 }
 Ref: crm_sourcing_deal_line_items.deal_id > crm_sourcing_deals.id

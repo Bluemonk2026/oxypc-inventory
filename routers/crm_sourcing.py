@@ -96,10 +96,39 @@ async def list_sourcing_deals(
         for c in cr.scalars().all():
             contacts_map[str(c.id)] = c
 
+    # Qty / Value per deal — aggregated from the deal's PO Line Items (not the
+    # static asking/offer deal fields, which the Financials card no longer drives).
+    deal_ids = [d.id for d in deals]
+    line_totals_map = {}
+    if deal_ids:
+        lt_r = await db.execute(
+            select(
+                CRMSourcingDealLineItem.deal_id,
+                func.coalesce(func.sum(CRMSourcingDealLineItem.quantity), 0),
+                func.coalesce(func.sum(CRMSourcingDealLineItem.total_price), 0),
+            )
+            .where(CRMSourcingDealLineItem.deal_id.in_(deal_ids))
+            .group_by(CRMSourcingDealLineItem.deal_id)
+        )
+        for did, qty_sum, value_sum in lt_r.all():
+            line_totals_map[str(did)] = {"qty": int(qty_sum or 0), "value": float(value_sum or 0)}
+
+    # Latest generated PO per deal, for the Download column.
+    latest_po_map = {}
+    if deal_ids:
+        po_r = await db.execute(
+            select(CRMPurchaseOrder)
+            .where(CRMPurchaseOrder.deal_id.in_(deal_ids))
+            .order_by(CRMPurchaseOrder.created_at.desc())
+        )
+        for po in po_r.scalars().all():
+            latest_po_map.setdefault(str(po.deal_id), po)
+
     return templates.TemplateResponse("crm/sourcing/list.html", {
         "request": request, "current_user": current_user,
         "deals": deals, "contacts_map": contacts_map,
         "pipeline_value": pipeline_value, "overdue_count": overdue_count,
+        "line_totals_map": line_totals_map, "latest_po_map": latest_po_map,
         "q": q, "stage": stage, "source_type": source_type,
         "priority": priority, "assigned": assigned,
         "sourcing_stages": SOURCING_STAGES,
@@ -287,6 +316,7 @@ async def deal_detail(
     )
     deal_po_items = dpi_r.scalars().all()
     deal_po_items_total = sum(float(li.total_price or 0) for li in deal_po_items)
+    deal_po_items_offer_total = sum(float(li.offer_price or 0) for li in deal_po_items)
 
     return templates.TemplateResponse("crm/sourcing/detail.html", {
         "request": request, "current_user": current_user,
@@ -294,6 +324,7 @@ async def deal_detail(
         "purchase_orders": purchase_orders,
         "deal_po_items": deal_po_items,
         "deal_po_items_total": deal_po_items_total,
+        "deal_po_items_offer_total": deal_po_items_offer_total,
         "next_fu": next_fu, "lot": lot,
         "lot_registered": lot_registered,
         "lot_sold": lot_sold,
@@ -589,6 +620,26 @@ async def delete_deal_po_item(
     return RedirectResponse(url=f"/crm/sourcing/{deal_id}?success=PO+item+removed", status_code=302)
 
 
+@router.post("/{deal_id}/po-items/{item_id}/offer")
+async def set_deal_po_item_offer(
+    deal_id: str,
+    item_id: str,
+    offer_price: str = Form(default="0"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    row = (await db.execute(
+        select(CRMSourcingDealLineItem).where(
+            CRMSourcingDealLineItem.id == item_id,
+            CRMSourcingDealLineItem.deal_id == deal_id,
+        )
+    )).scalar_one_or_none()
+    if row:
+        row.offer_price = _num(offer_price)
+        await db.commit()
+    return RedirectResponse(url=f"/crm/sourcing/{deal_id}?success=Offer+price+saved", status_code=302)
+
+
 @router.post("/{deal_id}/generate-po")
 async def generate_po_from_deal(
     request: Request,
@@ -663,6 +714,47 @@ async def generate_po_from_deal(
         company=company, contact=contact, line_items=items,
         payment_terms=payment_terms, delivery_terms=delivery_terms, disclaimers=disclaimers,
         sections=sections, total_amount=total, offer_total=None,
+    )
+    filename = f"{po.po_number}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes), media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{deal_id}/download-po")
+async def download_deal_po(
+    deal_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Re-download the most recently generated PO for this deal (Download
+    column on the Buyer Deals list) by rebuilding the PDF from the PO's own
+    stored line items — the deal's draft line items may have changed since."""
+    deal = (await db.execute(select(CRMSourcingDeal).where(CRMSourcingDeal.id == deal_id))).scalar_one_or_none()
+    if not deal:
+        return RedirectResponse(url="/crm/sourcing?error=Deal+not+found", status_code=302)
+
+    po = (await db.execute(
+        select(CRMPurchaseOrder)
+        .options(selectinload(CRMPurchaseOrder.line_items), selectinload(CRMPurchaseOrder.contact))
+        .where(CRMPurchaseOrder.deal_id == deal_id)
+        .order_by(CRMPurchaseOrder.created_at.desc())
+    )).scalars().first()
+    if not po:
+        return RedirectResponse(url=f"/crm/sourcing/{deal_id}?error=No+PO+generated+yet", status_code=302)
+
+    company = await get_company_settings(db)
+    payment_terms  = await get_active_terms(db, "payment")
+    delivery_terms = await get_active_terms(db, "delivery")
+    disclaimers    = await get_active_terms(db, "disclaimer")
+
+    pdf_bytes = build_po_pdf(
+        po_number=po.po_number, po_date=po.po_date.strftime("%d %b %Y") if po.po_date else "",
+        company=company, contact=po.contact, line_items=po.line_items,
+        payment_terms=payment_terms, delivery_terms=delivery_terms, disclaimers=disclaimers,
+        sections={"account": True, "company": True, "items": True, "payment": True, "delivery": True, "conditions": True},
+        total_amount=float(po.total_amount or 0), offer_total=(float(po.offer_total) if po.offer_total else None),
     )
     filename = f"{po.po_number}.pdf"
     return StreamingResponse(

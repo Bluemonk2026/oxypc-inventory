@@ -73,20 +73,12 @@
       <div class="card-body">
         <div class="row g-2 text-center">
           <div class="col-6">
-            <div class="small text-muted">Asking / Unit</div>
-            <div class="fw-semibold small">{% if deal.asking_price_unit %}₹{{ "{:,.0f}".format(deal.asking_price_unit) }}{% else %}—{% endif %}</div>
-          </div>
-          <div class="col-6">
             <div class="small text-muted">Asking Total</div>
-            <div class="fw-semibold small">{% if deal.asking_price_total %}₹{{ "{:,.0f}".format(deal.asking_price_total) }}{% else %}—{% endif %}</div>
+            <div class="fw-semibold small">{% if deal_po_items_total %}₹{{ "{:,.0f}".format(deal_po_items_total) }}{% else %}—{% endif %}</div>
           </div>
           <div class="col-6">
-            <div class="small text-muted">Our Offer / Unit</div>
-            <div class="fw-semibold small text-primary">{% if deal.our_offer_unit %}₹{{ "{:,.0f}".format(deal.our_offer_unit) }}{% else %}—{% endif %}</div>
-          </div>
-          <div class="col-6">
-            <div class="small text-muted">Our Offer Total</div>
-            <div class="fw-semibold small text-primary">{% if deal.our_offer_total %}₹{{ "{:,.0f}".format(deal.our_offer_total) }}{% else %}—{% endif %}</div>
+            <div class="small text-muted">Offer Price</div>
+            <div class="fw-semibold small text-primary">{% if deal_po_items_offer_total %}₹{{ "{:,.0f}".format(deal_po_items_offer_total) }}{% else %}—{% endif %}</div>
           </div>
           {% if deal.final_price_unit %}
           <div class="col-6">
@@ -270,7 +262,7 @@
       <div class="card-body p-0">
         <div class="table-responsive">
           <table class="table table-sm mb-0">
-            <thead class="table-light"><tr><th>Item</th><th>Category</th><th class="text-end">Qty</th><th class="text-end">Unit Price</th><th class="text-end">Total</th><th style="width:40px"></th></tr></thead>
+            <thead class="table-light"><tr><th>Model Name</th><th>Category</th><th class="text-end">Qty</th><th class="text-end">Unit Price</th><th class="text-end">Total Price</th><th class="text-end">Offer Price</th><th style="width:40px"></th></tr></thead>
             <tbody>
               {% for li in deal_po_items %}
               <tr>
@@ -279,6 +271,18 @@
                 <td class="small text-end">{{ li.quantity }}</td>
                 <td class="small text-end">₹{{ "{:,.2f}".format(li.unit_price or 0) }}</td>
                 <td class="small text-end">₹{{ "{:,.2f}".format(li.total_price or 0) }}</td>
+                <td class="small text-end">
+                  {% if li.offer_price %}
+                  <span class="text-primary fw-semibold">₹{{ "{:,.2f}".format(li.offer_price) }}</span>
+                  <button type="button" class="btn btn-sm btn-link py-0 px-1 offer-price-btn"
+                          data-item-id="{{ li.id }}" data-total-price="{{ li.total_price or 0 }}"
+                          data-offer-price="{{ li.offer_price }}">Edit</button>
+                  {% else %}
+                  <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 offer-price-btn"
+                          data-item-id="{{ li.id }}" data-total-price="{{ li.total_price or 0 }}"
+                          data-offer-price="">Offer Price</button>
+                  {% endif %}
+                </td>
                 <td>
                   <form method="post" action="/crm/sourcing/{{ deal.id }}/po-items/{{ li.id }}/delete" onsubmit="return confirm('Remove this item?')">
                     <input type="hidden" name="csrf_token" value="{{ csrf }}">
@@ -287,11 +291,14 @@
                 </td>
               </tr>
               {% else %}
-              <tr><td colspan="6" class="text-center text-muted py-3 small">No PO line items yet. Click "Add PO Items".</td></tr>
+              <tr><td colspan="7" class="text-center text-muted py-3 small">No PO line items yet. Click "Add PO Items".</td></tr>
               {% endfor %}
             </tbody>
             {% if deal_po_items %}
-            <tfoot><tr class="table-light"><td colspan="4" class="text-end fw-semibold small">Total</td><td class="text-end fw-semibold small">₹{{ "{:,.2f}".format(deal_po_items_total) }}</td><td></td></tr></tfoot>
+            <tfoot>
+              <tr class="table-light"><td colspan="4" class="text-end fw-semibold small">Total Price</td><td class="text-end fw-semibold small">₹{{ "{:,.2f}".format(deal_po_items_total) }}</td><td></td><td></td></tr>
+              <tr class="table-light"><td colspan="4" class="text-end fw-semibold small text-primary">Offer Price</td><td></td><td class="text-end fw-semibold small text-primary">₹{{ "{:,.2f}".format(deal_po_items_offer_total) }}</td><td></td></tr>
+            </tfoot>
             {% endif %}
           </table>
         </div>
@@ -306,12 +313,11 @@
           <div class="modal-header py-2"><h6 class="modal-title">Add PO Line Item</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
           <div class="modal-body">
             <div class="row g-2">
-              <div class="col-md-6"><label class="form-label small">Item Name <span class="text-danger">*</span></label><input type="text" name="item_name" class="form-control form-control-sm" required></div>
+              <div class="col-md-6"><label class="form-label small">Model Name <span class="text-danger">*</span></label><input type="text" name="item_name" class="form-control form-control-sm" required></div>
               <div class="col-md-6"><label class="form-label small">Description</label><input type="text" name="description" class="form-control form-control-sm"></div>
               <div class="col-md-4"><label class="form-label small">PO Category</label>
                 <select name="po_category" class="form-select form-select-sm"><option value="">— Select —</option>{% for cat in master_options('po_category') %}<option value="{{ cat }}">{{ cat }}</option>{% endfor %}</select>
               </div>
-              <div class="col-md-3"><label class="form-label small">Lot No</label><input type="text" name="lot_number" class="form-control form-control-sm"></div>
               <div class="col-md-2"><label class="form-label small">Qty</label><input type="number" name="qty" class="form-control form-control-sm" value="1" min="1"></div>
               <div class="col-md-3"><label class="form-label small">Unit Price (₹)</label><input type="number" name="unit_price" class="form-control form-control-sm" min="0" step="0.01" value="0"></div>
             </div>
@@ -320,6 +326,40 @@
         </form>
       </div>
     </div>
+
+    <!-- Offer Price modal (shared, targets the clicked row's item via JS) -->
+    <div class="modal fade" id="offerPriceModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <form method="post" id="offerPriceForm" action="" class="modal-content">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <div class="modal-header py-2"><h6 class="modal-title">Set Offer Price</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <div class="modal-body">
+            <div class="mb-2">
+              <label class="form-label small">Current Total Price</label>
+              <input type="text" id="offerPriceCurrentTotal" class="form-control form-control-sm" readonly>
+            </div>
+            <div>
+              <label class="form-label small">Our Offer Price (₹) <span class="text-danger">*</span></label>
+              <input type="number" name="offer_price" id="offerPriceInput" class="form-control form-control-sm" min="0" step="0.01" required>
+            </div>
+          </div>
+          <div class="modal-footer py-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-primary btn-sm">Save Offer</button></div>
+        </form>
+      </div>
+    </div>
+    <script>
+    document.querySelectorAll('.offer-price-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var itemId = btn.getAttribute('data-item-id');
+        var totalPrice = parseFloat(btn.getAttribute('data-total-price') || '0');
+        var offerPrice = btn.getAttribute('data-offer-price') || '';
+        document.getElementById('offerPriceForm').action = '/crm/sourcing/{{ deal.id }}/po-items/' + itemId + '/offer';
+        document.getElementById('offerPriceCurrentTotal').value = '₹' + totalPrice.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        document.getElementById('offerPriceInput').value = offerPrice;
+        new bootstrap.Modal(document.getElementById('offerPriceModal')).show();
+      });
+    });
+    </script>
 
     <!-- Generate PO modal -->
     <div class="modal fade" id="generatePoModal" tabindex="-1" aria-hidden="true">

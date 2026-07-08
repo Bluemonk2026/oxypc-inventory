@@ -9,9 +9,17 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 # Cache-Control header (only Last-Modified/ETag), so CSS/JS edits can silently
 # not show up for users until a hard refresh. Append this as a ?v= query string
 # on asset URLs so every restart forces a fresh fetch.
+# Version off the newest mtime across the app-wide assets we cache-bust, so
+# editing any one of them (not just app.css) forces browsers to refetch.
+_VERSIONED_ASSETS = [
+    os.path.join(BASE_DIR, "static", "css", "app.css"),
+    os.path.join(BASE_DIR, "static", "js", "form-autosave.js"),
+]
 try:
-    ASSET_VERSION = str(int(os.path.getmtime(os.path.join(BASE_DIR, "static", "css", "app.css"))))
-except OSError:
+    ASSET_VERSION = str(int(max(
+        os.path.getmtime(p) for p in _VERSIONED_ASSETS if os.path.exists(p)
+    )))
+except (OSError, ValueError):
     ASSET_VERSION = "1"
 templates.env.globals["ASSET_VERSION"] = ASSET_VERSION
 

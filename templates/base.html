@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="/static/css/app.css?v={{ ASSET_VERSION }}">
   {% block head %}{% endblock %}
 </head>
-<body>
+<body data-username="{{ current_user.username|default('anon', true) }}">
 <!-- Reconnecting overlay — shown instead of a raw 502/connection-error page
      whenever the backend is briefly unreachable (e.g. mid-restart). Covers
      the whole viewport, blocks interaction, and auto-hides + reloads once
@@ -632,6 +632,10 @@ $.extend(true, $.fn.dataTable.defaults, {
 </script>
 <script src="/static/js/app.js"></script>
 <script src="/static/js/barcode.js"></script>
+<!-- Form draft auto-save: persists in-progress form entry to the browser so a
+     crash / network drop / accidental reload doesn't lose typed data. Loads on
+     every page; auto-discovers eligible full-page forms. See form-autosave.js. -->
+<script src="/static/js/form-autosave.js?v={{ ASSET_VERSION }}"></script>
 {% block scripts %}{% endblock %}
 <script>
 /* Save the sidebar's scroll position continuously (and right before a

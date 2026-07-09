@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}My Desk — Trade Partner{% endblock %}
+{% block page_title %}Trade Partner — My Desk{% endblock %}
+{% block content %}
+
+{% macro wa_btn(dealer, text) -%}
+  {% set wa = (dealer.whatsapp_number or dealer.portal_phone or '') | replace('+','') %}
+  {% set wa = ('91' ~ wa) if wa|length == 10 else wa %}
+  {% if wa %}
+  <a class="btn btn-sm btn-outline-success" target="_blank"
+     href="https://wa.me/{{ wa }}?text={{ text | urlencode }}"><i class="bi bi-whatsapp"></i></a>
+  {% endif %}
+{%- endmacro %}
+
+<div class="row g-3 mb-3">
+  {% for label, items, color in [('Proofs to verify', pending_proofs, 'info'),
+                                 ('Balance waiting', balance_waiting, 'primary'),
+                                 ('Expiring < 6h', expiring_soon, 'warning'),
+                                 ('Never logged in', never_logged_in, 'danger')] %}
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-2">
+      <div class="fs-4 fw-bold text-{{ color }}">{{ items | length }}</div>
+      <div class="small text-muted">{{ label }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if pending_proofs %}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white fw-semibold py-2"><i class="bi bi-hourglass-split me-1 text-info"></i>Proofs waiting for verification</div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <tbody>
+        {% for b in pending_proofs %}
+        <tr>
+          <td><code class="small">{{ b.booking_number }}</code></td>
+          <td class="small">{{ b.dealer.business_name if b.dealer }}</td>
+          <td class="small">{{ b.listing.title[:35] if b.listing }}</td>
+          <td class="small fw-semibold">₹{{ "{:,.0f}".format(b.token_total) }}</td>
+          <td class="text-end"><a href="/trade-partner/bookings?status=proof_uploaded" class="btn btn-sm btn-outline-primary">Open queue</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if expiring_soon %}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white fw-semibold py-2"><i class="bi bi-alarm me-1 text-warning"></i>Holds expiring in &lt; 6 hours — call now</div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <tbody>
+        {% for b in expiring_soon %}
+        <tr>
+          <td><code class="small">{{ b.booking_number }}</code></td>
+          <td class="small">{{ b.dealer.business_name if b.dealer }}</td>
+          <td class="small text-danger">exp {{ b.expires_at | ist_datetime }}</td>
+          <td class="small">Token ₹{{ "{:,.0f}".format(b.token_total) }}</td>
+          <td class="text-end">
+            {% if b.dealer %}{{ wa_btn(b.dealer, 'Reminder: booking ' ~ b.booking_number ~ ' — token ₹' ~ b.token_total ~ ' due before ' ~ (b.expires_at | ist_datetime) ~ '. Upload proof: ' ~ base_url ~ '/partner/bookings/' ~ b.id) }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if recently_expired %}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white fw-semibold py-2"><i class="bi bi-telephone-outbound me-1 text-danger"></i>Expired bookings — follow-up call needed</div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <tbody>
+        {% for b in recently_expired %}
+        <tr>
+          <td><code class="small">{{ b.booking_number }}</code></td>
+          <td class="small">{{ b.dealer.business_name if b.dealer }}</td>
+          <td class="small">{{ b.listing.title[:35] if b.listing }}</td>
+          <td class="text-end">
+            {% if b.dealer %}{{ wa_btn(b.dealer, 'Hi! Your booking ' ~ b.booking_number ~ ' expired — the stock is still available. Want me to re-book it? ' ~ base_url ~ '/partner/catalog') }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if stale_listings %}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white fw-semibold py-2"><i class="bi bi-clock-history me-1 text-danger"></i>Stale prices — review overdue (48h rule)</div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <tbody>
+        {% for l in stale_listings %}
+        <tr>
+          <td><code class="small">{{ l.listing_code }}</code></td>
+          <td class="small">{{ l.title[:40] }}</td>
+          <td class="small">₹{{ "{:,.0f}".format(l.dealer_price) }}/unit</td>
+          <td class="small text-muted">reviewed {{ (l.price_reviewed_at or l.created_at) | ist_datetime }}</td>
+          <td class="text-end"><a href="/trade-partner/listings" class="btn btn-sm btn-outline-primary">Review</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white fw-semibold py-2">
+    <i class="bi bi-people me-1"></i>{{ 'All portal dealers' if is_admin else 'My assigned dealers' }} ({{ dealers | length }})
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead class="table-light">
+        <tr><th>Dealer</th><th>Score</th><th>Last login</th><th>Segment</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for d in dealers %}
+        <tr>
+          <td class="small">
+            <span class="fw-semibold">{{ d.business_name }}</span>
+            {% if d.portal_token_only %}<span class="badge bg-danger-subtle text-danger border">Token-only</span>{% endif %}
+            <div class="text-muted">{{ d.portal_phone }}{% if d.city %} · {{ d.city }}{% endif %}</div>
+          </td>
+          <td>{% set sc = scores.get(d.id|string) %}{% if sc %}<span class="badge bg-{{ sc.color }}">{{ sc.score }}</span>{% endif %}</td>
+          <td class="small">{{ d.portal_last_login_at | ist_datetime if d.portal_last_login_at else 'Never' }}</td>
+          <td class="small">{{ (d.price_segment or 'new_dealer') | replace('_',' ') | title }}</td>
+          <td class="text-end">
+            {{ wa_btn(d, (settings.whatsapp_launch_template or 'Login: ' ~ base_url ~ '/partner/login')
+                        | replace('{dealer}', d.business_name)
+                        | replace('{url}', base_url ~ '/partner/login')
+                        | replace('{phone}', d.portal_phone or '')
+                        | replace('{password}', '(shared separately)')
+                        | replace('{video}', '')) }}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-3">No dealers assigned to you yet — ask admin to set you as sales owner.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

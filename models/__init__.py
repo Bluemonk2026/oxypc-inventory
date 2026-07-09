@@ -44,3 +44,9 @@ from .cost_config import CostConfig
 from .notification import Notification
 from .stress import StressTestResult
 from .bucket import Bucket
+# Trade Partner portal (dealer-facing B2B)
+from .partner import (
+    PartnerListing, PartnerListingDevice, PartnerFloorConfig,
+    PartnerBooking, PartnerPaymentProof, PartnerSetting,
+    PartnerLoginLog, PartnerListingView,
+)

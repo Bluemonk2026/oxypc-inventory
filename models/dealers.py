@@ -40,6 +40,17 @@ class Dealer(Base):
     created_at = Column(DateTime, default=app_now)
     updated_at = Column(DateTime, default=app_now, onupdate=app_now)
 
+    # ── Trade Partner portal (dealer-facing B2B web) ──────────────────────
+    portal_enabled = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    portal_password_hash = Column(String(200), nullable=True)   # bcrypt; login id = portal_phone
+    portal_phone = Column(String(20), nullable=True, unique=True)  # single normalized login phone
+    partner_type = Column(String(20), nullable=True)             # dealer, trader, repair_shop
+    price_segment = Column(String(30), nullable=False, default="new_dealer", server_default=text("'new_dealer'"))
+    sales_owner_username = Column(String(50), nullable=True)     # drives My Desk + WhatsApp buttons
+    portal_last_login_at = Column(DateTime, nullable=True)
+    portal_token_only = Column(Boolean, nullable=False, default=False, server_default=text("false"))  # penalty ladder step 3
+    portal_password_version = Column(Integer, nullable=False, default=1, server_default=text("1"))  # bump to invalidate JWTs
+
     calls = relationship("DealerCall", back_populates="dealer", lazy="select")
     assignments = relationship("DealerAssignment", back_populates="dealer", lazy="select")
 

@@ -121,6 +121,7 @@ class Device(Base):
     is_trashed = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     trashed_at = Column(DateTime, nullable=True)
     bucket_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    partner_listed = Column(Boolean, nullable=False, default=False, server_default=text("false"))  # backing a live Trade Partner listing
     created_at = Column(DateTime, default=app_now)
     updated_at = Column(DateTime, default=app_now, onupdate=app_now, index=True)
 

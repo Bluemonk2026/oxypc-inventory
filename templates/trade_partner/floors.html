@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Margin Floors — Trade Partner{% endblock %}
+{% block page_title %}Trade Partner Margin Floors{% endblock %}
+{% block content %}
+
+{% if success %}<div class="alert alert-success py-2"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger py-2"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>{% endif %}
+
+<div class="alert alert-info py-2 small">
+  <i class="bi bi-shield-lock me-1"></i>Floors are <strong>versioned</strong> — adding a new floor never edits history,
+  so every past publish decision stays traceable to the rule in force at the time.
+  Publishing below the effective floor requires an admin override with a reason (audited as <code>PARTNER_FLOOR_OVERRIDE</code>).
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white fw-semibold py-2">Add Floor Version</div>
+  <div class="card-body">
+    <form method="post" action="/trade-partner/floors/create" class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold mb-1">Listing Type</label>
+        <select name="listing_type" class="form-select form-select-sm" required>
+          {% for t in listing_types %}
+          <option value="{{ t }}">{{ t | replace('_',' ') | title }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold mb-1">Rule Type</label>
+        <select name="floor_rule_type" class="form-select form-select-sm">
+          <option value="margin_pct">Margin % over cost basis</option>
+          <option value="floor_price_pct">Floor price % vs lot cost</option>
+          <option value="recovery_value">Floor recovery value (₹)</option>
+          <option value="liquidation_min">Minimum liquidation value (₹)</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Floor % (over cost)</label>
+        <input type="text" name="floor_pct" class="form-control form-control-sm" placeholder="e.g. 8">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Floor value ₹/unit</label>
+        <input type="text" name="floor_value" class="form-control form-control-sm" placeholder="absolute floor">
+      </div>
+      <div class="col-md-2">
+        <button class="btn btn-sm btn-primary w-100"><i class="bi bi-plus-circle me-1"></i>Add Version</button>
+      </div>
+    </form>
+    <div class="form-text">If both are set, the higher of (% floor, absolute floor) applies. Listings with no cost basis fall back to the absolute floor.</div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr><th>Listing Type</th><th>Rule</th><th>Floor %</th><th>Floor ₹</th><th>Effective From</th><th>By</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% set seen = [] %}
+        {% for r in rows %}
+        <tr>
+          <td><span class="badge bg-light text-dark border">{{ r.listing_type | replace('_',' ') | title }}</span></td>
+          <td class="small">{{ r.floor_rule_type | replace('_',' ') | title }}</td>
+          <td class="small">{{ r.floor_pct if r.floor_pct is not none else '—' }}</td>
+          <td class="small">{{ "₹{:,.0f}".format(r.floor_value) if r.floor_value is not none else '—' }}</td>
+          <td class="small">{{ r.effective_from | ist_datetime }}</td>
+          <td class="small">{{ r.created_by or '—' }}</td>
+          <td>
+            {% if r.listing_type not in seen %}
+            <span class="badge bg-success">Effective</span>
+            {% if seen.append(r.listing_type) %}{% endif %}
+            {% else %}
+            <span class="badge bg-secondary">Superseded</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">
+          No floors configured — publishing is ungated until the first floor version is added.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

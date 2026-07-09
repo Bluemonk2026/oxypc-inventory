@@ -1,0 +1,159 @@
+{% extends "partner/base.html" %}
+{% block title %}{{ booking.booking_number }} — OxyPC Trade Partner{% endblock %}
+{% block content %}
+
+<a href="/partner/bookings" class="small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>My bookings</a>
+
+{% if error %}<div class="alert alert-danger py-2 small mt-2">{{ error }}</div>{% endif %}
+{% if success %}<div class="alert alert-success py-2 small mt-2">{{ success }}</div>{% endif %}
+
+{% set status_meta = {
+  'pending_payment':   ('warning',  'Pay token now'),
+  'proof_uploaded':    ('info',     'Under verification'),
+  'confirmed_token':   ('success',  'Token confirmed'),
+  'balance_pending':   ('primary',  'Balance pending'),
+  'ready_for_dispatch':('success',  'Ready for dispatch'),
+  'dispatched':        ('dark',     'Dispatched'),
+  'rejected':          ('danger',   'Rejected'),
+  'expired':           ('secondary','Expired'),
+  'cancelled':         ('secondary','Cancelled'),
+} %}
+{% set meta = status_meta.get(booking.status, ('secondary', booking.status)) %}
+
+<div class="card listing-card mt-2 mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start mb-2">
+      <div>
+        <code>{{ booking.booking_number }}</code>
+        <h6 class="fw-bold mb-0 mt-1">{{ listing.title if listing else 'Listing' }}</h6>
+      </div>
+      <span class="badge bg-{{ meta[0] }}">{{ meta[1] }}</span>
+    </div>
+
+    <div class="row g-2 small">
+      <div class="col-4"><span class="text-muted d-block">Qty</span>{{ booking.qty }} units</div>
+      <div class="col-4"><span class="text-muted d-block">Price/unit</span>₹{{ "{:,.0f}".format(booking.unit_price_snapshot) }}</div>
+      <div class="col-4"><span class="text-muted d-block">Order value</span>₹{{ "{:,.0f}".format(booking.unit_price_snapshot * booking.qty) }}</div>
+      <div class="col-4"><span class="text-muted d-block">Token due</span><span class="fw-bold text-success">₹{{ "{:,.0f}".format(booking.token_total) }}</span></div>
+      <div class="col-4"><span class="text-muted d-block">Balance</span>₹{{ "{:,.0f}".format(booking.balance_due) }}</div>
+      <div class="col-4"><span class="text-muted d-block">Booked</span>{{ booking.created_at | ist_datetime }}</div>
+    </div>
+
+    {% if booking.status == 'pending_payment' %}
+    <div class="alert alert-warning py-2 small mt-3 mb-0">
+      <i class="bi bi-hourglass-split me-1"></i>Hold expires
+      <strong id="countdown" data-expiry="{{ booking.expires_at.isoformat() }}">{{ booking.expires_at | ist_datetime }}</strong>
+      — upload your token payment proof before then or the stock is released.
+    </div>
+    {% elif booking.status == 'rejected' and booking.rejection_reason %}
+    <div class="alert alert-danger py-2 small mt-3 mb-0">
+      <i class="bi bi-x-circle me-1"></i>Rejected: {{ booking.rejection_reason }}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if booking.status in ('pending_payment', 'proof_uploaded', 'confirmed_token', 'balance_pending') %}
+<div class="card listing-card mb-3">
+  <div class="card-body">
+    <h6 class="fw-bold mb-2"><i class="bi bi-bank me-1"></i>Payment Details</h6>
+    {% if settings.upi_id %}
+    <div class="small mb-1"><span class="text-muted">UPI:</span> <code class="user-select-all">{{ settings.upi_id }}</code></div>
+    {% endif %}
+    {% if settings.bank_details %}
+    <div class="small" style="white-space: pre-line;">{{ settings.bank_details }}</div>
+    {% endif %}
+    {% if not settings.upi_id and not settings.bank_details %}
+    <div class="small text-muted">Ask your sales owner for payment details.</div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if booking.status in ('pending_payment', 'confirmed_token', 'balance_pending') %}
+{% set is_balance = booking.status in ('confirmed_token', 'balance_pending') %}
+<div class="card listing-card mb-3">
+  <div class="card-body">
+    <h6 class="fw-bold mb-2">
+      <i class="bi bi-cloud-arrow-up me-1"></i>Upload {{ 'Balance' if is_balance else 'Token' }} Payment Proof
+    </h6>
+    <form method="post" action="/partner/bookings/{{ booking.id }}/proof" enctype="multipart/form-data" class="row g-2">
+      <input type="hidden" name="csrf_token" value="{{ partner_csrf }}">
+      <input type="hidden" name="proof_type" value="{{ 'balance' if is_balance else 'token' }}">
+      <div class="col-12">
+        <input type="text" name="utr_reference" class="form-control form-control-sm" placeholder="UTR / Transaction reference" required>
+      </div>
+      <div class="col-6">
+        <input type="text" name="amount_claimed" class="form-control form-control-sm"
+               placeholder="Amount paid ₹" value="{{ booking.token_total if not is_balance else booking.balance_due }}">
+      </div>
+      <div class="col-6">
+        <input type="file" name="screenshot" class="form-control form-control-sm" accept=".jpg,.jpeg,.png,.pdf" required>
+      </div>
+      <div class="col-12">
+        <button class="btn btn-primary btn-sm w-100"><i class="bi bi-check2-circle me-1"></i>Submit Proof</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% if proofs %}
+<div class="card listing-card mb-3">
+  <div class="card-body">
+    <h6 class="fw-bold mb-2">Submitted Proofs</h6>
+    {% for p in proofs %}
+    <div class="d-flex justify-content-between align-items-center border-bottom py-1 small">
+      <div>
+        <span class="badge bg-light text-dark border">{{ p.proof_type | title }}</span>
+        UTR: <code>{{ p.utr_reference or '—' }}</code>
+        {% if p.amount_claimed %}· ₹{{ "{:,.0f}".format(p.amount_claimed) }}{% endif %}
+      </div>
+      <div>
+        {% if p.screenshot_path %}
+        <a href="/partner/bookings/{{ booking.id }}/proof-file/{{ p.id }}" target="_blank" class="me-2">View</a>
+        {% endif %}
+        {% if p.status == 'verified' %}<span class="badge bg-success">Verified</span>
+        {% elif p.status == 'rejected' %}<span class="badge bg-danger">Rejected</span>
+        {% else %}<span class="badge bg-warning text-dark">Pending</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="d-flex gap-2 mb-3">
+  {% if owner_wa %}
+  <a class="btn btn-sm btn-outline-primary flex-fill"
+     href="https://wa.me/{{ owner_wa }}?text={{ ask_text }}" target="_blank">
+    <i class="bi bi-chat-dots me-1"></i>Ask Sales Owner
+  </a>
+  {% endif %}
+  {% if booking.status in ('pending_payment', 'proof_uploaded') %}
+  <form method="post" action="/partner/bookings/{{ booking.id }}/cancel" class="flex-fill"
+        onsubmit="return confirm('Cancel this booking? The stock hold will be released.');">
+    <input type="hidden" name="csrf_token" value="{{ partner_csrf }}">
+    <button class="btn btn-sm btn-outline-danger w-100"><i class="bi bi-x-circle me-1"></i>Cancel Booking</button>
+  </form>
+  {% endif %}
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var el = document.getElementById('countdown');
+  if (!el) return;
+  var expiry = new Date(el.getAttribute('data-expiry'));
+  function tick() {
+    var ms = expiry - new Date();
+    if (ms <= 0) { el.textContent = 'expired — refresh page'; return; }
+    var h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+    el.textContent = 'in ' + h + 'h ' + m + 'm';
+    setTimeout(tick, 30000);
+  }
+  tick();
+})();
+</script>
+{% endblock %}

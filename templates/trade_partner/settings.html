@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Trade Partner Settings — OxyPC{% endblock %}
+{% block page_title %}Trade Partner Settings{% endblock %}
+{% block content %}
+
+{% if success %}<div class="alert alert-success py-2"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>{% endif %}
+
+<div class="card border-0 shadow-sm" style="max-width: 760px;">
+  <div class="card-body">
+    <form method="post" action="/trade-partner/settings">
+      <div class="row g-3">
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold mb-1">Default hold hours</label>
+          <input type="number" name="default_hold_hours" class="form-control form-control-sm"
+                 value="{{ settings.default_hold_hours }}">
+          <div class="form-text">Booking expiry when a listing doesn't set its own.</div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold mb-1">Default token %</label>
+          <input type="number" step="0.5" name="default_token_pct" class="form-control form-control-sm"
+                 value="{{ settings.default_token_pct }}">
+          <div class="form-text">% of dealer price used when a listing doesn't set a token.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold mb-1">UPI ID</label>
+          <input type="text" name="upi_id" class="form-control form-control-sm"
+                 value="{{ settings.upi_id }}" placeholder="oxypc@icici">
+          <div class="form-text">Shown to dealers on the booking payment screen.</div>
+        </div>
+        <div class="col-12">
+          <label class="form-label small fw-semibold mb-1">Bank details (shown to dealers)</label>
+          <textarea name="bank_details" rows="3" class="form-control form-control-sm"
+                    placeholder="Account name, A/C no., IFSC, bank &amp; branch">{{ settings.bank_details }}</textarea>
+        </div>
+        <div class="col-12">
+          <label class="form-label small fw-semibold mb-1">WhatsApp launch message template</label>
+          <textarea name="whatsapp_launch_template" rows="5" class="form-control form-control-sm">{{ settings.whatsapp_launch_template }}</textarea>
+          <div class="form-text">Placeholders: <code>{dealer}</code> <code>{url}</code> <code>{phone}</code> <code>{password}</code> <code>{video}</code></div>
+        </div>
+        <div class="col-12">
+          <label class="form-label small fw-semibold mb-1">First-booking incentive text</label>
+          <input type="text" name="incentive_text" class="form-control form-control-sm"
+                 value="{{ settings.incentive_text }}"
+                 placeholder="e.g. ₹1,000 off your first confirmed booking + priority dispatch">
+          <div class="form-text">Included in the launch message and shown on the dealer catalog banner.</div>
+        </div>
+      </div>
+      <div class="mt-3">
+        <button class="btn btn-sm btn-primary"><i class="bi bi-save me-1"></i>Save Settings</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

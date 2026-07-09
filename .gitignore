@@ -33,6 +33,9 @@ dist/
 uploads/*
 !uploads/.gitkeep
 
+# ─── Trade Partner payment proofs (financial docs — never public, never in git) ───
+private_uploads/
+
 # ─── Database backups & dumps ───────────────────────────────────────
 backups/
 *.dump

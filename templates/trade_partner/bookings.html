@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Trade Partner Bookings — OxyPC{% endblock %}
+{% block page_title %}Trade Partner Bookings{% endblock %}
+{% block content %}
+
+{% if success %}<div class="alert alert-success py-2"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger py-2"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>{% endif %}
+
+<form method="get" class="d-flex gap-2 mb-3 flex-wrap">
+  <select name="status" class="form-select form-select-sm" style="width:190px" onchange="this.form.submit()">
+    <option value="">All Status</option>
+    {% for s, label in [('pending_payment','Pending Payment'), ('proof_uploaded','Proof Uploaded — verify'),
+                        ('confirmed_token','Token Confirmed'), ('balance_pending','Balance Pending — verify'),
+                        ('ready_for_dispatch','Ready for Dispatch'), ('dispatched','Dispatched'),
+                        ('rejected','Rejected'), ('expired','Expired'), ('cancelled','Cancelled')] %}
+    <option value="{{ s }}" {% if f_status==s %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" style="width:220px"
+         placeholder="Search booking / dealer / listing…">
+  <button class="btn btn-sm btn-outline-primary">Filter</button>
+</form>
+
+{% set status_colors = {
+  'pending_payment':'warning', 'proof_uploaded':'info', 'confirmed_token':'success',
+  'balance_pending':'primary', 'ready_for_dispatch':'success', 'dispatched':'dark',
+  'rejected':'danger', 'expired':'secondary', 'cancelled':'secondary'} %}
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Booking</th><th>Dealer</th><th>Listing</th><th>Qty</th>
+            <th>Token</th><th>Balance</th><th>Proofs</th><th>Status</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in bookings %}
+          {% set d = b.dealer %}
+          {% set l = b.listing %}
+          {% set wa = (d.whatsapp_number or d.portal_phone or '') | replace('+','') %}
+          {% set wa = ('91' ~ wa) if wa|length == 10 else wa %}
+          <tr>
+            <td>
+              <code class="small">{{ b.booking_number }}</code>
+              <div class="small text-muted">{{ b.created_at | ist_datetime }}</div>
+              {% if b.status == 'pending_payment' %}
+              <div class="small {% if b.expires_at < now_ts %}text-danger{% endif %}">exp {{ b.expires_at | ist_datetime }}</div>
+              {% endif %}
+            </td>
+            <td>
+              <div class="fw-semibold small">{{ d.business_name if d else '—' }}</div>
+              {% set sc = scores.get(b.dealer_id|string) %}
+              {% if sc %}<span class="badge bg-{{ sc.color }}">{{ sc.score }}</span>{% endif %}
+              {% if d and d.portal_token_only %}<span class="badge bg-danger-subtle text-danger border">Token-only</span>{% endif %}
+            </td>
+            <td class="small">{{ l.title[:35] if l else '—' }}{% if l and l.title|length > 35 %}…{% endif %}
+              <div class="text-muted">{{ l.listing_code if l }}</div></td>
+            <td class="small">{{ b.qty }}</td>
+            <td class="small fw-semibold">₹{{ "{:,.0f}".format(b.token_total) }}</td>
+            <td class="small">₹{{ "{:,.0f}".format(b.unit_price_snapshot * b.qty - b.token_total) }}</td>
+            <td>
+              {% for p in b.proofs %}
+              <div class="small">
+                <span class="badge bg-light text-dark border">{{ p.proof_type[:3] | upper }}</span>
+                <a href="/trade-partner/proof-file/{{ p.id }}" target="_blank">{{ p.utr_reference or 'view' }}</a>
+                {% if p.status == 'verified' %}<i class="bi bi-check-circle text-success"></i>
+                {% elif p.status == 'rejected' %}<i class="bi bi-x-circle text-danger"></i>
+                {% else %}<i class="bi bi-hourglass text-warning"></i>{% endif %}
+              </div>
+              {% else %}<span class="text-muted small">—</span>{% endfor %}
+            </td>
+            <td><span class="badge bg-{{ status_colors.get(b.status,'secondary') }}">{{ b.status | replace('_',' ') | title }}</span></td>
+            <td style="min-width:170px">
+              <div class="d-flex flex-wrap gap-1">
+                {% if b.status == 'proof_uploaded' %}
+                <form method="post" action="/trade-partner/bookings/{{ b.id }}/verify" class="d-inline"
+                      onsubmit="return confirm('Verify token payment for {{ b.booking_number }}?');">
+                  <button class="btn btn-sm btn-success" title="Verify token proof"><i class="bi bi-check2-circle"></i> Verify</button>
+                </form>
+                {% endif %}
+                {% if b.status in ('pending_payment','proof_uploaded') %}
+                <button class="btn btn-sm btn-outline-danger" title="Reject" data-bs-toggle="modal" data-bs-target="#rejectModal{{ loop.index }}">
+                  <i class="bi bi-x-circle"></i>
+                </button>
+                {% endif %}
+                {% if b.status == 'pending_payment' %}
+                <form method="post" action="/trade-partner/bookings/{{ b.id }}/extend" class="d-inline"
+                      onsubmit="return confirm('Extend hold by 24h?');">
+                  <input type="hidden" name="extra_hours" value="24">
+                  <button class="btn btn-sm btn-outline-secondary" title="Extend hold 24h"><i class="bi bi-clock-history"></i></button>
+                </form>
+                {% if wa %}
+                <a class="btn btn-sm btn-outline-success" target="_blank" title="WhatsApp payment reminder"
+                   href="https://wa.me/{{ wa }}?text={{ ('Reminder: booking ' ~ b.booking_number ~ ' — token ₹' ~ b.token_total ~ ' due before ' ~ (b.expires_at | ist_datetime) ~ '. Upload proof: ' ~ base_url ~ '/partner/bookings/' ~ b.id) | urlencode }}">
+                  <i class="bi bi-whatsapp"></i>
+                </a>
+                {% endif %}
+                {% endif %}
+                {% if b.status in ('confirmed_token','balance_pending') %}
+                <form method="post" action="/trade-partner/bookings/{{ b.id }}/balance-verify" class="d-inline"
+                      onsubmit="return confirm('Confirm balance received for {{ b.booking_number }}? Booking becomes ready for dispatch.');">
+                  <button class="btn btn-sm btn-primary" title="Verify balance"><i class="bi bi-cash-stack"></i> Balance OK</button>
+                </form>
+                {% if wa and b.status == 'confirmed_token' %}
+                <a class="btn btn-sm btn-outline-success" target="_blank" title="Request balance on WhatsApp"
+                   href="https://wa.me/{{ wa }}?text={{ ('Booking ' ~ b.booking_number ~ ' token confirmed! Balance ₹' ~ (b.unit_price_snapshot * b.qty - b.token_total) ~ ' due. Upload proof: ' ~ base_url ~ '/partner/bookings/' ~ b.id) | urlencode }}">
+                  <i class="bi bi-whatsapp"></i>
+                </a>
+                {% endif %}
+                {% endif %}
+                {% if b.status == 'ready_for_dispatch' %}
+                <form method="post" action="/trade-partner/bookings/{{ b.id }}/dispatched" class="d-inline"
+                      onsubmit="return confirm('Mark {{ b.booking_number }} as dispatched?');">
+                  <button class="btn btn-sm btn-dark" title="Mark dispatched"><i class="bi bi-truck"></i> Dispatched</button>
+                </form>
+                {% endif %}
+              </div>
+
+              <!-- Reject modal -->
+              <div class="modal fade" id="rejectModal{{ loop.index }}" tabindex="-1">
+                <div class="modal-dialog">
+                  <div class="modal-content">
+                    <form method="post" action="/trade-partner/bookings/{{ b.id }}/reject">
+                      <div class="modal-header py-2">
+                        <h6 class="modal-title">Reject {{ b.booking_number }}</h6>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                      </div>
+                      <div class="modal-body">
+                        <label class="form-label small fw-semibold mb-1">Reason (shown to the dealer)</label>
+                        <input type="text" name="rejection_reason" class="form-control form-control-sm" required
+                               placeholder="e.g. amount received doesn't match token due">
+                        <div class="form-text">Stock is released back to the listing.</div>
+                      </div>
+                      <div class="modal-footer py-2">
+                        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-sm btn-danger">Reject Booking</button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="text-center text-muted py-4">No bookings yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

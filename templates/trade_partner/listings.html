@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+{% block title %}Trade Partner Listings — OxyPC{% endblock %}
+{% block page_title %}Trade Partner Listings{% endblock %}
+{% block content %}
+
+{% if success %}<div class="alert alert-success py-2"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger py-2"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>{% endif %}
+
+<!-- Ageing summary card -->
+<div class="row g-3 mb-3">
+  {% set bucket_meta = [('fresh','Fresh 0–7d','success'), ('push','Push 8–15d','info'),
+                        ('discount','Discount 16–30d','warning'), ('liquidation','Liquidation 30d+','danger')] %}
+  {% for tag, label, color in bucket_meta %}
+  {% set s = summary.get(tag) %}
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-2">
+      <div class="fs-5 fw-bold text-{{ color }}">{{ s.count if s else 0 }}</div>
+      <div class="small text-muted">{{ label }}</div>
+      <div class="small fw-semibold">₹{{ "{:,.0f}".format(s.value) if s else "0" }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <form method="get" class="d-flex gap-2">
+    <select name="status" class="form-select form-select-sm" style="width:140px">
+      <option value="">All Status</option>
+      {% for s in ['draft','published','paused','sold_out'] %}
+      <option value="{{ s }}" {% if f_status==s %}selected{% endif %}>{{ s | replace('_',' ') | title }}</option>
+      {% endfor %}
+    </select>
+    <select name="listing_type" class="form-select form-select-sm" style="width:160px">
+      <option value="">All Types</option>
+      {% for t in listing_types %}
+      <option value="{{ t }}" {% if f_type==t %}selected{% endif %}>{{ t | replace('_',' ') | title }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-sm btn-outline-primary">Filter</button>
+  </form>
+  <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createModal">
+    <i class="bi bi-plus-circle me-1"></i>New Listing
+  </button>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Code</th><th>Title</th><th>Type</th><th>Qty</th><th>Price/unit</th>
+            <th>Token/unit</th><th>Ageing</th><th>Status</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in listings %}
+          {% set a = ageing.get(l.id|string) %}
+          {% set status_colors = {'draft':'secondary','published':'success','paused':'warning','sold_out':'dark'} %}
+          <tr>
+            <td><code class="small">{{ l.listing_code }}</code></td>
+            <td>
+              <div class="fw-semibold">{{ l.title[:45] }}{% if l.title|length > 45 %}…{% endif %}</div>
+              <small class="text-muted">{% if l.brand %}{{ l.brand }} · {% endif %}{% if l.grade_summary %}Grade {{ l.grade_summary }} · {% endif %}MOQ {{ l.moq }}</small>
+              {% if l.id|string in stale_ids %}
+              <span class="badge bg-danger-subtle text-danger border border-danger ms-1" title="Price not reviewed in 48h">
+                <i class="bi bi-clock-history me-1"></i>Stale price
+              </span>
+              {% endif %}
+              {% if l.floor_override_by %}
+              <span class="badge bg-warning-subtle text-warning-emphasis border ms-1" title="Published below floor by {{ l.floor_override_by }}">Floor override</span>
+              {% endif %}
+            </td>
+            <td><span class="badge bg-light text-dark border">{{ l.listing_type | replace('_',' ') | title }}</span></td>
+            <td class="small">{{ l.qty_available }}/{{ l.qty_total }}</td>
+            <td class="small fw-semibold">₹{{ "{:,.0f}".format(l.dealer_price) }}</td>
+            <td class="small">₹{{ "{:,.0f}".format(l.token_amount) }}</td>
+            <td>
+              {% if a and a.days is not none %}
+              <span class="badge bg-{{ a.color }}">{{ a.label }} · {{ a.days }}d</span>
+              {% else %}<span class="text-muted small">—</span>{% endif %}
+            </td>
+            <td><span class="badge bg-{{ status_colors.get(l.status,'secondary') }}">{{ l.status | replace('_',' ') | title }}</span></td>
+            <td>
+              <div class="btn-group btn-group-sm">
+                {% if l.status in ('draft','paused') %}
+                <button class="btn btn-outline-success" title="Publish" data-bs-toggle="modal" data-bs-target="#publishModal{{ loop.index }}">
+                  <i class="bi bi-broadcast"></i>
+                </button>
+                {% elif l.status == 'published' %}
+                <form method="post" action="/trade-partner/listings/{{ l.id }}/pause" class="d-inline"
+                      onsubmit="return confirm('Pause {{ l.listing_code }}? Dealers will stop seeing it.');">
+                  <button class="btn btn-outline-warning" title="Pause"><i class="bi bi-pause-circle"></i></button>
+                </form>
+                {% endif %}
+                <button class="btn btn-outline-secondary" title="Reprice / review price" data-bs-toggle="modal" data-bs-target="#repriceModal{{ loop.index }}">
+                  <i class="bi bi-currency-rupee"></i>
+                </button>
+              </div>
+
+              <!-- Publish modal (floor gate aware) -->
+              <div class="modal fade" id="publishModal{{ loop.index }}" tabindex="-1">
+                <div class="modal-dialog">
+                  <div class="modal-content">
+                    <form method="post" action="/trade-partner/listings/{{ l.id }}/publish">
+                      <div class="modal-header py-2">
+                        <h6 class="modal-title">Publish {{ l.listing_code }}</h6>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                      </div>
+                      <div class="modal-body">
+                        <p class="small mb-2">Price ₹{{ "{:,.0f}".format(l.dealer_price) }}/unit · {{ l.qty_available }} units · token ₹{{ "{:,.0f}".format(l.token_amount) }}/unit.</p>
+                        <p class="small text-muted mb-2">Publishing runs the margin-floor check. If the price is below the configured floor,
+                          {% if is_floor_approver %}you must give an override reason (audited).{% else %}only admin/finance can approve it.{% endif %}</p>
+                        {% if is_floor_approver %}
+                        <label class="form-label small fw-semibold mb-1">Floor override reason (only if below floor)</label>
+                        <input type="text" name="floor_override_reason" class="form-control form-control-sm" placeholder="e.g. ageing stock liquidation approved">
+                        {% endif %}
+                      </div>
+                      <div class="modal-footer py-2">
+                        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-sm btn-success">Publish</button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Reprice modal -->
+              <div class="modal fade" id="repriceModal{{ loop.index }}" tabindex="-1">
+                <div class="modal-dialog">
+                  <div class="modal-content">
+                    <form method="post" action="/trade-partner/listings/{{ l.id }}/reprice">
+                      <div class="modal-header py-2">
+                        <h6 class="modal-title">Reprice {{ l.listing_code }}</h6>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                      </div>
+                      <div class="modal-body">
+                        <div class="row g-2">
+                          <div class="col-6">
+                            <label class="form-label small fw-semibold mb-1">Dealer price/unit (₹)</label>
+                            <input type="text" name="dealer_price" class="form-control form-control-sm" value="{{ l.dealer_price }}">
+                          </div>
+                          <div class="col-6">
+                            <label class="form-label small fw-semibold mb-1">Token/unit (₹)</label>
+                            <input type="text" name="token_value" class="form-control form-control-sm" value="{{ l.token_amount }}">
+                          </div>
+                          <div class="col-6">
+                            <label class="form-label small fw-semibold mb-1">MOQ</label>
+                            <input type="number" name="moq" class="form-control form-control-sm" value="{{ l.moq }}">
+                          </div>
+                          <div class="col-6">
+                            <label class="form-label small fw-semibold mb-1">Hold hours</label>
+                            <input type="number" name="hold_hours" class="form-control form-control-sm" value="{{ l.hold_hours }}">
+                          </div>
+                        </div>
+                        <div class="form-text">Existing bookings keep their snapshot price. Saving stamps the 48h price review.</div>
+                      </div>
+                      <div class="modal-footer py-2 d-flex justify-content-between">
+                        <button type="submit" name="confirm_only" value="1" class="btn btn-sm btn-outline-success"
+                                title="Price is still right — just stamp the 48h review">
+                          <i class="bi bi-check2 me-1"></i>Price still OK
+                        </button>
+                        <div>
+                          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                          <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                        </div>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="text-center text-muted py-4">No listings yet. Create your first one.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Create Listing modal -->
+<div class="modal fade" id="createModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="/trade-partner/listings/create" enctype="multipart/form-data">
+        <div class="modal-header py-2">
+          <h6 class="modal-title">New Listing</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2">
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold mb-1">Listing Type</label>
+              <select name="listing_type" id="cl_type" class="form-select form-select-sm" required>
+                {% for t in listing_types %}
+                <option value="{{ t }}">{{ t | replace('_',' ') | title }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label small fw-semibold mb-1">Title</label>
+              <input type="text" name="title" class="form-control form-control-sm" required
+                     placeholder="e.g. 50× Dell Latitude 7490 i5-8th Grade A/B">
+            </div>
+
+            <!-- Finished-goods source -->
+            <div class="col-12" id="cl_fg_source">
+              <div class="border rounded p-2 bg-light">
+                <div class="small fw-semibold mb-1"><i class="bi bi-laptop me-1"></i>Ready-stock picker (server picks oldest matching devices)</div>
+                <div class="row g-2">
+                  <div class="col-md-4">
+                    <input type="text" name="fg_brand" class="form-control form-control-sm" placeholder="Brand (optional)">
+                  </div>
+                  <div class="col-md-4">
+                    <select name="fg_grade" class="form-select form-select-sm">
+                      <option value="">Any grade</option>
+                      {% for g in ['A','B','C'] %}<option value="{{ g }}">Grade {{ g }}</option>{% endfor %}
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <input type="number" name="fg_qty" class="form-control form-control-sm" placeholder="Qty of devices">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Lot source -->
+            <div class="col-12 d-none" id="cl_lot_source">
+              <div class="border rounded p-2 bg-light">
+                <div class="small fw-semibold mb-1"><i class="bi bi-box-seam me-1"></i>Source lot</div>
+                <div class="row g-2">
+                  <div class="col-md-8">
+                    <select name="lot_id" class="form-select form-select-sm">
+                      <option value="">— Select lot —</option>
+                      {% for lot in lots %}
+                      <option value="{{ lot.id }}">{{ lot.lot_number }} — {{ lot.qty }} units{% if lot.condition %} ({{ lot.condition }}){% endif %}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <input type="number" name="qty_total" class="form-control form-control-sm" placeholder="Qty (default: lot qty)">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-12">
+              <label class="form-label small fw-semibold mb-1">Description</label>
+              <textarea name="description" rows="2" class="form-control form-control-sm"
+                        placeholder="Specs, condition notes, what's included…"></textarea>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold mb-1">Dealer price/unit (₹)</label>
+              <input type="text" name="dealer_price" class="form-control form-control-sm" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold mb-1">Token</label>
+              <div class="input-group input-group-sm">
+                <input type="text" name="token_value" class="form-control" placeholder="{{ settings.default_token_pct }}">
+                <select name="token_mode" class="form-select" style="max-width:70px">
+                  <option value="pct">%</option>
+                  <option value="flat">₹</option>
+                </select>
+              </div>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small fw-semibold mb-1">MOQ</label>
+              <input type="number" name="moq" class="form-control form-control-sm" value="1">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small fw-semibold mb-1">Hold hours</label>
+              <input type="number" name="hold_hours" class="form-control form-control-sm" placeholder="{{ settings.default_hold_hours }}">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small fw-semibold mb-1">Visible to</label>
+              <select name="visible_to_segment" class="form-select form-select-sm">
+                {% for s in segments %}
+                <option value="{{ s }}">{{ s | replace('_',' ') | title }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold mb-1">Photos (jpg/png/webp, ≤5MB each)</label>
+              <input type="file" name="photos" class="form-control form-control-sm" multiple accept=".jpg,.jpeg,.png,.webp">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary">Create as Draft</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var typeSel = document.getElementById('cl_type');
+  var fg = document.getElementById('cl_fg_source');
+  var lot = document.getElementById('cl_lot_source');
+  function syncSource() {
+    var isFG = typeSel.value === 'finished_goods';
+    fg.classList.toggle('d-none', !isFG);
+    lot.classList.toggle('d-none', isFG);
+  }
+  typeSel.addEventListener('change', syncSource);
+  syncSource();
+});
+</script>
+{% endblock %}

@@ -265,6 +265,31 @@
       {% endif %}
       {% endif %}
 
+      {# ── TRADE PARTNER (dealer-facing B2B portal admin) ────────────────── #}
+      {% if has_perm(role,'trade_partner','enable') %}
+      <li class="nav-section">TRADE PARTNER</li>
+      <li><a href="/trade-partner/partners" class="nav-link {% if request.url.path.startswith('/trade-partner/partners') %}active{% endif %}">
+        <i class="bi bi-shop me-2"></i> {{ sidebar_label('trade_partner', 'Partner Accounts') }}
+      </a></li>
+      <li><a href="/trade-partner/listings" class="nav-link {% if request.url.path.startswith('/trade-partner/listings') %}active{% endif %}">
+        <i class="bi bi-megaphone me-2"></i> Listings Manager
+      </a></li>
+      <li><a href="/trade-partner/bookings" class="nav-link {% if request.url.path.startswith('/trade-partner/bookings') %}active{% endif %}">
+        <i class="bi bi-bookmark-check me-2"></i> Bookings Queue
+      </a></li>
+      <li><a href="/trade-partner/my-desk" class="nav-link {% if request.url.path.startswith('/trade-partner/my-desk') %}active{% endif %}">
+        <i class="bi bi-person-workspace me-2"></i> My Desk
+      </a></li>
+      {% if role_allowed(role, 'admin') %}
+      <li><a href="/trade-partner/floors" class="nav-link {% if request.url.path.startswith('/trade-partner/floors') %}active{% endif %}">
+        <i class="bi bi-shield-lock me-2"></i> Margin Floors
+      </a></li>
+      {% endif %}
+      <li><a href="/trade-partner/settings" class="nav-link {% if request.url.path.startswith('/trade-partner/settings') %}active{% endif %}">
+        <i class="bi bi-gear me-2"></i> Portal Settings
+      </a></li>
+      {% endif %}
+
       {# ── SALES & CRM (Overdue Orders removed — now on Sales List page) ─ #}
       {% if any_perm(role,'sales','returns','dealers','telecalling','whatsapp','assign_dealer_leads','telesales_dashboard') %}
       <li class="nav-section">SALES & CRM</li>

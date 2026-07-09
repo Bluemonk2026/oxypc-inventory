@@ -1,0 +1,109 @@
+{% extends "partner/base.html" %}
+{% block title %}{{ listing.title }} — OxyPC Trade Partner{% endblock %}
+{% block content %}
+
+<a href="/partner/catalog" class="small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>Back to catalog</a>
+
+{% if error %}
+<div class="alert alert-danger py-2 small mt-2"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
+{% endif %}
+
+<div class="card listing-card mt-2 mb-3">
+  {% if photos %}
+  <div id="photoCarousel" class="carousel slide">
+    <div class="carousel-inner">
+      {% for ph in photos %}
+      <div class="carousel-item {% if loop.first %}active{% endif %}">
+        <img src="/uploads/partner/photos/{{ ph }}" class="d-block w-100" style="max-height:280px;object-fit:cover;border-radius:10px 10px 0 0;">
+      </div>
+      {% endfor %}
+    </div>
+    {% if photos|length > 1 %}
+    <button class="carousel-control-prev" type="button" data-bs-target="#photoCarousel" data-bs-slide="prev">
+      <span class="carousel-control-prev-icon"></span></button>
+    <button class="carousel-control-next" type="button" data-bs-target="#photoCarousel" data-bs-slide="next">
+      <span class="carousel-control-next-icon"></span></button>
+    {% endif %}
+  </div>
+  {% endif %}
+  <div class="card-body">
+    {% set type_labels = {'finished_goods': 'Finished Goods', 'bulk_lot': 'Bulk Lot',
+                          'functional_ok': 'Functional OK', 'as_is': 'As-Is'} %}
+    <span class="badge bg-light text-dark border">{{ type_labels.get(listing.listing_type, listing.listing_type) }}</span>
+    {% if ageing and ageing.tag == 'fresh' %}<span class="badge bg-success-subtle text-success border">New arrival</span>{% endif %}
+    {% if ageing and ageing.tag in ('discount','liquidation') %}<span class="badge bg-danger-subtle text-danger border">Deal price</span>{% endif %}
+    <h5 class="fw-bold mt-2 mb-1">{{ listing.title }}</h5>
+    <div class="small text-muted mb-2">{{ listing.listing_code }}</div>
+
+    <div class="row g-2 mb-2">
+      <div class="col-6"><span class="text-muted small d-block">Price / unit</span>
+        <span class="fw-bold text-primary fs-5">₹{{ "{:,.0f}".format(listing.dealer_price) }}</span></div>
+      <div class="col-6"><span class="text-muted small d-block">Token / unit</span>
+        <span class="fw-bold text-success fs-5">₹{{ "{:,.0f}".format(listing.token_amount) }}</span></div>
+      <div class="col-4"><span class="text-muted small d-block">Available</span>{{ listing.qty_available }} units</div>
+      <div class="col-4"><span class="text-muted small d-block">MOQ</span>{{ listing.moq }}</div>
+      <div class="col-4"><span class="text-muted small d-block">Hold window</span>{{ listing.hold_hours }} hrs</div>
+      {% if listing.brand %}<div class="col-6"><span class="text-muted small d-block">Brand</span>{{ listing.brand }}</div>{% endif %}
+      {% if listing.grade_summary %}<div class="col-6"><span class="text-muted small d-block">Grade</span>{{ listing.grade_summary }}</div>{% endif %}
+    </div>
+
+    {% if listing.description %}
+    <div class="small border-top pt-2 mb-2" style="white-space: pre-line;">{{ listing.description }}</div>
+    {% endif %}
+
+    <div class="d-flex gap-2 mb-1">
+      <a class="btn btn-sm btn-outline-success flex-fill"
+         href="https://wa.me/?text={{ share_text }}" target="_blank">
+        <i class="bi bi-whatsapp me-1"></i>Share
+      </a>
+      {% if owner_wa %}
+      <a class="btn btn-sm btn-outline-primary flex-fill"
+         href="https://wa.me/{{ owner_wa }}?text={{ ask_text }}" target="_blank">
+        <i class="bi bi-chat-dots me-1"></i>Ask Sales Owner
+      </a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if listing.status == 'published' and listing.qty_available > 0 %}
+<div class="card listing-card mb-3">
+  <div class="card-body">
+    <h6 class="fw-bold mb-2"><i class="bi bi-bookmark-check me-1"></i>Book with Token</h6>
+    <p class="small text-muted mb-2">
+      Pay a token of <strong>₹{{ "{:,.0f}".format(listing.token_amount) }}/unit</strong> to block this stock
+      for <strong>{{ listing.hold_hours }} hours</strong> while you complete payment.
+    </p>
+    <form method="post" action="/partner/listings/{{ listing.id }}/book" class="row g-2">
+      <input type="hidden" name="csrf_token" value="{{ partner_csrf }}">
+      <div class="col-5">
+        <input type="number" name="qty" id="bk_qty" class="form-control"
+               min="{{ listing.moq }}" max="{{ listing.qty_available }}" value="{{ listing.moq }}" required>
+      </div>
+      <div class="col-7">
+        <button class="btn btn-primary w-100">
+          <i class="bi bi-lock me-1"></i>Book · Token <span id="bk_total">₹{{ "{:,.0f}".format(listing.token_amount * listing.moq) }}</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-secondary text-center">Currently sold out — ask your sales owner about the next lot.</div>
+{% endif %}
+
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var qty = document.getElementById('bk_qty');
+  if (!qty) return;
+  var perUnit = {{ listing.token_amount }};
+  qty.addEventListener('input', function () {
+    var n = parseInt(qty.value || 0, 10);
+    document.getElementById('bk_total').textContent =
+      '₹' + (perUnit * (n > 0 ? n : 0)).toLocaleString('en-IN', {maximumFractionDigits: 0});
+  });
+})();
+</script>
+{% endblock %}

@@ -153,6 +153,8 @@ from routers.terms_conditions import router as terms_conditions_router
 from routers.dealer_quotations import router as dealer_quotations_router
 from routers.sidebar_config import router as sidebar_config_router
 from routers.buckets import router as buckets_router
+from routers.partner_portal import router as partner_portal_router
+from routers.partner_admin import router as partner_admin_router
 from routers.api import router as api_router
 from routers.api_v1 import router as api_v1_router
 from services.event_bus import subscribe, EventType
@@ -220,6 +222,8 @@ app.include_router(dealer_quotations_router)
 app.include_router(sidebar_config_router)
 app.include_router(stress_api_router)
 app.include_router(buckets_router)
+app.include_router(partner_portal_router)
+app.include_router(partner_admin_router)
 
 
 # ── Error UI: per-code message + solution, JSON for API/AJAX else HTML modal ──

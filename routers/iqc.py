@@ -6,7 +6,7 @@ from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
@@ -319,11 +319,39 @@ async def iqc_list(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
+    q: str = Query(default=""),
+    stage: str = Query(default=""),
+    grade: str = Query(default=""),
+    lot: str = Query(default=""),
     device_type: str = Query(default=""),
 ):
-    base_filters = [Device.current_stage == DeviceStage.iqc, Device.is_active.is_(True), Device.is_trashed == False]
+    # Stage defaults to IQC (this page's usual purpose) unless the user
+    # explicitly picks a different stage from the new Stage filter — lets
+    # this page double as a broader device search without changing its
+    # default behavior for anyone who doesn't touch the filter.
+    base_filters = [Device.is_active.is_(True), Device.is_trashed == False]
+    if stage:
+        try:
+            base_filters.append(Device.current_stage == DeviceStage(stage))
+        except ValueError:
+            stage = ""
+            base_filters.append(Device.current_stage == DeviceStage.iqc)
+    else:
+        base_filters.append(Device.current_stage == DeviceStage.iqc)
     if device_type:
         base_filters.append(Device.device_type == device_type)
+    if grade:
+        base_filters.append(Device.grade == grade)
+    if lot:
+        base_filters.append(Lot.lot_number == lot)
+    if q:
+        q_like = f"%{q}%"
+        base_filters.append(or_(
+            Device.barcode.ilike(q_like),
+            Device.brand.ilike(q_like),
+            Device.model.ilike(q_like),
+            Device.serial_no.ilike(q_like),
+        ))
 
     base_q = (
         select(Device, Lot.lot_number)
@@ -338,6 +366,7 @@ async def iqc_list(
     return templates.TemplateResponse("iqc/list.html", {
         "request": request, "devices": devices, "lots": lots, "current_user": current_user,
         "total": total,
+        "q": q, "stage": stage, "grade": grade, "lot": lot,
         "device_type": device_type, "device_type_options": await master_values(db, "device_type"),
         "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
     })

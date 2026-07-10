@@ -6,6 +6,38 @@
   <div class="card-body py-2">
     <div class="row g-2 align-items-end">
       <div class="col-md-3">
+        <label class="form-label small fw-semibold mb-1">Search</label>
+        <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm font-monospace"
+               placeholder="Tag Number, model, brand, serial number…">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Stage</label>
+        <select name="stage" class="form-select form-select-sm">
+          <option value="">IQC (default)</option>
+          {% for value, label in stage_options %}
+          <option value="{{ value }}" {% if stage == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Grade</label>
+        <select name="grade" class="form-select form-select-sm">
+          <option value="">All Grades</option>
+          {% for g in ['A','B','C','scrap'] %}
+          <option value="{{ g }}" {% if grade == g %}selected{% endif %}>{{ g }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Lot</label>
+        <select name="lot" class="form-select form-select-sm">
+          <option value="">All Lots</option>
+          {% for l in lots %}
+          <option value="{{ l.lot_number }}" {% if lot == l.lot_number %}selected{% endif %}>{{ l.lot_number }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
         <label class="form-label small fw-semibold mb-1">Device Type</label>
         <select name="device_type" class="form-select form-select-sm">
           <option value="">All Device Types</option>
@@ -14,8 +46,8 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-2 d-flex gap-2">
-        <button type="submit" class="btn btn-primary btn-sm flex-grow-1"><i class="bi bi-search me-1"></i>Filter</button>
+      <div class="col-md-1 d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm flex-grow-1"><i class="bi bi-search me-1"></i></button>
         <a href="/iqc" class="btn btn-outline-secondary btn-sm">Reset</a>
       </div>
     </div>

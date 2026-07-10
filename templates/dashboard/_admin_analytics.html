@@ -102,10 +102,8 @@
       <div class="card-body"><canvas id="chartPartsPriceWeekly" height="180"></canvas></div>
     </div>
   </div>
-  <div class="col-xl-12">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-header bg-transparent fw-semibold small">Weekly Sourcing Price — Buyer PO / Seller PO</div>
-      <div class="card-body"><canvas id="chartSourcingPriceWeekly" height="90"></canvas></div>
-    </div>
-  </div>
 </div>
+{# Weekly Sourcing Price card moved to dashboard.html's final row, paired with
+   Inventory by Category & Stage — chartSourcingPriceWeekly canvas now lives
+   there; the JS init in dashboard.html's scripts block is unaffected (still
+   targets the same canvas id, just rendered in a different spot). #}

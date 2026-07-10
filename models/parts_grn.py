@@ -28,6 +28,9 @@ class PartsGRN(Base):
     vehicle_seal_file = Column(String(255), nullable=True)
     vehicle_image_file = Column(String(255), nullable=True)
 
+    # ── Admin Dashboard analytics: GRN in Plan vs in TRC ──────────────────────
+    status = Column(String(20), nullable=False, default="in_plan", server_default="in_plan")   # in_plan / in_trc
+
     date_received = Column(DateTime, nullable=True)
     vendor_name = Column(String(150), nullable=True)
 

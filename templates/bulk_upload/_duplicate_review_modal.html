@@ -1,0 +1,145 @@
+{# Duplicate Tag/Lot review modal — auto-opened by result.html when the
+   upload found duplicate Tag Numbers or lot_numbers the file references but
+   which don't exist yet. Each row action is a per-row AJAX call; the modal
+   is never auto-closed by a row action — only the top-right × button closes it. #}
+{% set csrf = request.cookies.get('csrf_token', '') %}
+<div class="modal fade" id="duplicateReviewModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title"><i class="bi bi-exclamation-triangle text-warning me-2"></i>Duplicate Tag / Lot Review</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+
+        {% if tag_duplicates %}
+        <div class="mb-4">
+          <div class="fw-semibold small mb-2"><i class="bi bi-upc-scan me-1 text-primary"></i>Duplicate Tag Numbers ({{ tag_duplicates|length }})</div>
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered mb-0" id="dupTagTable">
+              <thead class="table-light">
+                <tr><th>Tag Number</th><th>Grade</th><th>Stage in System</th><th>Stage in File</th><th style="width:130px">Action</th></tr>
+              </thead>
+              <tbody>
+                {% for t in tag_duplicates %}
+                <tr data-tag="{{ t.tag_number }}">
+                  <td class="small font-monospace">{{ t.tag_number }}</td>
+                  <td class="small">{{ t.grade }}</td>
+                  <td class="small dup-tag-current-stage">{{ t.current_stage_label }}</td>
+                  <td class="small">{{ t.file_stage_label }}</td>
+                  <td>
+                    <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 dup-approve-move-btn"
+                            data-tag="{{ t.tag_number }}" data-to-stage="{{ t.file_stage }}"
+                            data-to-stage-label="{{ t.file_stage_label }}">
+                      <i class="bi bi-arrow-right-circle me-1"></i>Approve Move
+                    </button>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endif %}
+
+        {% if lot_duplicates %}
+        <div>
+          <div class="fw-semibold small mb-2"><i class="bi bi-boxes me-1 text-info"></i>Lot Numbers Not Found ({{ lot_duplicates|length }})</div>
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered mb-0" id="dupLotTable">
+              <thead class="table-light">
+                <tr><th>Lot Number</th><th>Purchase Date</th><th>Vendor Name</th><th style="width:130px">Action</th></tr>
+              </thead>
+              <tbody>
+                {% for l in lot_duplicates %}
+                <tr data-lot="{{ l.lot_number }}">
+                  <td class="small font-monospace">{{ l.lot_number }}</td>
+                  <td class="small">{{ l.purchase_date }}</td>
+                  <td class="small">{{ l.vendor_name }}</td>
+                  <td>
+                    <button type="button" class="btn btn-sm btn-outline-success py-0 px-2 dup-add-lot-btn"
+                            data-lot="{{ l.lot_number }}">
+                      <i class="bi bi-plus-lg me-1"></i>Add Lot
+                    </button>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endif %}
+
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var csrf = {{ csrf | tojson }};
+
+  document.querySelectorAll('.dup-approve-move-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var tag = btn.getAttribute('data-tag');
+      var toStage = btn.getAttribute('data-to-stage');
+      var toStageLabel = btn.getAttribute('data-to-stage-label');
+      btn.disabled = true;
+      var body = new URLSearchParams();
+      body.set('tag_number', tag);
+      body.set('to_stage', toStage);
+      fetch('/bulk-upload/duplicates/approve-move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrf },
+        body: body.toString(),
+      })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+        .then(function (res) {
+          if (!res.ok || !res.data.success) throw new Error(res.data.error || 'Move failed');
+          var row = document.querySelector('#dupTagTable tr[data-tag="' + CSS.escape(tag) + '"]');
+          if (row) row.querySelector('.dup-tag-current-stage').textContent = res.data.new_stage_label || toStageLabel;
+          btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Moved';
+          btn.classList.remove('btn-outline-primary');
+          btn.classList.add('btn-success', 'disabled');
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          alert(err.message || 'Could not move this tag.');
+        });
+    });
+  });
+
+  document.querySelectorAll('.dup-add-lot-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var lot = btn.getAttribute('data-lot');
+      btn.disabled = true;
+      var body = new URLSearchParams();
+      body.set('lot_number', lot);
+      fetch('/bulk-upload/duplicates/add-lot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrf },
+        body: body.toString(),
+      })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+        .then(function (res) {
+          if (!res.ok || !res.data.success) throw new Error(res.data.error || 'Add Lot failed');
+          btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Added';
+          btn.classList.remove('btn-outline-success');
+          btn.classList.add('btn-success', 'disabled');
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          alert(err.message || 'Could not add this lot.');
+        });
+    });
+  });
+
+  var modalEl = document.getElementById('duplicateReviewModal');
+  if (modalEl) {
+    var modal = new bootstrap.Modal(modalEl);
+    modal.show();
+  }
+})();
+</script>

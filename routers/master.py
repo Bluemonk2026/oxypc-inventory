@@ -144,6 +144,7 @@ PERM_MODULES = [
     ("returns",              "Returns"),
     ("dealers",              "Dealers"),
     ("telecalling",          "Telecalling"),
+    ("quotations",           "Quotations"),
     ("model_requests",       "Model Requests"),
     ("whatsapp",             "WhatsApp"),
     ("assign_dealer_leads",  "Assign Dealer Leads"),

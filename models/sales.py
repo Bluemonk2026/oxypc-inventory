@@ -35,6 +35,8 @@ class Sale(Base):
     # ── Warranty at sale (Phase 1a) ──────────────────────────────────────────────
     warranty_type       = Column(String(20), default="none")   # none/30_days/6_months/1_year
     warranty_expires_at = Column(DateTime, nullable=True)       # server-computed from sold_at + duration
+    # ── Sales channel (Admin Dashboard analytics) ─────────────────────────────
+    sale_channel = Column(String(20), nullable=True)   # procurement / telecaller / showroom
 
     device = relationship("Device", back_populates="sales")
     returns = relationship("Return", back_populates="sale", lazy="select")

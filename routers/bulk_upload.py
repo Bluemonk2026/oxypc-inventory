@@ -4,18 +4,20 @@ import uuid
 from datetime import datetime
 from utils.timezone import app_now
 from templates_config import templates
-from fastapi import APIRouter, Depends, File, UploadFile, Request, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi import APIRouter, Depends, File, Form, UploadFile, Request, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from database import get_db
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, StageMovement
+from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.iqc_inspection import IQCInspection
 from models.lot import Lot
 from models.spare_parts import SparePart
 from models.telecalling import TelecallingRecord
 from auth.dependencies import get_current_user, require_roles, verify_csrf
+from services.audit_engine import audit
+from services.control_engine import validate_transition
 
 router = APIRouter(prefix="/bulk-upload", tags=["bulk_upload"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
@@ -279,6 +281,14 @@ async def upload_devices(
             text = content.decode("latin-1")
     reader = csv.DictReader(io.StringIO(text))
     inserted, errors = 0, []
+    # Rows held back for the duplicate-review modal instead of hard-erroring —
+    # a duplicate Tag No (barcode already exists elsewhere) or a lot_number the
+    # file references but which doesn't exist yet in Lot Management. Both used
+    # to be silently skipped as an error row; now they're surfaced so the user
+    # can resolve them in bulk (Approve Move / Add Lot) instead of fixing the
+    # CSV and re-uploading one row at a time.
+    tag_duplicates: list[dict] = []
+    lot_duplicates: dict[str, dict] = {}   # lot_number -> row, de-duped
 
     # Build lot_number → lot_id map
     lots_result = await db.execute(select(Lot))
@@ -291,6 +301,9 @@ async def upload_devices(
     # in-batch duplicates are still caught instead of failing the whole
     # commit with a unique-constraint error.
     existing_barcodes = set((await db.execute(select(Device.barcode))).scalars().all())
+    # Existing devices by barcode, for the duplicate-tag review table (current
+    # stage). Fetched lazily below only if a duplicate is actually found.
+    existing_devices_by_barcode: dict[str, Device] = {}
 
     def _s(row, key):
         return (row.get(key) or "").strip() or None
@@ -306,11 +319,29 @@ async def upload_devices(
                 errors.append(f"Row {i}: Tag No is required")
                 continue
             if barcode in existing_barcodes:
-                errors.append(f"Row {i}: Tag No '{barcode}' already exists")
+                if barcode not in existing_devices_by_barcode:
+                    ed = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+                    if ed:
+                        existing_devices_by_barcode[barcode] = ed
+                ed = existing_devices_by_barcode.get(barcode)
+                tag_duplicates.append({
+                    "tag_number": barcode,
+                    "grade": _s(row, "grade") or "—",
+                    "current_stage": ed.current_stage.value if ed else None,
+                    "current_stage_label": STAGE_LABELS.get(ed.current_stage, ed.current_stage) if ed else "—",
+                    "file_stage": DeviceStage.iqc.value,
+                    "file_stage_label": STAGE_LABELS.get(DeviceStage.iqc, "IQC"),
+                })
                 continue
             lot_number = _s(row, "lot_number")
             lot_id = lot_map.get(lot_number)
             if not lot_id:
+                if lot_number and lot_number not in lot_duplicates:
+                    lot_duplicates[lot_number] = {
+                        "lot_number": lot_number,
+                        "purchase_date": app_now().strftime("%Y-%m-%d"),
+                        "vendor_name": "Unknown",
+                    }
                 errors.append(f"Row {i}: lot_number '{lot_number}' not found")
                 continue
             bios_pwd_raw = (row.get("bios_password") or "").strip().lower()
@@ -378,7 +409,87 @@ async def upload_devices(
         "request": request, "current_user": current_user,
         "upload_type": "Devices", "inserted": inserted, "errors": errors,
         "back_url": "/iqc",
+        "tag_duplicates": tag_duplicates,
+        "lot_duplicates": list(lot_duplicates.values()),
     })
+
+
+@router.post("/duplicates/approve-move")
+async def approve_duplicate_move(
+    request: Request,
+    tag_number: str = Form(...),
+    to_stage: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Approve-Move button on the duplicate-review modal's Tag Number table —
+    moves a single already-existing device from its current stage to the
+    stage requested by the uploaded file. Reuses the same validated-transition
+    engine as every other stage-move flow in the app (services/control_engine)
+    so bulk corrections can't skip stages the rest of the system assumes are
+    sequential. Returns JSON (not a redirect) — the modal must stay open."""
+    result = await db.execute(select(Device).where(Device.barcode == tag_number))
+    device = result.scalar_one_or_none()
+    if not device:
+        return JSONResponse({"success": False, "error": f"Tag Number '{tag_number}' not found"}, status_code=404)
+
+    is_admin = current_user.role.value == "admin"
+    try:
+        new_stage = DeviceStage(to_stage)
+    except ValueError:
+        return JSONResponse({"success": False, "error": f"Invalid stage '{to_stage}'"}, status_code=400)
+    try:
+        await validate_transition(device, new_stage, db, override_admin=is_admin)
+    except HTTPException as e:
+        return JSONResponse({"success": False, "error": e.detail}, status_code=e.status_code)
+
+    prev = device.current_stage
+    device.current_stage = new_stage
+    device.updated_at = app_now()
+    db.add(StageMovement(device_id=device.id, from_stage=prev, to_stage=new_stage,
+                          moved_by=current_user.username, notes="Bulk Upload — duplicate review, Approve Move"))
+    await audit(db, action="STAGE_MOVED", user=current_user,
+                table_name="devices", record_id=str(device.id),
+                old_value={"stage": str(prev)}, new_value={"stage": to_stage}, request=request)
+    await db.commit()
+    return JSONResponse({"success": True, "new_stage": new_stage.value,
+                          "new_stage_label": STAGE_LABELS.get(new_stage, new_stage.value)})
+
+
+@router.post("/duplicates/add-lot")
+async def add_duplicate_lot(
+    request: Request,
+    lot_number: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Add Lot button on the duplicate-review modal's Lot table — registers
+    the lot shell (lot_number + today's purchase date + Unknown vendor) in
+    Lot Management so a later normal upload/GRN can attach devices to it.
+    Returns JSON (not a redirect) — the modal must stay open."""
+    lot_number = (lot_number or "").strip()
+    if not lot_number:
+        return JSONResponse({"success": False, "error": "Lot Number is required"}, status_code=400)
+    existing = (await db.execute(select(Lot).where(Lot.lot_number == lot_number))).scalar_one_or_none()
+    if existing:
+        return JSONResponse({"success": False, "error": f"Lot '{lot_number}' already exists"}, status_code=409)
+
+    lot = Lot(
+        lot_number=lot_number,
+        supplier_name="Unknown",
+        vendor_name="Unknown",
+        buying_price=0,
+        qty=1,
+        purchase_date=app_now(),
+        created_by=current_user.username if current_user else None,
+    )
+    db.add(lot)
+    await db.flush()
+    await audit(db, action="LOT_CREATED_FROM_DUPLICATE_REVIEW", user=current_user,
+                table_name="lots", record_id=str(lot.id),
+                new_value={"lot_number": lot.lot_number}, request=request)
+    await db.commit()
+    return JSONResponse({"success": True, "lot_id": str(lot.id)})
 
 
 @router.post("/spare-parts")

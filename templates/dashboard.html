@@ -457,56 +457,7 @@
 {% endif %}
 
 <div class="row g-3 mb-4">
-  <div class="col-xl-8">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
-        <span class="fw-semibold"><i class="bi bi-graph-up me-2"></i>Lot P&amp;L</span>
-        <a href="/reports/lot-pl" class="btn btn-sm btn-outline-primary">Full Report</a>
-      </div>
-      <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-hover mb-0 small">
-            <thead class="table-light">
-              <tr><th>Lot#</th><th>Devices</th><th>Sold</th><th>Buying</th><th>Parts</th><th>Revenue</th><th>Profit</th><th>Margin</th></tr>
-            </thead>
-            <tbody>
-              {% for lp in lot_pl %}
-              <tr>
-                <td><a href="/lots/{{ lp.lot_id }}" class="fw-semibold text-decoration-none">{{ lp.lot_number }}</a></td>
-                <td>{{ lp.devices_count }}</td><td>{{ lp.devices_sold }}</td>
-                <td>₹{{ "{:,.0f}".format(lp.buying_price) }}</td>
-                <td>₹{{ "{:,.0f}".format(lp.parts_cost) }}</td>
-                <td>₹{{ "{:,.0f}".format(lp.revenue) }}</td>
-                <td class="{% if lp.profit > 0 %}text-success fw-semibold{% elif lp.profit < 0 %}text-danger fw-semibold{% endif %}">₹{{ "{:,.0f}".format(lp.profit) }}</td>
-                <td><span class="badge {% if lp.margin > 0 %}bg-success{% elif lp.margin < 0 %}bg-danger{% else %}bg-secondary{% endif %}">{{ lp.margin }}%</span></td>
-              </tr>
-              {% else %}
-              <tr><td colspan="8" class="text-center text-muted py-3">No lots yet</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
-  <div class="col-xl-4">
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-transparent fw-semibold text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Low Stock Alerts</div>
-      <div class="card-body p-0">
-        {% if low_stock %}
-        <ul class="list-group list-group-flush">
-          {% for part in low_stock %}
-          <li class="list-group-item d-flex justify-content-between align-items-center py-2">
-            <div><div class="small fw-semibold">{{ part.name }}</div><div class="text-muted" style="font-size:.75rem">{{ part.part_code }}</div></div>
-            <span class="badge bg-danger rounded-pill">{{ part.qty_in_stock }} left</span>
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <p class="text-center text-muted py-3 mb-0 small">All parts adequately stocked ✓</p>
-        {% endif %}
-      </div>
-    </div>
+  <div class="col-xl-4 offset-xl-8">
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-transparent fw-semibold"><i class="bi bi-wallet2 me-2"></i>Financial Summary</div>
       <div class="card-body">
@@ -523,32 +474,9 @@
   </div>
 </div>
 
-<div class="card border-0 shadow-sm">
-  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-clock-history me-2"></i>Recent Stage Movements</div>
-  <div class="card-body p-0">
-    <div class="table-responsive">
-      <table class="table table-hover mb-0 small">
-        <thead class="table-light">
-          <tr><th>Time</th><th>Tag Number</th><th>Device</th><th>From</th><th>To</th><th>By</th></tr>
-        </thead>
-        <tbody>
-          {% for mv, barcode, brand, model in recent_movements %}
-          <tr>
-            <td class="text-muted">{{ mv.moved_at.strftime('%d-%m %H:%M') }}</td>
-            <td><code>{{ barcode }}</code></td>
-            <td>{{ brand }} {{ model }}</td>
-            <td><span class="badge bg-secondary">{{ mv.from_stage.value if mv.from_stage else 'New' }}</span></td>
-            <td><span class="badge bg-primary">{{ mv.to_stage.value if mv.to_stage else '—' }}</span></td>
-            <td>{{ mv.moved_by }}</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="6" class="text-center text-muted py-3">No activity yet</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
+{% if role == 'admin' %}
+{% include "dashboard/_admin_analytics.html" %}
+{% endif %}
 
 </div><!-- /tab-operations -->
 
@@ -704,4 +632,86 @@
   });
 })();
 </script>
+
+{% if role == 'admin' %}
+{% set ac = admin_charts %}
+<script>
+(function(){
+  const weekLabels = {{ ac.get('week_labels', []) | tojson }};
+
+  new Chart(document.getElementById('chartProductsWeekly'), {
+    type: 'bar',
+    data: {
+      labels: weekLabels,
+      datasets: [
+        { label: 'IQC',       data: {{ ac.get('products_iqc_weekly', []) | tojson }},   backgroundColor: 'rgba(108,117,125,.75)' },
+        { label: 'GRN',       data: {{ ac.get('products_grn_weekly', []) | tojson }},   backgroundColor: 'rgba(255,193,7,.75)' },
+        { label: 'In Stock',  data: {{ ac.get('products_stock_weekly', []) | tojson }}, backgroundColor: 'rgba(13,202,240,.75)' },
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
+  });
+
+  new Chart(document.getElementById('chartPartsWeekly'), {
+    type: 'bar',
+    data: {
+      labels: weekLabels,
+      datasets: [
+        { label: 'Sourcing Request', data: {{ ac.get('parts_sourcing_weekly', []) | tojson }}, backgroundColor: 'rgba(13,110,253,.75)' },
+        { label: 'GRN',              data: {{ ac.get('parts_grn_weekly', []) | tojson }},      backgroundColor: 'rgba(255,193,7,.75)' },
+        { label: 'Harvest',          data: {{ ac.get('parts_harvest_weekly', []) | tojson }},  backgroundColor: 'rgba(25,135,84,.75)' },
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
+  });
+
+  new Chart(document.getElementById('chartStagePie'), {
+    type: 'pie',
+    data: {
+      labels: {{ ac.get('stage_pie_labels', []) | tojson }},
+      datasets: [{ data: {{ ac.get('stage_pie_values', []) | tojson }},
+        backgroundColor: ['#6c757d','#0dcaf0','#ffc107','#fd7e14','#dc3545','#6f42c1','#0d6efd','#198754'] }]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+  });
+
+  new Chart(document.getElementById('chartSalesPriceWeekly'), {
+    type: 'bar',
+    data: {
+      labels: weekLabels,
+      datasets: [
+        { label: 'Ready to Sale (count)', data: {{ ac.get('ready_to_sale_weekly', []) | tojson }}, backgroundColor: 'rgba(25,135,84,.55)', yAxisID: 'y1' },
+        { label: 'Product Sold (₹)',      data: {{ ac.get('product_sold_price_weekly', []) | tojson }}, backgroundColor: 'rgba(13,110,253,.75)', yAxisID: 'y' },
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'top' } },
+      scales: { y: { beginAtZero: true, position: 'left' }, y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false } } } }
+  });
+
+  new Chart(document.getElementById('chartPartsPriceWeekly'), {
+    type: 'bar',
+    data: {
+      labels: weekLabels,
+      datasets: [
+        { label: 'As New (₹)',     data: {{ ac.get('parts_new_price_weekly', []) | tojson }},     backgroundColor: 'rgba(13,110,253,.75)' },
+        { label: 'As Harvest (₹)', data: {{ ac.get('parts_harvest_price_weekly', []) | tojson }}, backgroundColor: 'rgba(25,135,84,.75)' },
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
+  });
+
+  new Chart(document.getElementById('chartSourcingPriceWeekly'), {
+    type: 'bar',
+    data: {
+      labels: weekLabels,
+      datasets: [
+        { label: 'Buyer PO (₹)',  data: {{ ac.get('buyer_po_weekly', []) | tojson }},  backgroundColor: 'rgba(25,135,84,.75)' },
+        { label: 'Seller PO (₹)', data: {{ ac.get('seller_po_weekly', []) | tojson }}, backgroundColor: 'rgba(253,126,20,.75)' },
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

@@ -2,18 +2,20 @@ from templates_config import templates
 import csv
 import io
 from datetime import datetime as _dtnow
+from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from database import get_db
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, StageMovement
+from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.lot import Lot, LotLineItem
 from models.iqc_inspection import IQCInspection
 from models.location import StorageLocation
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from services.audit_engine import audit
+from services.control_engine import validate_transition
 from utils.master_data import master_values
 
 router = APIRouter(prefix="/iqc", tags=["iqc"], dependencies=[Depends(verify_csrf)])
@@ -337,6 +339,7 @@ async def iqc_list(
         "request": request, "devices": devices, "lots": lots, "current_user": current_user,
         "total": total,
         "device_type": device_type, "device_type_options": await master_values(db, "device_type"),
+        "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
     })
 
 
@@ -414,20 +417,37 @@ async def iqc_bulk_apply_grade_type(
     grade: str = Form(""),
     invoice_number: str = Form(""),
     po_number: str = Form(""),
+    to_stage: str = Form(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("iqc", "edit")),
 ):
-    """Bulk-apply Device Type, Grade, Invoice Number and/or PO Number to a set of
-    Tag Numbers selected on the Product IQC table (checkbox multi-select + Customise modal)."""
+    """Bulk-apply Device Type, Grade, Invoice Number, PO Number and/or a stage
+    move to a set of Tag Numbers selected on the Product IQC table (checkbox
+    multi-select + Customise modal). The stage move reuses the same
+    validated-transition engine as every other move-device flow in the app
+    (services/control_engine) — a barcode whose current stage has no allowed
+    transition to the requested stage is skipped and reported, not silently
+    dropped or force-moved."""
     barcodes = [b.strip() for b in barcodes if b and b.strip()]
     if not barcodes:
         return RedirectResponse(url="/iqc?error=No+devices+selected", status_code=302)
-    if not device_type.strip() and not grade.strip() and not invoice_number.strip() and not po_number.strip():
+    to_stage = (to_stage or "").strip()
+    if not device_type.strip() and not grade.strip() and not invoice_number.strip() and not po_number.strip() and not to_stage:
         return RedirectResponse(url="/iqc?error=Select+a+field+to+apply", status_code=302)
 
     result = await db.execute(select(Device).where(Device.barcode.in_(barcodes)))
     devices = result.scalars().all()
+
+    new_stage = None
+    skipped_moves = []
+    if to_stage:
+        try:
+            new_stage = DeviceStage(to_stage)
+        except ValueError:
+            return RedirectResponse(url=f"/iqc?error=Invalid+stage+{to_stage}", status_code=302)
+
+    is_admin = current_user.role.value == "admin"
     for device in devices:
         if device_type.strip():
             device.device_type = device_type.strip()
@@ -437,15 +457,30 @@ async def iqc_bulk_apply_grade_type(
             device.invoice_number = invoice_number.strip()
         if po_number.strip():
             device.po_number = po_number.strip()
+        if new_stage is not None:
+            try:
+                await validate_transition(device, new_stage, db, override_admin=is_admin)
+            except HTTPException:
+                skipped_moves.append(device.barcode)
+                continue
+            prev = device.current_stage
+            device.current_stage = new_stage
+            device.updated_at = app_now()
+            db.add(StageMovement(device_id=device.id, from_stage=prev, to_stage=new_stage,
+                                  moved_by=current_user.username, notes="IQC Customise modal — bulk Move to Stage"))
 
     await audit(db, action="IQC_BULK_GRADE_TYPE_APPLIED", user=current_user,
                 table_name="devices", record_id=",".join(str(d.id) for d in devices)[:50],
                 new_value={"device_type": device_type or None, "grade": grade or None,
                            "invoice_number": invoice_number or None, "po_number": po_number or None,
-                           "count": len(devices)},
+                           "to_stage": to_stage or None, "count": len(devices)},
                 request=request)
     await db.commit()
-    return RedirectResponse(url=f"/iqc?success={len(devices)}+device(s)+updated", status_code=302)
+    msg = f"{len(devices)}+device(s)+updated"
+    if skipped_moves:
+        import urllib.parse
+        msg += f"&warning={urllib.parse.quote(f'{len(skipped_moves)} tag(s) could not move to {to_stage} (not an allowed transition): ' + ', '.join(skipped_moves[:10]))}"
+    return RedirectResponse(url=f"/iqc?success={msg}", status_code=302)
 
 
 @router.get("/export-csv")

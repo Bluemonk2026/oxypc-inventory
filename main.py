@@ -151,6 +151,7 @@ from routers.landing_pages import router as landing_pages_router
 from routers.company_settings import router as company_settings_router
 from routers.terms_conditions import router as terms_conditions_router
 from routers.dealer_quotations import router as dealer_quotations_router
+from routers.quotations_list import router as quotations_list_router
 from routers.sidebar_config import router as sidebar_config_router
 from routers.buckets import router as buckets_router
 from routers.partner_portal import router as partner_portal_router
@@ -219,6 +220,7 @@ app.include_router(landing_pages_router)
 app.include_router(company_settings_router)
 app.include_router(terms_conditions_router)
 app.include_router(dealer_quotations_router)
+app.include_router(quotations_list_router)
 app.include_router(sidebar_config_router)
 app.include_router(stress_api_router)
 app.include_router(buckets_router)

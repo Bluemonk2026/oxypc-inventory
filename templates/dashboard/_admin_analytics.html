@@ -1,0 +1,111 @@
+{# Admin Dashboard analytics — 12 stat cards + 5 chart groups. Included from
+   templates/dashboard.html inside the {% if role == 'admin' %} gate. Chart
+   rendering JS lives in dashboard.html's scripts block (after the Chart.js
+   CDN include loads) — this partial only carries the markup + canvases. #}
+{% set aa = admin_analytics %}
+
+<h6 class="fw-semibold text-muted mb-2 mt-4"><i class="bi bi-graph-up me-1"></i>Analytics</h6>
+
+<div class="row g-3 mb-4">
+  {% for title, icon, color, parts in [
+    ('Total Products', 'bi-laptop', 'primary', [('To be Sold', aa.get('products_to_be_sold',0)), ('Mark Sold', aa.get('products_sold',0))]),
+    ('Total Stock', 'bi-boxes', 'info', [('In Stock', aa.get('stock_in_stock',0)), ('Sold', aa.get('stock_sold',0)), ('Returned', aa.get('stock_returned',0))]),
+    ('Stage Products', 'bi-diagram-3', 'secondary', [('IQC', aa.get('stage_iqc',0)), ('Inventory', aa.get('stage_inventory',0)), ('Production', aa.get('stage_production',0)), ('Final IQC', aa.get('stage_final_iqc',0))]),
+    ('Total GRN', 'bi-truck', 'warning', [('In Plan', aa.get('grn_in_plan',0)), ('In TRC', aa.get('grn_in_trc',0))]),
+    ('Total Parts', 'bi-gear', 'dark', [('In Stock', aa.get('parts_in_stock',0)), ('Out of Stock', aa.get('parts_out_of_stock',0)), ('Consumed', aa.get('parts_consumed',0)), ('As New', aa.get('parts_as_new',0)), ('As Harvest', aa.get('parts_as_harvest',0))]),
+    ('Total Dealers', 'bi-building', 'success', [('Interested', aa.get('dealers_interested',0)), ('Not Interested', aa.get('dealers_not_interested',0)), ('Followup', aa.get('dealers_followup',0))]),
+    ('Total Accounts', 'bi-person-badge', 'primary', [('Buyer', aa.get('accounts_buyer',0)), ('Seller', aa.get('accounts_seller',0)), ('Both', aa.get('accounts_both',0))]),
+    ('Total PO', 'bi-file-earmark-text', 'info', [('Generated', aa.get('po_generated',0)), ('Closed', aa.get('po_closed',0))]),
+    ('Total Source Request', 'bi-search', 'secondary', [('Part', aa.get('source_request_parts',0)), ('Products', aa.get('source_request_products',0))]),
+    ('Total Sales', 'bi-cart-check', 'success', [('Procurement', aa.get('sales_procurement',0)), ('Telecaller', aa.get('sales_telecaller',0)), ('Showroom', aa.get('sales_showroom',0))]),
+  ] %}
+  <div class="col-sm-6 col-xl-4 col-xxl-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi {{ icon }} text-{{ color }}"></i>
+          <span class="fw-semibold small">{{ title }}</span>
+        </div>
+        <div class="d-flex flex-wrap gap-3">
+          {% for label, value in parts %}
+          <div>
+            <div class="fs-5 fw-bold">{{ value }}</div>
+            <div class="text-muted" style="font-size:.7rem">{{ label }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="col-sm-6 col-xl-4 col-xxl-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-graph-up-arrow text-success"></i>
+          <span class="fw-semibold small">Total Product Profits</span>
+        </div>
+        <div class="d-flex flex-wrap gap-3">
+          <div><div class="fs-6 fw-bold">₹{{ "{:,.0f}".format(aa.get('product_buying',0)) }}</div><div class="text-muted" style="font-size:.7rem">Buying Price</div></div>
+          <div><div class="fs-6 fw-bold">₹{{ "{:,.0f}".format(aa.get('product_sale',0)) }}</div><div class="text-muted" style="font-size:.7rem">Sale Price</div></div>
+          <div><div class="fs-6 fw-bold {% if aa.get('product_profit_pct',0) >= 0 %}text-success{% else %}text-danger{% endif %}">{{ aa.get('product_profit_pct',0) }}%</div><div class="text-muted" style="font-size:.7rem">Profit %</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-xl-4 col-xxl-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="bi bi-graph-up-arrow text-info"></i>
+          <span class="fw-semibold small">Total Parts Profits</span>
+        </div>
+        <div class="d-flex flex-wrap gap-3">
+          <div><div class="fs-6 fw-bold">₹{{ "{:,.0f}".format(aa.get('parts_buying',0)) }}</div><div class="text-muted" style="font-size:.7rem">Buying Price</div></div>
+          <div><div class="fs-6 fw-bold">₹{{ "{:,.0f}".format(aa.get('parts_used',0)) }}</div><div class="text-muted" style="font-size:.7rem">Used Price</div></div>
+          <div><div class="fs-6 fw-bold {% if aa.get('parts_profit_pct',0) >= 0 %}text-success{% else %}text-danger{% endif %}">{{ aa.get('parts_profit_pct',0) }}%</div><div class="text-muted" style="font-size:.7rem">Profit %</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-xl-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold small">Weekly: Products in IQC / GRN / In Stock</div>
+      <div class="card-body"><canvas id="chartProductsWeekly" height="110"></canvas></div>
+    </div>
+  </div>
+  <div class="col-xl-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold small">Weekly: Spare Parts — Sourcing Request / GRN / Harvest</div>
+      <div class="card-body"><canvas id="chartPartsWeekly" height="110"></canvas></div>
+    </div>
+  </div>
+  <div class="col-xl-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold small">Stage Distribution</div>
+      <div class="card-body"><canvas id="chartStagePie" height="200"></canvas></div>
+    </div>
+  </div>
+  <div class="col-xl-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold small">Weekly Sales Price — Ready to Sale / Sold</div>
+      <div class="card-body"><canvas id="chartSalesPriceWeekly" height="180"></canvas></div>
+    </div>
+  </div>
+  <div class="col-xl-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold small">Weekly Parts Price — As New / As Harvest</div>
+      <div class="card-body"><canvas id="chartPartsPriceWeekly" height="180"></canvas></div>
+    </div>
+  </div>
+  <div class="col-xl-12">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold small">Weekly Sourcing Price — Buyer PO / Seller PO</div>
+      <div class="card-body"><canvas id="chartSourcingPriceWeekly" height="90"></canvas></div>
+    </div>
+  </div>
+</div>

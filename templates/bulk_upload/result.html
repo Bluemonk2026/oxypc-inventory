@@ -50,4 +50,7 @@
     </div>
   </div>
 </div>
+{% if tag_duplicates or lot_duplicates %}
+{% include "bulk_upload/_duplicate_review_modal.html" %}
+{% endif %}
 {% endblock %}

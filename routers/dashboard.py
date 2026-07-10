@@ -15,7 +15,9 @@ from models.lot import Lot
 from models.sales import Sale
 from models.spare_parts import SparePart, SparePartConsumption
 from models.dealers import DealerOrder, DealerCreditNote, DealerCall
-from models.crm import CRMActivity
+from models.crm import CRMActivity, CRMContact, CRMPurchaseOrder, CRMSourcingDeal
+from models.parts_grn import PartsGRN, PartsGRNLineItem
+from models.part_request import PartSourcingRequest
 from models.cost_config import CostConfig
 from auth.dependencies import get_current_user
 from routers.inventory_location import _gap_devices
@@ -340,8 +342,7 @@ async def dashboard(
     except Exception:
         _log.exception("lot_pl failed")
 
-    # ── Low stock + financial totals ──────────────────────────────────────────
-    low_stock: list = []
+    # ── Financial totals ───────────────────────────────────────────────────────
     month_revenue = 0.0
     total_revenue = 0.0
     total_investment = 0.0
@@ -350,11 +351,6 @@ async def dashboard(
     total_cosmetic_cost = 0.0
     overall_profit = 0.0
     try:
-        low_stock_result = await db.execute(
-            select(SparePart).where(SparePart.qty_in_stock <= SparePart.min_stock_alert)
-        )
-        low_stock = low_stock_result.scalars().all()
-
         month_revenue_result = await db.execute(
             select(func.coalesce(func.sum(Sale.sale_price), 0))
             .where(func.date(Sale.sold_at) >= date(today.year, today.month, 1))
@@ -381,6 +377,199 @@ async def dashboard(
         overall_profit = total_revenue - total_investment - total_parts_cost - total_labour_cost - total_cosmetic_cost
     except Exception:
         _log.exception("financials failed")
+
+    # ── Admin analytics: 12 stat cards + 5 weekly/pie charts ──────────────────
+    # Only computed for admin (the section is admin-gated in the template) —
+    # skips the extra query load for every other role's dashboard render.
+    admin_analytics: dict = {}
+    admin_charts: dict = {}
+    if current_user.role == UserRole.admin:
+        try:
+            def _week_key(dt):
+                if not dt:
+                    return None
+                iso = dt.isocalendar()
+                return f"{iso[0]}-W{iso[1]:02d}"
+
+            def _last_n_week_keys(n=8):
+                from datetime import timedelta
+                keys = []
+                d = today
+                seen = set()
+                while len(seen) < n:
+                    k = _week_key(datetime(d.year, d.month, d.day))
+                    if k not in seen:
+                        seen.add(k)
+                        keys.append(k)
+                    d -= timedelta(days=7)
+                return list(reversed(keys))
+
+            week_labels = _last_n_week_keys(8)
+
+            def _weekly_series(rows, date_getter, value_getter=lambda r: 1):
+                buckets = {wk: 0 for wk in week_labels}
+                for r in rows:
+                    wk = _week_key(date_getter(r))
+                    if wk in buckets:
+                        buckets[wk] += value_getter(r)
+                return [buckets[wk] for wk in week_labels]
+
+            # a. Total Products (To be Sold / Mark Sold)
+            admin_analytics["products_to_be_sold"] = stage_counts.get(DeviceStage.ready_to_sale.value, 0)
+            admin_analytics["products_sold"] = stage_counts.get(DeviceStage.sold.value, 0)
+
+            # b. Total Stock (In Stock / Sold / Returned)
+            admin_analytics["stock_in_stock"] = stage_counts.get(DeviceStage.stock_in.value, 0)
+            admin_analytics["stock_sold"] = stage_counts.get(DeviceStage.sold.value, 0)
+            admin_analytics["stock_returned"] = stage_counts.get(DeviceStage.returned.value, 0)
+
+            # c. Stage Products (IQC / Inventory / Production / Final IQC)
+            admin_analytics["stage_iqc"] = stage_counts.get(DeviceStage.iqc.value, 0)
+            admin_analytics["stage_inventory"] = stage_counts.get(DeviceStage.stock_in.value, 0)
+            admin_analytics["stage_production"] = stage_counts.get(DeviceStage.trc_production.value, 0)
+            admin_analytics["stage_final_iqc"] = stage_counts.get(DeviceStage.final_qc.value, 0)
+
+            # d. Total GRN (in Plan / in TRC)
+            grn_status_rows = (await db.execute(
+                select(PartsGRN.status, func.count(PartsGRN.id)).group_by(PartsGRN.status)
+            )).all()
+            grn_status_counts = {s: c for s, c in grn_status_rows}
+            admin_analytics["grn_in_plan"] = grn_status_counts.get("in_plan", 0)
+            admin_analytics["grn_in_trc"] = grn_status_counts.get("in_trc", 0)
+
+            # e. Total Parts (In Stock / Out of Stock / Consumed / As New vs As Harvest)
+            admin_analytics["parts_in_stock"] = (await db.execute(
+                select(func.count(SparePart.id)).where(SparePart.qty_in_stock > SparePart.min_stock_alert)
+            )).scalar() or 0
+            admin_analytics["parts_out_of_stock"] = (await db.execute(
+                select(func.count(SparePart.id)).where(SparePart.qty_in_stock <= SparePart.min_stock_alert)
+            )).scalar() or 0
+            admin_analytics["parts_consumed"] = (await db.execute(
+                select(func.coalesce(func.sum(SparePartConsumption.qty_used), 0))
+            )).scalar() or 0
+            harvest_rows = (await db.execute(
+                select(PartsGRNLineItem.is_harvest, func.count(PartsGRNLineItem.id)).group_by(PartsGRNLineItem.is_harvest)
+            )).all()
+            harvest_counts = {bool(h): c for h, c in harvest_rows}
+            admin_analytics["parts_as_new"] = harvest_counts.get(False, 0)
+            admin_analytics["parts_as_harvest"] = harvest_counts.get(True, 0)
+
+            # f. Total Dealers (Interested / Not Interested / Followup) — call-outcome
+            # counts across all logged calls (approximation: not de-duped per dealer's
+            # latest outcome, since that would need a window-function query).
+            outcome_rows = (await db.execute(
+                select(DealerCall.call_outcome, func.count(DealerCall.id)).group_by(DealerCall.call_outcome)
+            )).all()
+            outcome_counts = {o: c for o, c in outcome_rows}
+            admin_analytics["dealers_interested"] = outcome_counts.get("interested", 0)
+            admin_analytics["dealers_not_interested"] = outcome_counts.get("not_interested", 0)
+            admin_analytics["dealers_followup"] = outcome_counts.get("followup", 0)
+
+            # g. Total Accounts (Buyer / Seller / Both) — CRMContact.contact_type
+            contact_rows = (await db.execute(
+                select(CRMContact.contact_type, func.count(CRMContact.id)).group_by(CRMContact.contact_type)
+            )).all()
+            contact_counts = {t: c for t, c in contact_rows}
+            admin_analytics["accounts_buyer"] = contact_counts.get("buyer", 0)
+            admin_analytics["accounts_seller"] = contact_counts.get("supplier", 0)
+            admin_analytics["accounts_both"] = contact_counts.get("both", 0)
+
+            # h. Total PO (Generated / Closed) — issued/acknowledged vs received/cancelled
+            po_status_rows = (await db.execute(
+                select(CRMPurchaseOrder.status, func.count(CRMPurchaseOrder.id)).group_by(CRMPurchaseOrder.status)
+            )).all()
+            po_status_counts = {s: c for s, c in po_status_rows}
+            admin_analytics["po_generated"] = po_status_counts.get("issued", 0) + po_status_counts.get("acknowledged", 0)
+            admin_analytics["po_closed"] = po_status_counts.get("received", 0) + po_status_counts.get("cancelled", 0)
+
+            # i. Total Source Request (Part / Products)
+            admin_analytics["source_request_parts"] = (await db.execute(
+                select(func.count(PartSourcingRequest.id))
+            )).scalar() or 0
+            admin_analytics["source_request_products"] = (await db.execute(
+                select(func.count(CRMSourcingDeal.id))
+            )).scalar() or 0
+
+            # j. Total Sales (Procurement / Telecaller / Showroom)
+            channel_rows = (await db.execute(
+                select(Sale.sale_channel, func.count(Sale.id)).group_by(Sale.sale_channel)
+            )).all()
+            channel_counts = {c: n for c, n in channel_rows}
+            admin_analytics["sales_procurement"] = channel_counts.get("procurement", 0)
+            admin_analytics["sales_telecaller"] = channel_counts.get("telecaller", 0)
+            admin_analytics["sales_showroom"] = channel_counts.get("showroom", 0)
+
+            # k. Total Product Profits — reuses the financials already computed above
+            admin_analytics["product_buying"] = total_investment
+            admin_analytics["product_sale"] = total_revenue
+            admin_analytics["product_profit_pct"] = round((overall_profit / total_revenue * 100), 1) if total_revenue > 0 else 0
+
+            # l. Total Parts Profits — buying value from GRN line items vs used cost
+            parts_buying_result = await db.execute(
+                select(func.coalesce(func.sum(PartsGRNLineItem.price * PartsGRNLineItem.physical_qty), 0))
+            )
+            parts_buying = float(parts_buying_result.scalar() or 0)
+            admin_analytics["parts_buying"] = parts_buying
+            admin_analytics["parts_used"] = total_parts_cost
+            admin_analytics["parts_profit_pct"] = round(((parts_buying - total_parts_cost) / parts_buying * 100), 1) if parts_buying > 0 else 0
+
+            # ── Charts ─────────────────────────────────────────────────────────
+            admin_charts["week_labels"] = week_labels
+
+            # a. Weekly: Products in IQC / GRN / In Stock (via StageMovement into that stage)
+            sm_rows = (await db.execute(
+                select(StageMovement.to_stage, StageMovement.moved_at)
+                .where(StageMovement.to_stage.in_([DeviceStage.iqc, DeviceStage.grn, DeviceStage.stock_in]))
+            )).all()
+            admin_charts["products_iqc_weekly"] = _weekly_series([r for r in sm_rows if r[0] == DeviceStage.iqc], lambda r: r[1])
+            admin_charts["products_grn_weekly"] = _weekly_series([r for r in sm_rows if r[0] == DeviceStage.grn], lambda r: r[1])
+            admin_charts["products_stock_weekly"] = _weekly_series([r for r in sm_rows if r[0] == DeviceStage.stock_in], lambda r: r[1])
+
+            # a2. Weekly: Spare Parts in Sourcing Request / GRN / Harvest
+            psr_rows = (await db.execute(select(PartSourcingRequest.created_at))).scalars().all()
+            admin_charts["parts_sourcing_weekly"] = _weekly_series(psr_rows, lambda r: r)
+            grn_li_rows = (await db.execute(select(PartsGRNLineItem.is_harvest, PartsGRNLineItem.created_at))).all()
+            admin_charts["parts_grn_weekly"] = _weekly_series([r for r in grn_li_rows if not r[0]], lambda r: r[1])
+            admin_charts["parts_harvest_weekly"] = _weekly_series([r for r in grn_li_rows if r[0]], lambda r: r[1])
+
+            # b. Pie: stage distribution
+            admin_charts["stage_pie_labels"] = ["IQC", "Inventory", "Production", "L1", "L2", "L3", "Stress Test", "Final QC"]
+            admin_charts["stage_pie_values"] = [
+                stage_counts.get(DeviceStage.iqc.value, 0),
+                stage_counts.get(DeviceStage.stock_in.value, 0),
+                stage_counts.get(DeviceStage.trc_production.value, 0),
+                stage_counts.get(DeviceStage.l1.value, 0),
+                stage_counts.get(DeviceStage.l2.value, 0),
+                stage_counts.get(DeviceStage.l3.value, 0),
+                stage_counts.get(DeviceStage.qc_check.value, 0),
+                stage_counts.get(DeviceStage.final_qc.value, 0),
+            ]
+
+            # c. Weekly: Sales Price — Ready to Sale (moved-in value proxy via count) vs Product Sold (₹)
+            rts_rows = (await db.execute(
+                select(StageMovement.moved_at).where(StageMovement.to_stage == DeviceStage.ready_to_sale)
+            )).scalars().all()
+            admin_charts["ready_to_sale_weekly"] = _weekly_series(rts_rows, lambda r: r)
+            sold_rows = (await db.execute(select(Sale.sold_at, Sale.sale_price))).all()
+            admin_charts["product_sold_price_weekly"] = _weekly_series(sold_rows, lambda r: r[0], lambda r: float(r[1] or 0))
+
+            # d. Weekly: Parts Price — As New vs As Harvest
+            grn_li_price_rows = (await db.execute(
+                select(PartsGRNLineItem.is_harvest, PartsGRNLineItem.created_at, PartsGRNLineItem.price)
+            )).all()
+            admin_charts["parts_new_price_weekly"] = _weekly_series(
+                [r for r in grn_li_price_rows if not r[0]], lambda r: r[1], lambda r: float(r[2] or 0))
+            admin_charts["parts_harvest_price_weekly"] = _weekly_series(
+                [r for r in grn_li_price_rows if r[0]], lambda r: r[1], lambda r: float(r[2] or 0))
+
+            # e. Weekly: Sourcing Price — Buyer PO (DealerOrder, dealers buying from
+            # OxyPC) vs Seller PO (CRMPurchaseOrder, OxyPC buying from suppliers)
+            buyer_po_rows = (await db.execute(select(DealerOrder.order_date, DealerOrder.total_amount))).all()
+            admin_charts["buyer_po_weekly"] = _weekly_series(buyer_po_rows, lambda r: r[0], lambda r: float(r[1] or 0))
+            seller_po_rows = (await db.execute(select(CRMPurchaseOrder.created_at, CRMPurchaseOrder.total_amount))).all()
+            admin_charts["seller_po_weekly"] = _weekly_series(seller_po_rows, lambda r: r[0], lambda r: float(r[1] or 0))
+        except Exception:
+            _log.exception("admin_analytics failed")
 
     # ── Apply stage filter to stage_counts display ───────────────────────────
     if stage_filter:
@@ -411,19 +600,6 @@ async def dashboard(
         location_gap_count = 0
         location_in_hand_count = 0
         location_never_count = 0
-
-    # ── Recent stage movements ────────────────────────────────────────────────
-    recent_movements: list = []
-    try:
-        recent_movements_result = await db.execute(
-            select(StageMovement, Device.barcode, Device.brand, Device.model)
-            .join(Device, StageMovement.device_id == Device.id)
-            .order_by(StageMovement.moved_at.desc())
-            .limit(10)
-        )
-        recent_movements = recent_movements_result.all()
-    except Exception:
-        _log.exception("recent_movements failed")
 
     # ── My Work Queue — actual devices in the user's active stages ───────────
     ROLE_STAGE_MAP = {
@@ -494,7 +670,6 @@ async def dashboard(
         "chart_stages": chart_stages,
         "chart_data": chart_data,
         "lot_pl": lot_pl,
-        "low_stock": low_stock,
         "month_revenue": month_revenue,
         "total_revenue": total_revenue,
         "total_investment": total_investment,
@@ -502,7 +677,8 @@ async def dashboard(
         "total_labour_cost": total_labour_cost,
         "total_cosmetic_cost": total_cosmetic_cost,
         "overall_profit": overall_profit,
-        "recent_movements": recent_movements,
+        "admin_analytics": admin_analytics,
+        "admin_charts": admin_charts,
         "today": today,
         "location_gap_count": location_gap_count,
         "location_in_hand_count": location_in_hand_count,

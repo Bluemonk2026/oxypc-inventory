@@ -308,6 +308,11 @@
         <i class="bi bi-telephone me-2"></i> {{ sidebar_label('telecalling', 'Telecalling') }}
       </a></li>
       {% endif %}
+      {% if has_perm(role,'quotations','enable') %}
+      <li><a href="/quotations" class="nav-link {% if request.url.path.startswith('/quotations') %}active{% endif %}">
+        <i class="bi bi-receipt me-2"></i> {{ sidebar_label('quotations', 'Quotations') }}
+      </a></li>
+      {% endif %}
       {% if has_perm(role,'model_requests','enable') %}
       <li><a href="/model-requests" class="nav-link {% if request.url.path.startswith('/model-requests') %}active{% endif %}">
         <i class="bi bi-clipboard-plus me-2"></i> {{ sidebar_label('model_requests', 'Model Requests') }}

@@ -199,6 +199,31 @@ Table sales {
   sold_by varchar(50) [note: 'indexed']
   sold_at datetime [default: `now()`]
   notes text
+  sale_channel varchar(20) [note: 'procurement / telecaller / showroom — Admin Dashboard analytics']
+}
+
+// ── parts_grn ────────────────────────────────────────────────
+Table parts_grn {
+  id uuid [pk, not null]
+  grn_number varchar(20) [not null, unique, note: 'indexed']
+  po_number varchar(50)
+  po_date datetime
+  invoice_number varchar(50)
+  invoice_date datetime
+  eway_bill_number varchar(50)
+  vehicle_number varchar(50)
+  status varchar(20) [not null, default: 'in_plan', note: 'in_plan / in_trc — Admin Dashboard analytics']
+  date_received datetime
+  vendor_name varchar(150)
+  invoice_value decimal(12,2)
+  total_po_qty int
+  total_invoice_qty int
+  total_physical_qty int
+  total_amount_invoice decimal(12,2)
+  created_by varchar(50)
+  created_at datetime [default: `now()`]
+  is_trashed boolean [not null, default: false]
+  trashed_at datetime
 }
 
 // ── returns ──────────────────────────────────────────────────

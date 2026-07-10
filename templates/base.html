@@ -916,6 +916,60 @@ $.extend(true, $.fn.dataTable.defaults, {
   setInterval(update, 30000);
 })();
 </script>
+
+<!-- Live notification toast popup — top-right, auto-appears on new
+     notifications, closable, app-wide (this block lives in base.html). -->
+<div id="notifToastContainer" class="position-fixed top-0 end-0 p-3" style="z-index:2080; max-width:360px;"></div>
+<script>
+(function pollNotificationToasts() {
+  var lastSeenId = null;   // null = baseline not established yet
+  var typeColor = { info: 'primary', success: 'success', warning: 'warning', alert: 'danger' };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function showToast(n) {
+    var color = typeColor[n.notification_type] || 'primary';
+    var el = document.createElement('div');
+    el.className = 'toast align-items-center text-bg-' + color + ' border-0 show shadow';
+    el.setAttribute('role', 'alert');
+    el.innerHTML =
+      '<div class="d-flex">' +
+        '<div class="toast-body">' +
+          '<div class="fw-semibold small">' + esc(n.title) + '</div>' +
+          '<div class="small">' + esc(n.message) + '</div>' +
+        '</div>' +
+        '<button type="button" class="btn-close btn-close-white me-2 m-auto" aria-label="Close"></button>' +
+      '</div>';
+    el.querySelector('.btn-close').addEventListener('click', function () { el.remove(); });
+    document.getElementById('notifToastContainer').appendChild(el);
+    setTimeout(function () { el.remove(); }, 8000);
+  }
+
+  function poll() {
+    var url = '/notifications/since' + (lastSeenId != null ? ('?after_id=' + lastSeenId) : '');
+    fetch(url, { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var notifs = d.notifications || [];
+        var isFirstRun = (lastSeenId == null);
+        notifs.forEach(function (n) {
+          if (!isFirstRun) showToast(n);   // don't flood the whole unread backlog on first page load
+          lastSeenId = (lastSeenId == null) ? n.id : Math.max(lastSeenId, n.id);
+        });
+        if (lastSeenId == null) lastSeenId = 0;   // no unread at all — still establish a baseline
+      })
+      .catch(function () {});
+  }
+
+  poll();
+  setInterval(poll, 15000);
+})();
+</script>
+
 <script>
 /* CSRF Auto-Inject — reads csrf_token cookie, injects hidden input into every POST form */
 (function () {

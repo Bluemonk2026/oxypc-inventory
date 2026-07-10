@@ -147,6 +147,49 @@ async def recent_notifications(
     })
 
 
+@router.get("/notifications/since")
+async def notifications_since(
+    after_id: int = 0,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Feed for the top-right live toast popup — unread notifications newer
+    than `after_id`, WITHOUT marking them read (unlike /notifications/recent,
+    which is only meant for the bell panel's explicit open action). A toast
+    firing and auto-dismissing isn't the same as the user having read it."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    query = (
+        select(Notification)
+        .where(
+            Notification.created_at >= cutoff,
+            Notification.is_read == False,  # noqa: E712
+            or_(
+                Notification.user_id == current_user.id,
+                Notification.user_id == None,  # noqa: E711
+            ),
+        )
+        .order_by(Notification.id.asc())
+    )
+    if after_id:
+        query = query.where(Notification.id > after_id)
+    result = await db.execute(query.limit(20))
+    notifs = result.scalars().all()
+
+    return JSONResponse({
+        "notifications": [
+            {
+                "id": n.id,
+                "barcode": n.barcode or "",
+                "title": n.title,
+                "message": n.message,
+                "notification_type": n.notification_type,
+                "created_at": n.created_at.strftime("%d-%m-%Y %H:%M") if n.created_at else "",
+            }
+            for n in notifs
+        ]
+    })
+
+
 @router.get("/notifications/unread-count")
 async def unread_count(
     db: AsyncSession = Depends(get_db),

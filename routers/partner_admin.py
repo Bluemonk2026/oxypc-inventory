@@ -78,11 +78,14 @@ async def partners_list(
     from services.partner_service import compute_dealer_scores
     scores = await compute_dealer_scores(db, [p.id for p in partners])
 
-    # Dealers not yet portal-enabled — candidates for provisioning
+    # Dealer dropdown — mapped 1:1 to the Dealer Management list (same Dealer
+    # table, no status filter — matches Dealer Management's default view),
+    # minus dealers already portal-enabled (re-enabling an existing portal
+    # login doesn't apply here). No row cap — Dealer Management itself is
+    # not artificially capped, so this dropdown shouldn't silently truncate.
     cand_q = select(Dealer).where(
         Dealer.portal_enabled == False,  # noqa: E712
-        Dealer.status == "active",
-    ).order_by(Dealer.business_name).limit(500)
+    ).order_by(Dealer.business_name)
     candidates = (await db.execute(cand_q)).scalars().all()
 
     return templates.TemplateResponse("trade_partner/partners.html", {

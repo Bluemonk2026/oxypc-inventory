@@ -161,7 +161,7 @@
             <select name="dealer_id" class="form-select form-select-sm" required>
               <option value="">— Select dealer —</option>
               {% for c in candidates %}
-              <option value="{{ c.id }}">{{ c.business_name }} ({{ c.dealer_code }}){% if c.city %} — {{ c.city }}{% endif %}</option>
+              <option value="{{ c.id }}">{{ c.business_name }} ({{ c.dealer_code }}){% if c.phone %} — {{ c.phone }}{% endif %}{% if c.city %} — {{ c.city }}{% endif %}</option>
               {% endfor %}
             </select>
             <small class="text-muted">Dealer must exist in Dealer Management first.</small>

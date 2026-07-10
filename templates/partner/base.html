@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}OxyPC Trade Partner{% endblock %}</title>
+  <link rel="manifest" href="/static/partner/manifest.json">
+  <meta name="theme-color" content="#1f3864">
+  <link rel="apple-touch-icon" href="/static/partner/icon-192.png">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
   <style>
@@ -55,7 +58,46 @@
 </nav>
 {% endif %}
 
+<div id="pwa-install-banner" class="d-none position-fixed start-0 end-0 px-3" style="bottom:78px;z-index:1040;">
+  <div class="d-flex align-items-center gap-2 rounded-3 shadow p-2 ps-3"
+       style="background:var(--bs-body-bg,#fff);border:1px solid #d8dfe8;max-width:720px;margin:0 auto;">
+    <i class="bi bi-phone text-primary fs-4"></i>
+    <div class="flex-grow-1 small">
+      <strong>Add OxyPC Trade to your home screen</strong>
+      <div class="text-muted" style="font-size:.78rem">One tap to open — like an app.</div>
+    </div>
+    <button id="pwa-install-btn" class="btn btn-sm btn-primary">Install</button>
+    <button id="pwa-install-dismiss" class="btn btn-sm btn-link text-muted" aria-label="Dismiss">✕</button>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ── PWA: register service worker + custom install prompt ──
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/partner/sw.js').catch(function () {});
+}
+(function () {
+  var deferred = null;
+  var banner = document.getElementById('pwa-install-banner');
+  var DISMISS_KEY = 'tp_pwa_dismissed';
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    deferred = e;
+    try { if (localStorage.getItem(DISMISS_KEY)) return; } catch (err) {}
+    banner.classList.remove('d-none');
+  });
+  document.getElementById('pwa-install-btn').addEventListener('click', function () {
+    banner.classList.add('d-none');
+    if (deferred) { deferred.prompt(); deferred = null; }
+  });
+  document.getElementById('pwa-install-dismiss').addEventListener('click', function () {
+    banner.classList.add('d-none');
+    try { localStorage.setItem(DISMISS_KEY, '1'); } catch (err) {}
+  });
+  window.addEventListener('appinstalled', function () { banner.classList.add('d-none'); });
+})();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

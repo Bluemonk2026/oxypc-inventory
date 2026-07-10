@@ -140,6 +140,19 @@ async def home(request: Request, dealer: Dealer = Depends(get_current_partner)):
     return RedirectResponse(url="/partner/catalog", status_code=302)
 
 
+@router.get("/sw.js")
+async def service_worker():
+    """Serve the PWA service worker from /partner/sw.js so its scope covers
+    the whole dealer portal (a /static path would scope it to /static)."""
+    from fastapi.responses import FileResponse
+    from config import BASE_DIR
+    return FileResponse(
+        os.path.join(BASE_DIR, "static", "partner", "sw.js"),
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
 async def _sales_owner_wa(db: AsyncSession, dealer: Dealer):
     """WhatsApp number of the dealer's assigned sales owner (digits only)."""
     if not dealer.sales_owner_username:

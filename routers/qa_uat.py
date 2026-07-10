@@ -1102,15 +1102,31 @@ process change.
 
 @router.get("/srs/technical-spec/download")
 async def srs_technical_spec_download(current_user: User = Depends(_view)):
-    from fastapi.responses import PlainTextResponse
-    return PlainTextResponse(_TSD_CONTENT, headers={
-        "Content-Disposition": 'attachment; filename="OxyPC_Technical_Specification_Document.txt"'
+    from fastapi.responses import Response
+    from utils.srs_pdf import build_spec_pdf
+    pdf_bytes = build_spec_pdf(
+        doc_code="TSD-1.0",
+        title="OxyPC Inventory — Technical Specification Document",
+        subtitle="Architecture, data model, security, and integrations",
+        raw_content=_TSD_CONTENT,
+        generated_on=app_now().strftime("%d %b %Y"),
+    )
+    return Response(pdf_bytes, media_type="application/pdf", headers={
+        "Content-Disposition": 'attachment; filename="OxyPC_Technical_Specification_Document.pdf"'
     })
 
 
 @router.get("/srs/functional-spec/download")
 async def srs_functional_spec_download(current_user: User = Depends(_view)):
-    from fastapi.responses import PlainTextResponse
-    return PlainTextResponse(_FSD_CONTENT, headers={
-        "Content-Disposition": 'attachment; filename="OxyPC_Functional_Specification_Document.txt"'
+    from fastapi.responses import Response
+    from utils.srs_pdf import build_spec_pdf
+    pdf_bytes = build_spec_pdf(
+        doc_code="FSD-1.0",
+        title="OxyPC Inventory — Functional Specification Document",
+        subtitle="Roles, workflows, and acceptance criteria",
+        raw_content=_FSD_CONTENT,
+        generated_on=app_now().strftime("%d %b %Y"),
+    )
+    return Response(pdf_bytes, media_type="application/pdf", headers={
+        "Content-Disposition": 'attachment; filename="OxyPC_Functional_Specification_Document.pdf"'
     })

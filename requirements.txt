@@ -21,3 +21,4 @@ httpx==0.28.1
 pypdf
 pdfplumber
 fpdf2>=2.7.9
+reportlab>=4.0.0

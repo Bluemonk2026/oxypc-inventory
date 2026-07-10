@@ -6,7 +6,7 @@ from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
@@ -14,7 +14,7 @@ from models.engines import RepairAttempt
 from models.lot import Lot
 from models.sales import Sale
 from models.spare_parts import SparePart, SparePartConsumption
-from models.dealers import DealerOrder, DealerCreditNote, DealerCall
+from models.dealers import Dealer, DealerOrder, DealerCreditNote, DealerCall
 from models.crm import CRMActivity, CRMContact, CRMPurchaseOrder, CRMSourcingDeal
 from models.parts_grn import PartsGRN, PartsGRNLineItem
 from models.part_request import PartSourcingRequest
@@ -414,7 +414,11 @@ async def dashboard(
                         buckets[wk] += value_getter(r)
                 return [buckets[wk] for wk in week_labels]
 
-            # a. Total Products (To be Sold / Mark Sold)
+            # a. Total Products (Inventory / To be Sold / Mark Sold) — Inventory is
+            # the total tag-number count across every stage, and is also what the
+            # card's Total badge shows (not a sum of the 3 breakdown values, since
+            # Inventory already includes To be Sold + Mark Sold + everything else).
+            admin_analytics["products_inventory"] = total_devices
             admin_analytics["products_to_be_sold"] = stage_counts.get(DeviceStage.ready_to_sale.value, 0)
             admin_analytics["products_sold"] = stage_counts.get(DeviceStage.sold.value, 0)
 
@@ -429,13 +433,23 @@ async def dashboard(
             admin_analytics["stage_production"] = stage_counts.get(DeviceStage.trc_production.value, 0)
             admin_analytics["stage_final_iqc"] = stage_counts.get(DeviceStage.final_qc.value, 0)
 
-            # d. Total GRN (in Plan / in TRC)
-            grn_status_rows = (await db.execute(
-                select(PartsGRN.status, func.count(PartsGRN.id)).group_by(PartsGRN.status)
-            )).all()
-            grn_status_counts = {s: c for s, c in grn_status_rows}
-            admin_analytics["grn_in_plan"] = grn_status_counts.get("in_plan", 0)
-            admin_analytics["grn_in_trc"] = grn_status_counts.get("in_trc", 0)
+            # d. Total GRN — count of Tag Numbers (devices) that HAVE a GRN value
+            # (Device.grn_number set) vs those that don't yet ("In Plan" = no GRN
+            # assigned yet, "In TRC" = GRN assigned). Total badge = the "In TRC"
+            # (has-GRN) count, since that's what "Total GRN count" means per spec.
+            grn_with = (await db.execute(
+                select(func.count(Device.id)).where(
+                    Device.is_trashed == False, Device.grn_number.isnot(None), Device.grn_number != ""
+                )
+            )).scalar() or 0
+            grn_without = (await db.execute(
+                select(func.count(Device.id)).where(
+                    Device.is_trashed == False,
+                    or_(Device.grn_number.is_(None), Device.grn_number == "")
+                )
+            )).scalar() or 0
+            admin_analytics["grn_in_plan"] = grn_without
+            admin_analytics["grn_in_trc"] = grn_with
 
             # e. Total Parts (In Stock / Out of Stock / Consumed / As New vs As Harvest)
             admin_analytics["parts_in_stock"] = (await db.execute(
@@ -454,9 +468,14 @@ async def dashboard(
             admin_analytics["parts_as_new"] = harvest_counts.get(False, 0)
             admin_analytics["parts_as_harvest"] = harvest_counts.get(True, 0)
 
-            # f. Total Dealers (Interested / Not Interested / Followup) — call-outcome
-            # counts across all logged calls (approximation: not de-duped per dealer's
-            # latest outcome, since that would need a window-function query).
+            # f. Total Dealers — Total badge = count of ALL dealers in Dealer
+            # Management (not a sum of the breakdown, which is call-outcome
+            # counts across logged calls — approximation: not de-duped per
+            # dealer's latest outcome, since that would need a window-function
+            # query).
+            admin_analytics["dealers_total"] = (await db.execute(
+                select(func.count(Dealer.id))
+            )).scalar() or 0
             outcome_rows = (await db.execute(
                 select(DealerCall.call_outcome, func.count(DealerCall.id)).group_by(DealerCall.call_outcome)
             )).all()

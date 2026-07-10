@@ -881,3 +881,95 @@ async def workflow_view(
     return templates.TemplateResponse("qa/workflow.html", {
         "request": request, "current_user": current_user,
     })
+
+
+# ── Stage Workflows tab — per-stage-transition detail + download ─────────────
+# Each entry: key, title, stages (ordered list of stage names), and a detail
+# block describing what actually happens at each hop (used both on-screen in
+# the "Create Detail Workflow" modal and in the downloaded text file).
+STAGE_WORKFLOWS = [
+    {
+        "key": "sourcing_grn",
+        "title": "Sourcing → GRN",
+        "stages": ["Sourcing", "GRN"],
+        "detail": [
+            ("Sourcing", "Deal is worked in CRM Sourcing (lead → contacted → inspection → negotiation → agreed), PO line items are added with an offer price, and a Purchase Order is generated against the supplier."),
+            ("GRN", "Goods are physically received against the PO/lot — GRN number, invoice, e-way bill, and vehicle details are recorded; devices are logged with their Tag Number and linked to the lot at this point."),
+        ],
+    },
+    {
+        "key": "grn_iqc",
+        "title": "GRN → IQC",
+        "stages": ["GRN", "IQC"],
+        "detail": [
+            ("GRN", "Devices sit in the GRN-received state until assigned into IQC — either individually or via the GRN-post-IQC 'Map this GRN' bulk-assignment tool."),
+            ("IQC", "Each device undergoes physical inspection (screen/panel/keyboard/touchpad/ports/battery/storage), grade and device type are set, and duplicate Tag Number/Lot Number conflicts are resolved via the Customise/duplicate-review tooling before the device can proceed."),
+        ],
+    },
+    {
+        "key": "iqc_to_ready",
+        "title": "IQC → Stock IN → Repair → Cosmetic → Final QC → Ready To Sale",
+        "stages": ["IQC", "Stock IN", "Repair", "Cosmetic", "Final QC", "Ready To Sale"],
+        "detail": [
+            ("IQC", "Physical inspection completes and the device is graded (A/B/C/Scrap) with device type confirmed."),
+            ("Stock IN", "Device moves into general inventory, available for the TRC production pipeline and part-request flows."),
+            ("Repair", "If a fault is found, the device is escalated through L1 → L2 → L3 repair levels in order, with parts consumed/requested against it and each repair attempt logged."),
+            ("Cosmetic", "Cosmetic rework — cleaning, dry sanding, masking, painting, water sanding — is applied to bring the unit to sellable condition."),
+            ("Final QC", "A final quality check confirms the device is fully functional and cosmetically ready, gating entry into the sales-ready pool."),
+            ("Ready To Sale", "Device is marked Ready to Sale, appears in the Ready to Sale / Telecalling dashboards, and becomes eligible for a Sale."),
+        ],
+    },
+    {
+        "key": "ready_sold",
+        "title": "Ready to Sale → Sold",
+        "stages": ["Ready to Sale", "Sold"],
+        "detail": [
+            ("Ready to Sale", "Device is visible to Telecalling/Counter Sale flows with its dealer/sale price; a sale can only be created once the device reaches this stage (enforced by the Control Engine)."),
+            ("Sold", "A Sale record is created (sale price, customer, payment mode, warranty type); the device moves to Sold and a 30-day-from-sale warranty window is computed."),
+        ],
+    },
+    {
+        "key": "sold_return",
+        "title": "Sold → Return",
+        "stages": ["Sold", "Return"],
+        "detail": [
+            ("Sold", "Device is with the customer under its warranty window (if any)."),
+            ("Return", "If returned, a Return record captures the reason and return_status; devices within warranty may trigger an L3 replace flow (auto-populating replacement info) instead of a straight refund."),
+        ],
+    },
+]
+_STAGE_WORKFLOWS_BY_KEY = {w["key"]: w for w in STAGE_WORKFLOWS}
+
+
+@router.get("/stage-workflows", response_class=HTMLResponse)
+async def stage_workflows_view(
+    request: Request,
+    current_user: User = Depends(_view),
+):
+    """Stage Workflows tab — one card per stage-transition, each with a
+    Download (plain-text) export and a Create Detail Workflow modal."""
+    return templates.TemplateResponse("qa/stage_workflows.html", {
+        "request": request, "current_user": current_user,
+        "workflows": STAGE_WORKFLOWS,
+    })
+
+
+@router.get("/stage-workflows/{workflow_key}/download")
+async def stage_workflow_download(
+    workflow_key: str,
+    current_user: User = Depends(_view),
+):
+    wf = _STAGE_WORKFLOWS_BY_KEY.get(workflow_key)
+    if not wf:
+        raise HTTPException(404, "Workflow not found")
+
+    lines = [wf["title"], "=" * len(wf["title"]), "", "Stages: " + " > ".join(wf["stages"]), "", "Detail:"]
+    for stage_name, desc in wf["detail"]:
+        lines.append(f"- {stage_name}: {desc}")
+    content = "\n".join(lines) + "\n"
+
+    from fastapi.responses import PlainTextResponse
+    filename = f"workflow_{workflow_key}.txt"
+    return PlainTextResponse(content, headers={
+        "Content-Disposition": f'attachment; filename="{filename}"'
+    })

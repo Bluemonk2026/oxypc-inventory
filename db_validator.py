@@ -135,6 +135,24 @@ def _sql_type(col) -> str:
     return "TEXT"
 
 
+def _column_default_clause(col) -> str:
+    """Build a ' DEFAULT ...' SQL fragment from the column's server_default.
+
+    Without this, ADD COLUMN left every pre-existing row NULL even when the
+    ORM model declared a default — e.g. dealers.portal_enabled ended up NULL
+    on 472 rows instead of false, silently excluding them from any query
+    filtering on `== False` (they don't match NULL either)."""
+    sd = getattr(col, "server_default", None)
+    if sd is None:
+        return ""
+    arg = getattr(sd, "arg", sd)
+    try:
+        val = str(arg.compile(compile_kwargs={"literal_binds": True}))
+    except Exception:
+        val = str(arg)
+    return f" DEFAULT {val}"
+
+
 # ── Core validator ────────────────────────────────────────────────────────────
 
 class SchemaValidator:
@@ -197,21 +215,27 @@ class SchemaValidator:
             for col in tbl.columns:
                 if col.name not in db_cols:
                     sql_t = _sql_type(col)
-                    missing.append((tbl_name, col.name, sql_t))
+                    default_clause = _column_default_clause(col)
+                    # NOT NULL is only safe to add together with a DEFAULT —
+                    # Postgres backfills existing rows from the default before
+                    # enforcing NOT NULL, so this never fails on a non-empty table.
+                    not_null = bool(default_clause) and not col.nullable
+                    missing.append((tbl_name, col.name, sql_t, default_clause, not_null))
                     self.issues.append(
-                        f"COLUMN MISSING: {tbl_name}.{col.name} ({sql_t})"
+                        f"COLUMN MISSING: {tbl_name}.{col.name} ({sql_t}{default_clause})"
                     )
         return missing
 
     # ── fix 2: add missing columns ────────────────────────────────────────────
 
     async def fix_missing_columns(self, missing: list[tuple]) -> None:
-        for tbl, col, sql_t in missing:
+        for tbl, col, sql_t, default_clause, not_null in missing:
             try:
+                null_clause = " NOT NULL" if not_null else ""
                 await self.conn.execute(text(
-                    f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS {col} {sql_t}"
+                    f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS {col} {sql_t}{default_clause}{null_clause}"
                 ))
-                self.fixed.append(f"Added column {tbl}.{col} ({sql_t})")
+                self.fixed.append(f"Added column {tbl}.{col} ({sql_t}{default_clause}{null_clause})")
             except Exception as e:
                 self.failed.append(f"Could not add {tbl}.{col}: {e}")
 

@@ -17,10 +17,12 @@ from limiter import limiter
 def _first_landing(role_value: str) -> str:
     """Return the app's default landing page.
 
-    Inventory Search (/devices) is the application's home page for every
-    user, admin included — Admin Dashboard is still reachable via its own
-    nav link, it's just no longer what you land on right after login.
+    Admin lands on the Admin Dashboard first; every other role lands on
+    Inventory Search (/devices), which is still reachable for admins via
+    its own nav link.
     """
+    if role_value == "admin":
+        return "/dashboard"
     return "/devices"
 
 router = APIRouter(prefix="/auth", tags=["auth"])

@@ -369,6 +369,7 @@ async def iqc_list(
         "q": q, "stage": stage, "grade": grade, "lot": lot,
         "device_type": device_type, "device_type_options": await master_values(db, "device_type"),
         "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
+        "stage_labels": STAGE_LABELS,
     })
 
 

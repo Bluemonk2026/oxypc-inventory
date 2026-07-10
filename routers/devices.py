@@ -238,6 +238,7 @@ async def device_search(
         "q": q, "stage": stage, "lot": lot, "grade": grade, "category": category,
         "device_type": device_type,
         "device_type_options": await master_values(db, "device_type"),
+        "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
         "total": len(devices),
         "location_map": location_map,
         "stock_price_map": stock_price_map, "sale_price_map": sale_price_map,

@@ -6,7 +6,7 @@ from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, and_
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
@@ -17,6 +17,7 @@ from auth.dependencies import get_current_user, require_roles, verify_csrf, requ
 from services.audit_engine import audit
 from services.control_engine import validate_transition
 from utils.master_data import master_values
+from routers.devices import _build_model_summary
 
 router = APIRouter(prefix="/iqc", tags=["iqc"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.iqc_inspector)
@@ -363,6 +364,9 @@ async def iqc_list(
     total = len(devices)
     lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
     lots = lots_result.scalars().all()
+    # Model Based Summary — same builder used on Overall Inventory, scoped to
+    # this page's currently-filtered device set (reuses base_filters as-is).
+    model_summary = await _build_model_summary(db, base_filters)
     return templates.TemplateResponse("iqc/list.html", {
         "request": request, "devices": devices, "lots": lots, "current_user": current_user,
         "total": total,
@@ -370,6 +374,7 @@ async def iqc_list(
         "device_type": device_type, "device_type_options": await master_values(db, "device_type"),
         "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
         "stage_labels": STAGE_LABELS,
+        "model_summary": model_summary,
     })
 
 
@@ -439,10 +444,16 @@ async def iqc_create_lot_from_selection(
     return RedirectResponse(url=f"/iqc?success=Lot+{lot.lot_number}+created+with+{len(devices)}+device(s)", status_code=302)
 
 
+_CUSTOMISE_RETURN_PATHS = {"/iqc", "/devices"}
+
+
 @router.post("/bulk-apply-grade-type")
 async def iqc_bulk_apply_grade_type(
     request: Request,
-    barcodes: list[str] = Form(...),
+    barcodes: list[str] = Form(default=[]),
+    lot_numbers: list[str] = Form(default=[]),
+    model_keys: list[str] = Form(default=[]),
+    return_to: str = Form(default="/iqc"),
     device_type: str = Form(""),
     grade: str = Form(""),
     invoice_number: str = Form(""),
@@ -453,18 +464,48 @@ async def iqc_bulk_apply_grade_type(
     _perm: User = Depends(require_module_perm("iqc", "edit")),
 ):
     """Bulk-apply Device Type, Grade, Invoice Number, PO Number and/or a stage
-    move to a set of Tag Numbers selected on the Product IQC table (checkbox
-    multi-select + Customise modal). The stage move reuses the same
-    validated-transition engine as every other move-device flow in the app
-    (services/control_engine) — a barcode whose current stage has no allowed
-    transition to the requested stage is skipped and reported, not silently
-    dropped or force-moved."""
-    barcodes = [b.strip() for b in barcodes if b and b.strip()]
+    move to a set of devices. Powers the same Customise modal reused across
+    three tables/pages: Product IQC's Tag Number table (barcodes[] directly),
+    Overall Inventory's Tag Number + Lot Based Summary tables (barcodes[] or
+    lot_numbers[]), and the Model Based Summary tables on both pages
+    (model_keys[], each "model|||brand" — resolved to every device in that
+    group). The stage move reuses the same validated-transition engine as
+    every other move-device flow in the app (services/control_engine) — a
+    barcode whose current stage has no allowed transition to the requested
+    stage is skipped and reported, not silently dropped or force-moved."""
+    return_to = return_to if return_to in _CUSTOMISE_RETURN_PATHS else "/iqc"
+
+    barcode_set = {b.strip() for b in barcodes if b and b.strip()}
+
+    if lot_numbers:
+        lot_nums = [l.strip() for l in lot_numbers if l and l.strip()]
+        if lot_nums:
+            lot_ids = (await db.execute(select(Lot.id).where(Lot.lot_number.in_(lot_nums)))).scalars().all()
+            if lot_ids:
+                lot_barcodes = (await db.execute(
+                    select(Device.barcode).where(Device.lot_id.in_(lot_ids))
+                )).scalars().all()
+                barcode_set.update(lot_barcodes)
+
+    if model_keys:
+        model_filters = []
+        for key in model_keys:
+            if "|||" not in key:
+                continue
+            model_val, brand_val = key.split("|||", 1)
+            model_filters.append(and_(Device.model == model_val, Device.brand == brand_val))
+        if model_filters:
+            model_barcodes = (await db.execute(
+                select(Device.barcode).where(or_(*model_filters))
+            )).scalars().all()
+            barcode_set.update(model_barcodes)
+
+    barcodes = sorted(barcode_set)
     if not barcodes:
-        return RedirectResponse(url="/iqc?error=No+devices+selected", status_code=302)
+        return RedirectResponse(url=f"{return_to}?error=No+devices+selected", status_code=302)
     to_stage = (to_stage or "").strip()
     if not device_type.strip() and not grade.strip() and not invoice_number.strip() and not po_number.strip() and not to_stage:
-        return RedirectResponse(url="/iqc?error=Select+a+field+to+apply", status_code=302)
+        return RedirectResponse(url=f"{return_to}?error=Select+a+field+to+apply", status_code=302)
 
     result = await db.execute(select(Device).where(Device.barcode.in_(barcodes)))
     devices = result.scalars().all()
@@ -475,7 +516,7 @@ async def iqc_bulk_apply_grade_type(
         try:
             new_stage = DeviceStage(to_stage)
         except ValueError:
-            return RedirectResponse(url=f"/iqc?error=Invalid+stage+{to_stage}", status_code=302)
+            return RedirectResponse(url=f"{return_to}?error=Invalid+stage+{to_stage}", status_code=302)
 
     is_admin = current_user.role.value == "admin"
     for device in devices:
@@ -510,7 +551,7 @@ async def iqc_bulk_apply_grade_type(
     if skipped_moves:
         import urllib.parse
         msg += f"&warning={urllib.parse.quote(f'{len(skipped_moves)} tag(s) could not move to {to_stage} (not an allowed transition): ' + ', '.join(skipped_moves[:10]))}"
-    return RedirectResponse(url=f"/iqc?success={msg}", status_code=302)
+    return RedirectResponse(url=f"{return_to}?success={msg}", status_code=302)
 
 
 @router.get("/export-csv")

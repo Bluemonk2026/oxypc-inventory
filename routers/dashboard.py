@@ -509,14 +509,26 @@ async def dashboard(
                 select(func.count(CRMSourcingDeal.id))
             )).scalar() or 0
 
-            # j. Total Sales (Procurement / Telecaller / Showroom)
-            channel_rows = (await db.execute(
-                select(Sale.sale_channel, func.count(Sale.id)).group_by(Sale.sale_channel)
-            )).all()
-            channel_counts = {c: n for c, n in channel_rows}
-            admin_analytics["sales_procurement"] = channel_counts.get("procurement", 0)
-            admin_analytics["sales_telecaller"] = channel_counts.get("telecaller", 0)
-            admin_analytics["sales_showroom"] = channel_counts.get("showroom", 0)
+            # j. Total Sales (Procurement / Telecaller / Showroom) — Sale.sale_channel
+            # is never actually set at sale-creation time, so grouping by it always
+            # read as zero. Per spec, each bucket now comes from its real source:
+            # Procurement = count of Account POs (CRMPurchaseOrder); Telecaller =
+            # count of Sales made by a telecaller-role user (Sale.sold_by joined to
+            # User.role); Showroom = count of Sales made by a sales-role user (the
+            # Counter Sale Executive role in this app is UserRole.sales).
+            admin_analytics["sales_procurement"] = (await db.execute(
+                select(func.count(CRMPurchaseOrder.id))
+            )).scalar() or 0
+            admin_analytics["sales_telecaller"] = (await db.execute(
+                select(func.count(Sale.id))
+                .join(User, User.username == Sale.sold_by)
+                .where(User.role == UserRole.telecaller)
+            )).scalar() or 0
+            admin_analytics["sales_showroom"] = (await db.execute(
+                select(func.count(Sale.id))
+                .join(User, User.username == Sale.sold_by)
+                .where(User.role == UserRole.sales)
+            )).scalar() or 0
 
             # k. Total Product Profits — reuses the financials already computed above
             admin_analytics["product_buying"] = total_investment

@@ -163,6 +163,7 @@ async def update_partner(
     partner_type: str = Form("dealer"),
     price_segment: str = Form("new_dealer"),
     sales_owner_username: str = Form(""),
+    portal_phone: str = Form(""),
     _csrf=Depends(verify_csrf),
     current_user: User = Depends(require_module_perm("trade_partner", "edit")),
     db: AsyncSession = Depends(get_db),
@@ -170,17 +171,36 @@ async def update_partner(
     dealer = (await db.execute(select(Dealer).where(Dealer.id == dealer_id))).scalar_one_or_none()
     if not dealer:
         raise HTTPException(status_code=404, detail="Dealer not found")
+
+    new_phone = dealer.portal_phone
+    if portal_phone.strip():
+        norm = normalize_phone(portal_phone)
+        if len(norm) != 10:
+            return RedirectResponse(
+                url="/trade-partner/partners?error=Enter+a+valid+10-digit+login+mobile+number",
+                status_code=302)
+        dup = (await db.execute(
+            select(Dealer).where(Dealer.portal_phone == norm, Dealer.id != dealer.id)
+        )).scalar_one_or_none()
+        if dup:
+            return RedirectResponse(
+                url="/trade-partner/partners?error=That+phone+is+already+a+portal+login",
+                status_code=302)
+        new_phone = norm
+
     old = {"partner_type": dealer.partner_type, "price_segment": dealer.price_segment,
-           "sales_owner": dealer.sales_owner_username}
+           "sales_owner": dealer.sales_owner_username, "portal_phone": dealer.portal_phone}
     dealer.partner_type = partner_type if partner_type in PARTNER_TYPES else dealer.partner_type
     dealer.price_segment = price_segment if price_segment in PRICE_SEGMENTS else dealer.price_segment
     dealer.sales_owner_username = sales_owner_username.strip() or None
+    dealer.portal_phone = new_phone
     await audit(db, action="PARTNER_PORTAL_UPDATED", user=current_user,
                 table_name="dealers", record_id=str(dealer.id),
                 old_value=old,
                 new_value={"partner_type": dealer.partner_type,
                            "price_segment": dealer.price_segment,
-                           "sales_owner": dealer.sales_owner_username},
+                           "sales_owner": dealer.sales_owner_username,
+                           "portal_phone": dealer.portal_phone},
                 request=request)
     await db.commit()
     return RedirectResponse(url="/trade-partner/partners?success=Partner+updated", status_code=302)

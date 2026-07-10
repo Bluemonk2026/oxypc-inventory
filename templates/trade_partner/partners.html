@@ -98,6 +98,12 @@
                       </div>
                       <div class="modal-body">
                         <div class="mb-2">
+                          <label class="form-label small fw-semibold mb-1">Login Mobile (10 digits)</label>
+                          <input type="tel" name="portal_phone" class="form-control form-control-sm" inputmode="numeric"
+                                 value="{{ p.portal_phone or '' }}" placeholder="Leave unchanged">
+                          <small class="text-muted">Updates the mobile number this dealer logs into the partner portal with.</small>
+                        </div>
+                        <div class="mb-2">
                           <label class="form-label small fw-semibold mb-1">Partner Type</label>
                           <select name="partner_type" class="form-select form-select-sm">
                             {% for t in partner_types %}

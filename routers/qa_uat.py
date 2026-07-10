@@ -973,3 +973,144 @@ async def stage_workflow_download(
     return PlainTextResponse(content, headers={
         "Content-Disposition": f'attachment; filename="{filename}"'
     })
+
+
+# ── SRS Documents (Technical Spec / Functional Spec) ──────────────────────────
+
+_TSD_CONTENT = """OXYPC INVENTORY — TECHNICAL SPECIFICATION DOCUMENT (TSD)
+==========================================================
+Generated from the QA Dashboard — reflects the current build.
+
+1. SYSTEM ARCHITECTURE
+-----------------------
+- Backend: FastAPI (Python), async SQLAlchemy ORM
+- Database: PostgreSQL (Supabase-hosted in production)
+- Templating: Jinja2 server-rendered HTML, Bootstrap 5
+- Deployment: Railway (project "Inventory Lifecycle", service "oxypc-inventory")
+- Process model: single uvicorn worker, manual restart (no autoreload)
+
+2. CORE MODULES
+---------------
+- Sourcing & GRN (Goods Receipt Note)
+- IQC (Incoming Quality Check) — Product IQC, duplicate Tag/Lot review
+- Stock Inward / TRC Production / Repair (L1/L2/L3) / Cosmetic / Final QC
+- Overall Inventory — Tag Number, Lot Based Summary, Model Based Summary views
+- Sales — Telecalling, Showroom/Counter Sale, Dispatch, Returns
+- Dealer Management & Trade Partner Portal (dealer-facing PWA)
+- Spare Parts — Sourcing Request, GRN, Consumption, Harvest tracking
+- CRM — Contacts, Purchase Orders, Sourcing Deals, Quotations
+- Admin — User Management, Master Data, Permission Matrix, Audit Log
+- QA/UAT Tracking — Requirements, Test Cases, Defects, UAT, Releases, RTM
+
+3. DATA MODEL CONVENTIONS
+-------------------------
+- Primary keys: uuid (or bigserial for high-volume tables)
+- Soft delete: is_active flag / is_trashed flag, no physical deletes on
+  serialised assets, certificates, or compliance records
+- Audit: append-only audit_logs table capturing actor, before/after values,
+  action, and timestamp for every state-changing operation
+- Stage transitions: validated via the AllowedTransition table through
+  services/control_engine.py — no manual/unvalidated stage overrides
+
+4. SECURITY
+-----------
+- Session-based auth for staff (role-gated via require_module_perm),
+  separate JWT-based auth for the Trade Partner dealer portal
+- CSRF token verification (verify_csrf) on every state-changing POST
+- RBAC enforced per-module via the Permission Matrix (admin-configurable)
+- Passwords hashed (never stored in plaintext); portal login credentials
+  are per-dealer and independently resettable by an admin
+
+5. INTEGRATIONS
+---------------
+- WhatsApp messaging (per-user session, multi-client)
+- Railway CLI for production database operations (audited, approval-gated)
+
+6. NON-FUNCTIONAL REQUIREMENTS
+-------------------------------
+- No client-side pagination on core reports — server-computed lists
+- DataTable sorting/pagination on high-volume list screens
+- Regression sweep (_scan_routes.py) run before every commit — validates
+  every parameter-free GET route returns a non-error response
+
+This document is generated on demand from the QA Dashboard and reflects the
+live module list as of the current codebase — regenerate after any major
+architectural change.
+"""
+
+_FSD_CONTENT = """OXYPC INVENTORY — FUNCTIONAL SPECIFICATION DOCUMENT (FSD)
+===========================================================
+Generated from the QA Dashboard — reflects the current build.
+
+1. PURPOSE
+----------
+OxyPC Inventory is the operational ERP for OxyPC Computers' IT asset
+refurbishment lifecycle — from sourcing/GRN through IQC, repair, cosmetic
+and final QC, into inventory, and out through sales/dispatch or the dealer
+trade partner portal.
+
+2. USER ROLES
+-------------
+- Admin — full system access, dashboards, master data, permissions
+- Inventory Manager — stock movement, bucket allocation, lot management
+- IQC / QC staff — incoming inspection, grading, stage moves
+- Repair (L1/L2/L3) staff — device repair workflow
+- Telecaller — outbound dealer calling, quotations, telecalling sales
+- Sales / Counter Sale Executive — showroom sales, dispatch
+- Dealer (Trade Partner portal) — token booking, browsing floors, own orders
+
+3. KEY WORKFLOWS
+-----------------
+a. Sourcing > GRN
+   Vendor/lot sourced -> GRN raised -> devices registered against the lot.
+b. GRN > IQC
+   GRN'd devices enter Incoming Quality Check; grade, device type, and
+   duplicate Tag/Lot conflicts are resolved before entering the pipeline.
+c. IQC > Stock IN > Repair > Cosmetic > Final QC > Ready To Sale
+   Devices move through validated stage transitions only (AllowedTransition
+   rules); every move is logged with actor + timestamp.
+d. Ready to Sale > Sold
+   Devices are sold via Telecalling, Showroom/Counter Sale, or Procurement
+   channel; sale price, buyer, and channel are recorded.
+e. Sold > Return
+   Returned devices re-enter the pipeline with return_status and replaced
+   flags tracked for warranty/audit purposes.
+
+4. REPORTING & DASHBOARDS
+--------------------------
+- Admin Dashboard — 12+ stat cards (Products, Stage Products, GRN, Parts,
+  Dealers, Accounts, PO, Source Requests, In/Out, Sales) + 5 chart groups
+  (weekly product/parts movement, stage distribution, sourcing/sales price)
+- QA Dashboard — Requirements, Test Cases, Defects, UAT Board, Releases,
+  RTM, Stage Workflows, SRS Documents
+- Trade Partner Portal — dealer-facing floors, token booking, order history
+
+5. ACCEPTANCE CRITERIA (SAMPLE)
+--------------------------------
+- A device cannot move to a stage not explicitly allowed from its current
+  stage (enforced server-side, not just in the UI).
+- Every stage move, sale, and return writes an audit_logs entry.
+- Dealer portal login only works for dealers with portal_enabled = true
+  and a registered portal_phone.
+- Admin Dashboard card totals reconcile against a direct DB count query.
+
+This document is generated on demand from the QA Dashboard and reflects the
+live workflow list as of the current codebase — regenerate after any major
+process change.
+"""
+
+
+@router.get("/srs/technical-spec/download")
+async def srs_technical_spec_download(current_user: User = Depends(_view)):
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(_TSD_CONTENT, headers={
+        "Content-Disposition": 'attachment; filename="OxyPC_Technical_Specification_Document.txt"'
+    })
+
+
+@router.get("/srs/functional-spec/download")
+async def srs_functional_spec_download(current_user: User = Depends(_view)):
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(_FSD_CONTENT, headers={
+        "Content-Disposition": 'attachment; filename="OxyPC_Functional_Specification_Document.txt"'
+    })

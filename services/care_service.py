@@ -1,0 +1,161 @@
+"""Customer Care Agent — shared service logic (Phase 1 backend).
+
+Ticket numbering, warranty resolution, diagnostic payload allowlisting, and
+the care_audit_logs helper. Route handlers stay thin so the same logic backs
+both the public /care/api/v1 surface and the internal staff screens (Phase 2).
+"""
+from datetime import timedelta
+from typing import Optional
+
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from models.care import CareSupportTicket, CareWarranty, CareAuditLog
+from models.sales import Sale
+from utils.timezone import app_now
+from utils import warranty as warranty_utils
+
+PROVISIONING_TOKEN_TTL_MINUTES = 30
+DEVICE_TOKEN_HEADER_MIN_LEN = 20
+
+# ── Diagnostic allowlist (section 13 of the spec) — reject anything else ──
+DIAGNOSTIC_ALLOWED_FIELDS = frozenset({
+    "bios_serial", "manufacturer", "model", "cpu", "ram_gb", "storage_summary",
+    "battery_health_pct", "battery_cycle_count", "smart_status", "os_version",
+    "hardware_warning_summary", "system_error_summary",
+})
+MAX_DIAGNOSTIC_STRING_LEN = 2000
+MAX_TICKET_DESCRIPTION_LEN = 2000
+TICKET_CATEGORIES = frozenset({
+    "hardware", "battery", "storage", "performance", "boot", "screen",
+    "keyboard_touchpad", "software", "warranty_query", "accessory", "other",
+})
+
+
+class CareError(Exception):
+    """Customer-safe error — message is shown as-is, never leaks internals."""
+    def __init__(self, message: str, code: str = "CARE_ERROR"):
+        self.message = message
+        self.code = code
+        super().__init__(message)
+
+
+# ── Ticket numbering (gap-safe, same max-suffix pattern as PO/TPL/TPB) ─────
+
+async def next_ticket_number(db: AsyncSession) -> str:
+    result = await db.execute(
+        select(func.max(CareSupportTicket.ticket_number))
+        .where(CareSupportTicket.ticket_number.like("CARE-%"))
+    )
+    mx = result.scalar()
+    n = 1
+    if mx:
+        try:
+            n = int(str(mx).rsplit("-", 1)[-1]) + 1
+        except (ValueError, IndexError):
+            n = 1
+    return f"CARE-{n:04d}"
+
+
+# ── Warranty resolution — care_warranties row wins; falls back to Sale ────
+
+async def resolve_warranty(db: AsyncSession, device_id, sale_id=None) -> dict:
+    """Return a customer-safe warranty summary dict. Prefers an explicit
+    CareWarranty record (multi-coverage, replacement-aware); falls back to
+    the existing Sale.warranty_type/warranty_expires_at (Phase 1a fields) so
+    devices sold before this module existed still show correct status."""
+    row = (await db.execute(
+        select(CareWarranty).where(CareWarranty.device_id == device_id)
+        .order_by(CareWarranty.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+
+    if row:
+        now = app_now()
+        days_left = None
+        if row.expiry_date:
+            days_left = max((row.expiry_date.date() - now.date()).days, 0)
+        return {
+            "status": row.status,
+            "start_date": row.start_date,
+            "expiry_date": row.expiry_date,
+            "battery_expiry_date": row.battery_expiry_date,
+            "days_left": days_left,
+            "coverage_type": row.coverage_type,
+        }
+
+    # Fallback: derive from the sale record directly
+    sale = None
+    if sale_id:
+        sale = await db.get(Sale, sale_id)
+    if not sale:
+        sale = (await db.execute(
+            select(Sale).where(Sale.device_id == device_id).order_by(Sale.sold_at.desc()).limit(1)
+        )).scalar_one_or_none()
+
+    if not sale:
+        return {"status": "not_started", "start_date": None, "expiry_date": None,
+                "battery_expiry_date": None, "days_left": None, "coverage_type": None}
+
+    status = warranty_utils.warranty_status_for_sale(sale)
+    now = app_now()
+    expiry = sale.warranty_expires_at
+    days_left = max((expiry.date() - now.date()).days, 0) if expiry and now <= expiry else 0
+    mapped_status = {"in_warranty": "active", "out_of_warranty": "expired",
+                     "no_warranty": "not_started"}.get(status, "not_started")
+    return {
+        "status": mapped_status,
+        "start_date": sale.sold_at,
+        "expiry_date": expiry,
+        "battery_expiry_date": None,
+        "days_left": days_left,
+        "coverage_type": "main_device",
+    }
+
+
+# ── Diagnostic payload validation ──────────────────────────────────────────
+
+def validate_diagnostic_payload(payload: dict) -> dict:
+    """Strip to the allowlist, reject unexpected keys, enforce length caps.
+    Raises CareError on any field exceeding limits or containing a disallowed key."""
+    if not isinstance(payload, dict):
+        raise CareError("Diagnostic payload must be a JSON object", "CARE_INVALID_PAYLOAD")
+    unknown = set(payload.keys()) - DIAGNOSTIC_ALLOWED_FIELDS
+    if unknown:
+        raise CareError(f"Diagnostic payload contains unsupported fields: {sorted(unknown)}",
+                        "CARE_UNKNOWN_FIELDS")
+    clean = {}
+    for k, v in payload.items():
+        if isinstance(v, str) and len(v) > MAX_DIAGNOSTIC_STRING_LEN:
+            raise CareError(f"Field '{k}' exceeds maximum length", "CARE_PAYLOAD_TOO_LARGE")
+        clean[k] = v
+    return clean
+
+
+def validate_ticket_description(description: str) -> str:
+    description = (description or "").strip()
+    if not description:
+        raise CareError("Description is required", "CARE_MISSING_DESCRIPTION")
+    if len(description) > MAX_TICKET_DESCRIPTION_LEN:
+        raise CareError("Description is too long", "CARE_DESCRIPTION_TOO_LONG")
+    return description
+
+
+def validate_category(category: str) -> str:
+    category = (category or "").strip().lower()
+    if category not in TICKET_CATEGORIES:
+        raise CareError(f"Unknown category '{category}'", "CARE_INVALID_CATEGORY")
+    return category
+
+
+# ── Audit (separate from the internal staff audit_logs table) ────────────
+
+async def care_audit(
+    db: AsyncSession, action: str, actor_type: str = "customer",
+    actor_id: Optional[str] = None, pairing_id=None, ticket_id=None,
+    old_value=None, new_value=None, ip_hash: Optional[str] = None,
+):
+    db.add(CareAuditLog(
+        action=action, actor_type=actor_type, actor_id=actor_id,
+        pairing_id=pairing_id, ticket_id=ticket_id,
+        old_value=old_value, new_value=new_value, ip_hash=ip_hash,
+    ))

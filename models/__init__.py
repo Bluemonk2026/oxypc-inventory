@@ -50,3 +50,8 @@ from .partner import (
     PartnerBooking, PartnerPaymentProof, PartnerSetting,
     PartnerLoginLog, PartnerListingView,
 )
+# Customer Care Agent (post-sale warranty/diagnostics/ticketing)
+from .care import (
+    CareDevicePairing, CareWarranty, CareSupportTicket, CareTicketEvent,
+    CareDiagnosticSnapshot, CareOffer, CareAgentEvent, CareAuditLog,
+)

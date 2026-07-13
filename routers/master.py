@@ -138,6 +138,8 @@ PERM_MODULES = [
     ("crm_assign_leads",     "Assign Social Leads"),
     # ── TRADE PARTNER ──────────────────────────────────────────────
     ("trade_partner",        "Trade Partner"),
+    # ── CUSTOMER CARE AGENT ──────────────────────────────────────────
+    ("care_support",         "Customer Care"),
     # ── SALES & CRM ────────────────────────────────────────────────
     ("telesales_dashboard",  "TeleSales Dashboard"),
     ("sales",                "Ready to Sale / Sales List"),

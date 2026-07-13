@@ -1540,3 +1540,180 @@ Ref: partner_payment_proofs.booking_id > partner_bookings.id
 Ref: partner_login_logs.dealer_id > dealers.id
 Ref: partner_listing_views.listing_id > partner_listings.id
 Ref: partner_listing_views.dealer_id > dealers.id
+
+// ═══════════════════════════════════════════════════════════════
+// CUSTOMER CARE AGENT POOL — post-sale warranty/diagnostics/ticketing
+// (care_* tables)
+// ═══════════════════════════════════════════════════════════════
+
+// ── care_device_pairings ──────────────────────────────────────
+Table care_device_pairings {
+  id uuid [pk, not null]
+  device_id uuid [not null, note: 'indexed']
+  sale_id uuid [note: 'nullable, indexed']
+  serial_no varchar(100)
+  provisioning_token_hash varchar(64) [unique, note: 'sha256, single-use, nulled on redemption']
+  provisioning_token_expires_at datetime
+  provisioning_redeemed_at datetime
+  device_token_hash varchar(64) [unique, note: 'sha256 of long-lived device credential']
+  device_token_issued_at datetime
+  token_last_rotated_at datetime
+  paired_at datetime
+  agent_version varchar(20)
+  last_seen_at datetime
+  last_ip_hash varchar(64) [note: 'hashed, never raw IP at rest']
+  is_active bool [not null, default: false]
+  revoked_at datetime
+  revoked_reason varchar(200)
+  created_by varchar(50) [note: 'staff username who created the pending pairing']
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+  indexes {
+    (device_id, is_active)
+  }
+}
+
+// ── care_warranties ────────────────────────────────────────────
+Table care_warranties {
+  id uuid [pk, not null]
+  device_id uuid [not null, note: 'indexed']
+  sale_id uuid [note: 'nullable, indexed']
+  policy_id varchar(50)
+  coverage_type varchar(30) [note: 'main_device | battery | adapter | accessory']
+  start_event varchar(30) [note: 'invoice_date | delivery_date | replacement_dispatch']
+  start_date datetime
+  expiry_date datetime
+  battery_expiry_date datetime
+  status varchar(20) [not null, default: 'not_started', note: 'not_started|active|expiring|expired|void|suspended|replaced|returned|bought_back']
+  extension_reference varchar(100)
+  replacement_reference varchar(100)
+  void_reason text
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+}
+
+// ── care_support_tickets ───────────────────────────────────────
+Table care_support_tickets {
+  id uuid [pk, not null]
+  ticket_number varchar(20) [not null, unique, note: 'CARE-0001, indexed']
+  pairing_id uuid [not null, note: 'indexed']
+  device_id uuid [not null, note: 'indexed']
+  sale_id uuid
+  category varchar(50) [not null]
+  subcategory varchar(50)
+  description text [not null]
+  priority varchar(10) [not null, default: 'medium']
+  status varchar(20) [not null, default: 'open', note: 'open|assigned|in_progress|awaiting_customer|needs_pickup|resolved|closed|cancelled|reopened']
+  customer_contact_preference varchar(20) [note: 'call | whatsapp | email']
+  assigned_to varchar(50)
+  resolved_by varchar(50)
+  resolution_notes text [note: 'internal only']
+  customer_visible_notes text
+  pickup_required bool [not null, default: false]
+  pickup_reference varchar(50)
+  remote_session_requested bool [not null, default: false, note: 'Phase 2 hook']
+  remote_session_consented_at datetime [note: 'Phase 2 hook']
+  idempotency_key varchar(100) [unique, note: 'dedupes offline-queue retries']
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+  resolved_at datetime
+  closed_at datetime
+  indexes {
+    (pairing_id, status)
+  }
+}
+
+// ── care_ticket_events ─────────────────────────────────────────
+Table care_ticket_events {
+  id uuid [pk, not null]
+  ticket_id uuid [not null, note: 'indexed']
+  event_type varchar(30) [not null, note: 'created | status_change | assigned | note_added | resolved']
+  old_status varchar(20)
+  new_status varchar(20)
+  actor_type varchar(10) [not null, default: 'staff', note: 'staff | customer | system']
+  actor_id varchar(50)
+  notes text
+  created_at datetime [default: `now()`]
+}
+
+// ── care_diagnostic_snapshots ──────────────────────────────────
+Table care_diagnostic_snapshots {
+  id uuid [pk, not null]
+  pairing_id uuid [not null, note: 'indexed']
+  ticket_id uuid [note: 'nullable, indexed']
+  diagnostic_profile varchar(30) [not null, default: 'support_basic_v1']
+  schema_version int [not null, default: 1]
+  agent_version varchar(20)
+  bios_serial varchar(100)
+  manufacturer varchar(100)
+  model varchar(100)
+  cpu varchar(150)
+  ram_gb int
+  storage_summary varchar(200)
+  battery_health_pct int
+  battery_cycle_count int
+  smart_status varchar(20)
+  os_version varchar(100)
+  hardware_warning_summary text
+  system_error_summary text [note: 'redacted — no filenames/usernames']
+  raw_json json [note: 'full allowlisted payload']
+  captured_at datetime [default: `now()`]
+  created_at datetime [default: `now()`]
+}
+
+// ── care_offers ─────────────────────────────────────────────────
+Table care_offers {
+  id uuid [pk, not null]
+  title varchar(200) [not null]
+  body text
+  image_url varchar(500)
+  cta_label varchar(50)
+  cta_url varchar(500)
+  starts_at datetime
+  ends_at datetime
+  target_type varchar(30) [not null, default: 'all', note: 'all | model | warranty_window | sale_range']
+  target_value varchar(200)
+  channel varchar(20) [not null, default: 'in_app', note: 'in_app | whatsapp | both']
+  is_marketing bool [not null, default: true]
+  consent_required bool [not null, default: true]
+  created_by varchar(50)
+  is_active bool [not null, default: true]
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+}
+
+// ── care_agent_events ───────────────────────────────────────────
+Table care_agent_events {
+  id uuid [pk, not null]
+  pairing_id uuid [not null, note: 'indexed']
+  event_type varchar(40) [not null, note: 'agent_started | pairing_completed | ticket_submitted | ...']
+  agent_version varchar(20)
+  metadata_json json
+  occurred_at datetime [default: `now()`, note: 'indexed']
+}
+
+// ── care_audit_logs ─────────────────────────────────────────────
+Table care_audit_logs {
+  id uuid [pk, not null]
+  action varchar(50) [not null]
+  pairing_id uuid [note: 'indexed']
+  ticket_id uuid [note: 'indexed']
+  actor_type varchar(10) [not null, default: 'staff', note: 'staff | customer | system']
+  actor_id varchar(50)
+  old_value json
+  new_value json
+  ip_hash varchar(64)
+  created_at datetime [default: `now()`, note: 'indexed']
+}
+
+// Customer Care Agent pool refs
+Ref: care_device_pairings.device_id > devices.id
+Ref: care_device_pairings.sale_id > sales.id
+Ref: care_warranties.device_id > devices.id
+Ref: care_warranties.sale_id > sales.id
+Ref: care_support_tickets.pairing_id > care_device_pairings.id
+Ref: care_support_tickets.device_id > devices.id
+Ref: care_support_tickets.sale_id > sales.id
+Ref: care_ticket_events.ticket_id > care_support_tickets.id
+Ref: care_diagnostic_snapshots.pairing_id > care_device_pairings.id
+Ref: care_diagnostic_snapshots.ticket_id > care_support_tickets.id

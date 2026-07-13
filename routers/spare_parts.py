@@ -25,7 +25,8 @@ from auth.dependencies import get_current_user, require_roles, verify_csrf, requ
 from services.audit_engine import audit
 
 router = APIRouter(tags=["spare_parts"], dependencies=[Depends(verify_csrf)])
-allowed = require_roles(UserRole.admin, UserRole.spare_parts_manager)
+allowed = require_roles(UserRole.admin, UserRole.spare_parts_manager,
+                         UserRole.qc_inspector, UserRole.sales_manager)
 
 BULK_CSV_HEADERS = ["part_name", "category", "part_brand", "part_model", "physical_qty",
                     "price", "invoice_number", "po_number", "vendor_name", "grn_number"]

@@ -22,7 +22,7 @@ from services.control_engine import validate_transition, get_allowed_next_stages
 from services.audit_engine import audit
 
 router = APIRouter(prefix="/qc", tags=["qc"], dependencies=[Depends(verify_csrf)])
-allowed = require_roles(UserRole.admin, UserRole.qc_inspector)
+allowed = require_roles(UserRole.admin, UserRole.qc_inspector, UserRole.sales_manager)
 
 QC_FAIL_SCRAP_THRESHOLD = 3   # 3rd consecutive fail → recommend scrap
 

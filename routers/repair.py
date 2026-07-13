@@ -40,9 +40,12 @@ LEVEL_MAP  = {"l1": 1, "l2": 2, "l3": 3}
 
 def stage_allowed(stage: str):
     role_map = {
-        "l1": require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.l1_engineer),
-        "l2": require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.l2_engineer),
-        "l3": require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.l3_engineer),
+        "l1": require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.l1_engineer,
+                             UserRole.qc_inspector, UserRole.sales_manager),
+        "l2": require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.l2_engineer,
+                             UserRole.qc_inspector, UserRole.sales_manager),
+        "l3": require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.l3_engineer,
+                             UserRole.qc_inspector, UserRole.sales_manager),
     }
     return role_map.get(stage, require_roles(UserRole.admin))
 

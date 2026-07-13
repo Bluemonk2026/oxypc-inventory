@@ -23,7 +23,8 @@ from services.notifications import create_notification
 from utils.warranty import warranty_status_for_sale
 
 router = APIRouter(tags=["transfers"], dependencies=[Depends(verify_csrf)])
-allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
+allowed = require_roles(UserRole.admin, UserRole.inventory_manager,
+                         UserRole.qc_inspector, UserRole.sales_manager)
 
 FALLBACK_WAREHOUSES = [
     "TRC 1st Floor",

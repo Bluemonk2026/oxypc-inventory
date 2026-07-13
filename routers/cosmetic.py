@@ -21,7 +21,8 @@ from services.parts_required import compute_required
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 
 router = APIRouter(prefix="/cosmetic", tags=["cosmetic"], dependencies=[Depends(verify_csrf)])
-allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
+allowed = require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.qc_inspector,
+                         UserRole.sales_manager)
 
 # Ordered cosmetic pipeline — each stage advances to the next
 COSMETIC_PIPELINE = [

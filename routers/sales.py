@@ -37,7 +37,7 @@ from utils.warranty import (
 )
 
 router = APIRouter(tags=["sales"], dependencies=[Depends(verify_csrf)])
-allowed = require_roles(UserRole.admin, UserRole.sales)
+allowed = require_roles(UserRole.admin, UserRole.sales, UserRole.sales_manager, UserRole.telecaller)
 ready_allowed = require_roles(UserRole.admin, UserRole.sales, UserRole.sales_manager, UserRole.telecaller)
 
 

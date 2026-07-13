@@ -28,7 +28,8 @@ from models.spare_parts import SparePart
 from models.location import StorageLocation, ZoneType, ZONE_LABELS, UnitType, UNIT_TYPE_LABELS
 
 router = APIRouter(tags=["stock"], dependencies=[Depends(verify_csrf)])
-allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
+allowed = require_roles(UserRole.admin, UserRole.inventory_manager,
+                         UserRole.qc_inspector, UserRole.sales_manager)
 
 
 async def build_cost_parts_map(db: AsyncSession, device_ids: list):

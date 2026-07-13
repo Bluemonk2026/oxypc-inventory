@@ -19,8 +19,9 @@
           </div>
           {% else %}
           <div class="mb-3">
-            <label class="form-label fw-semibold">Username</label>
-            <input type="text" class="form-control font-monospace bg-light" value="{{ edit_user.username }}" disabled>
+            <label class="form-label fw-semibold">Username <span class="text-danger">*</span></label>
+            <input type="text" name="username" class="form-control font-monospace" value="{{ edit_user.username }}" required>
+            <div class="form-text">Must be unique, no spaces</div>
           </div>
           {% endif %}
           <div class="mb-3">

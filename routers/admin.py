@@ -208,10 +208,12 @@ async def edit_user_form(user_id: str, request: Request, db: AsyncSession = Depe
 
 @router.post("/users/{user_id}/edit")
 async def update_user(
+    request: Request,
     user_id: str,
     full_name: str = Form(...),
     role: str = Form(...),
-    status: str = Form("on"),
+    username: str = Form(...),
+    status: str = Form(None),
     whatsapp_number: str = Form(""),
     email: str = Form(""),
     db: AsyncSession = Depends(get_db),
@@ -221,6 +223,23 @@ async def update_user(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(404)
+
+    new_username = username.strip()
+    if new_username and new_username != user.username:
+        dup = await db.execute(
+            select(User).where(func.lower(User.username) == new_username.lower(),
+                                User.id != user.id)
+        )
+        if dup.scalar_one_or_none():
+            role_choices, role_label_map = await _role_data(db)
+            return templates.TemplateResponse("admin/user_form.html", {
+                "request": request, "current_user": current_user,
+                "role_choices": role_choices, "role_label_map": role_label_map,
+                "edit_user": user,
+                "error": f"Username '{new_username}' is already taken.",
+            }, status_code=400)
+        user.username = new_username
+
     old_vals = {"full_name": user.full_name, "role": user.role.value, "status": user.status}
     user.full_name = full_name
     user.role = role

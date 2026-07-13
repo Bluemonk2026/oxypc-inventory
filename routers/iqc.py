@@ -20,7 +20,8 @@ from utils.master_data import master_values
 from routers.devices import _build_model_summary
 
 router = APIRouter(prefix="/iqc", tags=["iqc"], dependencies=[Depends(verify_csrf)])
-allowed = require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.iqc_inspector)
+allowed = require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.iqc_inspector,
+                         UserRole.sales_manager)
 
 
 def _find_usb_iqc_file():

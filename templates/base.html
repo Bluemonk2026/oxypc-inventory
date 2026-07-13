@@ -290,6 +290,26 @@
       </a></li>
       {% endif %}
 
+      {# ── CUSTOMER CARE AGENT (post-sale warranty/diagnostics/ticketing) ─ #}
+      {% if has_perm(role,'care_support','enable') %}
+      <li class="nav-section">CUSTOMER CARE</li>
+      <li><a href="/care-support/tickets" class="nav-link {% if request.url.path.startswith('/care-support/tickets') %}active{% endif %}">
+        <i class="bi bi-ticket-perforated me-2"></i> {{ sidebar_label('care_support', 'Ticket Queue') }}
+      </a></li>
+      <li><a href="/care-support/pairings" class="nav-link {% if request.url.path.startswith('/care-support/pairings') %}active{% endif %}">
+        <i class="bi bi-hdd-network me-2"></i> Device Pairings
+      </a></li>
+      <li><a href="/care-support/provision" class="nav-link {% if request.url.path.startswith('/care-support/provision') %}active{% endif %}">
+        <i class="bi bi-usb-plug me-2"></i> Provision Device
+      </a></li>
+      <li><a href="/care-support/offers" class="nav-link {% if request.url.path.startswith('/care-support/offers') %}active{% endif %}">
+        <i class="bi bi-tags me-2"></i> Offers
+      </a></li>
+      <li><a href="/care-support/pilot" class="nav-link {% if request.url.path.startswith('/care-support/pilot') %}active{% endif %}">
+        <i class="bi bi-graph-up me-2"></i> Pilot Dashboard
+      </a></li>
+      {% endif %}
+
       {# ── SALES & CRM (Overdue Orders removed — now on Sales List page) ─ #}
       {% if any_perm(role,'sales','returns','dealers','telecalling','whatsapp','assign_dealer_leads','telesales_dashboard') %}
       <li class="nav-section">SALES & CRM</li>

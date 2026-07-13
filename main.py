@@ -158,6 +158,7 @@ from routers.partner_portal import router as partner_portal_router
 from routers.partner_admin import router as partner_admin_router
 from routers.care_api import router as care_api_router
 from routers.care_internal import router as care_internal_router
+from routers.care_admin import router as care_admin_router
 from routers.api import router as api_router
 from routers.api_v1 import router as api_v1_router
 from services.event_bus import subscribe, EventType
@@ -230,6 +231,7 @@ app.include_router(partner_portal_router)
 app.include_router(partner_admin_router)
 app.include_router(care_api_router)
 app.include_router(care_internal_router)
+app.include_router(care_admin_router)
 
 
 # ── Error UI: per-code message + solution, JSON for API/AJAX else HTML modal ──

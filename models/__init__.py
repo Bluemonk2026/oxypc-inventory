@@ -53,5 +53,6 @@ from .partner import (
 # Customer Care Agent (post-sale warranty/diagnostics/ticketing)
 from .care import (
     CareDevicePairing, CareWarranty, CareSupportTicket, CareTicketEvent,
-    CareDiagnosticSnapshot, CareOffer, CareAgentEvent, CareAuditLog,
+    CareDiagnosticSnapshot, CareOffer, CareOfferDelivery, CareAgentEvent,
+    CareAuditLog, CareDispatchException,
 )

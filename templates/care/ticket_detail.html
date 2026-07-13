@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}{{ ticket.ticket_number }} — Customer Care — OxyPC{% endblock %}
+{% block page_title %}Ticket {{ ticket.ticket_number }}{% endblock %}
+{% block content %}
+
+{% if success %}<div class="alert alert-success py-2"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger py-2"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>{% endif %}
+
+{% set status_colors = {
+  'open':'warning', 'assigned':'info', 'in_progress':'primary', 'awaiting_customer':'secondary',
+  'needs_pickup':'dark', 'resolved':'success', 'closed':'secondary', 'cancelled':'secondary', 'reopened':'danger'} %}
+
+<div class="row g-3">
+  <div class="col-lg-8">
+
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h5 class="mb-1">{{ ticket.category | replace('_',' ') | title }}
+              {% if ticket.subcategory %}<span class="text-muted small">/ {{ ticket.subcategory }}</span>{% endif %}
+            </h5>
+            <div class="small text-muted">Raised {{ ticket.created_at | ist_datetime }} · contact via {{ ticket.customer_contact_preference or 'unspecified' }}</div>
+          </div>
+          <div class="text-end">
+            <span class="badge bg-{{ status_colors.get(ticket.status,'secondary') }} fs-6">{{ ticket.status | replace('_',' ') | title }}</span>
+            {% if ticket.pickup_required %}<div class="mt-1"><span class="badge bg-dark-subtle text-dark border">Pickup: {{ ticket.pickup_reference or 'scheduled' }}</span></div>{% endif %}
+          </div>
+        </div>
+        <hr>
+        <p class="mb-0">{{ ticket.description }}</p>
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white"><strong>Diagnostic Snapshot</strong></div>
+      <div class="card-body">
+        {% if ticket.snapshots %}
+          {% set snap = ticket.snapshots[-1] %}
+          <div class="row row-cols-2 row-cols-md-3 g-2 small">
+            <div><span class="text-muted">Manufacturer</span><br>{{ snap.manufacturer or '—' }}</div>
+            <div><span class="text-muted">Model</span><br>{{ snap.model or '—' }}</div>
+            <div><span class="text-muted">CPU</span><br>{{ snap.cpu or '—' }}</div>
+            <div><span class="text-muted">RAM</span><br>{{ snap.ram_gb ~ ' GB' if snap.ram_gb else '—' }}</div>
+            <div><span class="text-muted">Storage</span><br>{{ snap.storage_summary or '—' }}</div>
+            <div><span class="text-muted">SMART</span><br>{{ snap.smart_status or '—' }}</div>
+            <div><span class="text-muted">Battery Health</span><br>{{ (snap.battery_health_pct ~ '%') if snap.battery_health_pct is not none else '—' }}</div>
+            <div><span class="text-muted">Battery Cycles</span><br>{{ snap.battery_cycle_count if snap.battery_cycle_count is not none else '—' }}</div>
+            <div><span class="text-muted">OS</span><br>{{ snap.os_version or '—' }}</div>
+          </div>
+          {% if snap.hardware_warning_summary %}
+          <div class="alert alert-warning small mt-3 mb-0"><strong>Hardware warnings:</strong> {{ snap.hardware_warning_summary }}</div>
+          {% endif %}
+          {% if snap.system_error_summary %}
+          <div class="alert alert-secondary small mt-2 mb-0"><strong>System errors:</strong> {{ snap.system_error_summary }}</div>
+          {% endif %}
+          <div class="small text-muted mt-2">Captured {{ snap.captured_at | ist_datetime }} · profile {{ snap.diagnostic_profile }} v{{ snap.schema_version }} · agent {{ snap.agent_version or '—' }}</div>
+        {% else %}
+          <p class="text-muted mb-0">No diagnostic snapshot attached to this ticket.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white"><strong>Timeline</strong></div>
+      <div class="card-body">
+        <ul class="list-unstyled mb-0">
+          {% for e in ticket.events %}
+          <li class="mb-2 pb-2 border-bottom">
+            <div class="small text-muted">{{ e.created_at | ist_datetime }} · {{ e.actor_type }}{% if e.actor_id %} ({{ e.actor_id }}){% endif %}</div>
+            <div>
+              <span class="badge bg-light text-dark border">{{ e.event_type | replace('_',' ') | title }}</span>
+              {% if e.old_status or e.new_status %}
+                {{ e.old_status or '—' }} → {{ e.new_status or '—' }}
+              {% endif %}
+              {% if e.notes %}<div class="small mt-1">{{ e.notes }}</div>{% endif %}
+            </div>
+          </li>
+          {% else %}
+          <li class="text-muted">No events yet.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="col-lg-4">
+
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white"><strong>Device &amp; Customer</strong></div>
+      <div class="card-body small">
+        <div class="mb-2"><span class="text-muted">Device</span><br>
+          {{ device.brand if device else '—' }} {{ device.model if device else '' }}<br>
+          {{ device.barcode if device else '' }} {% if device and device.serial_no %}/ {{ device.serial_no }}{% endif %}
+        </div>
+        {% if sale %}
+        <div class="mb-2"><span class="text-muted">Customer</span><br>
+          {{ sale.customer_name or '—' }}<br>{{ sale.customer_phone or '' }}
+        </div>
+        {% endif %}
+        <div><span class="text-muted">Warranty</span><br>
+          <span class="badge bg-{{ 'success' if warranty.status=='active' else 'danger' if warranty.status=='expired' else 'secondary' }}">
+            {{ warranty.status | replace('_',' ') | title }}
+          </span>
+          {% if warranty.days_left is not none %}<div class="text-muted mt-1">{{ warranty.days_left }} days left</div>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white"><strong>Assign / Status</strong></div>
+      <div class="card-body">
+        <form method="post" action="/care-support/tickets/{{ ticket.ticket_number }}/assign" class="mb-2">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+          <div class="input-group input-group-sm">
+            <select name="assigned_to" class="form-select">
+              <option value="">Unassigned</option>
+              {% for username, full_name in staff %}
+              <option value="{{ username }}" {% if ticket.assigned_to==username %}selected{% endif %}>{{ full_name or username }}</option>
+              {% endfor %}
+            </select>
+            <button class="btn btn-outline-primary">Assign</button>
+          </div>
+        </form>
+
+        <form method="post" action="/care-support/tickets/{{ ticket.ticket_number }}/status" class="mb-2">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+          <div class="input-group input-group-sm mb-1">
+            <select name="new_status" class="form-select">
+              {% for s in statuses %}
+              <option value="{{ s }}" {% if ticket.status==s %}selected{% endif %}>{{ s | replace('_',' ') | title }}</option>
+              {% endfor %}
+            </select>
+            <button class="btn btn-outline-primary">Set Status</button>
+          </div>
+          <input type="text" name="notes" class="form-control form-control-sm" placeholder="Optional note for this change">
+        </form>
+
+        <form method="post" action="/care-support/tickets/{{ ticket.ticket_number }}/priority">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+          <div class="input-group input-group-sm">
+            <select name="new_priority" class="form-select">
+              {% for p in priorities %}
+              <option value="{{ p }}" {% if ticket.priority==p %}selected{% endif %}>{{ p | title }}</option>
+              {% endfor %}
+            </select>
+            <button class="btn btn-outline-secondary">Set Priority</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white"><strong>Add Note</strong></div>
+      <div class="card-body">
+        <form method="post" action="/care-support/tickets/{{ ticket.ticket_number }}/note">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+          <textarea name="note_text" class="form-control form-control-sm mb-2" rows="3" placeholder="Internal note…" required></textarea>
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="customer_visible" id="cvis">
+            <label class="form-check-label small" for="cvis">Also show to customer in the app</label>
+          </div>
+          <button class="btn btn-sm btn-primary">Add Note</button>
+        </form>
+      </div>
+    </div>
+
+    {% if not ticket.pickup_required %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white"><strong>Schedule Pickup</strong></div>
+      <div class="card-body">
+        <form method="post" action="/care-support/tickets/{{ ticket.ticket_number }}/pickup">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+          <input type="text" name="pickup_reference" class="form-control form-control-sm mb-2" placeholder="Pickup reference / GRN">
+          <button class="btn btn-sm btn-outline-dark">Mark Pickup Required</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if prior_tickets %}
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white"><strong>Previous Tickets on this Device</strong></div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          {% for pt in prior_tickets %}
+          <li class="list-group-item small d-flex justify-content-between">
+            <a href="/care-support/tickets/{{ pt.ticket_number }}">{{ pt.ticket_number }}</a>
+            <span class="badge bg-{{ status_colors.get(pt.status,'secondary') }}">{{ pt.status | replace('_',' ') | title }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+{% endblock %}

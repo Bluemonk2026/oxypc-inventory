@@ -60,6 +60,12 @@ class CareDevicePairing(Base):
     revoked_at = Column(DateTime, nullable=True)
     revoked_reason = Column(String(200), nullable=True)
 
+    # Customer-controlled marketing consent (spec 17.4) — defaults False
+    # everywhere until a customer explicitly opts in via a tray privacy
+    # screen (not built yet); care_offers with is_marketing=True must only
+    # ever be sent to pairings where this is True.
+    marketing_opt_in = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+
     created_by = Column(String(50), nullable=True)  # staff username who created the pending pairing
     created_at = Column(DateTime, default=app_now)
     updated_at = Column(DateTime, default=app_now, onupdate=app_now)
@@ -217,6 +223,24 @@ class CareOffer(Base):
     updated_at = Column(DateTime, default=app_now, onupdate=app_now)
 
 
+class CareOfferDelivery(Base):
+    """Every offer send attempt — required so campaign sends stay traceable
+    (spec section 19.4). One row per (offer, device) send attempt."""
+    __tablename__ = "care_offer_deliveries"
+    __table_args__ = (
+        Index("ix_care_offer_deliveries_offer_device", "offer_id", "device_id"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    offer_id = Column(UUID(as_uuid=True), ForeignKey("care_offers.id"), nullable=False, index=True)
+    device_id = Column(UUID(as_uuid=True), ForeignKey("devices.id"), nullable=False, index=True)
+    channel = Column(String(20), nullable=False)  # in_app, whatsapp
+    delivery_status = Column(String(20), nullable=False, default="sent")  # sent, failed, skipped_no_consent
+    error_message = Column(String(300), nullable=True)
+    sent_at = Column(DateTime, default=app_now)
+    sent_by = Column(String(50), nullable=True)
+
+
 class CareAgentEvent(Base):
     """Operational telemetry only — no personal content. Health dashboard feed."""
     __tablename__ = "care_agent_events"
@@ -244,3 +268,29 @@ class CareAuditLog(Base):
     new_value = Column(JSON, nullable=True)
     ip_hash = Column(String(64), nullable=True)
     created_at = Column(DateTime, default=app_now, index=True)
+
+
+DISPATCH_EXCEPTION_REASONS = [
+    "corporate_no_software", "non_windows", "clean_os_request",
+    "as_is_sale", "temporary_technical",
+]
+
+
+class CareDispatchException(Base):
+    """Recorded reason a unit ships WITHOUT an active Care Agent pairing
+    (spec section 16). Advisory only today — routers/dispatch.py and
+    routers/sales.py do NOT hard-block on the absence of a pairing/exception
+    yet, since Phase 4 imaging integration that would auto-provision every
+    unit hasn't shipped; hard-blocking now would fail every live sale. This
+    table exists so the readiness check has something real to report against
+    once that gate is turned on."""
+    __tablename__ = "care_dispatch_exceptions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    device_id = Column(UUID(as_uuid=True), ForeignKey("devices.id"), nullable=False, index=True)
+    reason = Column(String(30), nullable=False)
+    notes = Column(Text, nullable=True)
+    approved_by = Column(String(50), nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    created_at = Column(DateTime, default=app_now)

@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Offers — Customer Care — OxyPC{% endblock %}
+{% block page_title %}Customer Care — Offers{% endblock %}
+{% block content %}
+
+{% if success %}<div class="alert alert-success py-2"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger py-2"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>{% endif %}
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white"><strong>New Offer</strong></div>
+  <div class="card-body">
+    <form method="post" action="/care-support/offers" class="row g-2">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="col-md-4"><input class="form-control form-control-sm" name="title" placeholder="Title" required></div>
+      <div class="col-md-8"><input class="form-control form-control-sm" name="body" placeholder="Body text"></div>
+      <div class="col-md-3">
+        <select name="target_type" class="form-select form-select-sm">
+          <option value="all">All devices</option>
+          <option value="model">Specific model</option>
+          <option value="warranty_window">Warranty expiring within N days</option>
+          <option value="sale_range">Sale date range</option>
+        </select>
+      </div>
+      <div class="col-md-3"><input class="form-control form-control-sm" name="target_value"
+        placeholder="model name / days / start,end"></div>
+      <div class="col-md-2">
+        <select name="channel" class="form-select form-select-sm">
+          <option value="in_app">In-app only</option>
+          <option value="whatsapp">WhatsApp only</option>
+          <option value="both">In-app + WhatsApp</option>
+        </select>
+      </div>
+      <div class="col-md-2"><input class="form-control form-control-sm" name="cta_label" placeholder="CTA label"></div>
+      <div class="col-md-2"><input class="form-control form-control-sm" name="cta_url" placeholder="CTA URL"></div>
+      <div class="col-12 form-check">
+        <input class="form-check-input" type="checkbox" name="consent_required" id="cr" checked>
+        <label class="form-check-label small" for="cr">Only send to customers who opted into marketing (recommended)</label>
+      </div>
+      <div class="col-12"><button class="btn btn-sm btn-primary">Create Offer</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 align-middle">
+        <thead class="table-light">
+          <tr><th>Title</th><th>Target</th><th>Channel</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for o in offers %}
+          <tr>
+            <td class="small">{{ o.title }}<div class="text-muted">{{ o.body[:60] if o.body else '' }}</div></td>
+            <td class="small">{{ o.target_type | replace('_',' ') | title }} {{ o.target_value or '' }}</td>
+            <td class="small">{{ o.channel | replace('_',' ') | title }}</td>
+            <td>{% if o.is_active %}<span class="badge bg-success">Active</span>{% else %}<span class="badge bg-secondary">Inactive</span>{% endif %}</td>
+            <td class="d-flex gap-1">
+              <form method="post" action="/care-support/offers/{{ o.id }}/toggle">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                <button class="btn btn-sm btn-outline-secondary">{{ 'Deactivate' if o.is_active else 'Activate' }}</button>
+              </form>
+              {% if o.channel in ('whatsapp','both') %}
+              <form method="post" action="/care-support/offers/{{ o.id }}/send"
+                    onsubmit="return confirm('Send this offer via WhatsApp to matching, consented customers now?');">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                <button class="btn btn-sm btn-outline-primary">Send via WhatsApp</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-center text-muted py-4">No offers yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<p class="small text-muted mt-3">
+  WhatsApp sends require the sending staff member's own WA session to be connected (see /whatsapp),
+  and only reach pairings with <code>marketing_opt_in=True</code> when consent is required — that flag
+  defaults False everywhere until a customer opts in via a future tray privacy screen, so sends may
+  legitimately show 0 sent / N skipped until that exists.
+</p>
+
+{% endblock %}

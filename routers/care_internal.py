@@ -14,9 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models.user import User
 from models.device import Device
-from models.care import CareDevicePairing
+from models.care import CareDevicePairing, CareDispatchException, DISPATCH_EXCEPTION_REASONS
 from auth.dependencies import require_module_perm, verify_csrf
-from services.care_service import PROVISIONING_TOKEN_TTL_MINUTES, care_audit
+from services.care_service import (
+    PROVISIONING_TOKEN_TTL_MINUTES, care_audit, resolve_dispatch_readiness,
+    has_pending_or_active_pairing,
+)
 from utils.timezone import app_now
 
 router = APIRouter(prefix="/care/internal", tags=["care-agent-internal"])
@@ -38,14 +41,9 @@ async def create_pending_pairing(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
-    existing = (await db.execute(
-        select(CareDevicePairing).where(
-            CareDevicePairing.device_id == device_id,
-            CareDevicePairing.is_active == True,  # noqa: E712
-        )
-    )).scalar_one_or_none()
-    if existing:
-        raise HTTPException(status_code=409, detail="Device already has an active pairing — revoke it first")
+    if await has_pending_or_active_pairing(db, device_id):
+        raise HTTPException(status_code=409,
+                           detail="Device already has an active or pending pairing — revoke it first")
 
     raw_token, token_hash = CareDevicePairing.generate_token()
     pairing = CareDevicePairing(
@@ -86,3 +84,42 @@ async def revoke_pairing(
                      pairing_id=pairing.id, new_value={"reason": pairing.revoked_reason})
     await db.commit()
     return JSONResponse({"revoked": True})
+
+
+@router.get("/dispatch-readiness/{device_id}")
+async def dispatch_readiness(
+    device_id: str,
+    current_user: User = Depends(require_module_perm("care_support")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Advisory only (spec section 16) — not called by routers/dispatch.py or
+    routers/sales.py yet. See models.care.CareDispatchException docstring."""
+    return JSONResponse(await resolve_dispatch_readiness(db, device_id))
+
+
+@router.post("/dispatch-exceptions")
+async def create_dispatch_exception(
+    request: Request,
+    device_id: str = Form(...),
+    reason: str = Form(...),
+    notes: str = Form(default=""),
+    _csrf=Depends(verify_csrf),
+    current_user: User = Depends(require_module_perm("care_support", "add")),
+    db: AsyncSession = Depends(get_db),
+):
+    if reason not in DISPATCH_EXCEPTION_REASONS:
+        raise HTTPException(status_code=400, detail=f"Unknown reason. Must be one of {DISPATCH_EXCEPTION_REASONS}")
+    device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    exc = CareDispatchException(
+        device_id=device_id, reason=reason, notes=notes.strip()[:1000] or None,
+        approved_by=current_user.username,
+    )
+    db.add(exc)
+    await db.flush()
+    await care_audit(db, "DISPATCH_EXCEPTION_RECORDED", actor_type="staff", actor_id=current_user.username,
+                     new_value={"device_id": str(device_id), "reason": reason})
+    await db.commit()
+    return JSONResponse({"exception_id": str(exc.id), "reason": exc.reason})

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Pilot Dashboard — Customer Care — OxyPC{% endblock %}
+{% block page_title %}Customer Care — Pilot Acceptance Gates{% endblock %}
+{% block content %}
+
+<div class="alert alert-secondary small">
+  These numbers are computed live from real <code>care_*</code> tables — nothing here is simulated.
+  They will read zero/blank until real devices are provisioned (see Phase 4) and real tickets exist.
+  Spec acceptance-gate thresholds shown for reference: pairing success ≥98%, ticket submission ≥99%,
+  diagnostic completion ≥95%.
+</div>
+
+<div class="row g-3">
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <div class="text-muted small">Device Pairings</div>
+        <div class="fs-3 fw-bold">{{ total_pairings }}</div>
+        <div class="small">{{ active_pairings }} active</div>
+        <div class="small mt-2">
+          Pairing success:
+          {% if pairing_success_pct is not none %}
+          <span class="badge bg-{{ 'success' if pairing_success_pct >= 98 else 'warning text-dark' }}">{{ pairing_success_pct }}%</span>
+          {% else %}<span class="text-muted">no data yet</span>{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <div class="text-muted small">Support Tickets</div>
+        <div class="fs-3 fw-bold">{{ total_tickets }}</div>
+        <div class="small">{{ resolved_tickets }} resolved/closed</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <div class="text-muted small">Diagnostic Completion</div>
+        <div class="fs-3 fw-bold">
+          {% if diagnostic_completion_pct is not none %}{{ diagnostic_completion_pct }}%{% else %}—{% endif %}
+        </div>
+        <div class="small text-muted">Tickets with an attached diagnostic snapshot</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="alert alert-warning small mt-3">
+  <strong>Not yet reportable here:</strong> {{ dead_letter_note }}
+</div>
+
+{% endblock %}

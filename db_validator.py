@@ -359,7 +359,7 @@ async def validate_and_fix(engine: AsyncEngine, auto_fix: bool = True) -> dict:
             await v.fix_missing_columns(missing_cols)
             # Re-check
             still_missing = []
-            for tbl, col, sql_t in missing_cols:
+            for tbl, col, sql_t, default_clause, not_null in missing_cols:
                 db_cols = await v._db_columns(tbl)
                 if col not in db_cols:
                     still_missing.append((tbl, col, sql_t))

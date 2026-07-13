@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Provision Device — Customer Care — OxyPC{% endblock %}
+{% block page_title %}Customer Care — Provision Device{% endblock %}
+{% block content %}
+
+{% if success %}<div class="alert alert-success py-2"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger py-2"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>{% endif %}
+
+{% if token %}
+<div class="alert alert-warning">
+  <strong>One-time provisioning secret — shown once, copy it now:</strong>
+  <div class="mt-2"><code style="word-break:break-all">{{ token }}</code></div>
+  <div class="small text-muted mt-1">Expires {{ token_expires }}. Feed this into the agent installer's
+    first-run prompt during imaging (see care_agent_windows/README.md). Never store it in a reusable image.</div>
+</div>
+{% endif %}
+
+<form method="get" class="d-flex gap-2 mb-3">
+  <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" style="width:280px"
+         placeholder="Search barcode / serial…">
+  <button class="btn btn-sm btn-outline-primary">Search</button>
+</form>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 align-middle">
+        <thead class="table-light">
+          <tr><th>Device</th><th>Readiness</th><th>Provision</th><th>Record Exception</th></tr>
+        </thead>
+        <tbody>
+          {% for d, readiness in devices %}
+          <tr>
+            <td class="small">{{ d.brand }} {{ d.model }}<div class="text-muted">{{ d.barcode }} / {{ d.serial_no or '—' }}</div></td>
+            <td>
+              {% if readiness.ready %}<span class="badge bg-success">Ready ({{ readiness.reason }})</span>
+              {% else %}<span class="badge bg-warning text-dark">Not ready</span>{% endif %}
+            </td>
+            <td>
+              <form method="post" action="/care-support/provision/{{ d.id }}" onsubmit="return confirm('Generate a one-time provisioning secret for {{ d.barcode }}?');">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                <button class="btn btn-sm btn-outline-primary">Provision</button>
+              </form>
+            </td>
+            <td>
+              <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#exc{{ loop.index }}">Exception</button>
+              <div class="modal fade" id="exc{{ loop.index }}" tabindex="-1">
+                <div class="modal-dialog"><div class="modal-content">
+                  <form method="post" action="/care-support/dispatch-exceptions">
+                    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                    <input type="hidden" name="device_id" value="{{ d.id }}">
+                    <div class="modal-header"><h6 class="modal-title">Record Dispatch Exception — {{ d.barcode }}</h6></div>
+                    <div class="modal-body">
+                      <select name="reason" class="form-select form-select-sm mb-2" required>
+                        {% for r in reasons %}<option value="{{ r }}">{{ r | replace('_',' ') | title }}</option>{% endfor %}
+                      </select>
+                      <textarea name="notes" class="form-control form-control-sm" rows="2" placeholder="Notes"></textarea>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                      <button class="btn btn-sm btn-primary">Record</button>
+                    </div>
+                  </form>
+                </div></div>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="text-center text-muted py-4">Search for a device to provision.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<p class="small text-muted mt-3">
+  This screen is advisory only. Sales/dispatch does not yet block on pairing/exception status —
+  see <code>docs/care-agent/phase4-imaging-dispatch-integration.md</code>.
+</p>
+
+{% endblock %}

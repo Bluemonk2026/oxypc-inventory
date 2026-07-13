@@ -1565,6 +1565,7 @@ Table care_device_pairings {
   is_active bool [not null, default: false]
   revoked_at datetime
   revoked_reason varchar(200)
+  marketing_opt_in bool [not null, default: false, note: 'customer consent for care_offers.is_marketing sends — Phase 5, defaults false everywhere until a tray privacy screen exists']
   created_by varchar(50) [note: 'staff username who created the pending pairing']
   created_at datetime [default: `now()`]
   updated_at datetime [default: `now()`]
@@ -1717,3 +1718,33 @@ Ref: care_support_tickets.sale_id > sales.id
 Ref: care_ticket_events.ticket_id > care_support_tickets.id
 Ref: care_diagnostic_snapshots.pairing_id > care_device_pairings.id
 Ref: care_diagnostic_snapshots.ticket_id > care_support_tickets.id
+
+// ── care_dispatch_exceptions (Phase 4) ──────────────────────────
+Table care_dispatch_exceptions {
+  id uuid [pk, not null]
+  device_id uuid [not null, note: 'indexed']
+  reason varchar(30) [not null, note: 'corporate_no_software | non_windows | clean_os_request | as_is_sale | temporary_technical']
+  notes text
+  approved_by varchar(50)
+  expires_at datetime
+  is_active bool [not null, default: true]
+  created_at datetime [default: `now()`]
+
+  Note: 'Advisory only — routers/dispatch.py and routers/sales.py do not hard-block on this yet. See models.care.CareDispatchException docstring.'
+}
+
+// ── care_offer_deliveries (Phase 5) ─────────────────────────────
+Table care_offer_deliveries {
+  id uuid [pk, not null]
+  offer_id uuid [not null, note: 'indexed']
+  device_id uuid [not null, note: 'indexed']
+  channel varchar(20) [not null, note: 'in_app | whatsapp']
+  delivery_status varchar(20) [not null, default: 'sent', note: 'sent | failed | skipped_no_consent']
+  error_message varchar(300)
+  sent_at datetime [default: `now()`]
+  sent_by varchar(50)
+}
+
+Ref: care_dispatch_exceptions.device_id > devices.id
+Ref: care_offer_deliveries.offer_id > care_offers.id
+Ref: care_offer_deliveries.device_id > devices.id

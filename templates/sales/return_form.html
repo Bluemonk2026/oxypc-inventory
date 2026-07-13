@@ -61,11 +61,16 @@
             <label class="form-label fw-semibold">Complaint / Issue Description</label>
             <textarea name="complaint_text" class="form-control" rows="2" placeholder="Describe the customer's complaint or issue"></textarea>
           </div>
-          <div class="mb-3">
-            <label class="form-label">Refund Amount (₹)</label>
-            <div class="input-group"><span class="input-group-text">₹</span>
-              <input type="number" name="refund_amount" class="form-control" placeholder="0" min="0" step="0.01">
+          <div class="mb-3 d-none" id="paidRepairRow">
+            <label class="form-label">Paid Repair (default)</label>
+            <div class="input-group">
+              <span class="input-group-text">₹</span>
+              <input type="text" class="form-control" readonly
+                     value="{{ '%.2f'|format(default_paid_repair if default_paid_repair is defined else 1500) }}">
+              <input type="hidden" name="refund_amount"
+                     value="{{ '%.2f'|format(default_paid_repair if default_paid_repair is defined else 1500) }}">
             </div>
+            <div class="form-text">Wired to Admin &rarr; Cost Config &rarr; Default Paid Repair Cost. Applies since this device is Out of Warranty.</div>
           </div>
           <div class="mb-3">
             <label class="form-label">Notes</label>
@@ -121,12 +126,16 @@
           document.getElementById('br_rma_warranty_expiry').textContent = d.rma_warranty_expires_at ? ('(expires ' + d.rma_warranty_expires_at + ')') : '';
           brief.classList.remove('d-none');
           var ws = d.warranty_status || '';
+          var paidRepairRow = document.getElementById('paidRepairRow');
           if(ws === 'Within Warranty'){
             msg.innerHTML = '<div class="alert alert-success py-2 px-3 small mb-0">Device is in warranty and will be repair without any extra cost</div>';
+            paidRepairRow.classList.add('d-none');
           } else if(ws === 'Out of Warranty'){
             msg.innerHTML = '<div class="alert alert-warning py-2 px-3 small mb-0">Device is out warranty and will cost basic Rs1500 as repair cost excluding spare parts cost</div>';
+            paidRepairRow.classList.remove('d-none');
           } else {
             msg.innerHTML = '';
+            paidRepairRow.classList.add('d-none');
           }
         } else {
           clearBrief();

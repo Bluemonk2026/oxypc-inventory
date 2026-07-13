@@ -177,10 +177,29 @@
     <div class="table-responsive">
       <table id="movementTable" class="table table-hover mb-0 small">
         <thead class="table-secondary">
-          <tr><th>Location ID</th><th>Location Type</th><th>Count of Tag Number</th><th>Assigned To</th><th>Stage</th><th>Action</th></tr>
+          <tr><th>Bucket Number</th><th>Location ID</th><th>Location Type</th><th>Count of Tag Number</th><th>Total Pass</th><th>Total Fail</th><th>Assigned To</th><th>Stage</th><th>Action</th></tr>
         </thead>
         <tbody id="movementTbody">
           <tr><td colspan="6" class="text-center text-muted py-3">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Allocation table: buckets already allocated to Production -->
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+  <h6 class="fw-bold mb-0"><i class="bi bi-diagram-3 me-2"></i>Allocation — Buckets in Production</h6>
+</div>
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="allocationTable" class="table table-hover mb-0 small">
+        <thead class="table-secondary">
+          <tr><th>Bucket ID</th><th>Location ID</th><th>Total Pass</th><th>Total Fail</th><th>Count of Tag Numbers</th><th>Stage</th><th>Assigned To</th><th>Action</th></tr>
+        </thead>
+        <tbody id="allocationTbody">
+          <tr><td colspan="8" class="text-center text-muted py-3">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -518,6 +537,7 @@ $(document).on('click', '.move-bkt-trc', function(){
       if(d.ok){
         loadBucketTable();
         loadMovementTable();
+        loadAllocationTable();
         fetch('/api/buckets/device-map?status=stock_in').then(function(r){return r.json();}).then(function(map){
           document.querySelectorAll('.bkt-cell').forEach(function(cell){
             if(!map[cell.dataset.barcode]) cell.innerHTML='<span class="text-muted">—</span>';
@@ -588,6 +608,7 @@ document.getElementById('bktSubmitBtn').addEventListener('click', function(){
       bootstrap.Modal.getInstance(document.getElementById('addToBucketModal')).hide();
       loadBucketTable();
       loadMovementTable();
+      loadAllocationTable();
       bcs.forEach(function(bc){
         var cell = document.querySelector('.bkt-cell[data-barcode="'+bc+'"]');
         if(cell) cell.innerHTML = '<span class="badge bg-warning text-dark">'+d.bucket_number+'</span>';
@@ -604,7 +625,7 @@ function loadMovementTable(){
   fetch('/api/buckets?status=stock_in,trc_pending,validated').then(function(r){return r.json();}).then(function(buckets){
     var tbody = document.getElementById('movementTbody');
     if(!buckets.length){
-      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No buckets created yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">No buckets created yet.</td></tr>';
       return;
     }
     tbody.innerHTML = buckets.map(function(b){
@@ -612,9 +633,12 @@ function loadMovementTable(){
         ? '<span class="badge bg-primary">Production</span>'
         : '<span class="badge bg-secondary">Pending</span>';
       return '<tr>'+
+        '<td><span class="badge bg-secondary">'+b.bucket_number+'</span></td>'+
         '<td>'+(b.location_unit_id||'—')+'</td>'+
         '<td>'+(b.location_type||'—')+'</td>'+
         '<td><span class="badge bg-info text-dark">'+b.device_count+'</span></td>'+
+        '<td><span class="badge bg-success">'+b.total_pass+'</span></td>'+
+        '<td><span class="badge bg-danger">'+b.total_fail+'</span></td>'+
         '<td>'+assignedBadge+'</td>'+
         '<td><span class="badge bg-light text-dark">'+b.status+'</span></td>'+
         '<td class="text-nowrap">'+
@@ -627,6 +651,31 @@ function loadMovementTable(){
   });
 }
 loadMovementTable();
+
+// ── Allocation table: buckets already handed to Production ─────────────────
+function loadAllocationTable(){
+  fetch('/api/buckets?status=stock_in,trc_pending,validated').then(function(r){return r.json();}).then(function(buckets){
+    var allocated = buckets.filter(function(b){ return b.assigned_to_production; });
+    var tbody = document.getElementById('allocationTbody');
+    if(!allocated.length){
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No buckets allocated to Production yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = allocated.map(function(b){
+      return '<tr>'+
+        '<td><span class="badge bg-secondary">'+b.bucket_number+'</span></td>'+
+        '<td>'+(b.location_unit_id||'—')+'</td>'+
+        '<td><span class="badge bg-success">'+b.total_pass+'</span></td>'+
+        '<td><span class="badge bg-danger">'+b.total_fail+'</span></td>'+
+        '<td><span class="badge bg-info text-dark">'+b.device_count+'</span></td>'+
+        '<td><span class="badge bg-light text-dark">'+b.status+'</span></td>'+
+        '<td><span class="badge bg-primary">Production</span></td>'+
+        '<td><a href="/lots/trc-production" class="btn btn-sm btn-outline-primary py-0 px-2">View</a></td>'+
+      '</tr>';
+    }).join('');
+  });
+}
+loadAllocationTable();
 
 $(document).on('click', '.assign-prod-btn', function(){
   document.getElementById('apBktId').value = this.dataset.id;
@@ -643,6 +692,7 @@ document.getElementById('apSubmitBtn').addEventListener('click', function(){
     if(d.ok){
       bootstrap.Modal.getInstance(document.getElementById('assignProdModal')).hide();
       loadMovementTable();
+      loadAllocationTable();
       loadBucketTable();
     } else {
       alert(d.detail || 'Failed to assign bucket to production.');

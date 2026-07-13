@@ -216,7 +216,7 @@
       <div class="card-body p-0">
         <table class="table table-sm mb-0 align-middle">
           <thead class="table-light">
-            <tr><th class="ps-3">Part Name</th><th>Required</th><th>Action</th></tr>
+            <tr><th class="ps-3">Part Name</th><th>Required</th><th>Stock Status</th><th>Action</th></tr>
           </thead>
           <tbody>
             {% set _eng = True %}{# Parts Consumption actions visible to all roles #}
@@ -224,6 +224,10 @@
             <tr>
               <td class="ps-3 small fw-semibold">{{ p.label }}</td>
               <td>{% if p.required %}<span class="badge bg-warning text-dark">Yes</span>{% else %}<span class="badge bg-light text-muted border">No</span>{% endif %}</td>
+              <td>
+                {% if p.in_stock %}<span class="badge bg-success">In Stock &times;{{ p.stock_qty }}</span>
+                {% else %}<span class="badge bg-danger">Out of Stock</span>{% endif %}
+              </td>
               <td>
                 {% set r = p.request %}
                 {% if r %}
@@ -247,7 +251,10 @@
                           onmouseenter="if(!this.disabled)this.classList.replace('btn-outline-secondary','btn-outline-warning')"
                           onmouseleave="this.classList.replace('btn-outline-warning','btn-outline-secondary')"
                           onclick="openPartRequestModal('replace', 1, '{{ p.category | e }}')">
-                    <i class="bi bi-arrow-repeat"></i> Replace</button>
+                    <i class="bi bi-arrow-repeat"></i> Replace Request</button>
+                  <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 faulty-part-btn"
+                          data-label="{{ p.label | e }}" data-category="{{ p.category | e }}" data-part-id="{{ p.part_id }}">
+                    <i class="bi bi-exclamation-triangle"></i> Faulty</button>
                 </div>
                 {% else %}<span class="text-muted">—</span>{% endif %}
               </td>
@@ -346,6 +353,36 @@
 
         new bootstrap.Modal(document.getElementById('partRequestModal')).show();
       }
+
+      // "Faulty" button — reuses the same /part-requests/create endpoint with
+      // request_type=faulty (no modal needed, part/category are already known
+      // from the row). Submits the existing hidden form fields directly so
+      // the row's pill flips to "Requested" via the normal page reload.
+      document.querySelectorAll('.faulty-part-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (!confirm('Mark "' + btn.dataset.label + '" as Faulty and raise a part request?')) return;
+          document.getElementById('pr_request_type').value = 'faulty';
+          document.getElementById('pr_part_category').value = btn.dataset.category || '';
+          document.getElementById('pr_part_id').value = btn.dataset.partId || '';
+          document.getElementById('pr_qty').value = 1;
+          var form = document.getElementById('partRequestForm');
+          // part_name/part_id aren't set by the visible category/name selects
+          // here — inject hidden inputs matching this row's known part.
+          var hiddenName = form.querySelector('input[name="part_name"]');
+          if (!hiddenName) {
+            hiddenName = document.createElement('input');
+            hiddenName.type = 'hidden'; hiddenName.name = 'part_name';
+            form.appendChild(hiddenName);
+          }
+          hiddenName.value = btn.dataset.label;
+          // Disable the visible Part Name select so it isn't also submitted
+          // under the same "part_name" field as our hidden override above.
+          var partNameSelect = document.getElementById('pr_part_name');
+          if (partNameSelect) { partNameSelect.removeAttribute('required'); partNameSelect.disabled = true; }
+          btn.disabled = true;
+          form.submit();
+        });
+      });
 
       function verifyPartReceived(reqId) {
         var btn = document.getElementById('verifyBtn_' + reqId);

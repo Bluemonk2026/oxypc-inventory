@@ -169,7 +169,7 @@
         {% else %}<p class="text-muted small mb-0">No required parts.</p>{% endif %}
 
         {% set price = price_map.get(device.id|string) %}
-        {% if price %}
+        {% if price and current_user.role.value == 'admin' %}
         <div class="small fw-semibold text-muted mt-3">Pricing</div>
         <table class="table table-sm small mb-0">
           <tbody>
@@ -201,23 +201,23 @@
       <!-- Final QC Decision -->
       <div class="col-lg-4">
         <h6 class="small text-uppercase text-muted fw-bold">Final QC Decision</h6>
-        <form action="/cosmetic/advance" method="post">
+        <form action="/cosmetic/advance" method="post" class="fqc-decision-form">
           <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
           <input type="hidden" name="barcode" value="{{ device.barcode }}">
           <div class="mb-2">
             <label class="form-label small">Final Status</label>
-            <select name="final_qc_status" class="form-select form-select-sm">
+            <select name="final_qc_status" class="form-select form-select-sm fqc-status-select">
               {% for s in master_options('cosmetic_final_qc_status') %}<option value="{{ s }}">{{ s | title }}</option>{% endfor %}
             </select>
           </div>
-          <div class="mb-2">
+          <div class="mb-2 fqc-fail-only">
             <label class="form-label small">Failure Reason <small class="text-muted">(if fail)</small></label>
             <select name="failure_reason" class="form-select form-select-sm">
               <option value="">— N/A —</option>
               {% for r in master_options('qc_failure_reason') %}<option>{{ r }}</option>{% endfor %}
             </select>
           </div>
-          <div class="mb-2">
+          <div class="mb-2 fqc-pass-only">
             <label class="form-label small">Grade</label>
             <select name="grade" class="form-select form-select-sm">
               <option value="">— No change —</option>
@@ -226,12 +226,15 @@
               <option {{ 'selected' if device.grade and device.grade.value == 'C' }}>C</option>
             </select>
           </div>
-          <div class="mb-2">
+          <div class="mb-2 fqc-fail-only">
             <label class="form-label small">Notes</label>
             <input type="text" name="notes" class="form-control form-control-sm" placeholder="Remarks">
           </div>
-          <button type="submit" class="btn btn-success w-100 btn-sm">
-            <i class="bi bi-patch-check me-1"></i>Final QC → Ready to Sale
+          <button type="submit" class="btn btn-success w-100 btn-sm fqc-pass-only">
+            <i class="bi bi-patch-check me-1"></i>Complete
+          </button>
+          <button type="submit" class="btn btn-danger w-100 btn-sm fqc-fail-only">
+            <i class="bi bi-x-circle me-1"></i>Reject
           </button>
         </form>
       </div>
@@ -245,4 +248,25 @@
 <div class="card border-0 shadow-sm"><div class="card-body text-center text-muted py-5">No devices awaiting Final QC.</div></div>
 {% endfor %}
 </div>
+<script>
+// Final QC Decision: PASS shows Grade + Complete; FAIL shows Notes + Reject.
+(function () {
+  function applyState(form) {
+    var status = form.querySelector('.fqc-status-select').value;
+    var isFail = status === 'fail';
+    form.querySelectorAll('.fqc-fail-only').forEach(function (el) {
+      el.style.display = isFail ? '' : 'none';
+    });
+    form.querySelectorAll('.fqc-pass-only').forEach(function (el) {
+      el.style.display = isFail ? 'none' : '';
+    });
+  }
+  document.querySelectorAll('.fqc-decision-form').forEach(function (form) {
+    applyState(form);
+    form.querySelector('.fqc-status-select').addEventListener('change', function () {
+      applyState(form);
+    });
+  });
+})();
+</script>
 {% endblock %}

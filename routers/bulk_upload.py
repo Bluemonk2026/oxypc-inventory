@@ -1,5 +1,6 @@
 import csv
 import io
+import re
 import uuid
 from datetime import datetime
 from utils.timezone import app_now
@@ -29,11 +30,11 @@ allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
 # follows. Shared by both the template download and the upload parser so
 # the two can never drift apart. ────────────────────────────────────────────
 DEVICE_CORE_FIELDS = [
-    "Tag No", "serial_no", "brand", "model", "cpu", "ram_gb", "storage_gb",
+    "Tag No", "serial_no", "brand", "model", "cpu", "generation", "ram_gb", "storage_gb",
     "category", "lot_number",
 ]
 DEVICE_REST_FIELDS = [
-    "device_type", "generation", "storage_type", "hdd_capacity_gb",
+    "device_type", "storage_type", "hdd_capacity_gb",
     "screen_size", "battery_health_pct", "bios_password", "color", "grade",
     "floor", "warehouse", "grn_number", "qty", "device_price", "notes",
 ]
@@ -309,8 +310,12 @@ async def upload_devices(
         return (row.get(key) or "").strip() or None
 
     def _i(row, key):
+        # Accept any value without restriction — pull the first integer out of
+        # whatever was typed (e.g. "256GB" -> 256, "8 GB" -> 8) instead of
+        # silently discarding the whole cell just because it wasn't a bare digit.
         v = (row.get(key) or "").strip()
-        return int(v) if v.lstrip("-").isdigit() else None
+        m = re.search(r"-?\d+", v)
+        return int(m.group()) if m else None
 
     for i, row in enumerate(reader, start=2):
         try:
@@ -331,6 +336,10 @@ async def upload_devices(
                     "current_stage_label": STAGE_LABELS.get(ed.current_stage, ed.current_stage) if ed else "—",
                     "file_stage": DeviceStage.iqc.value,
                     "file_stage_label": STAGE_LABELS.get(DeviceStage.iqc, "IQC"),
+                    # Full CSV row, round-tripped through the modal so "Update"/
+                    # "Update All" can apply this row's values without needing
+                    # the original file re-uploaded.
+                    "row": {k: (v or "") for k, v in row.items()},
                 })
                 continue
             lot_number = _s(row, "lot_number")
@@ -454,6 +463,103 @@ async def approve_duplicate_move(
     await db.commit()
     return JSONResponse({"success": True, "new_stage": new_stage.value,
                           "new_stage_label": STAGE_LABELS.get(new_stage, new_stage.value)})
+
+
+def _apply_row_to_device(device: Device, row: dict) -> None:
+    """Apply one CSV row's field values onto an already-existing device —
+    shared by the single-row Update and bulk Update All actions on the
+    duplicate-review modal. Never touches barcode/lot_number (identity)."""
+    def s(key):
+        return (row.get(key) or "").strip() or None
+
+    def i(key):
+        v = (row.get(key) or "").strip()
+        m = re.search(r"-?\d+", v)
+        return int(m.group()) if m else None
+
+    if s("brand"): device.brand = s("brand")
+    if s("model"): device.model = s("model")
+    if s("device_type"): device.device_type = s("device_type")
+    if s("serial_no"): device.serial_no = s("serial_no")
+    if s("cpu"): device.cpu = s("cpu")
+    if s("generation"): device.generation = s("generation")
+    if i("ram_gb") is not None: device.ram_gb = i("ram_gb")
+    if i("storage_gb") is not None: device.storage_gb = i("storage_gb")
+    if s("storage_type"): device.storage_type = s("storage_type")
+    if i("hdd_capacity_gb") is not None: device.hdd_capacity_gb = i("hdd_capacity_gb")
+    if s("screen_size"): device.screen_size = s("screen_size")
+    if i("battery_health_pct") is not None: device.battery_health_pct = i("battery_health_pct")
+    if s("color"): device.color = s("color")
+    if s("grade"): device.grade = s("grade")
+    if s("grn_number"): device.grn_number = s("grn_number")
+    device.updated_at = app_now()
+
+
+@router.post("/duplicates/update")
+async def update_duplicate_device(
+    request: Request,
+    tag_number: str = Form(...),
+    row_json: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Update button on the duplicate-review modal's Tag Number table — applies
+    this row's uploaded field values onto the existing device. Returns JSON so
+    the modal stays open."""
+    import json
+    try:
+        row = json.loads(row_json)
+    except (ValueError, TypeError):
+        return JSONResponse({"success": False, "error": "Malformed row data"}, status_code=400)
+    device = (await db.execute(select(Device).where(Device.barcode == tag_number))).scalar_one_or_none()
+    if not device:
+        return JSONResponse({"success": False, "error": f"Tag Number '{tag_number}' not found"}, status_code=404)
+    _apply_row_to_device(device, row)
+    await audit(db, action="DEVICE_UPDATED", user=current_user,
+                table_name="devices", record_id=str(device.id),
+                new_value={"source": "bulk_upload_duplicate_update"}, request=request)
+    await db.commit()
+    return JSONResponse({"success": True})
+
+
+@router.post("/duplicates/update-all")
+async def update_all_duplicate_devices(
+    request: Request,
+    rows_json: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Update All button — applies every listed duplicate row's uploaded
+    values to its matching existing device in one pass."""
+    import json
+    try:
+        rows = json.loads(rows_json)
+    except (ValueError, TypeError):
+        return JSONResponse({"success": False, "error": "Malformed row data"}, status_code=400)
+    if not isinstance(rows, list):
+        return JSONResponse({"success": False, "error": "Expected a list of rows"}, status_code=400)
+
+    barcodes = [r.get("tag_number") for r in rows if r.get("tag_number")]
+    devices = {d.barcode: d for d in (await db.execute(
+        select(Device).where(Device.barcode.in_(barcodes))
+    )).scalars().all()}
+
+    updated, missing = [], []
+    for r in rows:
+        tag = r.get("tag_number")
+        device = devices.get(tag)
+        if not device:
+            missing.append(tag)
+            continue
+        _apply_row_to_device(device, r.get("row") or {})
+        updated.append(tag)
+
+    if updated:
+        await audit(db, action="DEVICE_UPDATED", user=current_user,
+                    table_name="devices", record_id=None,
+                    new_value={"source": "bulk_upload_duplicate_update_all", "tags": updated}, request=request)
+        await db.commit()
+    return JSONResponse({"success": True, "updated": updated, "missing": missing})
 
 
 @router.post("/duplicates/add-lot")

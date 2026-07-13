@@ -71,6 +71,20 @@ async def list_buckets(
     )).all()
     count_map = {str(r[0]): r[1] for r in count_rows}
 
+    # Total Pass / Total Fail — count of tag numbers per bucket by Final QC
+    # decision (Device.final_qc_status), shown as extra Movement table columns
+    # on both the Inventory Manager and Production Manager pages.
+    qc_rows = (await db.execute(
+        select(Device.bucket_id, Device.final_qc_status, func.count(Device.id))
+        .where(Device.bucket_id.in_(bucket_ids), Device.is_active == True,
+               Device.final_qc_status.isnot(None))
+        .group_by(Device.bucket_id, Device.final_qc_status)
+    )).all()
+    pass_map, fail_map = {}, {}
+    for bkt_id, qc_status, cnt in qc_rows:
+        target = pass_map if qc_status == "pass" else fail_map
+        target[str(bkt_id)] = target.get(str(bkt_id), 0) + cnt
+
     loc_map = {}
     loc_ids = {b.location_id for b in rows if b.location_id}
     if loc_ids:
@@ -91,6 +105,8 @@ async def list_buckets(
         "device_count": count_map.get(str(b.id), 0),
         "received_qty": b.received_qty,
         "assigned_to_production": bool(b.assigned_to_production),
+        "total_pass": pass_map.get(str(b.id), 0),
+        "total_fail": fail_map.get(str(b.id), 0),
     } for b in rows])
 
 

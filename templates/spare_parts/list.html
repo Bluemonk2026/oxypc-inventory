@@ -81,6 +81,13 @@
     </button>
   </li>
   <li class="nav-item flex-fill text-center" role="presentation">
+    <button class="nav-link w-100" id="faulty-tab" data-bs-toggle="tab"
+            data-bs-target="#faultyTab" type="button" role="tab">
+      <i class="bi bi-exclamation-triangle me-1"></i>Faulty Request
+      <span class="badge bg-warning text-dark ms-1">{{ faulty_reqs|selectattr('status','equalto','requested')|list|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item flex-fill text-center" role="presentation">
     <button class="nav-link w-100" id="sourcing-tab" data-bs-toggle="tab"
             data-bs-target="#sourcingTab" type="button" role="tab">
       <i class="bi bi-box-arrow-in-down me-1"></i>Sourcing Requests
@@ -367,6 +374,72 @@
           </tr>
           {% else %}
           <tr><td colspan="11" class="text-center text-muted py-4">No part requests.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── TAB: Faulty Request — same shape as Part Requests, filtered to
+       request_type='faulty' (raised by the "Faulty" button on Device Detail) ── -->
+  <div class="tab-pane fade p-0" id="faultyTab" role="tabpanel">
+    <div class="d-flex justify-content-between align-items-center p-3 border-bottom flex-wrap gap-2">
+      <span class="text-muted small">{{ faulty_reqs|length }} faulty part request(s) — Handover enabled whenever Part Master stock is available</span>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-outline-secondary btn-sm" onclick="spExport('faultyReqTable',false)">
+          <i class="bi bi-file-earmark-arrow-down me-1"></i>Export All
+        </button>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table id="faultyReqTable" class="table table-hover mb-0 small align-middle">
+        <thead class="table-dark"><tr>
+          <th>WorkID</th><th>Tag Number</th><th>Engineer</th><th>Part Name</th><th>Part Category</th>
+          <th>Qty Requested</th><th>Qty Handover</th><th>QTY Available</th><th>Status</th><th>Action</th>
+        </tr></thead>
+        <tbody>
+          {% for r in faulty_reqs %}
+          {% set stock = part_stock.get(r.part_id|string, 0) %}
+          {% set available = r.part_id and stock > 0 %}
+          <tr>
+            <td class="font-monospace">{% if r.work_id %}<a href="/workid-status?highlight={{ r.work_id }}" class="text-decoration-none" title="View in WorkID Status">{{ r.work_id }}</a>{% else %}—{% endif %}</td>
+            <td><a href="/devices/{{ r.barcode }}" class="font-monospace text-decoration-none">{{ r.barcode }}</a></td>
+            <td>{{ r.engineer_name or r.requested_by or '—' }}</td>
+            <td class="fw-semibold">{{ r.part_name }}</td>
+            <td>{{ r.part_category or '—' }}</td>
+            <td>{{ r.qty_requested }}</td>
+            <td>{{ r.qty_handed_over or '—' }}</td>
+            <td><span class="badge {{ 'bg-success' if available else 'bg-danger' }}">{{ stock }}</span></td>
+            <td>
+              {% if r.status in ('handed_over', 'received') %}
+              <span class="badge bg-primary">Handedover</span>
+              {% elif r.status == 'procure' %}
+              <span class="badge bg-info text-dark">Sent for Sourcing</span>
+              {% elif stock == 0 %}
+              <span class="badge bg-danger">Not in Stock</span>
+              {% else %}
+              <span class="badge bg-success">Available</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="d-flex gap-1 flex-wrap align-items-center">
+                {% if r.status == 'requested' %}
+                <button class="btn btn-sm btn-success py-0 px-2" data-bs-toggle="modal" data-bs-target="#handoverModal"
+                        data-req="{{ r.id }}" data-part="{{ r.part_name }}" data-eng="{{ r.engineer_name or r.requested_by }}"
+                        {{ 'disabled' if not available }}>Handover</button>
+                {% elif r.status == 'handed_over' %}<span class="badge bg-success">Handed Over &times;{{ r.qty_handed_over }}</span>
+                {% elif r.status == 'not_in_stock' %}<span class="badge bg-danger">Not In Stock</span>
+                {% elif r.status == 'procure' %}<span class="badge bg-info text-dark">Sent for Sourcing</span>
+                {% else %}<span class="badge bg-secondary">{{ r.status }}</span>{% endif %}
+                <form method="post" action="/part-requests/{{ r.id }}/procure" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                  <button class="btn btn-sm btn-outline-info py-0 px-2">Procure</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="text-center text-muted py-4">No faulty part requests.</td></tr>
           {% endfor %}
         </tbody>
       </table>

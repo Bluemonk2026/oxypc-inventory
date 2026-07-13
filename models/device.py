@@ -18,6 +18,7 @@ class DeviceStage(str, enum.Enum):
     trc_production = "trc_production"
     qc_check = "qc_check"
     cleaning = "cleaning"
+    putty = "putty"
     dry_sanding = "dry_sanding"
     masking = "masking"
     painting = "painting"
@@ -47,6 +48,7 @@ STAGE_LABELS = {
     DeviceStage.trc_production: "TRC Production",
     DeviceStage.qc_check: "Stress Test",
     DeviceStage.cleaning: "Cleaning",
+    DeviceStage.putty: "Putty",
     DeviceStage.dry_sanding: "Dry Sanding",
     DeviceStage.masking: "Masking",
     DeviceStage.painting: "Painting",
@@ -68,6 +70,7 @@ STAGE_COLORS = {
     DeviceStage.trc_production: "info",
     DeviceStage.qc_check: "primary",
     DeviceStage.cleaning: "teal",
+    DeviceStage.putty: "teal",
     DeviceStage.dry_sanding: "teal",
     DeviceStage.masking: "teal",
     DeviceStage.painting: "teal",
@@ -96,14 +99,20 @@ class Device(Base):
     cpu = Column(String(100), nullable=True)
     generation = Column(String(50), nullable=True)
     ram_gb = Column(Integer, nullable=True)
+    ram_type = Column(String(20), nullable=True)
+    ram_speed = Column(String(20), nullable=True)
+    ram_make = Column(String(50), nullable=True)
     storage_gb = Column(Integer, nullable=True)
     storage_type = Column(String(20), nullable=True)
     hdd_capacity_gb = Column(Integer, nullable=True)   # separate HDD (if dual storage)
+    hdd_type = Column(String(20), nullable=True)
+    hdd_speed = Column(String(20), nullable=True)
     battery_health_pct = Column(Integer, nullable=True)  # 0-100 for laptops
     screen_size = Column(String(20), nullable=True)    # e.g. "14.0 FHD"
     color = Column(String(30), nullable=True)
     bios_password = Column(Boolean, default=False, nullable=True)
     grade = Column(SAEnum(DeviceGrade), nullable=True)
+    final_qc_status = Column(String(10), nullable=True, index=True)  # "pass" / "fail" — set on Final QC decision
     current_stage = Column(SAEnum(DeviceStage), nullable=False, default=DeviceStage.iqc, index=True)
     floor = Column(String(50), nullable=True)          # holds the Zone value (ZoneType) selected on IQC/Edit
     warehouse = Column(String(100), nullable=True)     # legacy free-text; now best-effort mirrors location display_name

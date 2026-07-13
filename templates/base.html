@@ -43,6 +43,11 @@
           <i class="bi bi-truck me-2"></i> {{ sidebar_label('dispatch', 'TRC Dashboard') }}
         </a>
       </li>
+      <li class="nav-item">
+        <a href="/inventory-requests" class="nav-link {% if '/inventory-requests' in request.url.path %}active{% endif %}">
+          <i class="bi bi-inboxes me-2"></i> Inventory Requests
+        </a>
+      </li>
       {% endif %}
       {% if has_perm(role,'devices','enable') %}
       <li class="nav-item">
@@ -122,8 +127,8 @@
       {% endif %}
       {% endif %}
 
-      {# ── REPAIR ──────────────────────────────────────────────────────── #}
-      {% if any_perm(role,'repair_l1','repair_l2','repair_l3','qc_check') %}
+      {# ── REPAIR (merged with former COSMETIC REFURB section) ──────────── #}
+      {% if any_perm(role,'repair_l1','repair_l2','repair_l3','qc_check','cosmetic','cosmetic_finalqc','workid_status') %}
       <li class="nav-section">REPAIR</li>
       {% endif %}
       {% if has_perm(role,'repair_l1','enable') %}
@@ -147,10 +152,6 @@
       </a></li>
       {% endif %}
 
-      {# ── COSMETIC REFURB ──────────────────────────────────────────────── #}
-      {% if has_perm(role,'cosmetic','enable') or has_perm(role,'cosmetic_finalqc','enable') or has_perm(role,'workid_status','enable') %}
-      <li class="nav-section">COSMETIC REFURB</li>
-      {% endif %}
       {% if has_perm(role,'cosmetic','enable') %}
       <li><a href="/cosmetic/cleaning" class="nav-link {% if request.url.path == '/cosmetic/cleaning' %}active{% endif %}">
         <i class="bi bi-droplet me-2"></i> {{ sidebar_label('cosmetic', 'Stages') }}
@@ -812,7 +813,8 @@ $.extend(true, $.fn.dataTable.defaults, {
 </div>
 <script>
 (function () {
-  var WARN_BEFORE_SECS = 300; // show modal 5 minutes before expiry
+  var IDLE_LIMIT_SECS = 3600;  // warn once the browser has been idle 60 minutes
+  var WARN_BEFORE_SECS = 300;  // modal shows 5 minutes before that cutoff (or absolute expiry)
   function getCookieVal(name) {
     var match = document.cookie.split(';')
       .map(function(c){ return c.trim(); })
@@ -824,8 +826,15 @@ $.extend(true, $.fn.dataTable.defaults, {
 
   var sessionModal = null;
   var countdownInterval = null;
+  var idleWarnTimer = null;
+  var absWarnTimer = null;
+  var warningShown = false;
 
   function showWarning(secsLeft) {
+    if (warningShown) return;
+    warningShown = true;
+    if (idleWarnTimer) { clearTimeout(idleWarnTimer); idleWarnTimer = null; }
+    if (absWarnTimer) { clearTimeout(absWarnTimer); absWarnTimer = null; }
     if (!sessionModal) {
       sessionModal = new bootstrap.Modal(document.getElementById('sessionModal'));
     }
@@ -848,20 +857,47 @@ $.extend(true, $.fn.dataTable.defaults, {
       m + ':' + (s < 10 ? '0' : '') + s;
   }
 
-  // Schedule modal appearance
-  var nowEpoch = Math.floor(Date.now() / 1000);
-  var totalSecs = expiresEpoch - nowEpoch;
-  if (totalSecs <= 0) {
-    window.location.href = '/auth/login'; // already expired
-    return;
+  // Absolute fallback — in case the JWT's hard expiry arrives before 60
+  // minutes of inactivity would (long-lived tab, clock skew, etc).
+  function scheduleAbsoluteWarning() {
+    var nowEpoch = Math.floor(Date.now() / 1000);
+    var totalSecs = expiresEpoch - nowEpoch;
+    if (totalSecs <= 0) {
+      window.location.href = '/auth/login';
+      return;
+    }
+    var warnIn = (totalSecs - WARN_BEFORE_SECS) * 1000;
+    if (warnIn <= 0) {
+      showWarning(totalSecs);
+    } else {
+      absWarnTimer = setTimeout(function() { showWarning(WARN_BEFORE_SECS); }, warnIn);
+    }
   }
-  var warnIn = (totalSecs - WARN_BEFORE_SECS) * 1000;
-  if (warnIn <= 0) {
-    // Already within warning window — show immediately with remaining time
-    showWarning(totalSecs);
-  } else {
-    setTimeout(function() { showWarning(WARN_BEFORE_SECS); }, warnIn);
+
+  // Idle timer — the modal's real trigger. Resets on any user activity so the
+  // 60-minute clock only starts once the browser goes untouched, instead of
+  // counting down from login time regardless of activity.
+  function scheduleIdleWarning() {
+    if (idleWarnTimer) clearTimeout(idleWarnTimer);
+    idleWarnTimer = setTimeout(function() {
+      showWarning(WARN_BEFORE_SECS);
+    }, (IDLE_LIMIT_SECS - WARN_BEFORE_SECS) * 1000);
   }
+
+  var lastActivityReset = 0;
+  function onActivity() {
+    if (warningShown) return; // modal is already up — user must act, not silently reset
+    var now = Date.now();
+    if (now - lastActivityReset < 5000) return; // throttle — don't reset on every mousemove tick
+    lastActivityReset = now;
+    scheduleIdleWarning();
+  }
+  ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'].forEach(function(evt) {
+    document.addEventListener(evt, onActivity, { passive: true });
+  });
+
+  scheduleAbsoluteWarning();
+  scheduleIdleWarning();
 
   // Stay Logged In button
   document.getElementById('sessionExtendBtn').addEventListener('click', function() {
@@ -876,12 +912,16 @@ $.extend(true, $.fn.dataTable.defaults, {
         if (result.httpOk && result.data && result.data.ok === true) {
           clearInterval(countdownInterval);
           if (sessionModal) sessionModal.hide();
-          // The server rotates csrf_token to a fresh random value on every
-          // extend. Any form already rendered on the current page still has
-          // the OLD csrf_token baked into a hidden input, so the next POST
-          // from this page would 403 even though the session is valid.
-          // Reloading refreshes all forms with the new token transparently.
-          window.location.reload();
+          warningShown = false;
+          // Session start time moves to now. The server already rotated the
+          // csrf_token cookie via Set-Cookie on this response — refresh the
+          // hidden csrf_token input on every already-rendered form in place
+          // instead of a full page reload, so the user stays exactly where
+          // they are.
+          expiresEpoch = parseInt(getCookieVal('session_expires') || '0', 10);
+          if (window.refreshCsrfTokens) window.refreshCsrfTokens();
+          scheduleAbsoluteWarning();
+          scheduleIdleWarning();
         } else {
           // Session was already expired server-side (or request failed) —
           // do not reschedule anything, go straight to login.
@@ -1007,7 +1047,8 @@ $.extend(true, $.fn.dataTable.defaults, {
     document.querySelectorAll('form').forEach(function (form) {
       var method = (form.getAttribute('method') || 'get').toLowerCase();
       if (method !== 'post') return;
-      if (form.querySelector('input[name="csrf_token"]')) return; // already present
+      var existing = form.querySelector('input[name="csrf_token"]');
+      if (existing) { existing.value = token; return; } // refresh in place, don't skip
       var inp = document.createElement('input');
       inp.type = 'hidden';
       inp.name = 'csrf_token';
@@ -1015,6 +1056,9 @@ $.extend(true, $.fn.dataTable.defaults, {
       form.appendChild(inp);
     });
   }
+  // Exposed so the session-extend flow can refresh already-rendered forms'
+  // csrf_token inputs in place instead of doing a full page reload.
+  window.refreshCsrfTokens = injectCsrf;
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', injectCsrf);
   } else {

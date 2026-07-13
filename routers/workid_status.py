@@ -17,6 +17,7 @@ from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.work_order import WorkOrder
 from models.part_request import PartRequest
 from models.iqc_inspection import IQCInspection
+from models.attendance_group import AttendanceGroup, AttendanceGroupMember
 from services.parts_required import compute_required
 from auth.dependencies import get_current_user
 
@@ -61,6 +62,25 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         # include the whole end day
         dt_end = dt.replace(hour=23, minute=59, second=59)
         stmt = stmt.where(WorkOrder.assigned_at <= dt_end)
+
+    is_admin = current_user.role.value == "admin"
+
+    # ── Row visibility (item 33): admin sees everyone; an attendance-group
+    # manager sees every member's WorkID records; anyone else sees only their
+    # own. ──────────────────────────────────────────────────────────────────
+    if not is_admin:
+        managed_group = (await db.execute(
+            select(AttendanceGroup).where(AttendanceGroup.manager_username == current_user.username)
+        )).scalars().first()
+        if managed_group:
+            member_rows = (await db.execute(
+                select(AttendanceGroupMember.username)
+                .where(AttendanceGroupMember.group_id == managed_group.id)
+            )).scalars().all()
+            visible_usernames = set(member_rows) | {current_user.username}
+        else:
+            visible_usernames = {current_user.username}
+        stmt = stmt.where(WorkOrder.assigned_username.in_(visible_usernames))
 
     rows = (await db.execute(stmt)).all()
     device_ids = [d.id for _, d in rows if d is not None]
@@ -125,22 +145,24 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             "engineer": wo.assigned_name or wo.assigned_username or "—",
         })
 
-    # Distinct engineers for the filter dropdown
-    eng_rows = (await db.execute(
-        select(WorkOrder.assigned_username, WorkOrder.assigned_name)
-        .where(WorkOrder.assigned_username.isnot(None))
-        .distinct()
-    )).all()
-    seen, engineers = set(), []
-    for uname, name in eng_rows:
-        if uname and uname not in seen:
-            seen.add(uname)
-            engineers.append((uname, name or uname))
-    engineers.sort(key=lambda kv: kv[1].lower())
+    # Distinct engineers for the filter dropdown — admin only (item 33)
+    engineers = []
+    if is_admin:
+        eng_rows = (await db.execute(
+            select(WorkOrder.assigned_username, WorkOrder.assigned_name)
+            .where(WorkOrder.assigned_username.isnot(None))
+            .distinct()
+        )).all()
+        seen = set()
+        for uname, name in eng_rows:
+            if uname and uname not in seen:
+                seen.add(uname)
+                engineers.append((uname, name or uname))
+        engineers.sort(key=lambda kv: kv[1].lower())
 
     return templates.TemplateResponse("workid_status/list.html", {
         "request": request, "current_user": current_user,
-        "items": items, "engineers": engineers,
+        "items": items, "engineers": engineers, "is_admin": is_admin,
         "f_workid": workid, "f_tag": tag, "f_engineer": engineer,
         "f_date_from": date_from, "f_date_to": date_to,
         "highlight": highlight,

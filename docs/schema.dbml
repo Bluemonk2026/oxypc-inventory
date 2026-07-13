@@ -102,12 +102,18 @@ Table devices {
   ram_gb int
   storage_gb int
   storage_type varchar(20)
+  ram_type varchar(20)
+  ram_speed varchar(20)
+  ram_make varchar(50)
   hdd_capacity_gb int
+  hdd_type varchar(20)
+  hdd_speed varchar(20)
   battery_health_pct int
   screen_size varchar(20)
   color varchar(30)
   bios_password bool [default: false]
   grade varchar(10)
+  final_qc_status varchar(10) [note: 'pass / fail — set on Final QC decision, indexed']
   current_stage varchar(30) [not null, default: 'iqc', note: 'indexed']
   floor varchar(50)
   warehouse varchar(100)

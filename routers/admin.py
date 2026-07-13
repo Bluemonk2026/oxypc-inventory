@@ -392,6 +392,8 @@ COST_CONFIG_DEFS = [
      "CGST + SGST for same-state sales. Default: 18 (9+9). Enter total %, system splits equally."),
     ("gst_rate_inter", "GST Rate — Inter-State IGST (%)",
      "IGST for out-of-state sales. Default: 18. Typically same as intra total."),
+    ("default_paid_repair", "Default Paid Repair Cost (Rs)",
+     "Shown on Process Return when the device's Warranty Status is Out of Warranty. Default: Rs 1500"),
 ]
 
 

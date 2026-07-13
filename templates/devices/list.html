@@ -430,9 +430,65 @@
   </div>
 </div>
 
+<!-- Movement table — bucket-level overview, mirrors Inventory Manager / Production Manager -->
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+  <h6 class="fw-bold mb-0"><i class="bi bi-arrow-left-right me-2"></i>Movement</h6>
+</div>
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="devicesMovementTable" class="table table-hover mb-0 small">
+        <thead class="table-secondary">
+          <tr><th>Bucket Number</th><th>Location ID</th><th>Location Type</th><th>Count of Tag Number</th><th>Total Pass</th><th>Total Fail</th><th>Assigned To</th><th>Stage</th></tr>
+        </thead>
+        <tbody id="devicesMovementTbody">
+          <tr><td colspan="8" class="text-center text-muted py-3">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Stock Aging report — embedded at the bottom of Overall Inventory -->
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+  <h6 class="fw-bold mb-0"><i class="bi bi-hourglass-split me-2"></i>Stock Aging</h6>
+  <a href="/reports/stock-aging" target="_blank" class="small">Open full report <i class="bi bi-box-arrow-up-right ms-1"></i></a>
+</div>
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body p-0">
+    <iframe src="/reports/stock-aging" style="width:100%; height:900px; border:0;" title="Stock Aging Report"></iframe>
+  </div>
+</div>
+
 {% endblock %}
 {% block scripts %}
 <script>
+// ── Movement table — all buckets, bucket-level pass/fail rollup ────────────
+(function () {
+  fetch('/api/buckets?status=stock_in,trc_pending,validated').then(function(r){return r.json();}).then(function(buckets){
+    var tbody = document.getElementById('devicesMovementTbody');
+    if(!buckets.length){
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No buckets created yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = buckets.map(function(b){
+      var assignedBadge = b.assigned_to_production
+        ? '<span class="badge bg-primary">Production</span>'
+        : '<span class="badge bg-secondary">Pending</span>';
+      return '<tr>'+
+        '<td><span class="badge bg-secondary">'+b.bucket_number+'</span></td>'+
+        '<td>'+(b.location_unit_id||'—')+'</td>'+
+        '<td>'+(b.location_type||'—')+'</td>'+
+        '<td><span class="badge bg-info text-dark">'+b.device_count+'</span></td>'+
+        '<td><span class="badge bg-success">'+b.total_pass+'</span></td>'+
+        '<td><span class="badge bg-danger">'+b.total_fail+'</span></td>'+
+        '<td>'+assignedBadge+'</td>'+
+        '<td><span class="badge bg-light text-dark">'+b.status+'</span></td>'+
+      '</tr>';
+    }).join('');
+  });
+})();
+
 $(document).ready(function() {
   var dt = $('#devicesTable').DataTable({
     pageLength: 12,

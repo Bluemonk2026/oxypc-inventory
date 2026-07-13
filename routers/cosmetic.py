@@ -27,6 +27,7 @@ allowed = require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.qc_
 # Ordered cosmetic pipeline — each stage advances to the next
 COSMETIC_PIPELINE = [
     DeviceStage.cleaning,
+    DeviceStage.putty,
     DeviceStage.dry_sanding,
     DeviceStage.masking,
     DeviceStage.painting,
@@ -34,9 +35,14 @@ COSMETIC_PIPELINE = [
     DeviceStage.final_qc,
 ]
 
+# Nav tab bar excludes Final QC — that page is reached via "Done & Move to
+# Final QC" from Cleaning or by finishing the pipeline, not a direct jump.
+COSMETIC_NAV_STAGES = [s for s in COSMETIC_PIPELINE if s != DeviceStage.final_qc]
+
 NEXT_COSMETIC = {
     DeviceStage.qc_check:    DeviceStage.cleaning,
-    DeviceStage.cleaning:    DeviceStage.dry_sanding,
+    DeviceStage.cleaning:    DeviceStage.putty,
+    DeviceStage.putty:       DeviceStage.dry_sanding,
     DeviceStage.dry_sanding: DeviceStage.masking,
     DeviceStage.masking:     DeviceStage.painting,
     DeviceStage.painting:    DeviceStage.water_sanding,
@@ -46,6 +52,7 @@ NEXT_COSMETIC = {
 
 STAGE_LABELS = {
     DeviceStage.cleaning:     "Cleaning",
+    DeviceStage.putty:        "Putty",
     DeviceStage.dry_sanding:  "Dry Sanding",
     DeviceStage.masking:      "Masking",
     DeviceStage.painting:     "Painting",
@@ -183,7 +190,7 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
             "stage": stage, "stage_label": STAGE_LABELS[stage],
             "devices": devices, "iqc_map": iqc_map, "repairs_map": repairs_map,
             "parts_map": parts_map, "price_map": price_map,
-            "pipeline": COSMETIC_PIPELINE, "stage_labels": STAGE_LABELS,
+            "pipeline": COSMETIC_NAV_STAGES, "stage_labels": STAGE_LABELS,
         })
 
     return templates.TemplateResponse("cosmetic/stage.html", {
@@ -192,7 +199,7 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
         "devices": devices,
         "next_stage": next_stage,
         "next_stage_label": STAGE_LABELS.get(next_stage, "Ready to Sale") if next_stage else "Ready to Sale",
-        "pipeline": COSMETIC_PIPELINE, "stage_labels": STAGE_LABELS,
+        "pipeline": COSMETIC_NAV_STAGES, "stage_labels": STAGE_LABELS,
     })
 
 
@@ -238,6 +245,7 @@ async def advance_stage(
         if updated_generation: device.generation = updated_generation
         if grade: device.grade = grade
         if warehouse: device.warehouse = warehouse
+        device.final_qc_status = "fail" if final_qc_status == "fail" else "pass"
         if final_qc_status == "fail":
             device.current_stage = DeviceStage.cleaning
             device.updated_at = app_now()

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Inventory Requests — OxyPC{% endblock %}
+{% block page_title %}Inventory Requests{% endblock %}
+{% block content %}
+
+{% set _appr = role_allowed(current_user.role, 'admin', 'sales_manager') %}
+
+<!-- Telecaller Requests (moved here from TRC Dashboard) -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-transparent">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span class="fw-semibold">
+        <i class="bi bi-telephone me-2"></i>Telecaller Requests
+        <span class="badge bg-warning text-dark ms-1">{{ requests|selectattr('status','equalto','requested')|list|length }} pending</span>
+      </span>
+      <div class="d-flex gap-2 flex-nowrap ms-auto justify-content-end">
+        <select id="tcFilter" class="form-select form-select-sm" style="min-width:180px">
+          <option value="">All Telecallers</option>
+          {% for uname, name in (telecaller_options if telecaller_options is defined else []) %}
+          <option value="{{ uname }}">{{ name }}</option>
+          {% endfor %}
+        </select>
+        <input type="text" id="tcSearch" class="form-control form-control-sm" style="min-width:200px"
+               placeholder="Search Tag Number…">
+      </div>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <table id="tcRequestsTable" class="table table-hover mb-0 small align-middle">
+      <thead class="table-dark"><tr>
+        <th class="ps-3">Telecaller Name</th><th>Request Date</th><th>Tag Number</th><th>Quantity Requested</th><th>Quantity Available</th><th>Action</th>
+      </tr></thead>
+      <tbody>
+        {% for r in requests %}
+        <tr data-telecaller="{{ r.telecaller_username or '' }}" data-barcode="{{ (r.barcode or '')|lower }}">
+          <td class="ps-3">{{ r.telecaller_name or r.telecaller_username or '—' }}</td>
+          <td class="text-muted small">{{ r.created_at.strftime('%d-%m-%Y') if r.created_at else '—' }}</td>
+          <td><a href="/devices/{{ r.barcode }}" class="font-monospace text-decoration-none">{{ r.barcode }}</a></td>
+          <td>{{ r.qty_requested }}</td>
+          <td>{{ r.qty_available }}</td>
+          <td>
+            {% if r.status == 'approved' %}<span class="badge bg-success"><i class="bi bi-check-lg"></i> Approved</span>
+            {% elif _appr %}
+            <form method="post" action="/dispatch/{{ r.id }}/approve" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+              <button class="btn btn-sm btn-success py-0 px-2"><i class="bi bi-check-lg"></i> Approve</button>
+            </form>
+            {% else %}<span class="badge bg-warning text-dark">Requested</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted small py-3">No telecaller requests raised.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Sales Request for Lot (moved here from TRC Dashboard) -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-transparent">
+    <span class="fw-semibold">
+      <i class="bi bi-collection me-2"></i>Sales Request for Lot
+      <span class="badge bg-warning text-dark ms-1">{{ lot_requests|selectattr('status','equalto','requested')|list|length }} pending</span>
+    </span>
+  </div>
+  <div class="card-body p-0">
+    <table id="lotRequestsTable" class="table table-hover mb-0 small align-middle">
+      <thead class="table-dark"><tr>
+        <th class="ps-3">Telecaller Name</th><th>Request Date</th><th>Model</th><th>Make</th>
+        <th>Tag Number</th><th>Quantity Requested</th><th>Quantity Available</th><th>Action</th>
+      </tr></thead>
+      <tbody>
+        {% for r in lot_requests %}
+        <tr>
+          <td class="ps-3">{{ r.telecaller_name or r.telecaller_username or '—' }}</td>
+          <td class="text-muted small">{{ r.created_at.strftime('%d-%m-%Y') if r.created_at else '—' }}</td>
+          <td>{{ r.model_name or '—' }}</td>
+          <td>{{ r.model_make or '—' }}</td>
+          <td><a href="/devices/{{ r.barcode }}" class="font-monospace text-decoration-none">{{ r.barcode }}</a></td>
+          <td>{{ r.qty_requested }}</td>
+          <td>{{ r.qty_available }}</td>
+          <td>
+            {% if r.status == 'approved' %}<span class="badge bg-success"><i class="bi bi-check-lg"></i> Approved</span>
+            {% elif _appr %}
+            <form method="post" action="/dispatch/{{ r.id }}/approve" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+              <button class="btn btn-sm btn-success py-0 px-2"><i class="bi bi-check-lg"></i> Approve</button>
+            </form>
+            {% else %}<span class="badge bg-warning text-dark">Requested</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted small py-3">No lot-level requests raised.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){
+  var $tc = $('#tcRequestsTable');
+  if ($tc.length && $tc.find('tbody tr[data-barcode]').length){
+    var tcDt = $tc.DataTable({ pageLength: 12, ordering:false, dom:'rtip', searching:true });
+    var filterSel = document.getElementById('tcFilter');
+    var searchBox = document.getElementById('tcSearch');
+    $.fn.dataTable.ext.search.push(function(settings, data, dataIndex){
+      if (settings.nTable.id !== 'tcRequestsTable') return true;
+      var tc = filterSel ? filterSel.value : '';
+      if (!tc) return true;
+      var row = tcDt.row(dataIndex).node();
+      return !!row && row.getAttribute('data-telecaller') === tc;
+    });
+    if (filterSel) filterSel.addEventListener('change', function(){ tcDt.draw(); });
+    if (searchBox) searchBox.addEventListener('input', function(){ tcDt.search(this.value).draw(); });
+  }
+
+  var $lr = $('#lotRequestsTable');
+  if ($lr.length && $lr.find('tbody tr td').length > 1){
+    $lr.DataTable({ pageLength: 12, ordering:false, dom:'rtip' });
+  }
+});
+</script>
+{% endblock %}

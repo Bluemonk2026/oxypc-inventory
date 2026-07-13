@@ -54,11 +54,6 @@
               </td>
               <td>
                 <div class="d-flex gap-1 flex-wrap">
-                  <a href="/qc/new?barcode={{ device.barcode }}" class="btn btn-sm btn-primary py-0">Verify QC</a>
-                  <form action="/cosmetic/send-to-cosmetic" method="post" class="d-inline">
-                    <input type="hidden" name="barcode" value="{{ device.barcode }}">
-                    <button type="submit" class="btn btn-sm btn-outline-secondary py-0" title="Send to Cosmetic Refurb">Go Cleaning</button>
-                  </form>
                   <button type="button"
                     class="btn btn-sm btn-outline-warning py-0 start-test-btn"
                     data-barcode="{{ device.barcode }}"
@@ -140,6 +135,14 @@
           {# 10 test rows #}
           <div id="stressTestGrid" class="d-flex flex-column gap-1"></div>
 
+          {# Verify QC / Go Cleaning — moved to the bottom of this panel so they
+             act on whichever device is currently loaded here. #}
+          <div class="d-flex gap-2 mt-3 pt-2 border-top">
+            <a id="stressVerifyQcBtn" href="#" class="btn btn-sm btn-primary flex-fill">Verify QC</a>
+            <button id="stressGoCleaningBtn" type="button" class="btn btn-sm btn-outline-secondary flex-fill"
+                    onclick="goCleaning()" title="Send to Cosmetic Refurb">Go Cleaning</button>
+          </div>
+
         </div>{# /stressActiveArea #}
       </div>
     </div>
@@ -167,6 +170,7 @@
 .s-name   { font-size:11px; color:#495057; font-weight:600; white-space:nowrap; flex-shrink:0; width:90px; }
 .s-detail { flex:1; font-size:10px; color:#6c757d; word-break:break-word; line-height:1.3; }
 .start-test-btn.active-test { background:#198754 !important; color:#fff !important; border-color:#198754 !important; }
+#qcTable tbody tr.stress-active-row { background:#fff9db !important; }
 </style>
 
 <script>
@@ -211,6 +215,14 @@ function activateStressTest(btn) {
   document.getElementById('stressTagBadge').textContent = _barcode;
   document.getElementById('stressDeviceLabel').textContent =
     [brand, model].filter(Boolean).join(' ') || _barcode;
+
+  // Highlight the matching row in the left table (light yellow) so it's
+  // obvious which device the Stress Test panel is currently working on.
+  document.querySelectorAll('#qcTable tbody tr.stress-active-row').forEach(r => r.classList.remove('stress-active-row'));
+  const activeRow = document.getElementById('row-' + _barcode);
+  if (activeRow) activeRow.classList.add('stress-active-row');
+
+  document.getElementById('stressVerifyQcBtn').href = '/qc/new?barcode=' + encodeURIComponent(_barcode);
 
   document.getElementById('stressIdleMsg').classList.add('d-none');
   document.getElementById('stressActiveArea').classList.remove('d-none');
@@ -269,6 +281,37 @@ async function stopStressTests() {
   document.getElementById('stressStopBtn').disabled = true;
   stopPoll();
   setSpinner(false);
+}
+
+async function goCleaning() {
+  if (!_barcode) return;
+  const btn = document.getElementById('stressGoCleaningBtn');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/cosmetic/send-to-cosmetic', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF},
+      body: 'barcode=' + encodeURIComponent(_barcode) + '&csrf_token=' + encodeURIComponent(CSRF),
+    });
+    if (!r.ok) {
+      const text = await r.text().catch(() => '');
+      alert('Failed to send to Cosmetic Refurb' + (text ? ': ' + text.slice(0, 200) : ''));
+      btn.disabled = false;
+      return;
+    }
+    // Stay on this page: remove the device's row from the table instead of
+    // following the endpoint's redirect (it's moved out of Stress Test now).
+    const row = document.getElementById('row-' + _barcode);
+    if (row) row.remove();
+    document.getElementById('stressIdleMsg').classList.remove('d-none');
+    document.getElementById('stressActiveArea').classList.add('d-none');
+    document.getElementById('stressTagBadge').textContent = '—';
+    _barcode = null;
+  } catch (e) {
+    alert('Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function saveAndDownload() {

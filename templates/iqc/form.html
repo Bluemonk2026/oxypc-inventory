@@ -11,7 +11,7 @@
       <div class="card-header bg-transparent fw-semibold"><i class="bi bi-upc-scan me-2"></i>Register Device — IQC</div>
       <div class="card-body">
         {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
-        <form action="/iqc/new" method="post">
+        <form action="/iqc/new" method="post" id="iqcEntryForm">
 
           <!-- ── Auto-fill helpers: Diagnose (this station) | Import (from USB) ── -->
           <div class="row g-2 mb-3">
@@ -180,12 +180,38 @@
               <input type="text" name="ram_gb" class="form-control form-control-sm hw-lock" value="{{ device.ram_gb if device and device.ram_gb else '' }}" placeholder="—">
             </div>
             <div class="col-md-3">
+              <label class="form-label small">RAM Type</label>
+              <select name="ram_type" class="form-select form-select-sm">
+                <option value="">—</option>
+                <option>DDR3</option><option>DDR3L</option><option>DDR4</option><option>DDR5</option><option>LPDDR4</option><option>LPDDR5</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">RAM Speed (MHz)</label>
+              <input type="text" name="ram_speed" class="form-control form-control-sm" placeholder="e.g. 2666">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">RAM Make</label>
+              <input type="text" name="ram_make" class="form-control form-control-sm" placeholder="e.g. Samsung, Crucial">
+            </div>
+            <div class="col-md-3">
               <label class="form-label small">HDD Capacity (GB) (if dual)</label>
               <select name="hdd_capacity_gb" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
                 <option value="">—</option>
                 <option>320</option><option>500</option><option>750</option>
                 <option>1000</option><option>2000</option>
               </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">HDD Type</label>
+              <select name="hdd_type" class="form-select form-select-sm">
+                <option value="">—</option>
+                <option>SATA HDD</option><option>SATA SSD</option><option>NVMe SSD</option><option>M.2 SATA SSD</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">HDD Speed (RPM)</label>
+              <input type="text" name="hdd_speed" class="form-control form-control-sm" placeholder="e.g. 5400, 7200">
             </div>
             <div class="col-md-3">
               <label class="form-label small">Storage Capacity (GB)</label>
@@ -369,34 +395,6 @@
           <p class="fw-bold small text-uppercase mb-2 border-bottom pb-1 sec-hd">
             Body Panels
           </p>
-
-          <!-- 1. Covers and Casing (new) -->
-          <div class="card border bg-light mb-2">
-            <div class="card-body py-2">
-              <p class="small fw-semibold text-uppercase mb-2" style="color:#6f42c1">Covers and Casing</p>
-              <div class="row g-2">
-                {% set cover_opts = ['Yes','No'] %}
-                <div class="col-md-3">
-                  <label class="form-label small">RAM Cover</label>
-                  <select name="cover_ram" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in cover_opts %}<option>{{o}}</option>{% endfor %}
-                  </select>
-                </div>
-                <div class="col-md-3">
-                  <label class="form-label small">DVD Cover</label>
-                  <select name="cover_dvd" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in cover_opts %}<option>{{o}}</option>{% endfor %}
-                  </select>
-                </div>
-                <div class="col-md-3">
-                  <label class="form-label small">Storage Cover</label>
-                  <select name="cover_storage" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in cover_opts %}<option>{{o}}</option>{% endfor %}
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
 
           <!-- 2. Display Panel (was: Panel A — LCD Lid / Top Cover) -->
           <div class="card border bg-light mb-2">
@@ -633,13 +631,6 @@
           <!-- ── Section 9: Condition & Location ── -->
           <p class="fw-bold small text-uppercase mb-2 border-bottom pb-1 sec-hd">Condition &amp; Location</p>
           <div class="row g-3 mb-3">
-            <div class="col-md-2">
-              <label class="form-label">All OK?</label>
-              <select name="all_ok" class="form-select">
-                <option value="">-- Select --</option>
-                <option>Yes</option><option>No</option>
-              </select>
-            </div>
             <div class="col-md-3">
               <label class="form-label">R2V3 Grade Category</label>
               <select name="r2v3_grade_category" class="form-select">
@@ -653,36 +644,10 @@
                      placeholder="1">
             </div>
             <div class="col-md-3">
-              <label class="form-label">Unit Price inclusive taxes (₹)</label>
-              <input type="number" name="device_price_input" id="device_price" class="form-control"
-                     step="0.01" min="0" placeholder="Auto-filled from line item">
-              <div class="form-text">Auto-calculated if blank</div>
-            </div>
-            <div class="col-md-3">
               <label class="form-label">IQC Grade</label>
               <select name="grade" id="iqc-grade-select" class="form-select">
                 <option value="">Not graded</option>
                 <option>A</option><option>B</option><option>C</option><option>scrap</option>
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Floor/Zone</label>
-              <select name="floor" id="iqcFloorZone" class="form-select">
-                <option value="">N/A</option>
-                <option value="showroom">Showroom</option>
-                <option value="ground_floor">Ground Floor</option>
-                <option value="first_floor">1st Floor</option>
-                <option value="second_floor">2nd Floor</option>
-                <option value="warehouse">Warehouse</option>
-                <option value="workshop">Workshop</option>
-                <option value="dispatch">Dispatch Area</option>
-                <option value="holding">Holding Zone</option>
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Location ID</label>
-              <select name="location_id" id="iqcLocationId" class="form-select">
-                <option value="">-- Select Zone first --</option>
               </select>
             </div>
             <div class="col-md-3 d-flex align-items-end">
@@ -706,6 +671,58 @@
     </div>
   </div>
 </div>
+<script>
+// Autosave: if the user is bumped to /auth/login (session expiry, accidental
+// tab close) mid-entry, restore whatever they'd typed so far next time they
+// open this form — this is a long, manual-entry form and losing it is costly.
+(function () {
+  var form = document.getElementById('iqcEntryForm');
+  if (!form) return;
+  var KEY = 'iqc_entry_draft_' + (document.body.getAttribute('data-username') || '');
+
+  function fieldsSnapshot() {
+    var data = {};
+    Array.prototype.forEach.call(form.elements, function (el) {
+      if (!el.name || el.name === 'csrf_token') return;
+      if (el.type === 'checkbox') data[el.name] = el.checked;
+      else if (el.type === 'radio') { if (el.checked) data[el.name] = el.value; }
+      else data[el.name] = el.value;
+    });
+    return data;
+  }
+
+  function restore() {
+    var raw;
+    try { raw = localStorage.getItem(KEY); } catch (err) { return; }
+    if (!raw) return;
+    var data;
+    try { data = JSON.parse(raw); } catch (err) { return; }
+    Array.prototype.forEach.call(form.elements, function (el) {
+      if (!el.name || !(el.name in data)) return;
+      if (el.type === 'checkbox') el.checked = !!data[el.name];
+      else if (el.type === 'radio') { if (data[el.name] === el.value) el.checked = true; }
+      else if (el.tagName === 'SELECT') el.value = data[el.name];
+      else el.value = data[el.name];
+      el.dispatchEvent(new Event('change'));
+    });
+  }
+
+  var saveTimer = null;
+  function scheduleSave() {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      try { localStorage.setItem(KEY, JSON.stringify(fieldsSnapshot())); } catch (err) {}
+    }, 500);
+  }
+
+  restore();
+  form.addEventListener('input', scheduleSave);
+  form.addEventListener('change', scheduleSave);
+  form.addEventListener('submit', function () {
+    try { localStorage.removeItem(KEY); } catch (err) {}
+  });
+})();
+</script>
 {% endblock %}
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>

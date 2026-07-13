@@ -123,10 +123,29 @@
     <div class="table-responsive">
       <table id="prodMovementTable" class="table table-hover mb-0 small">
         <thead class="table-secondary">
-          <tr><th>Location ID</th><th>Location Type</th><th>Count of Tag Number</th><th>Assigned To</th><th>Stage</th><th>Action</th></tr>
+          <tr><th>Location ID</th><th>Location Type</th><th>Count of Tag Number</th><th>Total Pass</th><th>Total Fail</th><th>Assigned To</th><th>Stage</th><th>Action</th></tr>
         </thead>
         <tbody id="prodMovementTbody">
-          <tr><td colspan="6" class="text-center text-muted py-3">Loading…</td></tr>
+          <tr><td colspan="8" class="text-center text-muted py-3">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Allocation table: buckets already allocated to L1/L2 Engineer -->
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+  <h6 class="fw-bold mb-0"><i class="bi bi-diagram-3 me-2"></i>Allocation — Buckets in L1/L2 Repair</h6>
+</div>
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="prodAllocationTable" class="table table-hover mb-0 small">
+        <thead class="table-secondary">
+          <tr><th>Bucket ID</th><th>Location ID</th><th>Total Pass</th><th>Total Fail</th><th>Count of Tag Numbers</th><th>Stage</th><th>Assigned To</th><th>Action</th></tr>
+        </thead>
+        <tbody id="prodAllocationTbody">
+          <tr><td colspan="8" class="text-center text-muted py-3">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -404,7 +423,7 @@ function loadProdMovementTable(){
     var tbody = document.getElementById('prodMovementTbody');
     var relevant = buckets.filter(function(b){ return b.assigned_to_production; });
     if(!relevant.length){
-      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No buckets assigned to production yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No buckets assigned to production yet.</td></tr>';
       return;
     }
     tbody.innerHTML = relevant.map(function(b){
@@ -412,6 +431,8 @@ function loadProdMovementTable(){
         '<td>'+(b.location_unit_id||'—')+'</td>'+
         '<td>'+(b.location_type||'—')+'</td>'+
         '<td><span class="badge bg-info text-dark">'+b.device_count+'</span></td>'+
+        '<td><span class="badge bg-success">'+b.total_pass+'</span></td>'+
+        '<td><span class="badge bg-danger">'+b.total_fail+'</span></td>'+
         '<td><span class="badge bg-primary">Production</span></td>'+
         '<td><span class="badge bg-light text-dark">'+b.status+'</span></td>'+
         '<td class="text-nowrap">'+
@@ -423,6 +444,31 @@ function loadProdMovementTable(){
 }
 loadProdMovementTable();
 
+// ── Allocation table: buckets assigned to Production, i.e. handed to L1/L2 ──
+function loadProdAllocationTable(){
+  fetch('/api/buckets?status=stock_in,trc_pending,validated').then(function(r){return r.json();}).then(function(buckets){
+    var tbody = document.getElementById('prodAllocationTbody');
+    var relevant = buckets.filter(function(b){ return b.assigned_to_production; });
+    if(!relevant.length){
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No buckets allocated to L1/L2 Engineer yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = relevant.map(function(b){
+      return '<tr>'+
+        '<td><span class="badge bg-secondary">'+b.bucket_number+'</span></td>'+
+        '<td>'+(b.location_unit_id||'—')+'</td>'+
+        '<td><span class="badge bg-success">'+b.total_pass+'</span></td>'+
+        '<td><span class="badge bg-danger">'+b.total_fail+'</span></td>'+
+        '<td><span class="badge bg-info text-dark">'+b.device_count+'</span></td>'+
+        '<td><span class="badge bg-light text-dark">'+b.status+'</span></td>'+
+        '<td><span class="badge bg-primary">L1/L2 Engineer</span></td>'+
+        '<td><button class="btn btn-xs btn-outline-primary btn-sm py-0 px-2 assign-eng-btn" data-id="'+b.id+'" data-number="'+b.bucket_number+'"><i class="bi bi-person-check"></i> Assign to Engineer</button></td>'+
+      '</tr>';
+    }).join('');
+  });
+}
+loadProdAllocationTable();
+
 $(document).on('click', '.assign-eng-btn', function(){
   var id = this.dataset.id, num = this.dataset.number;
   if(!confirm('Assign Bucket '+num+' devices to L1 Engineer queue?')) return;
@@ -431,6 +477,7 @@ $(document).on('click', '.assign-eng-btn', function(){
     if(d.ok){
       alert('Assigned '+d.assigned+' device(s) to L1 Engineer.');
       loadProdMovementTable();
+      loadProdAllocationTable();
       loadTrcBuckets();
     }
   });

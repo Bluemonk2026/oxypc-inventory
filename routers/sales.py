@@ -527,8 +527,14 @@ async def returns_list(request: Request, db: AsyncSession = Depends(get_db),
 @router.get("/returns/new", response_class=HTMLResponse)
 async def return_form(request: Request, db: AsyncSession = Depends(get_db),
                       current_user: User = Depends(allowed)):
+    from models.cost_config import CostConfig
+    row = (await db.execute(
+        select(CostConfig).where(CostConfig.key == "default_paid_repair")
+    )).scalar_one_or_none()
+    default_paid_repair = float(row.value) if row else 1500.0
     return templates.TemplateResponse("sales/return_form.html", {
         "request": request, "current_user": current_user, "error": None, "sale": None,
+        "default_paid_repair": default_paid_repair,
     })
 
 

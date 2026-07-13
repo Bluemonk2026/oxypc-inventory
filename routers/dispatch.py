@@ -38,6 +38,36 @@ def _as_uuid(v):
         return None
 
 
+async def _build_requests_context(db: AsyncSession) -> dict:
+    """Shared by /dispatch (TRC Dashboard) and /inventory-requests — both need
+    the same Telecaller Requests + Sales Request for Lot data; the latter is
+    the standalone page these two tables were moved to."""
+    dr = (await db.execute(
+        select(TelecallerDispatchRequest).order_by(TelecallerDispatchRequest.created_at.desc())
+    )).scalars().all()
+    device_requests = [r for r in dr if r.source != "lot"]
+    lot_requests = [r for r in dr if r.source == "lot"]
+
+    _seen = {}
+    for r in dr:
+        uname = r.telecaller_username or ""
+        if uname and uname not in _seen:
+            _seen[uname] = r.telecaller_name or uname
+    telecaller_options = sorted(_seen.items(), key=lambda kv: kv[1].lower())
+
+    return {"requests": device_requests, "lot_requests": lot_requests,
+            "telecaller_options": telecaller_options}
+
+
+@router.get("/inventory-requests", response_class=HTMLResponse)
+async def inventory_requests(request: Request, db: AsyncSession = Depends(get_db),
+                             current_user: User = Depends(view_allowed)):
+    ctx = await _build_requests_context(db)
+    return templates.TemplateResponse("dispatch/inventory_requests.html", {
+        "request": request, "current_user": current_user, **ctx,
+    })
+
+
 @router.get("/dispatch", response_class=HTMLResponse)
 async def dispatch_list(request: Request, db: AsyncSession = Depends(get_db),
                         current_user: User = Depends(view_allowed)):

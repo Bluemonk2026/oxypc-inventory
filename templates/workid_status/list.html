@@ -15,6 +15,7 @@
         <label class="form-label small fw-semibold mb-1">Search Tag Number</label>
         <input type="text" name="tag" value="{{ f_tag }}" class="form-control form-control-sm font-monospace" placeholder="Tag number…">
       </div>
+      {% if is_admin %}
       <div class="col-md-2">
         <label class="form-label small fw-semibold mb-1">Engineer</label>
         <select name="engineer" class="form-select form-select-sm">
@@ -24,6 +25,7 @@
           {% endfor %}
         </select>
       </div>
+      {% endif %}
       <div class="col-md-2">
         <label class="form-label small fw-semibold mb-1">From</label>
         <input type="date" name="date_from" value="{{ f_date_from }}" class="form-control form-control-sm">

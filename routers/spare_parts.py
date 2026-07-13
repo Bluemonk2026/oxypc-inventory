@@ -123,9 +123,14 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     )
 
     # ── Part requests raised by engineers (#11/#14) ──────────────────────────
-    part_reqs = (await db.execute(
+    # "Faulty" button on Device Detail raises request_type='faulty' — those
+    # land in their own Faulty Request tab instead of the normal Part Requests
+    # tab (New/Replace requests only).
+    all_part_reqs = (await db.execute(
         select(PartRequest).order_by(PartRequest.created_at.desc())
     )).scalars().all()
+    part_reqs = [r for r in all_part_reqs if r.request_type != "faulty"]
+    faulty_reqs = [r for r in all_part_reqs if r.request_type == "faulty"]
     part_stock = {str(p.id): int(p.qty_in_stock or 0) for p in parts}
 
     # ── Pending part-sourcing requests, mirrored read-only from CRM (#15) ────
@@ -178,7 +183,7 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         "total_stock_value": total_stock_value,
         "consumed_this_month": consumed_this_month,
         "consumed_by_part": consumed_by_part,
-        "part_reqs": part_reqs, "part_stock": part_stock, "sourcing": sourcing,
+        "part_reqs": part_reqs, "faulty_reqs": faulty_reqs, "part_stock": part_stock, "sourcing": sourcing,
         "deal_map": deal_map,
         "grn_docs": {},
         "grn_by_part_code": grn_by_part_code,

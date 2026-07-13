@@ -8,6 +8,16 @@
     <div class="modal-content">
       <div class="modal-header py-2">
         <h6 class="modal-title"><i class="bi bi-exclamation-triangle text-warning me-2"></i>Duplicate Tag / Lot Review</h6>
+        {% if tag_duplicates %}
+        <div class="d-flex gap-2 me-3">
+          <button type="button" class="btn btn-sm btn-primary py-0 px-2" id="dupUpdateAllBtn">
+            <i class="bi bi-arrow-repeat me-1"></i>Update All
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" id="dupSkipSubmitBtn" data-bs-dismiss="modal">
+            <i class="bi bi-check2-circle me-1"></i>Skip and Submit
+          </button>
+        </div>
+        {% endif %}
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
@@ -18,20 +28,24 @@
           <div class="table-responsive">
             <table class="table table-sm table-bordered mb-0" id="dupTagTable">
               <thead class="table-light">
-                <tr><th>Tag Number</th><th>Grade</th><th>Stage in System</th><th>Stage in File</th><th style="width:130px">Action</th></tr>
+                <tr><th>Tag Number</th><th>Grade</th><th>Stage in System</th><th>Stage in File</th><th style="width:230px">Action</th></tr>
               </thead>
               <tbody>
                 {% for t in tag_duplicates %}
-                <tr data-tag="{{ t.tag_number }}">
+                <tr data-tag="{{ t.tag_number }}" data-row="{{ t.row | tojson }}">
                   <td class="small font-monospace">{{ t.tag_number }}</td>
                   <td class="small">{{ t.grade }}</td>
                   <td class="small dup-tag-current-stage">{{ t.current_stage_label }}</td>
                   <td class="small">{{ t.file_stage_label }}</td>
-                  <td>
+                  <td class="d-flex gap-1">
                     <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 dup-approve-move-btn"
                             data-tag="{{ t.tag_number }}" data-to-stage="{{ t.file_stage }}"
                             data-to-stage-label="{{ t.file_stage_label }}">
                       <i class="bi bi-arrow-right-circle me-1"></i>Approve Move
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-warning py-0 px-2 dup-update-btn"
+                            data-tag="{{ t.tag_number }}" title="Apply this row's uploaded values to the existing device">
+                      <i class="bi bi-pencil-square me-1"></i>Update
                     </button>
                   </td>
                 </tr>
@@ -135,6 +149,69 @@
         });
     });
   });
+
+  document.querySelectorAll('.dup-update-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var tag = btn.getAttribute('data-tag');
+      var row = document.querySelector('#dupTagTable tr[data-tag="' + CSS.escape(tag) + '"]').getAttribute('data-row');
+      btn.disabled = true;
+      var body = new URLSearchParams();
+      body.set('tag_number', tag);
+      body.set('row_json', row);
+      fetch('/bulk-upload/duplicates/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrf },
+        body: body.toString(),
+      })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+        .then(function (res) {
+          if (!res.ok || !res.data.success) throw new Error(res.data.error || 'Update failed');
+          btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Updated';
+          btn.classList.remove('btn-outline-warning');
+          btn.classList.add('btn-success', 'disabled');
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          alert(err.message || 'Could not update this tag.');
+        });
+    });
+  });
+
+  var updateAllBtn = document.getElementById('dupUpdateAllBtn');
+  if (updateAllBtn) {
+    updateAllBtn.addEventListener('click', function () {
+      var rows = [];
+      document.querySelectorAll('#dupTagTable tr[data-tag]').forEach(function (tr) {
+        rows.push({ tag_number: tr.getAttribute('data-tag'), row: JSON.parse(tr.getAttribute('data-row')) });
+      });
+      if (!rows.length) return;
+      updateAllBtn.disabled = true;
+      updateAllBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Updating…';
+      var body = new URLSearchParams();
+      body.set('rows_json', JSON.stringify(rows));
+      fetch('/bulk-upload/duplicates/update-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrf },
+        body: body.toString(),
+      })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+        .then(function (res) {
+          if (!res.ok || !res.data.success) throw new Error(res.data.error || 'Update All failed');
+          document.querySelectorAll('.dup-update-btn').forEach(function (b) {
+            b.innerHTML = '<i class="bi bi-check-lg me-1"></i>Updated';
+            b.classList.remove('btn-outline-warning');
+            b.classList.add('btn-success', 'disabled');
+            b.disabled = true;
+          });
+          updateAllBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>All Updated';
+        })
+        .catch(function (err) {
+          updateAllBtn.disabled = false;
+          updateAllBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Update All';
+          alert(err.message || 'Could not update all tags.');
+        });
+    });
+  }
 
   var modalEl = document.getElementById('duplicateReviewModal');
   if (modalEl) {

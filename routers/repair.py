@@ -249,6 +249,23 @@ async def start_repair(
     if not has_perm(current_user.role.value, repair_module, "add"):
         raise HTTPException(403, f"You do not have permission to add {repair_module} repairs")
 
+    # Requested quantity must cover the required quantity before repair can
+    # start (mirrors the disabled Start Repair button on the l1/l2/l3 list —
+    # enforced here too since the button's disabled attribute alone doesn't
+    # stop a direct POST).
+    iqc = (await db.execute(
+        select(IQCInspection).where(IQCInspection.device_id == device.id)
+    )).scalars().first()
+    required_qty = sum(1 for r in compute_required(iqc, device) if r["required"])
+    requested_qty = (await db.execute(
+        select(func.count(PartRequest.id)).where(
+            PartRequest.device_id == device.id,
+            PartRequest.status.in_(["requested", "handed_over"]),
+        )
+    )).scalar() or 0
+    if requested_qty < required_qty:
+        raise HTTPException(400, "Requested parts quantity is less than required — request more parts before starting repair")
+
     await validate_repair_level(device, level, db)
     await validate_transition(device, device_stage, db, override_admin=is_admin)
 
@@ -271,7 +288,11 @@ async def start_repair(
                      engineer_id=current_user.id, engineer_name=current_user.full_name,
                      issue_description=issue_description or None,
                      problem_reported=problem_reported or None,
-                     team_name=team_name or None, assigned_engineer=assigned_engineer or None,
+                     team_name=team_name or None,
+                     # Assigned To defaults to whoever is starting this stage — the
+                     # form doesn't expose an override input, so the current
+                     # logged-in engineer is the sensible default per stage.
+                     assigned_engineer=assigned_engineer or current_user.full_name,
                      status=RepairStatus.in_progress))
     await audit(db, user=current_user, action="REPAIR_STARTED",
                 table_name="repair_jobs", record_id=str(device.id),

@@ -54,8 +54,10 @@
             <th>Material</th>
             <th>Grade</th>
             <th class="text-center">Qty</th>
+            {% if can_view_pricing(current_user) %}
             <th class="text-end">Unit Price</th>
             <th class="text-end">Total</th>
+            {% endif %}
             {% if quote.items | selectattr('specs_note') | list %}
             <th>Specs / Notes</th>
             {% endif %}
@@ -70,8 +72,10 @@
             <td>{{ item.material_type | replace('_',' ') | title if item.material_type else '—' }}</td>
             <td>{% if item.grade %}<span class="badge bg-{{ grade_colors.get(item.grade,'secondary') }}">{{ item.grade }}</span>{% else %}—{% endif %}</td>
             <td class="text-center">{{ item.quantity }}</td>
+            {% if can_view_pricing(current_user) %}
             <td class="text-end">₹{{ "{:,.0f}".format(item.unit_price) }}</td>
             <td class="text-end fw-semibold">₹{{ "{:,.0f}".format(item.total_price) }}</td>
+            {% endif %}
             {% if quote.items | selectattr('specs_note') | list %}
             <td class="small text-muted">{{ item.specs_note or '' }}</td>
             {% endif %}
@@ -80,7 +84,7 @@
           <tr><td colspan="7" class="text-center text-muted py-3">No line items.</td></tr>
           {% endfor %}
         </tbody>
-        {% if quote.total_amount %}
+        {% if quote.total_amount and can_view_pricing(current_user) %}
         <tfoot>
           <tr class="table-light">
             <td colspan="5" class="text-end fw-bold">Grand Total</td>

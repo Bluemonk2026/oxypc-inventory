@@ -17,7 +17,7 @@
         <thead class="table-dark">
           <tr>
             <th class="ps-3">Lot Number</th><th>Purchase Date</th><th>Available Quantity</th>
-            <th>Price</th><th>Visible to</th><th style="width:150px">Action</th>
+            {% if can_view_pricing(current_user) %}<th>Price</th>{% endif %}<th>Visible to</th><th style="width:150px">Action</th>
           </tr>
         </thead>
         <tbody>
@@ -27,7 +27,7 @@
             <td class="ps-3"><a href="/lots/{{ lot.id }}" class="font-monospace text-decoration-none">{{ lot.lot_number }}</a></td>
             <td class="text-muted small">{{ lot.purchase_date.strftime('%d-%m-%Y') if lot.purchase_date else '—' }}</td>
             <td><span class="badge bg-info text-dark">{{ avail_map.get(lid, 0) }}</span></td>
-            <td>&#8377;{{ '%.2f'|format(lot.buying_price or 0) }}</td>
+            {% if can_view_pricing(current_user) %}<td>&#8377;{{ '%.2f'|format(lot.buying_price or 0) }}</td>{% endif %}
             <td><span class="badge bg-{{ 'success' if vis_map.get(lid, 0) else 'secondary' }}">{{ vis_map.get(lid, 0) }} dealer(s)</span></td>
             <td>
               <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 assign-vis-btn"

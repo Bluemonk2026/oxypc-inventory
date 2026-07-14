@@ -487,6 +487,7 @@
     </div>
 
     <!-- Device P&L -->
+    {% if can_view_pricing(current_user) %}
     <div class="card border-0 shadow-sm mb-3">
       <div class="card-header bg-transparent fw-semibold small text-uppercase">
         <i class="bi bi-currency-rupee me-2"></i>Device P&amp;L Estimate
@@ -542,6 +543,7 @@
         </div>
       </div>
     </div>
+    {% endif %}
 
     <!-- Stage Timeline -->
     <div class="card border-0 shadow-sm mb-3">

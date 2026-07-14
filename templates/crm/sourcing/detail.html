@@ -86,6 +86,7 @@
     </div>
 
     <!-- Financial Card -->
+    {% if can_view_pricing(current_user) %}
     <div class="card border-0 shadow-sm mb-3">
       <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-currency-rupee me-1 text-success"></i>Financials</div>
       <div class="card-body">
@@ -118,6 +119,7 @@
         {% endif %}
       </div>
     </div>
+    {% endif %}
 
     <!-- Lot Card -->
     {% if lot %}

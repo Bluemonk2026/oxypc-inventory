@@ -197,20 +197,12 @@ async def grn_upload(
     data = await invoice.read()
     if not data:
         return RedirectResponse(url=f"{base}?error=Empty+file", status_code=302)
+    # file_hash is still computed and stored on GRNImport for audit/traceability,
+    # but no longer used to block the upload — the same invoice file can be
+    # uploaded any number of times to create separate GRNs (e.g. a multi-lot
+    # invoice split across several GRN entries).
     file_hash = hashlib.sha256(data).hexdigest()
     from urllib.parse import quote
-
-    # Duplicate by exact file (identical bytes already uploaded)
-    dup_grn = (await db.execute(
-        select(GRNImport.grn_number).where(GRNImport.file_hash == file_hash,
-                                           GRNImport.is_deleted == False)
-    )).scalar_one_or_none()
-    if dup_grn:
-        return RedirectResponse(
-            url=f"{base}?error=" + quote(
-                f"This exact invoice file was already uploaded as GRN {dup_grn}. "
-                f"Open it from the table below — or upload a different file."),
-            status_code=302)
 
     # Persist file
     os.makedirs(GRN_UPLOAD_DIR, exist_ok=True)

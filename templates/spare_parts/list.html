@@ -141,8 +141,9 @@
           <tr>
             <th><input type="checkbox" class="form-check-input sp-sa" data-tbl="partsTable"></th>
             <th>Code</th><th>GRN</th><th>Added As</th><th>Name</th><th>Category</th>
-            <th>Min Alert</th><th>In Stock</th><th>Consumed</th><th>Unit Price</th>
-            <th>Stock Value</th>
+            <th>Min Alert</th><th>In Stock</th><th>Consumed</th>
+            {% if can_view_pricing(current_user) %}<th>Unit Price</th>
+            <th>Stock Value</th>{% endif %}
             <th>Actions</th>
           </tr>
         </thead>
@@ -179,8 +180,10 @@
               </span>
             </td>
             <td>{% if consumed %}<span class="badge bg-info text-dark">{{ consumed }}</span>{% else %}0{% endif %}</td>
+            {% if can_view_pricing(current_user) %}
             <td>&#8377;{{ "{:,.2f}".format(part.unit_price) }}</td>
             <td>&#8377;{{ "{:,.0f}".format(part.unit_price * live_stock) }}</td>
+            {% endif %}
             <td>
               <div class="d-flex gap-1 flex-wrap">
                 <a href="/spare-parts/{{ part.id }}/edit"
@@ -228,7 +231,8 @@
           <tr>
             <th><input type="checkbox" class="form-check-input sp-sa" data-tbl="purchasesTable"></th>
             <th>Part Name</th><th>Code</th><th>Qty</th>
-            <th>Unit Price</th><th>Total</th><th>Supplier</th>
+            {% if can_view_pricing(current_user) %}<th>Unit Price</th><th>Total</th>{% endif %}
+            <th>Supplier</th>
             <th>Invoice No</th><th>Date</th><th>Purchased By</th>
           </tr>
         </thead>
@@ -239,8 +243,10 @@
             <td class="fw-semibold">{{ part_name }}</td>
             <td><code>{{ part_code }}</code></td>
             <td><span class="badge bg-success">{{ purchase.qty }}</span></td>
+            {% if can_view_pricing(current_user) %}
             <td>&#8377;{{ "{:,.2f}".format(purchase.unit_price) }}</td>
             <td class="fw-semibold">&#8377;{{ "{:,.0f}".format(purchase.total_price) }}</td>
+            {% endif %}
             <td class="text-muted">{{ purchase.supplier or '—' }}</td>
             <td class="font-monospace small">{{ purchase.invoice_no or '—' }}</td>
             <td>{{ purchase.purchase_date.strftime('%d-%m-%Y') if purchase.purchase_date else '—' }}</td>

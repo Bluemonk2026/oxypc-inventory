@@ -311,6 +311,14 @@ async def move_bucket_to_trc(
         raise HTTPException(404, "Bucket not found")
     bucket.status = "trc_pending"
     bucket.updated_at = app_now()
+    # Also mark allocated so it appears in the Inventory Manager's
+    # "Allocation — Buckets in Production" table — that table filters on
+    # assigned_to_production, and "Move to Production" is exactly the action
+    # that should populate it.
+    if not bucket.assigned_to_production:
+        bucket.assigned_to_production = True
+        bucket.assigned_to_production_by = current_user.username
+        bucket.assigned_to_production_at = app_now()
     await db.commit()
     return JSONResponse({"ok": True})
 
@@ -435,6 +443,17 @@ async def assign_bucket(
                 model=device.model,
                 stage=new_stage.value if hasattr(new_stage, "value") else str(new_stage),
             )
+
+    # Mark the bucket allocated so it appears in the Production Manager's
+    # "Allocation — Buckets in L1/L2 Repair" table (that table filters on
+    # assigned_to_production, the same flag the Inventory Manager side's
+    # Assign-to-Production action sets — this endpoint is the L1/L2-specific
+    # equivalent, so submitting this Assign Bucket modal should populate the
+    # same allocation view).
+    if devices and not bucket.assigned_to_production:
+        bucket.assigned_to_production = True
+        bucket.assigned_to_production_by = current_user.username
+        bucket.assigned_to_production_at = app_now()
 
     await db.commit()
     return JSONResponse({"ok": True, "assigned": len(devices)})

@@ -91,7 +91,7 @@
           {% else %}<p class="text-muted small mb-0">No required parts.</p>{% endif %}
 
           {% set price = price_map.get(device.id|string) %}
-          {% if price and current_user.role.value == 'admin' %}
+          {% if price and can_view_pricing(current_user) %}
           <div class="small fw-semibold text-muted mt-3">Pricing</div>
           <table class="table table-sm small mb-0" style="max-width:500px">
             <tbody>

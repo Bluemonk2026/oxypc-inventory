@@ -2,6 +2,11 @@
 {% block title %}Business P&L {{ year }} — OxyPC{% endblock %}
 {% block page_title %}Business P&L Dashboard — {{ year }}{% endblock %}
 {% block content %}
+{% if not can_view_pricing(current_user) %}
+<div class="alert alert-warning">
+  <i class="bi bi-lock me-2"></i>Pricing visibility is disabled for your role. Contact an admin if you need access to this report.
+</div>
+{% else %}
 <!-- Year selector -->
 <div class="d-flex gap-2 mb-3">
   {% for y in range(year - 2, year + 3) %}
@@ -142,4 +147,5 @@ new Chart(ctx, {
   }
 });
 </script>
+{% endif %}
 {% endblock %}

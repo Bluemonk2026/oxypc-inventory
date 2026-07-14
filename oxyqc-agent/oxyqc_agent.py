@@ -147,7 +147,8 @@ $os=Get-CimInstance Win32_OperatingSystem
 $encl=Get-CimInstance Win32_SystemEnclosure|Select-Object -First 1
 $batt=Get-CimInstance Win32_Battery|Select-Object -First 1
 $gpu=Get-CimInstance Win32_VideoController|Where-Object {$_.Name -notmatch 'Basic|Remote|Meta|Mirror|DisplayLink|USB'}|Select-Object -First 1
-$pd=@(Get-PhysicalDisk|Where-Object {$_.Size -gt 30GB}|ForEach-Object{[ordered]@{type="$($_.MediaType)";sizeGB=[math]::Round($_.Size/1GB)}})
+$pd=@(Get-PhysicalDisk|Where-Object {$_.Size -gt 30GB}|ForEach-Object{[ordered]@{type="$($_.MediaType)";sizeGB=[math]::Round($_.Size/1GB);make="$($_.FriendlyName)".Trim();rpm=$_.SpindleSpeed}})
+$ram=@(Get-CimInstance Win32_PhysicalMemory -EA SilentlyContinue|ForEach-Object{[ordered]@{capacityGB=[math]::Round($_.Capacity/1GB);speed=$_.Speed;make="$($_.Manufacturer)".Trim();memType=$_.SMBIOSMemoryType}})
 $bh=$null
 $full=(Get-CimInstance -Namespace root\wmi -ClassName BatteryFullChargedCapacity -EA SilentlyContinue|Select-Object -First 1).FullChargedCapacity
 $des=(Get-CimInstance -Namespace root\wmi -ClassName BatteryStaticData -EA SilentlyContinue|Select-Object -First 1).DesignedCapacity
@@ -226,7 +227,7 @@ $onAC=$true; if($batt -and $batt.BatteryStatus -eq 1){$onAC=$false}
  manufacturer="$($cs.Manufacturer)";model="$($cs.Model)";serial="$($bios.SerialNumber)";
  cpu="$(($cpu.Name).Trim())";clock=$clk;cores=$cpu.NumberOfCores;ram_gb=[math]::Round($cs.TotalPhysicalMemory/1GB);
  chassis=@($encl.ChassisTypes);has_battery=[bool]$batt;battery_pct=$batt.EstimatedChargeRemaining;battery_health=$bh;on_ac=$onAC;
- screen_in=$scr;gpu="$($gpu.Name)";os="$($os.Caption)";disks=$pd;
+ screen_in=$scr;gpu="$($gpu.Name)";os="$($os.Caption)";disks=$pd;ram_sticks=$ram;
  kbd=(st $kbd);touchpad=(st $ptr);sound=(st $snd);camera=(st $cam);wifi=(st $wifi);usbctrl=(st $usb);
  dvd_present=[bool]$dvd.Count;ethernet_count=$eth.Count;usbc_hint=$ucm.Count;has_gpu=[bool]$gpu;mons_count=$mons.Count;
  battery_wh=$batt_wh;storage_health=$storage_health;fan_working=$fan_working;fan_rpm=$fan_rpm
@@ -322,6 +323,76 @@ def _snap_screen(d):
 def _yn3(state):
     """Map device state to the form's Yes / No options (faulty or absent → No)."""
     return {"ok": "Yes", "error": "No", "absent": "No"}.get(state)
+
+
+# SMBIOS memory-type codes (DMTF SMBIOS spec, Type 17 "Memory Type" field) —
+# Win32_PhysicalMemory.SMBIOSMemoryType returns these numeric codes.
+_SMBIOS_RAM_TYPE = {20: "DDR", 21: "DDR2", 24: "DDR3", 26: "DDR4", 34: "DDR5",
+                    28: "LPDDR", 29: "LPDDR2", 30: "LPDDR3", 31: "LPDDR4"}
+
+
+def _ram_type_label(mem_type):
+    """Map a SMBIOSMemoryType numeric code (Windows) to a DDR label; on macOS
+    dimm_type already arrives as a string (e.g. "DDR4") — pass through as-is."""
+    if mem_type is None or mem_type == "":
+        return ""
+    if isinstance(mem_type, str) and not mem_type.isdigit():
+        return mem_type.upper().replace(" ", "")
+    try:
+        return _SMBIOS_RAM_TYPE.get(int(mem_type), "")
+    except (TypeError, ValueError):
+        return ""
+
+
+def format_ram_summary(sticks):
+    """sticks: list of dicts with keys capacityGB, memType, speed, make.
+    Produces e.g. "16GB_DDR4_2300MHz_Samsung, 8GB_DDR4_2133MHz_Crucial" —
+    a stick with no usable size is skipped; missing type/speed/make are
+    simply omitted from that stick's segment rather than showing blank
+    placeholders."""
+    parts = []
+    for s in sticks or []:
+        gb = s.get("capacityGB")
+        if not gb:
+            continue
+        segs = [f"{int(gb)}GB"]
+        t = _ram_type_label(s.get("memType"))
+        if t:
+            segs.append(t)
+        speed = str(s.get("speed") or "").strip()
+        if speed and speed not in ("0",):
+            segs.append(f"{speed}MHz")
+        make = str(s.get("make") or "").strip()
+        if make:
+            segs.append(make)
+        parts.append("_".join(segs))
+    return ", ".join(parts)
+
+
+def format_hdd_summary(drives):
+    """drives: list of dicts with keys sizeGB, type ('SSD'/'HDD'), rpm, make.
+    Produces e.g. "520GB_SSD_5400RPM_Samsung, 1TB_SSD_7200RPM_Seagate".
+    Size is expressed in GB unless >=1000GB, then shown as whole TB (matches
+    the spec's own "1TB_SSD_..." example)."""
+    parts = []
+    for d in drives or []:
+        gb = d.get("sizeGB")
+        if not gb:
+            continue
+        gb = int(gb)
+        size_label = f"{round(gb / 1000)}TB" if gb >= 1000 else f"{gb}GB"
+        segs = [size_label]
+        dtype = str(d.get("type") or "").strip().upper()
+        if dtype:
+            segs.append(dtype)
+        rpm = d.get("rpm")
+        if rpm:
+            segs.append(f"{int(rpm)}RPM")
+        make = str(d.get("make") or "").strip()
+        if make:
+            segs.append(make)
+        parts.append("_".join(segs))
+    return ", ".join(parts)
 
 
 def _probe_windows():
@@ -516,7 +587,39 @@ def _probe_mac():
                 continue
             medium = str(drive.get("medium_type") or "").lower()
             disk_type = "HDD" if "rotational" in medium else "SSD"
-            disks.append({"type": disk_type, "sizeGB": gb})
+            # Apple doesn't expose spindle RPM for internal drives via
+            # system_profiler (no built-in equivalent of Windows'
+            # SpindleSpeed) — virtually every Mac since ~2013 ships SSD/NVMe
+            # anyway (0 RPM, not a missing value), so only flag genuinely
+            # unknown for the rare case of an actual rotational drive.
+            rpm = 0 if disk_type == "SSD" else None
+            disks.append({
+                "type": disk_type, "sizeGB": gb,
+                "make": drive.get("device_name") or item.get("_name") or "",
+                "rpm": rpm,
+            })
+        except Exception:
+            continue
+
+    # RAM — per-DIMM detail (Intel Macs only; Apple Silicon reports unified
+    # memory with no discrete DIMMs, so this list is empty there and detect()
+    # falls back to a single ram_gb-only entry with no type/speed/make).
+    ram_sticks = []
+    for item in _sp("SPMemoryDataType"):
+        try:
+            for dimm in (item.get("_items") or [item]):
+                size_str = str(dimm.get("dimm_size") or "").strip()
+                if not size_str or size_str.lower() in ("empty", "none"):
+                    continue
+                m = re.search(r"(\d+)\s*GB", size_str, re.I)
+                if not m:
+                    continue
+                ram_sticks.append({
+                    "capacityGB": int(m.group(1)),
+                    "speed": re.sub(r"\s*MHz", "", str(dimm.get("dimm_speed") or ""), flags=re.I).strip(),
+                    "make": dimm.get("dimm_manufacturer") or "",
+                    "memType": dimm.get("dimm_type") or "",
+                })
         except Exception:
             continue
 
@@ -590,6 +693,7 @@ def _probe_mac():
         "gpu": gpu_name,
         "os": f"macOS {platform.mac_ver()[0]}".strip(),
         "disks": disks,
+        "ram_sticks": ram_sticks,
         "kbd": "ok",                                  # built-in keyboard always present
         "touchpad": "ok" if is_laptop else "absent",   # built-in trackpad on laptops only
         "sound": "ok" if audio_list else "absent",
@@ -654,6 +758,15 @@ def detect():
             f["ram_gb"] = int(info["ram_gb"])
         except (TypeError, ValueError):
             pass
+    ram_sticks = info.get("ram_sticks") or []
+    ram_summary = format_ram_summary(ram_sticks)
+    if ram_summary:
+        f["ram_summary"] = ram_summary
+    elif info.get("ram_gb"):
+        # No per-DIMM breakdown available (e.g. Apple Silicon unified memory,
+        # or a Windows station where Win32_PhysicalMemory returned nothing) —
+        # fall back to just the total size rather than leaving the field blank.
+        f["ram_summary"] = f"{int(info['ram_gb'])}GB"
     f["sub_category"] = sub
     f["device_type"] = sub
     prim = (ssd or hdd or disks)
@@ -666,6 +779,9 @@ def detect():
         hsz = _snap_capacity(hdd[0].get("sizeGB"))
         if hsz:
             f["hdd_capacity_gb"] = hsz
+    hdd_summary = format_hdd_summary(disks)
+    if hdd_summary:
+        f["hdd_summary"] = hdd_summary
     scr = _snap_screen(info.get("screen_in"))
     if scr:
         f["screen_size"] = scr

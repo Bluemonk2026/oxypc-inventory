@@ -64,7 +64,18 @@ from models.role_permissions import (
     has_perm as _has_perm,
     get_cached_sidebar_label as _sidebar_label,
     get_cached_page_title as _get_cached_page_title,
+    can_view_pricing as _can_view_pricing_by_role,
 )
+
+
+def _can_view_pricing(current_user):
+    """Template helper: {% if can_view_pricing(current_user) %}. Accepts the
+    current_user object (not a bare role string) since that's what every
+    template already has in context — resolves its .role.value internally."""
+    if current_user is None:
+        return True
+    role_val = getattr(getattr(current_user, "role", None), "value", None) or str(getattr(current_user, "role", ""))
+    return _can_view_pricing_by_role(role_val)
 
 
 def _any_perm(role, *modules):
@@ -133,6 +144,7 @@ def _breadcrumb_enabled(path: str) -> bool:
 
 templates.env.globals["has_perm"] = _has_perm
 templates.env.globals["any_perm"] = _any_perm
+templates.env.globals["can_view_pricing"] = _can_view_pricing
 templates.env.globals["breadcrumb_enabled"] = _breadcrumb_enabled
 templates.env.globals["sidebar_label"] = _sidebar_label
 templates.env.globals["resolve_page_title"] = _resolve_page_title

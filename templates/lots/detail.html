@@ -18,18 +18,21 @@
       <div class="fw-semibold small">{{ lot.supplier_name }}</div>
     </div>
   </div>
+  {% if can_view_pricing(current_user) %}
   <div class="col-md-2">
     <div class="card border-0 shadow-sm text-center p-3">
       <div class="text-muted small mb-1">Buying Price</div>
       <div class="fw-bold text-danger">₹{{ "{:,.0f}".format(lot.buying_price) }}</div>
     </div>
   </div>
+  {% endif %}
   <div class="col-md-2">
     <div class="card border-0 shadow-sm text-center p-3">
       <div class="text-muted small mb-1">Qty / Registered</div>
       <div class="fw-semibold">{{ lot.qty }} / {{ devices|length }}</div>
     </div>
   </div>
+  {% if can_view_pricing(current_user) %}
   <div class="col-md-2">
     <div class="card border-0 shadow-sm text-center p-3">
       <div class="text-muted small mb-1">Invoice Value</div>
@@ -43,6 +46,7 @@
       <div class="fw-semibold text-info">₹{{ "{:,.0f}".format(total_gst) }}</div>
     </div>
   </div>
+  {% endif %}
   <div class="col-md-2">
     <div class="card border-0 shadow-sm text-center p-3">
       <div class="text-muted small mb-1">Purchase Date</div>
@@ -125,6 +129,7 @@
   </div>
 
   <!-- ── GST Breakdown ── -->
+  {% if can_view_pricing(current_user) %}
   <div class="col-lg-6">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-header bg-transparent fw-semibold">
@@ -157,9 +162,11 @@
       </div>
     </div>
   </div>
+  {% endif %}
 </div>
 
 {# ── Lot Profit Summary ──────────────────────────────────────────────────── #}
+{% if can_view_pricing(current_user) %}
 <div class="card border-0 shadow-sm mb-4">
   <div class="card-header bg-transparent fw-semibold">
     <i class="bi bi-graph-up me-2"></i>Lot P&amp;L Summary
@@ -198,6 +205,7 @@
     </div>
   </div>
 </div>
+{% endif %}
 
 <!-- ── Invoice Line Items (Category/Model-wise Prices) — accordion, rendered at the bottom ── -->
 {% set lineitems_block %}
@@ -569,7 +577,9 @@
 </div>
 
 {# Category / Model Based Line Items accordion — moved to the bottom #}
+{% if can_view_pricing(current_user) %}
 {{ lineitems_block }}
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>

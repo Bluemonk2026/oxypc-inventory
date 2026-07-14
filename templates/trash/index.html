@@ -42,7 +42,7 @@
           <thead class="table-dark">
             <tr>
               <th>Lot #</th><th>Supplier</th><th>Purchase Date</th>
-              <th>Qty</th><th>Buying Price</th><th>Trashed On</th><th>Action</th>
+              <th>Qty</th>{% if can_view_pricing(current_user) %}<th>Buying Price</th>{% endif %}<th>Trashed On</th><th>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -52,7 +52,7 @@
               <td>{{ lot.supplier_name }}</td>
               <td>{{ lot.purchase_date.strftime('%d-%m-%Y') }}</td>
               <td class="text-center">{{ lot.qty }}</td>
-              <td class="text-danger fw-semibold">₹{{ "{:,.0f}".format(lot.buying_price) }}</td>
+              {% if can_view_pricing(current_user) %}<td class="text-danger fw-semibold">₹{{ "{:,.0f}".format(lot.buying_price) }}</td>{% endif %}
               <td class="text-muted">{{ lot.trashed_at.strftime('%d-%m-%Y %H:%M') if lot.trashed_at else '—' }}</td>
               <td>
                 <form method="post" action="/trash/lots/{{ lot.id }}/restore" style="display:inline">

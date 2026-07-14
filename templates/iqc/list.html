@@ -73,6 +73,10 @@
     </a>
   </div>
 </div>
+<div class="mb-2">
+  <input type="text" id="iqcTagScan" class="form-control form-control-sm font-monospace" style="max-width:420px"
+         placeholder="Scan or type Tag Numbers, comma separated — auto-checks matching rows">
+</div>
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -85,7 +89,7 @@
         </thead>
         <tbody>
           {% for device, lot_number in devices %}
-          <tr>
+          <tr data-tag="{{ device.barcode }}">
             <td><input type="checkbox" class="form-check-input iqcRowChk" value="{{ device.barcode }}"></td>
             <td class="font-monospace small">{{ device.serial_no or '—' }}</td>
             <td><a href="/devices/{{ device.barcode }}" class="text-decoration-none"><code>{{ device.barcode }}</code></a></td>
@@ -363,6 +367,7 @@
 
 {% endblock %}
 {% block scripts %}
+<script src="/static/js/tag-scan-autocheck.js"></script>
 <script>
 $(document).ready(function(){
   var dt = $('#iqcTable').DataTable({
@@ -389,6 +394,8 @@ $(document).ready(function(){
   });
   $('#iqcTable').on('change', '.iqcRowChk', updateSel);
   dt.on('draw', function(){ $('#iqcSelectAllChk').prop('checked', false); updateSel(); });
+
+  initTagScanAutocheck({ inputId: 'iqcTagScan', tableSelector: '#iqcTable', rowCheckboxSelector: '.iqcRowChk' });
 
   // Model Based Summary — paginated + search box + its own Customise modal
   var dtModel = $('#iqcModelSummaryTable').DataTable({

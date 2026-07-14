@@ -89,7 +89,7 @@
           <th>Sale#</th><th>Date</th><th>Tag Number</th>
           <th class="d-none">Brand/Model</th>
           <th class="d-none">Lot</th>
-          <th>Grade</th><th>Cost/Unit</th><th>Price</th><th>Margin</th>
+          <th>Grade</th>{% if can_view_pricing(current_user) %}<th>Cost/Unit</th><th>Price</th><th>Margin</th>{% endif %}
           <th class="d-none">Customer</th>
           <th>Payment</th><th>By</th><th>Download</th><th></th>
         </tr>
@@ -110,6 +110,7 @@
             <span class="badge bg-info text-dark">{{ row.lot_number }}</span></a>
           </td>
           <td>{{ row.grade.value if row.grade else '—' }}</td>
+          {% if can_view_pricing(current_user) %}
           {% set cost_unit = (row.buying_price / row.qty) | float | round(0) if row.buying_price and row.qty and row.qty > 0 else 0 %}
           <td class="text-muted">{% if cost_unit %}₹{{ "{:,.0f}".format(cost_unit) }}{% else %}—{% endif %}</td>
           <td class="fw-semibold text-success">₹{{ "{:,.0f}".format(row.Sale.sale_price) }}</td>
@@ -117,6 +118,7 @@
           <td class="fw-semibold {% if margin > 0 %}text-success{% elif margin < 0 %}text-danger{% else %}text-muted{% endif %}">
             {% if cost_unit %}{% if margin >= 0 %}+{% endif %}₹{{ "{:,.0f}".format(margin) }}{% else %}—{% endif %}
           </td>
+          {% endif %}
           <td class="d-none">{{ row.Sale.customer_name or '—' }}</td>
           <td><span class="badge bg-secondary">{{ row.Sale.payment_mode or '—' }}</span></td>
           <td class="text-muted">{{ row.Sale.sold_by }}</td>
@@ -138,9 +140,13 @@
         <tr>
           <td></td><td></td><td></td><td></td>
           <td class="d-none"></td><td class="d-none"></td>
-          <td></td><td class="text-end fw-semibold small">Total Revenue:</td>
+          <td></td>
+          {% if can_view_pricing(current_user) %}
+          <td class="text-end fw-semibold small">Total Revenue:</td>
           <td class="fw-bold text-success">₹{{ "{:,.0f}".format(ns.total) }}</td>
-          <td></td><td class="d-none"></td><td></td><td></td><td></td><td></td>
+          <td></td>
+          {% endif %}
+          <td class="d-none"></td><td></td><td></td><td></td><td></td>
         </tr>
       </tfoot>
       {% endif %}

@@ -41,6 +41,7 @@
   </div>
   {% endfor %}
 
+  {% if can_view_pricing(current_user) %}
   <div class="col-sm-6 col-xl-4 col-xxl-3">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body">
@@ -71,6 +72,7 @@
       </div>
     </div>
   </div>
+  {% endif %}
 </div>
 
 <div class="row g-3 mb-4">
@@ -92,6 +94,7 @@
       <div class="card-body"><canvas id="chartStagePie" height="200"></canvas></div>
     </div>
   </div>
+  {% if can_view_pricing(current_user) %}
   <div class="col-xl-4">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-header bg-transparent fw-semibold small">Weekly Sales Price — Ready to Sale / Sold</div>
@@ -104,6 +107,7 @@
       <div class="card-body"><canvas id="chartPartsPriceWeekly" height="180"></canvas></div>
     </div>
   </div>
+  {% endif %}
 </div>
 {# Weekly Sourcing Price card moved to dashboard.html's final row, paired with
    Inventory by Category & Stage — chartSourcingPriceWeekly canvas now lives

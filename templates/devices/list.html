@@ -105,8 +105,10 @@
             <th>RAM</th>
             <th>Storage</th>
             <th>Grade</th>
+            {% if can_view_pricing(current_user) %}
             <th>Stock Price</th>
             <th>Sale Price</th>
+            {% endif %}
             <th>Stage</th>
             <th>Updated</th>
             <th></th>
@@ -137,8 +139,10 @@
               </span>
               {% else %}—{% endif %}
             </td>
+            {% if can_view_pricing(current_user) %}
             <td class="small">{% set sp = stock_price_map.get(device.id|string) if stock_price_map is defined else None %}{% if sp is not none %}₹{{ "{:,.0f}".format(sp) }}{% else %}—{% endif %}</td>
             <td class="small">{% set salep = sale_price_map.get(device.id|string) if sale_price_map is defined else None %}{% if salep is not none %}₹{{ "{:,.0f}".format(salep) }}{% else %}—{% endif %}</td>
+            {% endif %}
             <td>
               {% set s = device.current_stage %}
               {% if s.value in ['iqc'] %}
@@ -208,7 +212,7 @@
             <th>Model Make</th>
             <th>Device Type</th>
             <th>Total Count</th>
-            <th>Total Price</th>
+            {% if can_view_pricing(current_user) %}<th>Total Price</th>{% endif %}
             <th>Repaired</th>
             <th></th>
           </tr>
@@ -220,7 +224,7 @@
             <td class="small">{{ g.make }}</td>
             <td class="small">{{ g.device_type }}</td>
             <td class="small">{{ g.total_count }}</td>
-            <td class="small">₹{{ "{:,.0f}".format(g.total_price) }}</td>
+            {% if can_view_pricing(current_user) %}<td class="small">₹{{ "{:,.0f}".format(g.total_price) }}</td>{% endif %}
             <td class="small">{{ g.repaired_count }}</td>
             <td class="text-nowrap">
               <button type="button" class="btn btn-xs btn-outline-primary py-0 px-1 small"
@@ -263,9 +267,11 @@
             <th>Device Type</th>
             <th>Total Quantity</th>
             <th>Condition</th>
+            {% if can_view_pricing(current_user) %}
             <th>Buying Price</th>
             <th>Selling Price</th>
             <th>Actual Selling</th>
+            {% endif %}
             <th>Remarks</th>
             <th></th>
           </tr>
@@ -288,9 +294,11 @@
             <td class="small">{{ l.device_type }}</td>
             <td class="small">{{ l.qty }}</td>
             <td class="small">{{ l.condition }}</td>
+            {% if can_view_pricing(current_user) %}
             <td class="small">₹{{ "{:,.0f}".format(l.buying_price) }}</td>
             <td class="small">{% if l.selling_price is not none %}₹{{ "{:,.0f}".format(l.selling_price) }}{% else %}—{% endif %}</td>
             <td class="small">₹{{ "{:,.0f}".format(l.actual_selling) }}</td>
+            {% endif %}
             <td class="small">{{ l.notes }}</td>
             <td class="text-nowrap">
               <button type="button" class="btn btn-xs btn-outline-primary py-0 px-1 small"
@@ -322,8 +330,10 @@
           <span class="badge bg-success">Grade A: <span id="mdGradeA">0</span></span>
           <span class="badge bg-warning text-dark">Grade B: <span id="mdGradeB">0</span></span>
           <span class="badge bg-secondary">Grade C: <span id="mdGradeC">0</span></span>
+          {% if can_view_pricing(current_user) %}
           <span class="badge bg-light text-dark">Unit Price: ₹<span id="mdUnitPrice">0</span></span>
           <span class="badge bg-light text-dark">Total Price: ₹<span id="mdTotalPrice">0</span></span>
+          {% endif %}
         </div>
         <div class="table-responsive">
           <table class="table table-sm table-hover mb-0">
@@ -359,7 +369,7 @@
                 <th>Tag Number</th>
                 <th>Quantity</th>
                 <th>Supplier Name</th>
-                <th>Buying Price</th>
+                {% if can_view_pricing(current_user) %}<th>Buying Price</th>{% endif %}
               </tr>
             </thead>
             <tbody id="ldTagsBody"></tbody>
@@ -463,6 +473,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
+var CAN_VIEW_PRICING = {{ 'true' if can_view_pricing(current_user) else 'false' }};
 // ── Movement table — all buckets, bucket-level pass/fail rollup ────────────
 (function () {
   fetch('/api/buckets?status=stock_in,trc_pending,validated').then(function(r){return r.json();}).then(function(buckets){
@@ -605,7 +616,7 @@ function showLotDetail(l){
     rows += '<tr><td class="small"><a href="/devices/' + encodeURIComponent(t.barcode) + '" target="_blank" class="font-monospace text-decoration-none">' + t.barcode + '</a></td>' +
             '<td class="small">' + (t.qty || 1) + '</td>' +
             '<td class="small">' + (l.supplier_name || '—') + '</td>' +
-            '<td class="small">₹' + Number(l.buying_price || 0).toLocaleString('en-IN') + '</td></tr>';
+            (CAN_VIEW_PRICING ? '<td class="small">₹' + Number(l.buying_price || 0).toLocaleString('en-IN') + '</td>' : '') + '</tr>';
   });
   $('#ldTagsBody').html(rows || '<tr><td colspan="4" class="text-center text-muted small py-2">No tags.</td></tr>');
   var modal = new bootstrap.Modal(document.getElementById('lotDetailModal'));

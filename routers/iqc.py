@@ -73,7 +73,8 @@ $os=Get-CimInstance Win32_OperatingSystem
 $encl=Get-CimInstance Win32_SystemEnclosure|Select-Object -First 1
 $batt=Get-CimInstance Win32_Battery|Select-Object -First 1
 $gpu=Get-CimInstance Win32_VideoController|Where-Object {$_.Name -notmatch 'Basic|Remote|Meta|Mirror|DisplayLink|USB'}|Select-Object -First 1
-$pd=@(Get-PhysicalDisk|Where-Object {$_.Size -gt 30GB}|ForEach-Object{[ordered]@{type="$($_.MediaType)";sizeGB=[math]::Round($_.Size/1GB)}})
+$pd=@(Get-PhysicalDisk|Where-Object {$_.Size -gt 30GB}|ForEach-Object{[ordered]@{type="$($_.MediaType)";sizeGB=[math]::Round($_.Size/1GB);make="$($_.FriendlyName)".Trim();rpm=$_.SpindleSpeed}})
+$ram=@(Get-CimInstance Win32_PhysicalMemory -EA SilentlyContinue|ForEach-Object{[ordered]@{capacityGB=[math]::Round($_.Capacity/1GB);speed=$_.Speed;make="$($_.Manufacturer)".Trim();memType=$_.SMBIOSMemoryType}})
 $bh=$null
 $full=(Get-CimInstance -Namespace root\wmi -ClassName BatteryFullChargedCapacity -EA SilentlyContinue|Select-Object -First 1).FullChargedCapacity
 $des=(Get-CimInstance -Namespace root\wmi -ClassName BatteryStaticData -EA SilentlyContinue|Select-Object -First 1).DesignedCapacity
@@ -87,9 +88,69 @@ foreach($mn in $mons){if($mn.MaxHorizontalImageSize -gt 0 -and $mn.MaxVerticalIm
  manufacturer="$($cs.Manufacturer)";model="$($cs.Model)";serial="$($bios.SerialNumber)";
  cpu="$(($cpu.Name).Trim())";cores=$cpu.NumberOfCores;ram_gb=[math]::Round($cs.TotalPhysicalMemory/1GB);
  chassis=@($encl.ChassisTypes);has_battery=[bool]$batt;battery_pct=$batt.EstimatedChargeRemaining;battery_health=$bh;
- screen_in=$scr;gpu="$($gpu.Name)";os="$($os.Caption)";disks=$pd
+ screen_in=$scr;gpu="$($gpu.Name)";os="$($os.Caption)";disks=$pd;ram_sticks=$ram
 } | ConvertTo-Json -Depth 5 -Compress
 '''
+
+_SMBIOS_RAM_TYPE = {20: "DDR", 21: "DDR2", 24: "DDR3", 26: "DDR4", 34: "DDR5",
+                    28: "LPDDR", 29: "LPDDR2", 30: "LPDDR3", 31: "LPDDR4"}
+
+
+def _ram_type_label(mem_type):
+    if mem_type is None or mem_type == "":
+        return ""
+    if isinstance(mem_type, str) and not mem_type.isdigit():
+        return mem_type.upper().replace(" ", "")
+    try:
+        return _SMBIOS_RAM_TYPE.get(int(mem_type), "")
+    except (TypeError, ValueError):
+        return ""
+
+
+def _format_ram_summary(sticks):
+    """See oxyqc-agent/oxyqc_agent.py's format_ram_summary — same packed-string
+    format, duplicated here since this is a separate server-side probe path."""
+    parts = []
+    for s in sticks or []:
+        gb = s.get("capacityGB")
+        if not gb:
+            continue
+        segs = [f"{int(gb)}GB"]
+        t = _ram_type_label(s.get("memType"))
+        if t:
+            segs.append(t)
+        speed = str(s.get("speed") or "").strip()
+        if speed and speed != "0":
+            segs.append(f"{speed}MHz")
+        make = str(s.get("make") or "").strip()
+        if make:
+            segs.append(make)
+        parts.append("_".join(segs))
+    return ", ".join(parts)
+
+
+def _format_hdd_summary(drives):
+    """See oxyqc-agent/oxyqc_agent.py's format_hdd_summary — same packed-string
+    format, duplicated here since this is a separate server-side probe path."""
+    parts = []
+    for d in drives or []:
+        gb = d.get("sizeGB")
+        if not gb:
+            continue
+        gb = int(gb)
+        size_label = f"{round(gb / 1000)}TB" if gb >= 1000 else f"{gb}GB"
+        segs = [size_label]
+        dtype = str(d.get("type") or "").strip().upper()
+        if dtype:
+            segs.append(dtype)
+        rpm = d.get("rpm")
+        if rpm:
+            segs.append(f"{int(rpm)}RPM")
+        make = str(d.get("make") or "").strip()
+        if make:
+            segs.append(make)
+        parts.append("_".join(segs))
+    return ", ".join(parts)
 
 _STD_CAPACITIES = [32, 64, 120, 128, 240, 256, 320, 480, 500, 512, 640, 750, 1000, 1024, 2000, 2048, 4000, 4096]
 
@@ -171,6 +232,11 @@ def _detect_host_hardware():
             f["ram_gb"] = int(info["ram_gb"])
         except (TypeError, ValueError):
             pass
+    ram_summary = _format_ram_summary(info.get("ram_sticks") or [])
+    if ram_summary:
+        f["ram_summary"] = ram_summary
+    elif info.get("ram_gb"):
+        f["ram_summary"] = f"{int(info['ram_gb'])}GB"
     f["sub_category"] = sub
     f["device_type"] = sub
     prim = (ssd or hdd or disks)
@@ -183,6 +249,9 @@ def _detect_host_hardware():
         hsz = _snap_capacity(hdd[0].get("sizeGB"))
         if hsz:
             f["hdd_capacity_gb"] = hsz
+    hdd_summary = _format_hdd_summary(disks)
+    if hdd_summary:
+        f["hdd_summary"] = hdd_summary
     if info.get("screen_in"):
         f["screen_size"] = str(info["screen_in"])
     bh = info.get("battery_health")
@@ -243,24 +312,50 @@ async def agent_installer(current_user: User = Depends(allowed)):
 
 @router.get("/agent-installer-mac")
 async def agent_installer_mac(current_user: User = Depends(allowed)):
-    """Download the Diagnose_Device_Agent for macOS as a single .command file.
+    """Download the Diagnose_Device_Agent for macOS as a .command launcher,
+    packaged inside a .zip.
+
+    Why a zip: a bare .command served over HTTP always arrives on the Mac
+    WITHOUT the executable bit — browsers have no concept of Unix file
+    permissions, so there is nothing to preserve. Finder cannot double-click
+    -run a non-executable file, so the old bare-file download silently
+    stopped working (this is an OS/browser-side behavior, not a one-time
+    regression in this file's content — it's why a "previously working"
+    .command can stop working with no code change at all). Zipping the file
+    with its executable bit set in the archive's own metadata means macOS's
+    built-in Archive Utility restores +x on extract, so double-click-to-run
+    works again without asking the user to run `chmod +x` by hand.
 
     If a compiled binary has been built ON a Mac (via PyInstaller — cross-
     compiling to macOS from Windows/Linux isn't possible) and dropped into
     downloads/Diagnose_Device_Agent_mac (no extension, a native executable),
-    serve that directly. Otherwise, generate a single double-clickable
-    .command launcher with the cross-platform agent source embedded inline
-    (via a quoted heredoc) — no zip, no separate .py file, nothing to unzip.
-    Needs only python3 (pre-installed on macOS 12.3+; older macOS needs Xcode
-    Command Line Tools, no admin/sudo either way)."""
+    zip that instead of generating a source launcher."""
     import os
-    from fastapi.responses import FileResponse, PlainTextResponse
+    import io
+    import zipfile
+    from fastapi.responses import StreamingResponse
 
     repo_root = os.path.dirname(os.path.dirname(__file__))
     base = os.path.join(repo_root, "downloads")
     prebuilt = os.path.join(base, "Diagnose_Device_Agent_mac")
+
+    def _zip_with_exec_bit(inner_filename: str, content: bytes) -> bytes:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            info = zipfile.ZipInfo(inner_filename)
+            info.date_time = _dtnow.now().timetuple()[:6]
+            # High 16 bits of external_attr hold the Unix mode; 0o755 = rwxr-xr-x
+            info.external_attr = (0o755 & 0xFFFF) << 16
+            zf.writestr(info, content)
+        return buf.getvalue()
+
     if os.path.exists(prebuilt):
-        return FileResponse(prebuilt, filename="Diagnose_Device_Agent.command", media_type="application/octet-stream")
+        with open(prebuilt, "rb") as fh:
+            payload = _zip_with_exec_bit("Diagnose_Device_Agent.command", fh.read())
+        return StreamingResponse(
+            io.BytesIO(payload), media_type="application/zip",
+            headers={"Content-Disposition": "attachment; filename=Diagnose_Device_Agent_mac.zip"},
+        )
 
     # Source-only fallback (works immediately, no compiled build required):
     # the agent script bundled inside this repo — same file used to build the
@@ -277,8 +372,8 @@ async def agent_installer_mac(current_user: User = Depends(allowed)):
     # PowerShell-lookalike text/$-signs inside oxyqc_agent.py), then runs it.
     command_file = f"""#!/bin/bash
 # Diagnose_Device_Agent launcher (macOS) — double-click to run.
-# Self-contained: no unzip needed. First run writes the agent to
-# ~/Library/Application Support and registers a per-user LaunchAgent (no
+# Self-contained: no separate .py file to manage. First run writes the agent
+# to ~/Library/Application Support and registers a per-user LaunchAgent (no
 # sudo). After that, it starts automatically at login.
 set -e
 PY=$(command -v python3 || echo "")
@@ -294,9 +389,10 @@ OXYQC_AGENT_PY_EOF
 "$PY" "$SUPPORT_DIR/oxyqc_agent.py"
 """
 
-    return PlainTextResponse(
-        command_file, media_type="application/octet-stream",
-        headers={"Content-Disposition": "attachment; filename=Diagnose_Device_Agent.command"},
+    payload = _zip_with_exec_bit("Diagnose_Device_Agent.command", command_file.encode("utf-8"))
+    return StreamingResponse(
+        io.BytesIO(payload), media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=Diagnose_Device_Agent_mac.zip"},
     )
 
 
@@ -625,15 +721,8 @@ async def iqc_create(
     grn_number: str = Form(""),
     cpu: str = Form(""),
     generation: str = Form(""),
-    ram_gb: str = Form(""),
-    ram_type: str = Form(""),
-    ram_speed: str = Form(""),
-    ram_make: str = Form(""),
-    storage_gb: str = Form(""),
-    storage_type: str = Form(""),
-    hdd_capacity_gb: str = Form(""),
-    hdd_type: str = Form(""),
-    hdd_speed: str = Form(""),
+    ram_summary: str = Form(""),
+    hdd_summary: str = Form(""),
     screen_size: str = Form(""),
     battery_health_pct: str = Form(""),
     bios_password: str = Form(""),
@@ -793,12 +882,7 @@ async def iqc_create(
         serial_no=serial_no or None,
         grn_number=grn_number or None,
         cpu=cpu or None, generation=generation or None,
-        ram_gb=int(ram_gb) if (ram_gb or "").strip().isdigit() else None,
-        ram_type=ram_type or None, ram_speed=ram_speed or None, ram_make=ram_make or None,
-        storage_gb=int(storage_gb) if (storage_gb or "").strip().isdigit() else None,
-        storage_type=storage_type or None,
-        hdd_capacity_gb=int(hdd_capacity_gb) if (hdd_capacity_gb or "").strip().isdigit() else None,
-        hdd_type=hdd_type or None, hdd_speed=hdd_speed or None,
+        ram_summary=ram_summary or None, hdd_summary=hdd_summary or None,
         screen_size=screen_size or None,
         battery_health_pct=int(battery_health_pct) if (battery_health_pct or "").strip().isdigit() else None,
         bios_password=(bios_password == "yes"),
@@ -927,10 +1011,8 @@ async def lookup_device(barcode: str, db: AsyncSession = Depends(get_db), curren
         "grn_number": device.grn_number,
         "cpu": device.cpu,
         "generation": device.generation,
-        "ram_gb": device.ram_gb,
-        "storage_gb": device.storage_gb,
-        "storage_type": device.storage_type,
-        "hdd_capacity_gb": device.hdd_capacity_gb,
+        "ram_summary": device.ram_summary,
+        "hdd_summary": device.hdd_summary,
         "screen_size": device.screen_size,
         "battery_health_pct": device.battery_health_pct,
         "bios_password": device.bios_password,

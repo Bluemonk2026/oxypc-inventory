@@ -107,6 +107,8 @@ class Device(Base):
     hdd_capacity_gb = Column(Integer, nullable=True)   # separate HDD (if dual storage)
     hdd_type = Column(String(20), nullable=True)
     hdd_speed = Column(String(20), nullable=True)
+    ram_summary = Column(String(255), nullable=True)   # packed multi-stick string, e.g. "16GB_DDR4_2300MHz_Samsung, 8GB_DDR4_2133MHz_Crucial"
+    hdd_summary = Column(String(255), nullable=True)    # packed multi-drive string, e.g. "520GB_SSD_5400RPM_Samsung, 1TB_SSD_7200RPM_Seagate"
     battery_health_pct = Column(Integer, nullable=True)  # 0-100 for laptops
     screen_size = Column(String(20), nullable=True)    # e.g. "14.0 FHD"
     color = Column(String(30), nullable=True)

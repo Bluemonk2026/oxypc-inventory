@@ -107,7 +107,9 @@
     <table id="lotOverviewTable" class="table table-hover mb-0 small align-middle">
       <thead class="table-dark"><tr>
         <th class="ps-3">Lot Number</th><th>Purchase Date</th><th>Supplier Name</th><th>Device Type</th>
-        <th>Total Quantity</th><th>Requested Quantity</th><th>Stock Price</th><th>Selling Price</th><th>Action</th>
+        <th>Total Quantity</th><th>Requested Quantity</th>
+        {% if can_view_pricing(current_user) %}<th>Stock Price</th><th>Selling Price</th>{% endif %}
+        <th>Action</th>
       </tr></thead>
       <tbody>
         {% for l in lot_overview %}
@@ -118,8 +120,10 @@
           <td>{{ l.device_type }}</td>
           <td><span class="badge bg-info text-dark">{{ l.total_quantity }}</span></td>
           <td><span class="badge bg-{{ 'warning text-dark' if l.requested_quantity else 'light text-muted border' }}">{{ l.requested_quantity }}</span></td>
+          {% if can_view_pricing(current_user) %}
           <td>&#8377;{{ '%.2f'|format(l.stock_price) }}</td>
           <td>{% if l.selling_price is not none %}&#8377;{{ '%.2f'|format(l.selling_price) }}{% else %}—{% endif %}</td>
+          {% endif %}
           <td>
             <form method="post" action="/dispatch/request" class="d-inline">
               <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">

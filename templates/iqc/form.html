@@ -127,26 +127,23 @@
           {% set yn3 = ['Yes','No'] %}
           {% set scratch_opts = ['No','Minor Scratch','Major Scratch'] %}
           <style>
-            .hw-lock{ background-color:#eef1f4 !important; }
-            select.hw-lock{ pointer-events:none; }
-            input.hw-lock{ cursor:not-allowed; }
             .hw-spec-head .badge{ font-weight:500; }
             .sec-hd{ color:#1a56db !important; }
           </style>
 
-          <!-- ── Section: HARDWARE SPECIFICATION (auto-detected — read only) ── -->
+          <!-- ── Section: HARDWARE SPECIFICATION (auto-fillable, all fields editable) ── -->
           <p class="fw-bold small text-uppercase mb-2 border-bottom pb-1 sec-hd hw-spec-head">
             <i class="bi bi-cpu me-1"></i>Hardware Specification
-            <span class="badge bg-secondary-subtle text-secondary border ms-2">auto-detected · read only</span>
+            <span class="badge bg-secondary-subtle text-secondary border ms-2">auto-fill available · editable</span>
           </p>
           <div class="row g-2 mb-3">
             <div class="col-md-3">
               <label class="form-label small">Serial Number</label>
-              <input type="text" name="serial_no" class="form-control form-control-sm hw-lock font-monospace" readonly tabindex="-1" placeholder="—">
+              <input type="text" name="serial_no" class="form-control form-control-sm font-monospace" tabindex="-1" placeholder="—">
             </div>
             <div class="col-md-3">
               <label class="form-label small">Device Type</label>
-              <select name="device_type" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="device_type" class="form-select form-select-sm">
                 <option value="">—</option>
                 {% for dt in master_options('device_type') %}
                 <option>{{ dt }}</option>
@@ -155,7 +152,7 @@
             </div>
             <div class="col-md-3">
               <label class="form-label small">Brand / Make</label>
-              <select name="brand" id="iqc-brand-select" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="brand" id="iqc-brand-select" class="form-select form-select-sm">
                 <option value="">—</option>
                 <option>HP</option><option>Dell</option><option>Lenovo</option><option>Acer</option>
                 <option>Asus</option><option>Apple</option><option>Samsung</option><option>Toshiba</option>
@@ -164,70 +161,28 @@
             </div>
             <div class="col-md-3">
               <label class="form-label small">Model</label>
-              <input type="text" name="model" class="form-control form-control-sm hw-lock" readonly tabindex="-1" placeholder="—">
+              <input type="text" name="model" class="form-control form-control-sm" tabindex="-1" placeholder="—">
             </div>
             <div class="col-md-3">
               <label class="form-label small">CPU / Processor</label>
               {% set cur_cpu = device.cpu if device else '' %}
-              <input type="text" name="cpu" class="form-control form-control-sm hw-lock" value="{{ cur_cpu }}" placeholder="—">
+              <input type="text" name="cpu" class="form-control form-control-sm" value="{{ cur_cpu }}" placeholder="—">
             </div>
             <div class="col-md-3">
               <label class="form-label small">Generation</label>
-              <input type="text" name="generation" class="form-control form-control-sm hw-lock" value="{{ device.generation if device else '' }}" placeholder="—">
+              <input type="text" name="generation" class="form-control form-control-sm" value="{{ device.generation if device else '' }}" placeholder="—">
             </div>
-            <div class="col-md-3">
-              <label class="form-label small">RAM (GB)</label>
-              <input type="text" name="ram_gb" class="form-control form-control-sm hw-lock" value="{{ device.ram_gb if device and device.ram_gb else '' }}" placeholder="—">
+            <div class="col-md-4">
+              <label class="form-label small">RAM</label>
+              <input type="text" name="ram_summary" class="form-control form-control-sm" value="{{ device.ram_summary if device and device.ram_summary else '' }}" placeholder="e.g. 16GB_DDR4_2300MHz_Samsung">
             </div>
-            <div class="col-md-3">
-              <label class="form-label small">RAM Type</label>
-              <select name="ram_type" class="form-select form-select-sm">
-                <option value="">—</option>
-                <option>DDR3</option><option>DDR3L</option><option>DDR4</option><option>DDR5</option><option>LPDDR4</option><option>LPDDR5</option>
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small">RAM Speed (MHz)</label>
-              <input type="text" name="ram_speed" class="form-control form-control-sm" placeholder="e.g. 2666">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small">RAM Make</label>
-              <input type="text" name="ram_make" class="form-control form-control-sm" placeholder="e.g. Samsung, Crucial">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small">HDD Capacity (GB) (if dual)</label>
-              <select name="hdd_capacity_gb" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
-                <option value="">—</option>
-                <option>320</option><option>500</option><option>750</option>
-                <option>1000</option><option>2000</option>
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small">HDD Type</label>
-              <select name="hdd_type" class="form-select form-select-sm">
-                <option value="">—</option>
-                <option>SATA HDD</option><option>SATA SSD</option><option>NVMe SSD</option><option>M.2 SATA SSD</option>
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small">HDD Speed (RPM)</label>
-              <input type="text" name="hdd_speed" class="form-control form-control-sm" placeholder="e.g. 5400, 7200">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small">Storage Capacity (GB)</label>
-              <input type="text" name="storage_gb" class="form-control form-control-sm hw-lock" value="{{ device.storage_gb if device and device.storage_gb else '' }}" placeholder="—">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small">Storage Type</label>
-              <select name="storage_type" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
-                <option value="">—</option>
-                <option>SSD</option><option>NVMe SSD</option><option>HDD</option>
-                <option>eMMC</option><option>SSHD (Hybrid)</option>
-              </select>
+            <div class="col-md-4">
+              <label class="form-label small">Hard Drive</label>
+              <input type="text" name="hdd_summary" class="form-control form-control-sm" value="{{ device.hdd_summary if device and device.hdd_summary else '' }}" placeholder="e.g. 520GB_SSD_5400RPM_Samsung">
             </div>
             <div class="col-md-3">
               <label class="form-label small">Screen Size</label>
-              <select name="screen_size" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="screen_size" class="form-select form-select-sm">
                 <option value="">—</option>
                 <option>11.6"</option><option>12.5"</option><option>13.3"</option><option>14.0"</option>
                 <option>14.0" FHD</option><option>15.6"</option><option>15.6" FHD</option>
@@ -236,38 +191,38 @@
             </div>
             <div class="col-md-3">
               <label class="form-label small">Battery Cable</label>
-              <select name="battery_cable" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="battery_cable" class="form-select form-select-sm">
                 <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small">Battery Health %</label>
-              <input type="number" name="battery_health_pct" class="form-control form-control-sm hw-lock" readonly tabindex="-1" min="0" max="100" placeholder="—">
+              <input type="number" name="battery_health_pct" class="form-control form-control-sm" tabindex="-1" min="0" max="100" placeholder="—">
             </div>
             <input type="hidden" name="battery_capacity_wh" id="battery_capacity_wh" value="">
             <input type="hidden" name="battery_power_w" id="battery_power_w" value="">
             <div class="col-md-3">
               <label class="form-label small">Internal Battery</label>
-              <select name="battery_present" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="battery_present" class="form-select form-select-sm">
                 <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small">Charging Port</label>
-              <select name="charging_port" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="charging_port" class="form-select form-select-sm">
                 <option value="">—</option><option>Yes</option><option>No</option>
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small">Does the Laptop Switch On?</label>
-              <select name="power_on" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="power_on" class="form-select form-select-sm">
                 <option value="">—</option>
                 <option>Yes</option><option>No</option>
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small">Power Status</label>
-              <select name="status" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="status" class="form-select form-select-sm">
                 <option value="">—</option>
                 <option>Power On</option><option>No Display</option>
                 <option>No Power/Power Cut(Motherboard)</option>
@@ -275,61 +230,61 @@
             </div>
             <div class="col-md-3">
               <label class="form-label small">Keyboard Working?</label>
-              <select name="keyboard_working" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="keyboard_working" class="form-select form-select-sm">
                 <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small">Click Function Working?</label>
-              <select name="touchpad_click_working" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="touchpad_click_working" class="form-select form-select-sm">
                 <option value="">—</option><option>Yes</option><option>No</option>
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small">Touchpad Working?</label>
-              <select name="touchpad_working" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="touchpad_working" class="form-select form-select-sm">
                 <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small">Touchpad Missing</label>
-              <select name="touchpad_missing" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="touchpad_missing" class="form-select form-select-sm">
                 <option value="">—</option><option>Yes</option><option>No</option>
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small">HDMI Port Working?</label>
-              <select name="port_hdmi" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="port_hdmi" class="form-select form-select-sm">
                 <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small">USB Ports Working?</label>
-              <select name="port_usb_working" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="port_usb_working" class="form-select form-select-sm">
                 <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small">Audio Jack Working?</label>
-              <select name="port_audio_jack" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="port_audio_jack" class="form-select form-select-sm">
                 <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small">USB-A Ports</label>
-              <input type="number" name="usb_a_ports" class="form-control form-control-sm hw-lock" readonly tabindex="-1" min="0" max="20" placeholder="—">
+              <input type="number" name="usb_a_ports" class="form-control form-control-sm" tabindex="-1" min="0" max="20" placeholder="—">
             </div>
             <div class="col-md-3">
               <label class="form-label small">USB-C Ports</label>
-              <input type="number" name="usb_c_ports" class="form-control form-control-sm hw-lock" readonly tabindex="-1" min="0" max="20" placeholder="—">
+              <input type="number" name="usb_c_ports" class="form-control form-control-sm" tabindex="-1" min="0" max="20" placeholder="—">
             </div>
             <div class="col-md-3">
               <label class="form-label small">Ethernet Ports</label>
-              <input type="number" name="ethernet_ports" class="form-control form-control-sm hw-lock" readonly tabindex="-1" min="0" max="8" placeholder="—">
+              <input type="number" name="ethernet_ports" class="form-control form-control-sm" tabindex="-1" min="0" max="8" placeholder="—">
             </div>
             <div class="col-md-3">
               <label class="form-label small">Speaker Status</label>
-              <select name="speaker_status" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="speaker_status" class="form-select form-select-sm">
                 <option value="">—</option>
                 <option>Both speakers working</option>
                 <option>Both speakers faulty</option>
@@ -339,33 +294,33 @@
             </div>
             <div class="col-md-3">
               <label class="form-label small">Wi-Fi</label>
-              <select name="wifi_status" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="wifi_status" class="form-select form-select-sm">
                 <option value="">—</option>
                 <option>Working</option><option>Faulty</option><option>Not Checked</option>
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small">Web Cam</label>
-              <select name="webcam_status" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="webcam_status" class="form-select form-select-sm">
                 <option value="">—</option>
                 <option>Ok</option><option>Faulty</option><option>Not Checked</option>
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small">HDD Connector</label>
-              <select name="hdd_connector" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="hdd_connector" class="form-select form-select-sm">
                 <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small">HDD Casing</label>
-              <select name="hdd_casing" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="hdd_casing" class="form-select form-select-sm">
                 <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
               </select>
             </div>
             <div class="col-md-3">
               <label class="form-label small">DVD Drive</label>
-              <select name="dvd_drive" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="dvd_drive" class="form-select form-select-sm">
                 <option value="">—</option>
                 <option>Yes</option><option>No</option><option>NA</option>
               </select>
@@ -375,12 +330,8 @@
               <input type="number" name="storage_health_pct" id="storage_health_pct" class="form-control form-control-sm" min="0" max="100" placeholder="—">
             </div>
             <div class="col-md-3">
-              <label class="form-label small">Fan Sound (in dBA)</label>
-              <input type="number" name="fan_sound_dba" id="fan_sound_dba" class="form-control form-control-sm" min="0" max="100" placeholder="—">
-            </div>
-            <div class="col-md-3">
               <label class="form-label small">Fan Working</label>
-              <select name="fan_working" id="fan_working" class="form-select form-select-sm hw-lock" tabindex="-1" onmousedown="return false" onkeydown="return false">
+              <select name="fan_working" id="fan_working" class="form-select form-select-sm">
                 <option value="">—</option><option>Yes</option><option>No</option>
               </select>
             </div>
@@ -811,10 +762,8 @@ document.querySelector('[name="barcode"]').addEventListener('change', function()
       setInput('color', d.color);
       setInput('cpu', d.cpu);
       setInput('generation', d.generation);
-      setInput('ram_gb', d.ram_gb);
-      setInput('storage_gb', d.storage_gb);
-      setSelect('storage_type', d.storage_type);
-      setSelect('hdd_capacity_gb', d.hdd_capacity_gb);
+      setInput('ram_summary', d.ram_summary);
+      setInput('hdd_summary', d.hdd_summary);
       setSelect('screen_size', d.screen_size);
       setInput('battery_health_pct', d.battery_health_pct);
       if (d.bios_password) document.querySelector('[name="bios_password"]').checked = true;
@@ -912,9 +861,8 @@ document.getElementById('lot_line_item_id').addEventListener('change', async fun
     set('model', d.model);
     set('cpu', d.cpu);
     set('generation', d.generation);
-    set('ram_gb', d.ram_gb);
-    set('storage_gb', d.storage_gb);
-    set('storage_type', d.storage_type);
+    set('ram_summary', d.ram_summary);
+    set('hdd_summary', d.hdd_summary);
     set('device_price', d.unit_price);
   } catch(e) {}
 });
@@ -1023,14 +971,15 @@ function estimatePowerW(cpuName) {
   if (!btn) return;
 
   // Point the download button at the right installer for this technician's OS.
-  // Mac gets a source + double-clickable .command launcher (no compiled
-  // binary — PyInstaller can't cross-compile from the Windows/Linux server).
+  // Mac gets a .zip containing a double-clickable .command launcher (zipped
+  // so the executable bit survives the download — a bare .command over HTTP
+  // always arrives non-executable, which is why Finder can't run it).
   (function(){
     var ua = navigator.userAgent || '';
     var isMac = /Macintosh|Mac OS X/.test(ua) && !/iPhone|iPad/.test(ua);
     if (isMac && dlBtn) {
       dlBtn.href = '/iqc/agent-installer-mac';
-      dlBtn.title = 'Download Diagnose_Device_Agent (macOS) to this station';
+      dlBtn.title = 'Download Diagnose_Device_Agent (macOS) — unzip, then double-click the .command file. If macOS blocks it, right-click the .command file and choose Open once.';
       dlBtn.querySelector('i').className = 'bi bi-apple me-1';
     }
   })();
@@ -1130,11 +1079,9 @@ function estimatePowerW(cpuName) {
     // silently dropped as falsy; d.storage_health_pct is the only key the
     // agent actually sends (d.storage_health never exists in the payload).
     setInput('storage_health_pct', d.storage_health_pct != null ? d.storage_health_pct : '');
-    // Fan
+    // Fan (fan_sound_dba retired — Fan Sound field removed from the form and
+    // no longer captured from the Agent)
     setSelect('fan_working', d.fan_working || '');
-    if (d.fan_rpm) {
-      setInput('fan_sound_dba', Math.round(d.fan_rpm / 400));
-    }
     // USB-C — use usbc_hint directly as a number
     if (d.usbc_hint !== undefined && d.usbc_hint !== null) {
       setInput('usb_c_ports', Math.max(0, Math.round(d.usbc_hint)));

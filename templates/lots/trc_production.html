@@ -49,53 +49,96 @@
   </div>
 </div>
 
-<!-- Cost & Parts table (Batch D Task 1) -->
+<!-- Tag Numbers in Repair Line (Batch 8 item 25) -->
 <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
-  <h6 class="fw-bold mb-0"><i class="bi bi-cash-coin me-2"></i>Cost &amp; Parts</h6>
+  <h6 class="fw-bold mb-0"><i class="bi bi-tools me-2"></i>Tag Numbers in Repair Line</h6>
 </div>
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body p-0">
     <div class="table-responsive">
-      <table id="costPartsTableTrc" class="table table-hover mb-0 small">
+      <table class="table table-hover mb-0 small">
         <thead class="table-dark"><tr>
-          <th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>CPU</th><th>RAM</th><th>Grade</th>
-          <th>Location</th><th>Stock Price</th><th>Sale Price</th><th>Parts Required</th><th>Parts Repaired</th>
-          <th>Stock Cost</th><th>Repair Cost</th><th>Total Cost</th>
+          <th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Stage</th><th>Grade</th><th>Assigned User</th>
         </tr></thead>
         <tbody>
-          {% for device, lot_number in devices %}
-          {% set cp = cost_parts_map.get(device.id) if cost_parts_map is defined else None %}
-          {% set loc = location_map.get(device.location_id) if (location_map is defined and device.location_id) else None %}
-          {% set stock_cost = device.device_price or 0 %}
-          {% set repair_cost = cp.repair_cost if cp else 0 %}
+          {% for device, lot_number in repair_line_devices %}
           <tr>
-            <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none"><code>{{ device.barcode }}</code></a></td>
+            <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a></td>
             <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
             <td>{{ device.brand or '—' }}</td>
             <td>{{ device.model or '—' }}</td>
-            <td>{{ device.cpu or '—' }}</td>
-            <td>{{ (device.ram_gb|string ~ 'GB') if device.ram_gb else '—' }}</td>
+            <td><span class="badge bg-{{ device.stage_color }}">{{ device.stage_label }}</span></td>
             <td>{{ device.grade or '—' }}</td>
-            <td>
-              {% if loc %}
-              <span tabindex="0" data-bs-toggle="tooltip" data-bs-html="true"
-                    title="Zone: {{ loc.zone_label }}<br>Type: {{ loc.unit_type_label }}<br>Location ID: {{ loc.unit_id }}<br>Max Capacity: {{ loc.capacity or '—' }}">
-                {{ loc.unit_id }}
-              </span>
-              {% else %}<span class="text-muted">—</span>{% endif %}
-            </td>
-            <td>{{ '%.2f'|format(device.device_price) if device.device_price else '—' }}</td>
-            <td><span class="text-muted">—</span></td>
-            <td>{{ cp.parts_required if cp else 0 }}</td>
-            <td>{{ cp.parts_repaired if cp else 0 }}</td>
-            <td>{{ '%.2f'|format(stock_cost) }}</td>
-            <td>{{ '%.2f'|format(repair_cost) }}</td>
-            <td><strong>{{ '%.2f'|format(stock_cost + repair_cost) }}</strong></td>
+            <td>{% set dept = assigned_dept_map.get(device.id|string) if assigned_dept_map is defined else None %}{% if dept %}<span class="badge bg-secondary">{{ dept }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
           </tr>
+          {% else %}
+          <tr><td colspan="7" class="text-center text-muted py-4">No devices currently in the repair line.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+  </div>
+</div>
+
+<!-- Scrap Products from Repair Line (Batch 8 item 26) -->
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+  <h6 class="fw-bold mb-0"><i class="bi bi-trash3 me-2"></i>Scrap Products from Repair Line</h6>
+</div>
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small">
+        <thead class="table-dark"><tr>
+          <th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Grade</th><th>Notes</th><th>Action</th>
+        </tr></thead>
+        <tbody>
+          {% for device, lot_number in scrap_devices %}
+          <tr>
+            <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a></td>
+            <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
+            <td>{{ device.brand or '—' }}</td>
+            <td>{{ device.model or '—' }}</td>
+            <td>{{ device.grade or '—' }}</td>
+            <td class="text-muted small">{{ device.replaced or device.notes or '—' }}</td>
+            <td class="text-nowrap">
+              <form method="post" action="/scrap-products/{{ device.barcode }}/move-to-inventory" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2"><i class="bi bi-box-arrow-in-left"></i> Move to Inventory</button>
+              </form>
+              <button type="button" class="btn btn-sm btn-outline-warning py-0 px-2 replace-scrap-btn"
+                      data-barcode="{{ device.barcode }}"><i class="bi bi-arrow-repeat"></i> Replace With Another</button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="text-center text-muted py-4">No scrapped devices from the repair line.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Replace With Another modal (Batch 8 item 26) -->
+<div class="modal fade" id="replaceScrapModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="replaceScrapForm" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-arrow-repeat me-2"></i>Replace With Another</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2"><span class="text-muted small">Scrapped Tag Number:</span> <strong id="replaceScrapBarcode">—</strong></div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Replacement Tag Number</label>
+          <input type="text" name="replacement_barcode" class="form-control font-monospace" placeholder="Scan or type replacement tag" required>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-warning"><i class="bi bi-check-lg me-1"></i>Record Replacement</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -340,6 +383,16 @@ if (vm) { vm.addEventListener('show.bs.modal', function(e){
   document.getElementById('v_model').textContent = b.getAttribute('data-model') || '—';
 });}
 
+// Replace With Another (Batch 8 item 26)
+document.querySelectorAll('.replace-scrap-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var bc = this.getAttribute('data-barcode');
+    document.getElementById('replaceScrapBarcode').textContent = bc;
+    document.getElementById('replaceScrapForm').action = '/scrap-products/' + bc + '/replace';
+    new bootstrap.Modal(document.getElementById('replaceScrapModal')).show();
+  });
+});
+
 // ── Bucket Allocation ────────────────────────────────────────────────────────
 
 function getCsrf(){ var c=document.cookie.split('; ').find(function(r){return r.startsWith('csrf_token=');}); return c ? c.split('=')[1] : ''; }
@@ -456,6 +509,7 @@ document.getElementById('asgBktSubmit').addEventListener('click', function(){
       bootstrap.Modal.getInstance(document.getElementById('bktAssignModal')).hide();
       alert('Assigned '+d.assigned+' device(s) successfully.');
       loadTrcBuckets();
+      loadProdAllocationTable();
     }
   });
 });

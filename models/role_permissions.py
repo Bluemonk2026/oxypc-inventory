@@ -66,6 +66,7 @@ class RoleAdditionalPermission(Base):
     can_export       = Column(Boolean, default=True)
     can_print        = Column(Boolean, default=True)
     can_add_new_data = Column(Boolean, default=True)
+    can_view_pricing = Column(Boolean, default=True)  # Pricing Visibility tab (Batch 9)
     updated_at       = Column(DateTime, default=app_now, onupdate=app_now)
     updated_by       = Column(String(50), nullable=True)
 
@@ -140,6 +141,13 @@ def has_additional_perm(role_name: str, action: str) -> bool:
     if not perms:
         return True   # no row configured → allow everything
     return bool(perms.get(action, True))
+
+
+def can_view_pricing(role_name: str) -> bool:
+    """Pricing Visibility (Batch 9): whether role_name may see pricing columns/
+    fields anywhere in the app. Admin always True; unconfigured roles default
+    to True (permissive), same convention as has_perm()/has_additional_perm()."""
+    return has_additional_perm(role_name, "view_pricing")
 
 
 def get_cached_perms(role_name: str) -> dict:

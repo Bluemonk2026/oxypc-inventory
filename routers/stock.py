@@ -1107,12 +1107,83 @@ async def trc_production_list(
             )).scalars().all()
             location_map = {l.id: l for l in loc_rows}
 
+    # ── "Tag Numbers in Repair Line" (Batch 8 item 25) ───────────────────────
+    repair_line_devices = (await db.execute(
+        select(Device, Lot.lot_number)
+        .join(Lot, Device.lot_id == Lot.id)
+        .where(Device.current_stage.in_([DeviceStage.l1, DeviceStage.l2, DeviceStage.l3]),
+               Device.is_active == True)
+        .order_by(Device.updated_at.desc())
+    )).all()
+
+    # ── "Scrap Products from Repair Line" (Batch 8 item 26) ──────────────────
+    scrap_devices = (await db.execute(
+        select(Device, Lot.lot_number)
+        .join(Lot, Device.lot_id == Lot.id)
+        .where(Device.current_stage == DeviceStage.scrapped, Device.is_active == True)
+        .order_by(Device.updated_at.desc())
+    )).all()
+
     return templates.TemplateResponse("lots/trc_production.html", {
         "request": request, "devices": devices, "current_user": current_user,
         "assigned_dept_map": assigned_dept_map, "departments": STOCK_DEPARTMENTS,
         "cost_parts_map": cost_parts_map, "location_map": location_map,
+        "repair_line_devices": repair_line_devices, "scrap_devices": scrap_devices,
         "total": total,
     })
+
+
+@router.post("/scrap-products/{barcode}/move-to-inventory")
+async def scrap_move_to_inventory(
+    barcode: str, request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Scrap Products from Repair Line — 'Move to Inventory' (Batch 8 item 26):
+    the device was mis-scrapped or found reusable on review, so send it back
+    to Inventory Manager's stock_in stage."""
+    device = (await db.execute(
+        select(Device).where(Device.barcode == barcode, Device.is_active == True)
+    )).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    prev_stage = device.current_stage
+    device.current_stage = DeviceStage.stock_in
+    device.updated_at = app_now()
+    db.add(StageMovement(
+        device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.stock_in,
+        moved_by=current_user.username, notes="Moved from Scrap back to Inventory",
+    ))
+    await db.commit()
+    return RedirectResponse(url="/trc-production?success=Moved+to+Inventory", status_code=302)
+
+
+@router.post("/scrap-products/{barcode}/replace")
+async def scrap_replace_with_another(
+    barcode: str, request: Request,
+    replacement_barcode: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Scrap Products from Repair Line — 'Replace With Another' (Batch 8 item
+    26): record which tag number replaced this scrapped unit, on both sides,
+    using the existing Device.replaced field (no new schema needed)."""
+    device = (await db.execute(
+        select(Device).where(Device.barcode == barcode, Device.is_active == True)
+    )).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    replacement = (await db.execute(
+        select(Device).where(Device.barcode == replacement_barcode, Device.is_active == True)
+    )).scalar_one_or_none()
+    if not replacement:
+        return RedirectResponse(
+            url=f"/trc-production?error=Replacement+tag+{replacement_barcode}+not+found", status_code=302)
+
+    device.replaced = f"Replaced by {replacement.barcode}"
+    replacement.replaced = f"Replaced from {device.barcode}"
+    await db.commit()
+    return RedirectResponse(url="/trc-production?success=Replacement+recorded", status_code=302)
 
 
 # ── Lot Line Items (Invoice Breakdown) ─────────────────────────────────────

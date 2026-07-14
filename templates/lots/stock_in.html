@@ -60,7 +60,7 @@
   <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span class="fw-semibold"><i class="bi bi-archive me-2"></i>Inventory Stock</span>
     <input type="text" id="stockScanInput" class="form-control form-control-sm font-monospace"
-           placeholder="Scan / type Tag Number or Serial Number…" style="width:280px" autocomplete="off">
+           placeholder="Scan Tag/Serial, or comma-separated Tag Numbers to select multiple…" style="width:340px" autocomplete="off">
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -95,59 +95,6 @@
   </div>
 </div>
 
-<!-- Cost & Parts table (Batch D Task 1) -->
-<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
-  <h6 class="fw-bold mb-0"><i class="bi bi-cash-coin me-2"></i>Cost &amp; Parts</h6>
-  <input type="text" id="costPartsScanInput" class="form-control form-control-sm font-monospace"
-         placeholder="Search Tag Number or Serial Number…" style="width:280px" autocomplete="off">
-</div>
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-body p-0">
-    <div class="table-responsive">
-      <table id="costPartsTable" class="table table-hover mb-0 small">
-        <thead class="table-dark"><tr>
-          <th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Device Type</th><th>CPU</th><th>RAM</th><th>Grade</th>
-          <th>Location</th><th>Stock Price</th><th>Sale Price</th><th>Parts Required</th><th>Parts Repaired</th>
-          <th>Stock Cost</th><th>Repair Cost</th><th>Total Cost</th>
-        </tr></thead>
-        <tbody>
-          {% for device, lot_number in devices %}
-          {% set cp = cost_parts_map.get(device.id) if cost_parts_map is defined else None %}
-          {% set loc = location_map.get(device.location_id) if (location_map is defined and device.location_id) else None %}
-          {% set stock_cost = device.device_price or 0 %}
-          {% set repair_cost = cp.repair_cost if cp else 0 %}
-          <tr data-serial="{{ device.serial_no or '' }}">
-            <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none"><code>{{ device.barcode }}</code></a></td>
-            <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
-            <td>{{ device.brand or '—' }}</td>
-            <td>{{ device.model or '—' }}</td>
-            <td>{{ device.device_type or '—' }}</td>
-            <td>{{ device.cpu or '—' }}</td>
-            <td>{{ (device.ram_gb|string ~ 'GB') if device.ram_gb else '—' }}</td>
-            <td>{{ device.grade or '—' }}</td>
-            <td>
-              {% if loc %}
-              <span tabindex="0" data-bs-toggle="tooltip" data-bs-html="true"
-                    title="Zone: {{ loc.zone_label }}<br>Type: {{ loc.unit_type_label }}<br>Location ID: {{ loc.unit_id }}<br>Max Capacity: {{ loc.capacity or '—' }}">
-                {{ loc.unit_id }}
-              </span>
-              {% else %}<span class="text-muted">—</span>{% endif %}
-            </td>
-            <td>{{ '%.2f'|format(device.device_price) if device.device_price else '—' }}</td>
-            <td><span class="text-muted" title="No canonical device-level sale price field exists yet; Sale.sale_price is only recorded once a sale transaction happens.">—</span></td>
-            <td>{{ cp.parts_required if cp else 0 }}</td>
-            <td>{{ cp.parts_repaired if cp else 0 }}</td>
-            <td>{{ '%.2f'|format(stock_cost) }}</td>
-            <td>{{ '%.2f'|format(repair_cost) }}</td>
-            <td><strong>{{ '%.2f'|format(stock_cost + repair_cost) }}</strong></td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
 <p class="text-center text-muted small mt-2">{{ total }} device(s) in stage</p>
 <!-- Bucket / Carton table -->
 <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
@@ -161,25 +108,6 @@
           <tr><th>Bucket Number</th><th>Name</th><th>Location</th><th>Category</th><th>Qty</th><th>Actions</th></tr>
         </thead>
         <tbody id="bucketTbody">
-          <tr><td colspan="6" class="text-center text-muted py-3">Loading…</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- Movement table (Batch D Task 3) -->
-<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
-  <h6 class="fw-bold mb-0"><i class="bi bi-arrow-left-right me-2"></i>Movement</h6>
-</div>
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-body p-0">
-    <div class="table-responsive">
-      <table id="movementTable" class="table table-hover mb-0 small">
-        <thead class="table-secondary">
-          <tr><th>Bucket Number</th><th>Location ID</th><th>Location Type</th><th>Count of Tag Number</th><th>Total Pass</th><th>Total Fail</th><th>Assigned To</th><th>Stage</th><th>Action</th></tr>
-        </thead>
-        <tbody id="movementTbody">
           <tr><td colspan="6" class="text-center text-muted py-3">Loading…</td></tr>
         </tbody>
       </table>
@@ -372,6 +300,7 @@
 
 {% endblock %}
 {% block scripts %}
+<script src="/static/js/tag-scan-autocheck.js"></script>
 <script>
 function getCsrf(){ var c=document.cookie.split('; ').find(function(r){return r.startsWith('csrf_token=');}); return c ? c.split('=')[1] : ''; }
 
@@ -389,9 +318,12 @@ $(document).ready(function(){
   // Scan tag/serial number -> filter to + auto-select that row (Inventory Stock).
   // Matches against data-barcode/data-serial (not just visible column text) so
   // a serial-number scan works even though Serial isn't a displayed column.
+  // A comma-separated list (multiple tags scanned/pasted at once) switches to
+  // check-all-matches mode instead of filtering to a single term, via the
+  // shared tag-scan-autocheck component.
   var stockScanVal = '';
   $.fn.dataTable.ext.search.push(function(settings, data, dataIndex, rowData, counter){
-    if (settings.nTable.id !== 'stockTable' || !stockScanVal) return true;
+    if (settings.nTable.id !== 'stockTable' || !stockScanVal || stockScanVal.indexOf(',') !== -1) return true;
     var row = settings.aoData[dataIndex].nTr;
     var bc = (row.getAttribute('data-barcode') || '').toLowerCase();
     var sn = (row.getAttribute('data-serial') || '').toLowerCase();
@@ -403,7 +335,7 @@ $(document).ready(function(){
     stockScan.addEventListener('input', function(){
       stockScanVal = this.value.trim();
       dtStock.draw();
-      if (!stockScanVal) return;
+      if (!stockScanVal || stockScanVal.indexOf(',') !== -1) return;
       setTimeout(function(){
         var row = document.querySelector('#stockTable tbody tr[data-barcode="' + stockScanVal + '"], #stockTable tbody tr[data-serial="' + stockScanVal + '"]');
         if (row) {
@@ -414,29 +346,11 @@ $(document).ready(function(){
       }, 50);
     });
   }
-
-  // Cost & Parts table: 10 per page + Tag/Serial search
-  var dtCostParts = $('#costPartsTable').DataTable({
-    pageLength: 12,
-    lengthChange: false,
-    dom: 't<"d-flex align-items-center justify-content-between px-3 py-2"ip>',
-  });
-  var costPartsScanVal = '';
-  $.fn.dataTable.ext.search.push(function(settings, data, dataIndex, rowData, counter){
-    if (settings.nTable.id !== 'costPartsTable' || !costPartsScanVal) return true;
-    var row = settings.aoData[dataIndex].nTr;
-    var sn = (row.getAttribute('data-serial') || '').toLowerCase();
-    var term = costPartsScanVal.toLowerCase();
-    if (sn.indexOf(term) !== -1) return true;
-    return (data[0] || '').toLowerCase().indexOf(term) !== -1;
-  });
-  var costPartsScan = document.getElementById('costPartsScanInput');
-  if (costPartsScan) {
-    costPartsScan.addEventListener('input', function(){
-      costPartsScanVal = this.value.trim();
-      dtCostParts.draw();
-    });
-  }
+  // Multiple tag numbers, comma-separated -> check every matching row (any
+  // page) and keep the Assign Bucket count in sync — the count element is
+  // updated by the existing updateStockSel(), triggered via the dispatched
+  // 'change' event below.
+  initTagScanAutocheck({ inputId: 'stockScanInput', tableSelector: '#stockTable', rowTagAttr: 'data-barcode', rowCheckboxSelector: '.stockChk' });
 });
 
 function selectedStockBarcodes(){ return Array.from(document.querySelectorAll('.stockChk:checked')).map(function(c){return c.value;}); }
@@ -536,7 +450,6 @@ $(document).on('click', '.move-bkt-trc', function(){
     .then(function(d){
       if(d.ok){
         loadBucketTable();
-        loadMovementTable();
         loadAllocationTable();
         fetch('/api/buckets/device-map?status=stock_in').then(function(r){return r.json();}).then(function(map){
           document.querySelectorAll('.bkt-cell').forEach(function(cell){
@@ -565,7 +478,9 @@ function loadBucketTable(){
         '<td><span class="badge bg-secondary">'+b.device_count+'</span></td>'+
         '<td class="text-nowrap">'+
           '<button class="btn btn-xs btn-outline-secondary btn-sm py-0 px-2 me-1 edit-bkt" data-id="'+b.id+'" data-name="'+(b.name||'')+'" data-location="'+(b.location||'')+'"><i class="bi bi-pencil"></i></button>'+
-          '<button class="btn btn-xs btn-outline-warning btn-sm py-0 px-2 move-bkt-trc" data-id="'+b.id+'" data-number="'+b.bucket_number+'">Move to Production</button>'+
+          '<button class="btn btn-xs btn-outline-warning btn-sm py-0 px-2 me-1 move-bkt-trc" data-id="'+b.id+'" data-number="'+b.bucket_number+'">Move to Production</button>'+
+          (b.assigned_to_production ? '' :
+          '<button class="btn btn-xs btn-outline-primary btn-sm py-0 px-2 assign-prod-btn" data-id="'+b.id+'" data-number="'+b.bucket_number+'" data-count="'+b.device_count+'"><i class="bi bi-send"></i> Assign to Production</button>')+
         '</td>'+
       '</tr>';
     }).join('');
@@ -607,7 +522,6 @@ document.getElementById('bktSubmitBtn').addEventListener('click', function(){
     if(d.ok){
       bootstrap.Modal.getInstance(document.getElementById('addToBucketModal')).hide();
       loadBucketTable();
-      loadMovementTable();
       loadAllocationTable();
       bcs.forEach(function(bc){
         var cell = document.querySelector('.bkt-cell[data-barcode="'+bc+'"]');
@@ -617,40 +531,8 @@ document.getElementById('bktSubmitBtn').addEventListener('click', function(){
   });
 });
 
-// ── Movement table (Batch D Task 3) ─────────────────────────────────────────
 var _productionManager = null;
 fetch('/api/production-manager').then(function(r){return r.json();}).then(function(d){ _productionManager = d; });
-
-function loadMovementTable(){
-  fetch('/api/buckets?status=stock_in,trc_pending,validated').then(function(r){return r.json();}).then(function(buckets){
-    var tbody = document.getElementById('movementTbody');
-    if(!buckets.length){
-      tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">No buckets created yet.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = buckets.map(function(b){
-      var assignedBadge = b.assigned_to_production
-        ? '<span class="badge bg-primary">Production</span>'
-        : '<span class="badge bg-secondary">Pending</span>';
-      return '<tr>'+
-        '<td><span class="badge bg-secondary">'+b.bucket_number+'</span></td>'+
-        '<td>'+(b.location_unit_id||'—')+'</td>'+
-        '<td>'+(b.location_type||'—')+'</td>'+
-        '<td><span class="badge bg-info text-dark">'+b.device_count+'</span></td>'+
-        '<td><span class="badge bg-success">'+b.total_pass+'</span></td>'+
-        '<td><span class="badge bg-danger">'+b.total_fail+'</span></td>'+
-        '<td>'+assignedBadge+'</td>'+
-        '<td><span class="badge bg-light text-dark">'+b.status+'</span></td>'+
-        '<td class="text-nowrap">'+
-          (b.assigned_to_production ? '' :
-          '<button class="btn btn-xs btn-outline-primary btn-sm py-0 px-2 me-1 assign-prod-btn" data-id="'+b.id+'" data-number="'+b.bucket_number+'" data-count="'+b.device_count+'"><i class="bi bi-send"></i> Assign to Production</button>')+
-          '<button class="btn btn-xs btn-outline-secondary btn-sm py-0 px-2 me-1 edit-bkt" data-id="'+b.id+'" data-name="'+(b.name||'')+'" data-location="'+(b.location||'')+'"><i class="bi bi-pencil"></i></button>'+
-        '</td>'+
-      '</tr>';
-    }).join('');
-  });
-}
-loadMovementTable();
 
 // ── Allocation table: buckets already handed to Production ─────────────────
 function loadAllocationTable(){
@@ -691,7 +573,6 @@ document.getElementById('apSubmitBtn').addEventListener('click', function(){
   fetch('/buckets/'+id+'/assign-to-production', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
     if(d.ok){
       bootstrap.Modal.getInstance(document.getElementById('assignProdModal')).hide();
-      loadMovementTable();
       loadAllocationTable();
       loadBucketTable();
     } else {

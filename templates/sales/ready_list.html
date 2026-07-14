@@ -53,7 +53,9 @@
           <th><input type="checkbox" id="readySelectAll" class="form-check-input"></th>
           <th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th>
           <th>RAM</th><th>Storage</th><th>Grade</th>
+          {% if can_view_pricing(current_user) %}
           <th title="Device-specific price if set, otherwise Lot Buying Price ÷ Lot Qty">Unit Cost</th>
+          {% endif %}
           <th>Warranty</th>
           <th>Action</th>
         </tr>
@@ -88,6 +90,7 @@
               {{ gv or '—' }}
             </span>
           </td>
+          {% if can_view_pricing(current_user) %}
           <td class="fw-semibold">
             {% if cost_source == 'none' %}
             <span class="text-muted">—</span>
@@ -98,6 +101,7 @@
             {% endif %}
             {% endif %}
           </td>
+          {% endif %}
           <td class="small">
             {% set _w = warranty_map.get(device.id|string) if warranty_map is defined else None %}
             {% if _w %}

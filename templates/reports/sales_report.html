@@ -2,6 +2,11 @@
 {% block title %}Sales Report — OxyPC{% endblock %}
 {% block page_title %}Sales Report{% endblock %}
 {% block content %}
+{% if not can_view_pricing(current_user) %}
+<div class="alert alert-warning">
+  <i class="bi bi-lock me-2"></i>Pricing visibility is disabled for your role. Contact an admin if you need access to this report.
+</div>
+{% else %}
 <form method="get" class="row g-2 align-items-end mb-3">
   <div class="col-auto">
     <label class="form-label small mb-1">From</label>
@@ -40,6 +45,7 @@
     </table>
   </div>
 </div>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>$(document).ready(function(){ $('#srTable').DataTable({pageLength: 12, order:[[0,'desc']]}); });</script>

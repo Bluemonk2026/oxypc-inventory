@@ -354,6 +354,17 @@ async def master_list(
             select(RoleAdditionalPermission).where(RoleAdditionalPermission.role_name == selected_role)
         )).scalar_one_or_none()
 
+    # ── Pricing Visibility data (Tab 4, Batch 9) ──────────────────────────────
+    # One row per role (built-in + custom), default True (visible) when no
+    # RoleAdditionalPermission row exists yet for that role — matches
+    # can_view_pricing()'s permissive-by-default convention.
+    all_add_perm_rows = (await db.execute(select(RoleAdditionalPermission))).scalars().all()
+    pricing_by_role = {r.role_name: r.can_view_pricing for r in all_add_perm_rows}
+    pricing_rows = [
+        (rval, rlabel, pricing_by_role.get(rval, True))
+        for rval, rlabel in all_roles if rval != "admin"
+    ]
+
     return templates.TemplateResponse("admin/master.html", {
         "request": request,
         "grouped": grouped,
@@ -371,6 +382,8 @@ async def master_list(
         # Additional permissions tab data
         "additional_perms": ADDITIONAL_PERMS,
         "additional_perm_row": additional_perm_row,
+        # Pricing Visibility tab data
+        "pricing_rows": pricing_rows,
     })
 
 
@@ -685,16 +698,63 @@ async def save_additional_permissions(
 
     await db.commit()
 
+    # Preserve can_view_pricing — this form doesn't include a pricing field
+    # (that's the separate Pricing Visibility tab), so re-read it from the
+    # row rather than defaulting it back to True on every save here.
+    refreshed = (await db.execute(
+        select(RoleAdditionalPermission).where(RoleAdditionalPermission.role_name == role_name)
+    )).scalar_one()
     set_cached_additional_perms(role_name, {
         "upload": values["can_upload"], "download": values["can_download"],
         "export": values["can_export"], "print": values["can_print"],
         "add_new_data": values["can_add_new_data"],
+        "view_pricing": refreshed.can_view_pricing,
     })
 
     return RedirectResponse(
         url=f"/admin/master?main_tab=additional_permissions&role={role_name}&success=Additional+permissions+saved+for+{role_name}",
         status_code=302,
     )
+
+
+@router.post("/permissions/save-pricing-visibility")
+async def save_pricing_visibility(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(admin_only),
+):
+    """Pricing Visibility tab (Batch 9) — bulk-save can_view_pricing for every
+    non-admin role in one submit, matching this page's other tabs' plain-form
+    convention. Upserts RoleAdditionalPermission rows without touching their
+    other (upload/download/export/print/add_new_data) fields."""
+    form = await request.form()
+    all_roles, _ = await _role_data(db)
+
+    existing_rows = {
+        r.role_name: r for r in (await db.execute(select(RoleAdditionalPermission))).scalars().all()
+    }
+
+    for role_val, _label in all_roles:
+        if role_val == "admin":
+            continue
+        new_val = f"pricing_{role_val}" in form
+        row = existing_rows.get(role_val)
+        if row:
+            row.can_view_pricing = new_val
+            row.updated_by = current_user.username
+        else:
+            db.add(RoleAdditionalPermission(role_name=role_val, can_view_pricing=new_val,
+                                             updated_by=current_user.username))
+
+        cached = dict(_ADDITIONAL_PERM_CACHE.get(role_val) or {
+            "upload": True, "download": True, "export": True, "print": True, "add_new_data": True,
+        })
+        cached["view_pricing"] = new_val
+        set_cached_additional_perms(role_val, cached)
+
+    await db.commit()
+    return RedirectResponse(
+        url="/admin/master?main_tab=pricing_visibility&success=Pricing+visibility+saved", status_code=302)
 
 
 @router.post("/permissions/add-role")
@@ -797,6 +857,7 @@ async def load_all_permissions_to_cache(db: AsyncSession) -> None:
             "upload": r.can_upload, "download": r.can_download,
             "export": r.can_export, "print": r.can_print,
             "add_new_data": r.can_add_new_data,
+            "view_pricing": r.can_view_pricing,
         }
     _ADDITIONAL_PERM_CACHE.clear()
     _ADDITIONAL_PERM_CACHE.update(tmp_add)

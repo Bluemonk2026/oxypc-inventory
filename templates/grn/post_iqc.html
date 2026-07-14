@@ -117,7 +117,7 @@
       <div class="d-flex align-items-center gap-2">
         <span class="badge bg-success" id="pendSelCount">0 selected</span>
         <input type="text" id="pendScan" class="form-control form-control-sm font-monospace"
-               placeholder="Scan / type tag number…" style="width:220px" autocomplete="off">
+               placeholder="Scan / type tag numbers, comma separated…" style="width:260px" autocomplete="off">
       </div>
     </div>
     <div class="card-body pb-0 pt-2 px-3">
@@ -155,7 +155,7 @@
           <tbody>
             {% for d in pending %}
             {% set _hl = highlight_tag is defined and highlight_tag and highlight_tag == d.barcode %}
-            <tr id="pend-{{ d.barcode }}" class="{{ 'table-warning' if _hl else '' }}">
+            <tr id="pend-{{ d.barcode }}" data-tag="{{ d.barcode }}" class="{{ 'table-warning' if _hl else '' }}">
               <td class="ps-3"><input type="checkbox" class="pendChk" name="device_ids" value="{{ d.id }}" data-barcode="{{ d.barcode }}" {{ 'checked' if _hl else '' }}></td>
               <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
               <td>{{ d.brand or '—' }}</td>
@@ -250,6 +250,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="/static/js/tag-scan-autocheck.js"></script>
 <script>
 $(document).ready(function(){
   if ($('#grnTable tbody tr td').length > 1) {
@@ -330,21 +331,9 @@ document.addEventListener('change', function(e){
 });
 updatePendCount();
 
-// Scan-to-select: match barcode in pending table → auto-check
-var pendScan = document.getElementById('pendScan');
-if(pendScan){
-  pendScan.addEventListener('input', function(){
-    var val = this.value.trim();
-    if(!val) return;
-    var chk = document.querySelector('.pendChk[data-barcode="' + val + '"]');
-    if(chk){
-      chk.checked = true;
-      updatePendCount();
-      this.value = '';
-      chk.closest('tr').scrollIntoView({behavior:'smooth', block:'center'});
-    }
-  });
-}
+// Scan-to-select: comma-separated tag numbers auto-check matching rows
+// (shared component — also used on IQC List and Inventory Manager).
+initTagScanAutocheck({ inputId: 'pendScan', tableSelector: '#pendingTable', rowCheckboxSelector: '.pendChk' });
 
 // Map this GRN — handler (used for both initial buttons and dynamically added ones)
 function mapGrnHandler(){

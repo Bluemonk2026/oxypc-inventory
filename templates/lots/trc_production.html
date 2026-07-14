@@ -34,6 +34,10 @@
                       data-barcode="{{ device.barcode }}" data-model="{{ device.brand or '' }} {{ device.model or '' }}">
                 <i class="bi bi-check2-square"></i> Validate Stock
               </button>
+              <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 dev-assign-btn"
+                      data-barcode="{{ device.barcode }}" data-model="{{ device.brand or '' }} {{ device.model or '' }}">
+                <i class="bi bi-person-check"></i> Assign
+              </button>
             </td>
           </tr>
           {% else %}
@@ -239,6 +243,48 @@
   </div>
 </div>
 
+<!-- Assign Device modal — item 23: same functionality/model as the bucket
+     Assign modal above, scoped to a single device on the first table -->
+<div class="modal fade" id="devAssignModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-person-check me-2"></i>Assign Device</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="asgDevBarcode">
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Tag Number</label>
+          <input type="text" id="asgDevBarcodeDisplay" class="form-control font-monospace" readonly>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Device</label>
+          <input type="text" id="asgDevModel" class="form-control" readonly>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Select Repair Level</label>
+          <select id="asgDevRepairLevel" class="form-select">
+            <option value="">— Select Level —</option>
+            <option value="L1 Engineer">L1 Engineer</option>
+            <option value="L2 Engineer">L2 Engineer</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Select Engineer</label>
+          <select id="asgDevEngineer" class="form-select" disabled>
+            <option value="">— Select Level first —</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" id="asgDevSubmit" class="btn btn-primary"><i class="bi bi-send me-1"></i>Assign</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Stock Validate modal (same as Stock Inward) -->
 <div class="modal fade" id="validateModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
@@ -410,6 +456,49 @@ document.getElementById('asgBktSubmit').addEventListener('click', function(){
       bootstrap.Modal.getInstance(document.getElementById('bktAssignModal')).hide();
       alert('Assigned '+d.assigned+' device(s) successfully.');
       loadTrcBuckets();
+    }
+  });
+});
+
+// Assign Device (item 23) — same modal pattern as bucket Assign, single device
+document.querySelectorAll('.dev-assign-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.getElementById('asgDevBarcode').value = this.dataset.barcode;
+    document.getElementById('asgDevBarcodeDisplay').value = this.dataset.barcode;
+    document.getElementById('asgDevModel').value = this.dataset.model;
+    document.getElementById('asgDevRepairLevel').value = '';
+    document.getElementById('asgDevEngineer').innerHTML = '<option value="">— Select Level first —</option>';
+    document.getElementById('asgDevEngineer').disabled = true;
+    new bootstrap.Modal(document.getElementById('devAssignModal')).show();
+  });
+});
+
+document.getElementById('asgDevRepairLevel').addEventListener('change', function(){
+  var level = this.value;
+  var roleKey = level === 'L1 Engineer' ? 'l1_engineer' : level === 'L2 Engineer' ? 'l2_engineer' : '';
+  var sel = document.getElementById('asgDevEngineer');
+  sel.innerHTML = '<option value="">— Select Engineer —</option>';
+  if(!roleKey){ sel.disabled=true; return; }
+  var filtered = _engineers.filter(function(e){ return e.role === roleKey; });
+  filtered.forEach(function(e){ sel.add(new Option(e.name, e.id)); });
+  sel.disabled = filtered.length === 0;
+});
+
+document.getElementById('asgDevSubmit').addEventListener('click', function(){
+  var barcode = document.getElementById('asgDevBarcode').value;
+  var dept = document.getElementById('asgDevRepairLevel').value;
+  var engId = document.getElementById('asgDevEngineer').value;
+  if(!dept){ alert('Please select repair level.'); return; }
+  if(!engId){ alert('Please select an engineer.'); return; }
+  var fd = new FormData();
+  fd.append('csrf_token', getCsrf());
+  fd.append('department', dept);
+  fd.append('assigned_user_id', engId);
+  fetch('/devices/'+barcode+'/assign', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
+    if(d.ok){
+      bootstrap.Modal.getInstance(document.getElementById('devAssignModal')).hide();
+      alert('Device assigned successfully (WorkID: '+d.work_id+').');
+      window.location.reload();
     }
   });
 });

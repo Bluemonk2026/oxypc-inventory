@@ -133,89 +133,102 @@
 </div>
 {% endif %}
 
-{# ── Accordions ──────────────────────────────────────────────────────────── #}
-<div class="accordion" id="leadsAccordion">
-{% for group in groups %}
-{% set gid = group.id | string %}
-{% set group_leads = leads_by_group.get(gid, []) %}
-{% set group_pills = pills_by_group.get(gid, {}) %}
-
-<div class="accordion-item border rounded mb-2 shadow-sm" id="grp-{{ gid }}">
-  {# Header row: expand toggle (left) + action buttons (right) #}
-  <h2 class="accordion-header d-flex align-items-center" id="gh-{{ gid }}">
-    <button class="accordion-button collapsed py-2 fw-semibold flex-grow-1"
-            type="button" data-bs-toggle="collapse" data-bs-target="#gc-{{ gid }}"
-            aria-expanded="false" aria-controls="gc-{{ gid }}">
-      <span class="grp-name" id="grp-name-{{ gid }}">{{ group.name }}</span>
-      <span class="badge bg-secondary fw-normal ms-2" id="grp-count-{{ gid }}">{{ group_leads | length }} lead{{ 's' if group_leads | length != 1 else '' }}</span>
-      <span class="d-inline-flex flex-wrap gap-1 ms-2" id="grp-pills-{{ gid }}">
-        <span class="badge bg-success fw-normal">Interested {{ group_pills.get('interested', 0) }}</span>
-        <span class="badge bg-danger fw-normal">Not Interested {{ group_pills.get('not_interested', 0) }}</span>
-        <span class="badge bg-warning text-dark fw-normal">Callback {{ group_pills.get('callback', 0) }}</span>
-        <span class="badge bg-info text-dark fw-normal">Followup {{ group_pills.get('followup', 0) }}</span>
-        <span class="badge bg-secondary fw-normal">No Answer {{ group_pills.get('no_answer', 0) }}</span>
-        <span class="badge bg-dark fw-normal">Invalid No {{ group_pills.get('invalid_no', 0) }}</span>
-      </span>
+{# ── Group actions toolbar (item 20): Sample/Import/Add Lead/Edit Group now
+     act on whichever group is selected here, since the accordions (which used
+     to host one action-bar per group) are gone. ────────────────────────────── #}
+{% if groups %}
+<div class="card border-0 shadow-sm mb-2">
+  <div class="card-body py-2 d-flex align-items-center gap-2 flex-wrap">
+    <label class="form-label small fw-semibold mb-0 me-1">Lead Group:</label>
+    <select id="aslGroupSelect" class="form-select form-select-sm" style="max-width:260px">
+      {% for group in groups %}
+      <option value="{{ group.id }}" data-name="{{ group.name | e }}">{{ group.name }}</option>
+      {% endfor %}
+    </select>
+    <a href="/crm/assign-social-leads/sample" class="btn btn-outline-teal btn-sm">Sample</a>
+    <button type="button" class="btn btn-outline-primary btn-sm" onclick="showImportModal(document.getElementById('aslGroupSelect').value)">Import</button>
+    <button type="button" class="btn btn-outline-success btn-sm"
+            onclick="var s=document.getElementById('aslGroupSelect'); showAddLeadModal(s.value, s.selectedOptions[0].dataset.name)">
+      <i class="bi bi-plus-lg me-1"></i>Add Lead
     </button>
-    <div class="d-flex align-items-center gap-1 pe-2 flex-shrink-0">
-      <a href="/crm/assign-social-leads/sample"
-         class="btn btn-outline-teal py-0 px-2" style="font-size:.75rem;line-height:1.6">
-        Sample
-      </a>
-      <button type="button"
-              class="btn btn-outline-primary py-0 px-2" style="font-size:.75rem;line-height:1.6"
-              onclick="showImportModal('{{ gid }}')">
-        Import
-      </button>
-      <button type="button"
-              class="btn btn-sm btn-outline-success py-0 px-1"
-              onclick="showAddLeadModal('{{ gid }}', '{{ group.name | e }}')"
-              title="Add Lead">
-        <i class="bi bi-plus-lg"></i>
-      </button>
-      <button type="button"
-              class="btn btn-sm btn-outline-secondary py-0 px-1"
-              onclick="showEditGroupModal('{{ gid }}', '{{ group.name | e }}')"
-              title="Edit Group Name">
-        <i class="bi bi-pencil"></i>
-      </button>
-    </div>
-  </h2>
-
-  <div id="gc-{{ gid }}" class="accordion-collapse collapse" data-bs-parent="">
-    <div class="accordion-body p-0">
-      <div class="table-responsive">
-        <table class="table table-sm table-hover mb-0 align-middle asl-sortable-table" style="font-size:.82rem">
-          <thead class="table-light">
-            <tr>
-              <th class="ps-3 asl-sort-th">Lead ID</th>
-              <th class="asl-sort-th">Status</th>
-              <th class="asl-sort-th">Name</th>
-              <th class="asl-sort-th">Phone</th>
-              <th class="asl-sort-th">Email</th>
-              <th class="asl-sort-th">Address</th>
-              <th class="asl-sort-th">Calling Date</th>
-              <th class="asl-sort-th">Require Quantity</th>
-              <th class="asl-sort-th">Interested In</th>
-              <th class="asl-sort-th" style="min-width:120px">Full Remark</th>
-              <th class="asl-sort-th">Deals In</th>
-              <th class="asl-sort-th">Purchase Qty</th>
-              <th class="asl-sort-th">Selling Qty</th>
-              <th class="asl-sort-th">Indian/Imported</th>
-              <th style="width:110px">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="tbody-{{ gid }}">
-            {% include "crm/_assign_leads_rows.html" %}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <button type="button" class="btn btn-outline-secondary btn-sm"
+            onclick="var s=document.getElementById('aslGroupSelect'); showEditGroupModal(s.value, s.selectedOptions[0].dataset.name)">
+      <i class="bi bi-pencil me-1"></i>Edit Group Name
+    </button>
   </div>
 </div>
+{% endif %}
 
-{% endfor %}
-</div>{# /accordion #}
+{# ── Social Media Leads — single flat table (item 20), all groups consolidated ── #}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-transparent fw-semibold d-flex align-items-center gap-2">
+    <i class="bi bi-megaphone me-1"></i>Social Media Leads
+    <span class="badge bg-secondary fw-normal">{{ all_leads_flat | length }} lead{{ 's' if all_leads_flat | length != 1 else '' }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 align-middle asl-sortable-table" style="font-size:.82rem" id="aslFlatTable">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3 asl-sort-th">Lead ID</th>
+          <th class="asl-sort-th">Status</th>
+          <th class="asl-sort-th">Name</th>
+          <th class="asl-sort-th">Phone</th>
+          <th class="asl-sort-th">Email</th>
+          <th class="asl-sort-th">Address</th>
+          <th class="asl-sort-th">Calling Date</th>
+          <th class="asl-sort-th">Require Quantity</th>
+          <th class="asl-sort-th">Interested Quantity</th>
+          <th class="asl-sort-th">Deals In</th>
+          <th class="asl-sort-th">Purchase Quantity</th>
+          <th class="asl-sort-th">Selling Quantity</th>
+          <th class="asl-sort-th" style="min-width:120px">Full Remark</th>
+          <th class="asl-sort-th">Group</th>
+          <th style="width:110px">Action</th>
+        </tr>
+      </thead>
+      <tbody id="aslFlatTbody">
+        {% if not all_leads_flat %}
+        <tr><td colspan="15" class="text-center text-muted py-3 small">No leads yet — click <strong>Add Lead</strong> above to add one</td></tr>
+        {% endif %}
+        {% for ld in all_leads_flat %}
+        <tr id="lr-{{ ld.id }}">
+          <td class="ps-3 font-monospace text-muted small">{{ ld.lead_id }}</td>
+          <td>
+            {% if ld.call_status %}
+            <span class="badge bg-{{ ld.status_badge }} small">{{ ld.call_status | replace('_', ' ') | title }}</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="fw-semibold">{{ ld.name or '—' }}</td>
+          <td>{{ ld.phone or '—' }}</td>
+          <td class="text-muted small">{{ ld.email or '—' }}</td>
+          <td class="text-truncate" style="max-width:130px" title="{{ ld.address }}">{{ ld.address or '—' }}</td>
+          <td>{{ ld.latest_calling_date }}</td>
+          <td>{{ ld.latest_quantity }}</td>
+          <td>{{ ld.latest_device_categories }}</td>
+          <td>{{ ld.latest_deals_in }}</td>
+          <td>{{ ld.purchase_quantity or '—' }}</td>
+          <td>{{ ld.selling_quantity or '—' }}</td>
+          <td class="text-truncate" style="max-width:130px" title="{{ ld.latest_full_remarks }}">{{ ld.latest_full_remarks }}</td>
+          <td>{{ ld.group_name }}</td>
+          <td>
+            <div class="btn-group btn-group-sm">
+              <button class="btn btn-outline-primary py-0 px-1" data-lead='{{ ld | tojson }}' onclick="showEditLeadModal(this)" title="Edit">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <button class="btn btn-outline-success py-0 px-1" data-lead='{{ ld | tojson }}' onclick="showCallModal(this)" title="Log Call">
+                <i class="bi bi-telephone"></i>
+              </button>
+              <button class="btn btn-outline-info py-0 px-1" onclick="showHistoryModal('{{ ld.id }}', '{{ ld.name | e }}')" title="Call History">
+                <i class="bi bi-clock-history"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 
 
 {# ═══════════════════════════ MODALS ═══════════════════════════════════════ #}
@@ -759,28 +772,13 @@ function leadRowHtml(ld) {
   </tr>`;
 }
 
-/* ── Refresh one group's rows + count badge + status pills (no page reload) ── */
+/* ── Refresh after a modal submit. The page is now a single flat "Social
+   Media Leads" table (item 20) instead of per-group accordions/tbodies, so
+   there's no single group's DOM subtree to patch in place — reload instead.
+   Only called after Add Lead / Edit Lead / Log Call / Edit Group submits,
+   never on a hot path, so this is a non-issue for perceived performance. */
 async function refreshGroup(groupId) {
-  const status = document.getElementById('filterStatus').value;
-  const params = new URLSearchParams({ status });
-  const data = await apiFetch(`/crm/assign-social-leads/group/${groupId}/leads?${params.toString()}`);
-  const tbody = document.getElementById(`tbody-${groupId}`);
-  if (!tbody) return;
-  if (!data.leads.length) {
-    tbody.innerHTML = `<tr><td colspan="15" class="text-center text-muted py-3 small">
-      No leads yet — click <i class="bi bi-plus-lg"></i> to add one</td></tr>`;
-  } else {
-    tbody.innerHTML = data.leads.map(leadRowHtml).join('');
-  }
-  const countEl = document.getElementById(`grp-count-${groupId}`);
-  if (countEl) countEl.textContent = `${data.leads.length} lead${data.leads.length !== 1 ? 's' : ''}`;
-
-  const pillsEl = document.getElementById(`grp-pills-${groupId}`);
-  if (pillsEl && data.pills) {
-    pillsEl.innerHTML = PILL_STATUSES.map(s =>
-      `<span class="badge bg-${PILL_BADGE[s]} fw-normal">${PILL_LABELS[s]} ${data.pills[s] || 0}</span>`
-    ).join('');
-  }
+  window.location.reload();
 }
 
 /* ── Refresh summary cards (mirrors the two card rows above) ── */
@@ -876,10 +874,10 @@ async function submitAddGroup() {
   fd.append('name', name);
   fd.append('csrf_token', csrfToken());
   try {
-    const data = await apiFetch('/crm/assign-social-leads/group', { method: 'POST', body: fd });
-    bootstrap.Modal.getInstance(document.getElementById('addGroupModal'))?.hide();
-    document.getElementById('emptyState')?.remove();
-    document.getElementById('leadsAccordion').insertAdjacentHTML('afterbegin', newGroupItemHtml(data.id, data.name));
+    await apiFetch('/crm/assign-social-leads/group', { method: 'POST', body: fd });
+    // Single flat table now (item 20) — reload so the new group shows up in
+    // the Lead Group selector and its leads (once added) appear in the table.
+    window.location.reload();
   } catch (e) { alert('Error: ' + e.message); }
 }
 

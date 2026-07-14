@@ -148,11 +148,15 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
             for opp, company, phone in opps
         ]
 
+    from routers.dispatch import _build_lot_overview
+    lot_overview = await _build_lot_overview(db)
+
     return templates.TemplateResponse("sales/ready_list.html", {
         "request": request, "devices": devices, "current_user": current_user,
         "interested_dealers": interested_dealers,
         "approved_ids": approved_ids, "requested_ids": requested_ids,
         "warranty_map": warranty_map, "model_summary_ready": model_summary_ready,
+        "lot_overview": lot_overview,
     })
 
 

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from utils.timezone import app_now
-from sqlalchemy import Column, String, DateTime, ForeignKey
+from sqlalchemy import Column, String, DateTime, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from database import Base
@@ -35,5 +35,13 @@ class WorkOrder(Base):
     completed_at = Column(DateTime, nullable=True)
     created_by = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=app_now)
+
+    # ── Timeline pause/resume (item 32): while any required part has 0 live
+    # stock, days_pending freezes instead of ticking up. paused_since marks
+    # when the current pause began (None = not currently paused);
+    # paused_days_total accumulates every past pause window's length so the
+    # freeze survives across repeated stock-out/stock-in cycles.
+    paused_since = Column(DateTime, nullable=True)
+    paused_days_total = Column(Integer, nullable=False, default=0, server_default="0")
 
     device = relationship("Device", lazy="select")

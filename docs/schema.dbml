@@ -1349,6 +1349,8 @@ Table work_orders {
   completed_at datetime
   created_by varchar(50)
   created_at datetime [default: `now()`]
+  paused_since datetime [note: 'set when a required part hits 0 stock; cleared on resume']
+  paused_days_total int [not null, default: 0, note: 'accumulated frozen days across pause cycles']
 }
 
 Table part_requests {
@@ -1536,6 +1538,27 @@ Table partner_listing_views {
   viewed_at datetime [default: `now()`, note: 'raw feed for dealer score']
 }
 
+Table lot_dealer_visibility {
+  id uuid [pk, not null]
+  lot_id uuid [not null, note: 'indexed']
+  dealer_id uuid [not null, note: 'indexed']
+  assigned_by varchar(50)
+  assigned_at datetime [default: `now()`]
+  indexes {
+    (lot_id, dealer_id) [unique]
+  }
+}
+
+Table lot_booking_requests {
+  id uuid [pk, not null]
+  lot_id uuid [not null, note: 'indexed']
+  dealer_id uuid [not null, note: 'indexed']
+  qty_requested int [not null, default: 1]
+  status varchar(20) [not null, default: 'requested', note: 'requested | approved | withdrawn — indexed']
+  created_at datetime [default: `now()`]
+  updated_at datetime [default: `now()`]
+}
+
 // Trade Partner pool refs
 Ref: partner_listings.lot_id > lots.id
 Ref: partner_listing_devices.listing_id > partner_listings.id
@@ -1546,6 +1569,10 @@ Ref: partner_payment_proofs.booking_id > partner_bookings.id
 Ref: partner_login_logs.dealer_id > dealers.id
 Ref: partner_listing_views.listing_id > partner_listings.id
 Ref: partner_listing_views.dealer_id > dealers.id
+Ref: lot_dealer_visibility.lot_id > lots.id
+Ref: lot_dealer_visibility.dealer_id > dealers.id
+Ref: lot_booking_requests.lot_id > lots.id
+Ref: lot_booking_requests.dealer_id > dealers.id
 
 // ═══════════════════════════════════════════════════════════════
 // CUSTOMER CARE AGENT POOL — post-sale warranty/diagnostics/ticketing

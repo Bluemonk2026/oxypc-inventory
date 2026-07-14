@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Manage Lots — Trade Partner{% endblock %}
+{% block page_title %}Manage Lots{% endblock %}
+{% block content %}
+
+{% if success %}
+<div class="alert alert-success py-2"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold">
+    <i class="bi bi-box-seam me-2"></i>Lot Management — Trade Partner Visibility
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small align-middle">
+        <thead class="table-dark">
+          <tr>
+            <th class="ps-3">Lot Number</th><th>Purchase Date</th><th>Available Quantity</th>
+            <th>Price</th><th>Visible to</th><th style="width:150px">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for lot in lots %}
+          {% set lid = lot.id | string %}
+          <tr>
+            <td class="ps-3"><a href="/lots/{{ lot.id }}" class="font-monospace text-decoration-none">{{ lot.lot_number }}</a></td>
+            <td class="text-muted small">{{ lot.purchase_date.strftime('%d-%m-%Y') if lot.purchase_date else '—' }}</td>
+            <td><span class="badge bg-info text-dark">{{ avail_map.get(lid, 0) }}</span></td>
+            <td>&#8377;{{ '%.2f'|format(lot.buying_price or 0) }}</td>
+            <td><span class="badge bg-{{ 'success' if vis_map.get(lid, 0) else 'secondary' }}">{{ vis_map.get(lid, 0) }} dealer(s)</span></td>
+            <td>
+              <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 assign-vis-btn"
+                      data-lot-id="{{ lot.id }}" data-lot-number="{{ lot.lot_number }}">
+                <i class="bi bi-eye me-1"></i>Assign Visibility
+              </button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-muted py-4">No lots found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Assign Visibility modal -->
+<div class="modal fade" id="assignVisModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <form method="post" id="assignVisForm" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header">
+        <h6 class="modal-title fw-semibold"><i class="bi bi-eye me-2"></i>Assign Visibility — <span id="avLotNumber"></span></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label small">Select Dealer</label>
+        <select name="dealer_id" class="form-select form-select-sm" required>
+          <option value="">— Select —</option>
+          {% for d in dealers %}
+          <option value="{{ d.id }}">{{ d.business_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary">Assign</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll('.assign-vis-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    document.getElementById('avLotNumber').textContent = btn.dataset.lotNumber;
+    document.getElementById('assignVisForm').action = '/trade-partner/manage-lots/' + btn.dataset.lotId + '/assign-visibility';
+    new bootstrap.Modal(document.getElementById('assignVisModal')).show();
+  });
+});
+</script>
+{% endblock %}

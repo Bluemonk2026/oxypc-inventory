@@ -26,6 +26,7 @@ from models.device import Device, DeviceStage
 from models.partner import (
     PartnerLoginLog, PartnerListing, PartnerListingDevice, PartnerFloorConfig,
     PartnerBooking, PRICE_SEGMENTS, LISTING_TYPES,
+    LotDealerVisibility, LotBookingRequest,
 )
 from auth.dependencies import (
     get_current_user, verify_csrf, hash_password, require_module_perm,
@@ -964,3 +965,78 @@ async def settings_save(
                 table_name="partner_settings", new_value=changed, request=request)
     await db.commit()
     return RedirectResponse(url="/trade-partner/settings?success=Settings+saved", status_code=302)
+
+
+# ── Manage Lots (item 27) — direct Lot Management visibility, separate from
+# the curated PartnerListing pipeline above. ────────────────────────────────
+
+@router.get("/manage-lots", response_class=HTMLResponse)
+async def manage_lots(
+    request: Request,
+    current_user: User = Depends(require_module_perm("trade_partner")),
+    db: AsyncSession = Depends(get_db),
+):
+    lots = (await db.execute(select(Lot).order_by(Lot.purchase_date.desc()))).scalars().all()
+    lot_ids = [l.id for l in lots]
+
+    avail_map = {}
+    if lot_ids:
+        avail_rows = (await db.execute(
+            select(Device.lot_id, func.count(Device.id))
+            .where(Device.lot_id.in_(lot_ids), Device.is_active == True)
+            .group_by(Device.lot_id)
+        )).all()
+        avail_map = {str(lid): cnt for lid, cnt in avail_rows}
+
+    vis_map: dict = {}
+    if lot_ids:
+        vis_rows = (await db.execute(
+            select(LotDealerVisibility.lot_id, func.count(LotDealerVisibility.id))
+            .where(LotDealerVisibility.lot_id.in_(lot_ids))
+            .group_by(LotDealerVisibility.lot_id)
+        )).all()
+        vis_map = {str(lid): cnt for lid, cnt in vis_rows}
+
+    dealers = (await db.execute(
+        select(Dealer).where(Dealer.portal_enabled == True).order_by(Dealer.business_name)  # noqa: E712
+    )).scalars().all()
+
+    return templates.TemplateResponse("trade_partner/manage_lots.html", {
+        "request": request, "current_user": current_user,
+        "lots": lots, "avail_map": avail_map, "vis_map": vis_map,
+        "dealers": dealers,
+        "success": request.query_params.get("success"),
+    })
+
+
+@router.post("/manage-lots/{lot_id}/assign-visibility")
+async def assign_lot_visibility(
+    lot_id: str,
+    request: Request,
+    dealer_id: str = Form(...),
+    _csrf=Depends(verify_csrf),
+    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    db: AsyncSession = Depends(get_db),
+):
+    lot = (await db.execute(select(Lot).where(Lot.id == lot_id))).scalar_one_or_none()
+    if not lot:
+        raise HTTPException(404, "Lot not found")
+    dealer = (await db.execute(select(Dealer).where(Dealer.id == dealer_id))).scalar_one_or_none()
+    if not dealer:
+        raise HTTPException(404, "Dealer not found")
+
+    existing = (await db.execute(
+        select(LotDealerVisibility).where(
+            LotDealerVisibility.lot_id == lot.id, LotDealerVisibility.dealer_id == dealer.id,
+        )
+    )).scalar_one_or_none()
+    if not existing:
+        db.add(LotDealerVisibility(lot_id=lot.id, dealer_id=dealer.id, assigned_by=current_user.username))
+        await audit(db, action="LOT_VISIBILITY_ASSIGNED", user=current_user,
+                    table_name="lot_dealer_visibility", record_id=str(lot.id),
+                    new_value={"lot_number": lot.lot_number, "dealer": dealer.business_name},
+                    request=request)
+        await db.commit()
+    return RedirectResponse(
+        url=f"/trade-partner/manage-lots?success=Lot+{lot.lot_number}+visible+to+{dealer.business_name}",
+        status_code=302)

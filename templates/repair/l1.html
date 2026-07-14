@@ -65,7 +65,7 @@
                 <td class="text-center">{% set pr = parts_required_map.get(device.id|string, 0) if parts_required_map is defined else 0 %}<span class="badge bg-{{ 'warning text-dark' if pr else 'light text-muted border' }}">{{ pr }}</span></td>
                 <td class="text-center">{% set pq = parts_requested_map.get(device.id|string, 0) if parts_requested_map is defined else 0 %}<span class="badge bg-{{ 'primary' if pq else 'light text-muted border' }}">{{ pq }}</span></td>
                 <td class="text-muted">{{ device.notes or '' }}</td>
-                <td>{% if wo %}<span class="badge bg-{{ 'danger' if wo.days_pending >= 3 else ('warning text-dark' if wo.days_pending >= 1 else 'secondary') }}">{{ wo.days_pending }} day{{ 's' if wo.days_pending != 1 else '' }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                <td>{% if wo %}<span class="badge bg-{{ 'danger' if wo.days_pending >= 3 else ('warning text-dark' if wo.days_pending >= 1 else 'secondary') }}">{{ wo.days_pending }} day{{ 's' if wo.days_pending != 1 else '' }}</span>{% if wo.paused %}<span class="badge bg-secondary ms-1" title="Frozen — a required part is out of stock"><i class="bi bi-pause-fill"></i> Paused</span>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
                 <td class="text-nowrap">
                   {% if started_ids is defined and device.id|string in started_ids %}
                   <span class="badge rounded-pill bg-info"><i class="bi bi-play-circle me-1"></i>Repair Started</span>

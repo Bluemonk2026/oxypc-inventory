@@ -175,3 +175,38 @@ class PartnerListingView(Base):
     listing_id = Column(UUID(as_uuid=True), ForeignKey("partner_listings.id"), nullable=False, index=True)
     dealer_id = Column(UUID(as_uuid=True), ForeignKey("dealers.id"), nullable=False, index=True)
     viewed_at = Column(DateTime, default=app_now)
+
+
+class LotDealerVisibility(Base):
+    """Trade Partner — Manage Lots (item 27): which raw Lots (not curated
+    PartnerListings) a given dealer is allowed to see in their Catalog.
+    Deliberately separate from PartnerListing/PartnerBooking's pricing and
+    token-payment engine — this is direct Lot Management visibility, not a
+    priced listing."""
+    __tablename__ = "lot_dealer_visibility"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    lot_id = Column(UUID(as_uuid=True), ForeignKey("lots.id"), nullable=False, index=True)
+    dealer_id = Column(UUID(as_uuid=True), ForeignKey("dealers.id"), nullable=False, index=True)
+    assigned_by = Column(String(50), nullable=True)
+    assigned_at = Column(DateTime, default=app_now)
+
+    __table_args__ = (
+        Index("ix_lot_dealer_visibility_unique", "lot_id", "dealer_id", unique=True),
+    )
+
+
+class LotBookingRequest(Base):
+    """Trade Partner Catalog — item 28's Book/Withdraw action on a visible
+    Lot. Kept as its own lightweight request record (qty + status only, no
+    pricing/token math) rather than forced into PartnerBooking's financial
+    engine, which is priced against PartnerListing fields Lots don't have."""
+    __tablename__ = "lot_booking_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    lot_id = Column(UUID(as_uuid=True), ForeignKey("lots.id"), nullable=False, index=True)
+    dealer_id = Column(UUID(as_uuid=True), ForeignKey("dealers.id"), nullable=False, index=True)
+    qty_requested = Column(Integer, nullable=False, default=1)
+    status = Column(String(20), nullable=False, default="requested", index=True)  # requested | approved | withdrawn
+    created_at = Column(DateTime, default=app_now)
+    updated_at = Column(DateTime, default=app_now, onupdate=app_now)

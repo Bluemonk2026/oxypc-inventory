@@ -185,9 +185,22 @@ async def list_assign_leads(
     summary = await _compute_summary(db, q=q, customer=customer, assigned=assigned)
     asl_status_options = await _asl_status_options(db)
 
+    # Item 20: single flat "Social Media Leads" table replaces the per-group
+    # accordions — every lead from every group, newest first, tagged with its
+    # group name (kept as an extra column since dropping it would remove the
+    # only way to tell which ad campaign a lead came from).
+    group_name_by_id = {str(g.id): g.name for g in groups}
+    all_leads_flat = []
+    for gid, leads in leads_by_group.items():
+        gname = group_name_by_id.get(gid, "—")
+        for ld in leads:
+            all_leads_flat.append({**ld, "group_name": gname})
+    all_leads_flat.sort(key=lambda l: l.get("lead_date") or "", reverse=True)
+
     return templates.TemplateResponse("crm/assign_leads.html", {
         "request":          request,
         "current_user":     current_user,
+        "all_leads_flat":   all_leads_flat,
         "groups":           groups,
         "leads_by_group":   leads_by_group,
         "pills_by_group":   pills_by_group,

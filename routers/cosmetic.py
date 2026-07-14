@@ -18,6 +18,7 @@ from models.repair import RepairJob
 from models.part_request import PartRequest
 from models.spare_parts import SparePart, SparePartConsumption
 from services.parts_required import compute_required
+from services.audit_engine import audit
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 
 router = APIRouter(prefix="/cosmetic", tags=["cosmetic"], dependencies=[Depends(verify_csrf)])
@@ -304,3 +305,68 @@ async def send_to_cosmetic(
     db.add(movement)
     await db.commit()
     return RedirectResponse(url="/cosmetic/cleaning?success=Device+sent+to+Cleaning", status_code=302)
+
+
+# ── Revalidate IQC (item 12 — Final QC page redesign) ───────────────────────
+# Editable re-entry of the physical inspection checklist, callable from the
+# Final QC page's "Revalidate IQC" tab so QC can correct a defect the
+# original IQC pass missed, without leaving Final QC. Whitelisted against
+# IQCInspection's real columns (minus identity/system fields) so this can't
+# be used to set arbitrary attributes.
+IQC_REVALIDATE_FIELDS = [
+    "power_on", "bios_password", "all_ok", "status",
+    "screen_dot", "screen_line", "screen_functional", "screen_discoloration",
+    "screen_patch", "screen_broken", "screen_flickering", "screen_scratch",
+    "screen_loose", "screen_missing", "screen_hinge_broken", "screen_colour_spread",
+    "screen_keyboard_mark", "screen_hard_press",
+    "panel_a_scratch", "panel_a_broken", "panel_a_missing", "panel_a_dent", "panel_a_colour_fade",
+    "panel_b_scratch", "panel_b_colour_fade", "panel_b_rubber_cut", "panel_b_broken", "panel_b_missing",
+    "panel_c_scratch", "panel_c_broken", "panel_c_missing", "panel_c_dent", "panel_c_colour_fade",
+    "panel_d_dent", "panel_d_colour_fade", "panel_d_scratch", "panel_d_broken", "panel_d_missing",
+    "keyboard_working", "keyboard_colour_fade", "keyboard_key_missing", "keyboard_hard_press",
+    "speaker_status",
+    "touchpad_working", "touchpad_click_working", "touchpad_scratch", "touchpad_colour_fade", "touchpad_missing",
+    "port_hdmi", "port_usb_working", "port_audio_jack", "usb_a_ports", "usb_c_ports", "ethernet_ports",
+    "wifi_status", "webcam_status", "hdd_connector", "hdd_casing", "battery_present", "battery_cable",
+    "charging_port", "dvd_drive",
+    "cover_ram", "cover_dvd", "cover_storage",
+    "hinge_condition", "hinge_cover", "touchpad_logicboard",
+    "storage_health_pct", "fan_sound_dba", "fan_working",
+    "remarks",
+]
+
+
+@router.post("/revalidate-iqc")
+async def revalidate_iqc(
+    request: Request,
+    barcode: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+    _perm: User = Depends(require_module_perm("cosmetic", "edit")),
+):
+    device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, f"Device {barcode} not found")
+    iqc = (await db.execute(
+        select(IQCInspection).where(IQCInspection.device_id == device.id)
+    )).scalar_one_or_none()
+    if not iqc:
+        raise HTTPException(404, "No IQC inspection record found for this device")
+
+    form = await request.form()
+    changed = {}
+    for field in IQC_REVALIDATE_FIELDS:
+        if field not in form:
+            continue
+        new_val = form.get(field).strip() or None
+        if getattr(iqc, field) != new_val:
+            setattr(iqc, field, new_val)
+            changed[field] = new_val
+    if changed:
+        await audit(db, action="IQC_REVALIDATED", user=current_user,
+                    table_name="iqc_inspections", record_id=str(iqc.id),
+                    new_value=changed, request=request)
+        await db.commit()
+    return RedirectResponse(
+        url=f"/cosmetic/final_qc?success=IQC+revalidated+for+{barcode}#dev-{device.id}",
+        status_code=302)

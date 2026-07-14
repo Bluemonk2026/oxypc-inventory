@@ -9,7 +9,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 from models.location import DeviceLocationLog, StorageLocation
 
 from database import get_db
@@ -119,7 +119,7 @@ async def repair_list(stage: str, request: Request,
     available_parts = _parts_res.scalars().all()
 
     # ── Work orders (WorkID + assignment + timeline) for assigned devices ─────
-    work_map: dict = {}
+    wo_by_device: dict = {}
     if device_ids:
         wo_rows = (await db.execute(
             select(WorkOrder).where(
@@ -128,17 +128,11 @@ async def repair_list(stage: str, request: Request,
                 WorkOrder.status != "completed",
             ).order_by(WorkOrder.assigned_at.desc())
         )).scalars().all()
-        today = app_now().date()
         for wo in wo_rows:
             key = str(wo.device_id)
-            if key in work_map:
+            if key in wo_by_device:
                 continue  # keep the latest (rows ordered desc)
-            days = (today - wo.assigned_at.date()).days if wo.assigned_at else 0
-            work_map[key] = {
-                "work_id": wo.work_id,
-                "assigned_name": wo.assigned_name or wo.assigned_username or "—",
-                "days_pending": max(0, days),
-            }
+            wo_by_device[key] = wo
 
     # ── Part-request 'not in stock' alerts to surface on the Pending list (#12) ─
     parts_alert_map: dict = {}
@@ -178,6 +172,52 @@ async def repair_list(stage: str, request: Request,
         )).all()
         for did, cnt in pr_rows:
             parts_requested_map[str(did)] = cnt
+
+    # ── Timeline pause/resume (item 32): a device is "blocked" while any of
+    # its required parts currently has 0 live stock in Part Master. While
+    # blocked, the WorkOrder's elapsed-days clock freezes; once every required
+    # part has stock again, it resumes counting from today (past pause time is
+    # banked in paused_days_total so it's never counted against the engineer).
+    work_map: dict = {}
+    if device_ids and wo_by_device:
+        now = app_now()
+        today = now.date()
+        for did_str, dev in dev_by_id.items():
+            wo = wo_by_device.get(did_str)
+            if not wo:
+                continue
+            iqc = iqc_by_dev.get(did_str)
+            blocked = False
+            for row in compute_required(iqc, dev):
+                if not row["required"]:
+                    continue
+                sp = (await db.execute(
+                    select(SparePart).where(or_(
+                        SparePart.category == row["category"],
+                        SparePart.name.ilike(f"%{row['keyword']}%"),
+                    )).order_by(SparePart.qty_in_stock.desc())
+                )).scalars().first()
+                if not sp or not sp.qty_in_stock:
+                    blocked = True
+                    break
+
+            if blocked and not wo.paused_since:
+                wo.paused_since = now
+            elif not blocked and wo.paused_since:
+                wo.paused_days_total += max(0, (now - wo.paused_since).days)
+                wo.paused_since = None
+
+            paused_days = wo.paused_days_total + (
+                max(0, (now - wo.paused_since).days) if wo.paused_since else 0
+            )
+            raw_days = (today - wo.assigned_at.date()).days if wo.assigned_at else 0
+            work_map[did_str] = {
+                "work_id": wo.work_id,
+                "assigned_name": wo.assigned_name or wo.assigned_username or "—",
+                "days_pending": max(0, raw_days - paused_days),
+                "paused": bool(wo.paused_since),
+            }
+        await db.commit()
 
     # ── Returned-device job ids (item 7): L3 shows a "Replace Device with" field
     #    only for jobs whose device has Return Status = Yes ─────────────────────

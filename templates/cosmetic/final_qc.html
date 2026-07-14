@@ -20,235 +20,209 @@
 
 <div class="mb-3">
   <span class="badge bg-warning text-dark fs-6 px-3 py-2">{{ devices|length }} device(s) awaiting Final QC</span>
-  <span class="text-muted small ms-2">Review IQC details + parts (read-only), assign grade, then move to Ready to Sale.</span>
+  <span class="text-muted small ms-2">Review IQC details + parts, revalidate if needed, then grade and move to Ready to Sale.</span>
 </div>
 
 {% macro fld(label, value) %}<tr><th class="text-muted fw-normal" style="width:52%">{{ label }}</th><td>{{ value if (value is not none and value != '') else '—' }}</td></tr>{% endmacro %}
 
-<div class="accordion" id="fqcAccordion">
-{% for device, lot_number in devices %}
-{% set iqc = iqc_map.get(device.id|string) %}
-{% set rjs = repairs_map.get(device.id|string, []) %}
-<div class="accordion-item border-0 shadow-sm mb-2">
-  <h2 class="accordion-header" id="hd-{{ loop.index }}">
-    <button class="accordion-button {% if not loop.first %}collapsed{% endif %} py-2"
-            type="button" data-bs-toggle="collapse"
-            data-bs-target="#col-{{ loop.index }}"
-            aria-expanded="{{ 'true' if loop.first else 'false' }}">
-      <span class="d-flex align-items-center gap-3 w-100 me-3">
-        <span>
-          <a href="/devices/{{ device.barcode }}" class="font-monospace small text-decoration-none" title="View device detail" onclick="event.stopPropagation()">{{ device.barcode }}</a> —
-          <span class="fw-semibold">{{ device.brand or '' }} {{ device.model or '' }}</span>
-          <span class="badge bg-secondary ms-1">{{ lot_number }}</span>
-        </span>
-        <span class="ms-auto small">Grade:
-          {% if device.grade %}<span class="badge bg-info text-dark">{{ device.grade.value }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
-        </span>
-      </span>
-    </button>
-  </h2>
-  <div id="col-{{ loop.index }}"
-       class="accordion-collapse collapse {% if loop.first %}show{% endif %}"
-       aria-labelledby="hd-{{ loop.index }}">
-    <div class="accordion-body p-0">
-    <div style="max-height:430px; overflow-y:auto; padding:1rem">
-    <div class="row g-3">
+{% if devices %}
+<div class="row g-3">
 
-      <!-- Column 1: all device fields from IQC Entry (read-only) -->
-      <div class="col-lg-4">
-        <h6 class="small text-uppercase text-muted fw-bold">IQC Details <span class="badge bg-light text-muted border ms-1">read-only</span></h6>
-        <div>
-        <table class="table table-sm small mb-0">
-          {{ fld('Serial No.', device.serial_no) }}
-          {{ fld('Device Type', device.device_type) }}
-          {{ fld('Brand', device.brand) }}
-          {{ fld('Model', device.model) }}
-          {{ fld('Color', device.color) }}
-          {{ fld('CPU', device.cpu) }}
-          {{ fld('Generation', device.generation) }}
-          {{ fld('RAM (GB)', device.ram_gb) }}
-          {{ fld('SSD (GB)', device.storage_gb) }}
-          {{ fld('Storage Type', device.storage_type) }}
-          {{ fld('HDD Cap (GB)', device.hdd_capacity_gb) }}
-          {{ fld('Screen Size', device.screen_size) }}
-          {{ fld('Battery Health %', device.battery_health_pct) }}
-          {{ fld('IQC Grade', device.grade.value if device.grade else None) }}
-          {% if iqc %}
-          {{ fld('Internal Battery', iqc.battery_present) }}
-          {{ fld('Battery Cable', iqc.battery_cable) }}
-          {{ fld('Charging Port', iqc.charging_port) }}
-          {{ fld('Laptop Switch On', iqc.power_on) }}
-          {{ fld('Power Status', iqc.status) }}
-          {{ fld('Keyboard Working', iqc.keyboard_working) }}
-          {{ fld('Click Function', iqc.touchpad_click_working) }}
-          {{ fld('Touchpad Working', iqc.touchpad_working) }}
-          {{ fld('Touchpad Missing', iqc.touchpad_missing) }}
-          {{ fld('HDMI Port', iqc.port_hdmi) }}
-          {{ fld('USB Port', iqc.port_usb_working) }}
-          {{ fld('Audio Jack', iqc.port_audio_jack) }}
-          {{ fld('USB-A Ports', iqc.usb_a_ports) }}
-          {{ fld('USB-C Ports', iqc.usb_c_ports) }}
-          {{ fld('Ethernet Ports', iqc.ethernet_ports) }}
-          {{ fld('Speaker', iqc.speaker_status) }}
-          {{ fld('Wi-Fi', iqc.wifi_status) }}
-          {{ fld('Web Cam', iqc.webcam_status) }}
-          {{ fld('HDD Connector', iqc.hdd_connector) }}
-          {{ fld('HDD Casing', iqc.hdd_casing) }}
-          {{ fld('DVD Drive', iqc.dvd_drive) }}
-          {{ fld('All OK', iqc.all_ok) }}
-          {{ fld('R2V3 Grade', iqc.r2v3_grade_category) }}
-          <tr><th colspan="2" class="text-uppercase text-muted small pt-2 border-0">Display</th></tr>
-          {{ fld('Dot', iqc.screen_dot) }}
-          {{ fld('Line', iqc.screen_line) }}
-          {{ fld('Colour Discoloration', iqc.screen_discoloration) }}
-          {{ fld('Colour Spread', iqc.screen_colour_spread) }}
-          {{ fld('Patch', iqc.screen_patch) }}
-          {{ fld('Flickering', iqc.screen_flickering) }}
-          {{ fld('Functional', iqc.screen_functional) }}
-          {{ fld('Scratch', iqc.screen_scratch) }}
-          {{ fld('Loose', iqc.screen_loose) }}
-          {{ fld('Missing', iqc.screen_missing) }}
-          {{ fld('Broken', iqc.screen_broken) }}
-          {{ fld('Hinge Broken', iqc.screen_hinge_broken) }}
-          <tr><th colspan="2" class="text-uppercase text-muted small pt-2 border-0">Keyboard &amp; Touchpad</th></tr>
-          {{ fld('Keyboard Mark', iqc.screen_keyboard_mark) }}
-          {{ fld('Keyboard Colour Fade', iqc.keyboard_colour_fade) }}
-          {{ fld('Key Missing', iqc.keyboard_key_missing) }}
-          {{ fld('Keyboard Hard Press', iqc.keyboard_hard_press) }}
-          {{ fld('Touchpad Scratch', iqc.touchpad_scratch) }}
-          {{ fld('Touchpad Colour Fade', iqc.touchpad_colour_fade) }}
-          <tr><th colspan="2" class="text-uppercase text-muted small pt-2 border-0">Body Panels</th></tr>
-          {{ fld('Panel A — Scratch', iqc.panel_a_scratch) }}
-          {{ fld('Panel A — Broken', iqc.panel_a_broken) }}
-          {{ fld('Panel A — Missing', iqc.panel_a_missing) }}
-          {{ fld('Panel A — Dent', iqc.panel_a_dent) }}
-          {{ fld('Panel A — Colour Fade', iqc.panel_a_colour_fade) }}
-          {{ fld('Panel B — Scratch', iqc.panel_b_scratch) }}
-          {{ fld('Panel B — Broken', iqc.panel_b_broken) }}
-          {{ fld('Panel B — Missing', iqc.panel_b_missing) }}
-          {{ fld('Panel B — Colour Fade', iqc.panel_b_colour_fade) }}
-          {{ fld('Panel B — Rubber Cut', iqc.panel_b_rubber_cut) }}
-          {{ fld('Panel C — Scratch', iqc.panel_c_scratch) }}
-          {{ fld('Panel C — Broken', iqc.panel_c_broken) }}
-          {{ fld('Panel C — Missing', iqc.panel_c_missing) }}
-          {{ fld('Panel C — Dent', iqc.panel_c_dent) }}
-          {{ fld('Panel C — Colour Fade', iqc.panel_c_colour_fade) }}
-          {{ fld('Panel D — Scratch', iqc.panel_d_scratch) }}
-          {{ fld('Panel D — Broken', iqc.panel_d_broken) }}
-          {{ fld('Panel D — Missing', iqc.panel_d_missing) }}
-          {{ fld('Panel D — Dent', iqc.panel_d_dent) }}
-          {{ fld('Panel D — Colour Fade', iqc.panel_d_colour_fade) }}
-          {{ fld('Remarks', iqc.remarks) }}
-          {% endif %}
-        </table>
+  <!-- 1/4: vertical clickable card list -->
+  <div class="col-lg-3">
+    <div class="list-group" id="fqcCardList" style="max-height: 75vh; overflow-y:auto;">
+      {% for device, lot_number in devices %}
+      <a href="#" class="list-group-item list-group-item-action fqc-card {% if loop.first %}active{% endif %}"
+         data-target="dev-{{ device.id }}">
+        <div class="font-monospace fw-semibold">{{ device.barcode }}</div>
+        <div class="small {% if loop.first %}text-white-50{% else %}text-muted{% endif %}">
+          {{ device.serial_no or '—' }} — {{ device.brand or '' }} {{ device.model or '' }}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- 3/4: tabs for the selected device -->
+  <div class="col-lg-9">
+    {% for device, lot_number in devices %}
+    {% set iqc = iqc_map.get(device.id|string) %}
+    {% set rjs = repairs_map.get(device.id|string, []) %}
+    <div class="fqc-detail-pane {% if not loop.first %}d-none{% endif %}" id="dev-{{ device.id }}">
+      <div class="card border-0 shadow-sm mb-2">
+        <div class="card-body py-2 d-flex align-items-center gap-2">
+          <a href="/devices/{{ device.barcode }}" class="font-monospace fw-semibold text-decoration-none">{{ device.barcode }}</a>
+          <span class="badge bg-secondary">{{ lot_number }}</span>
+          <span class="ms-auto small">Grade:
+            {% if device.grade %}<span class="badge bg-info text-dark">{{ device.grade.value }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+          </span>
         </div>
       </div>
 
-      <!-- Column 2: Repair History + Parts Consumed -->
-      <div class="col-lg-4">
-        <h6 class="small text-uppercase text-muted fw-bold">Repair History &amp; Parts</h6>
-        {% if rjs %}
-        <div class="small fw-semibold text-muted">Repair History</div>
-        <ul class="small mb-2 ps-3">
-          {% for r in rjs %}
-          <li>{{ r.stage }} — {{ r.final_status or (r.status.value if r.status else '—') }}{% if r.resolution %}: {{ r.resolution }}{% endif %}</li>
-          {% endfor %}
-        </ul>
-        {% else %}<p class="text-muted small">No repair jobs recorded.</p>{% endif %}
-        <div class="small fw-semibold text-muted">Parts Consumed <small class="text-muted">(required)</small></div>
-        {% set pl = parts_map.get(device.id|string, []) %}
-        {% if pl %}
-        <ul class="list-unstyled small mb-0">
-          {% for p in pl %}
-          <li class="d-flex justify-content-between align-items-center py-1 border-bottom">
-            <span>{{ p.label }}</span>
-            {% if p.changed %}<span class="badge bg-success">Changed</span>{% else %}<span class="badge bg-danger">Not Changed</span>{% endif %}
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}<p class="text-muted small mb-0">No required parts.</p>{% endif %}
+      <ul class="nav nav-tabs" id="fqcTabs-{{ loop.index }}" role="tablist">
+        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#rh-{{ loop.index }}" type="button">Repair History &amp; Parts</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#rv-{{ loop.index }}" type="button">Revalidate IQC</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#fq-{{ loop.index }}" type="button">Final QC</button></li>
+      </ul>
+      <div class="tab-content border border-top-0 rounded-bottom p-3 bg-white" style="max-height:65vh; overflow-y:auto;">
 
-        {% set price = price_map.get(device.id|string) %}
-        {% if price and current_user.role.value == 'admin' %}
-        <div class="small fw-semibold text-muted mt-3">Pricing</div>
-        <table class="table table-sm small mb-0">
-          <tbody>
-            <tr>
-              <th class="text-muted fw-normal">Current Unit Price</th>
-              <td class="text-end">₹{{ "%.2f"|format(price.current_price) }}</td>
-            </tr>
-            {% if price.changed_parts %}
-            {% for cp in price.changed_parts %}
-            <tr>
-              <th class="text-muted fw-normal">{{ cp.label }} <small class="text-muted">(Changed — {{ cp.qty }} × ₹{{ "%.2f"|format(cp.unit_price) }})</small></th>
-              <td class="text-end">₹{{ "%.2f"|format(cp.total) }}</td>
-            </tr>
+        <!-- Tab 1: Repair History & Parts -->
+        <div class="tab-pane fade show active" id="rh-{{ loop.index }}">
+          {% if rjs %}
+          <div class="small fw-semibold text-muted">Repair History</div>
+          <ul class="small mb-3 ps-3">
+            {% for r in rjs %}
+            <li>{{ r.stage }} — {{ r.final_status or (r.status.value if r.status else '—') }}{% if r.resolution %}: {{ r.resolution }}{% endif %}</li>
             {% endfor %}
-            {% endif %}
-            <tr>
-              <th class="text-muted fw-normal">After Repair Price <small class="text-muted">(+ parts changed)</small></th>
-              <td class="text-end">₹{{ "%.2f"|format(price.after_repair_price) }}</td>
-            </tr>
-            <tr class="table-light">
-              <th class="fw-bold">Updated Price</th>
-              <td class="text-end fw-bold text-success">₹{{ "%.2f"|format(price.updated_price) }}</td>
-            </tr>
-          </tbody>
-        </table>
-        {% endif %}
-      </div>
+          </ul>
+          {% else %}<p class="text-muted small">No repair jobs recorded.</p>{% endif %}
 
-      <!-- Final QC Decision -->
-      <div class="col-lg-4">
-        <h6 class="small text-uppercase text-muted fw-bold">Final QC Decision</h6>
-        <form action="/cosmetic/advance" method="post" class="fqc-decision-form">
-          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-          <input type="hidden" name="barcode" value="{{ device.barcode }}">
-          <div class="mb-2">
-            <label class="form-label small">Final Status</label>
-            <select name="final_qc_status" class="form-select form-select-sm fqc-status-select">
-              {% for s in master_options('cosmetic_final_qc_status') %}<option value="{{ s }}">{{ s | title }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="mb-2 fqc-fail-only">
-            <label class="form-label small">Failure Reason <small class="text-muted">(if fail)</small></label>
-            <select name="failure_reason" class="form-select form-select-sm">
-              <option value="">— N/A —</option>
-              {% for r in master_options('qc_failure_reason') %}<option>{{ r }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="mb-2 fqc-pass-only">
-            <label class="form-label small">Grade</label>
-            <select name="grade" class="form-select form-select-sm">
-              <option value="">— No change —</option>
-              <option {{ 'selected' if device.grade and device.grade.value == 'A' }}>A</option>
-              <option {{ 'selected' if device.grade and device.grade.value == 'B' }}>B</option>
-              <option {{ 'selected' if device.grade and device.grade.value == 'C' }}>C</option>
-            </select>
-          </div>
-          <div class="mb-2 fqc-fail-only">
-            <label class="form-label small">Notes</label>
-            <input type="text" name="notes" class="form-control form-control-sm" placeholder="Remarks">
-          </div>
-          <button type="submit" class="btn btn-success w-100 btn-sm fqc-pass-only">
-            <i class="bi bi-patch-check me-1"></i>Complete
-          </button>
-          <button type="submit" class="btn btn-danger w-100 btn-sm fqc-fail-only">
-            <i class="bi bi-x-circle me-1"></i>Reject
-          </button>
-        </form>
-      </div>
+          <div class="small fw-semibold text-muted">Parts Consumed <small class="text-muted">(required)</small></div>
+          {% set pl = parts_map.get(device.id|string, []) %}
+          {% if pl %}
+          <ul class="list-unstyled small mb-0">
+            {% for p in pl %}
+            <li class="d-flex justify-content-between align-items-center py-1 border-bottom" style="max-width:400px">
+              <span>{{ p.label }}</span>
+              {% if p.changed %}<span class="badge bg-success">Changed</span>{% else %}<span class="badge bg-danger">Not Changed</span>{% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}<p class="text-muted small mb-0">No required parts.</p>{% endif %}
 
+          {% set price = price_map.get(device.id|string) %}
+          {% if price and current_user.role.value == 'admin' %}
+          <div class="small fw-semibold text-muted mt-3">Pricing</div>
+          <table class="table table-sm small mb-0" style="max-width:500px">
+            <tbody>
+              <tr><th class="text-muted fw-normal">Current Unit Price</th><td class="text-end">₹{{ "%.2f"|format(price.current_price) }}</td></tr>
+              {% if price.changed_parts %}
+              {% for cp in price.changed_parts %}
+              <tr>
+                <th class="text-muted fw-normal">{{ cp.label }} <small class="text-muted">(Changed — {{ cp.qty }} × ₹{{ "%.2f"|format(cp.unit_price) }})</small></th>
+                <td class="text-end">₹{{ "%.2f"|format(cp.total) }}</td>
+              </tr>
+              {% endfor %}
+              {% endif %}
+              <tr><th class="text-muted fw-normal">After Repair Price <small class="text-muted">(+ parts changed)</small></th><td class="text-end">₹{{ "%.2f"|format(price.after_repair_price) }}</td></tr>
+              <tr class="table-light"><th class="fw-bold">Updated Price</th><td class="text-end fw-bold text-success">₹{{ "%.2f"|format(price.updated_price) }}</td></tr>
+            </tbody>
+          </table>
+          {% endif %}
+        </div>
+
+        <!-- Tab 2: Revalidate IQC (item 12) — editable re-entry of the physical
+             inspection checklist, so QC can correct a defect before releasing
+             the device, without leaving this page. -->
+        <div class="tab-pane fade" id="rv-{{ loop.index }}">
+          {% if iqc %}
+          <form method="post" action="/cosmetic/revalidate-iqc">
+            <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+            <input type="hidden" name="barcode" value="{{ device.barcode }}">
+            <div class="row g-2">
+              {% for field, label in [
+                ('power_on','Power On'), ('all_ok','All OK'), ('status','Status'),
+                ('screen_functional','Screen Functional'), ('screen_dot','Screen Dot'), ('screen_line','Screen Line'),
+                ('screen_broken','Screen Broken'), ('screen_scratch','Screen Scratch'), ('screen_flickering','Screen Flickering'),
+                ('keyboard_working','Keyboard Working'), ('keyboard_key_missing','Key Missing'),
+                ('touchpad_working','Touchpad Working'), ('touchpad_click_working','Touchpad Click'),
+                ('speaker_status','Speaker'), ('wifi_status','Wi-Fi'), ('webcam_status','Web Cam'),
+                ('port_hdmi','HDMI Port'), ('port_usb_working','USB Port'), ('port_audio_jack','Audio Jack'),
+                ('battery_present','Internal Battery'), ('battery_cable','Battery Cable'), ('charging_port','Charging Port'),
+                ('dvd_drive','DVD Drive'), ('hdd_connector','HDD Connector'), ('hdd_casing','HDD Casing'),
+                ('storage_health_pct','Storage Health %'), ('fan_working','Fan Working'), ('fan_sound_dba','Fan Sound (dBA)'),
+              ] %}
+              <div class="col-md-3">
+                <label class="form-label form-label-sm mb-1">{{ label }}</label>
+                <input type="text" name="{{ field }}" class="form-control form-control-sm" value="{{ iqc[field] if iqc[field] is not none else '' }}">
+              </div>
+              {% endfor %}
+              <div class="col-12">
+                <label class="form-label form-label-sm mb-1">Remarks</label>
+                <textarea name="remarks" class="form-control form-control-sm" rows="2">{{ iqc.remarks or '' }}</textarea>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-sm btn-primary mt-3"><i class="bi bi-arrow-repeat me-1"></i>Revalidate</button>
+          </form>
+          {% else %}
+          <p class="text-muted small">No IQC inspection record found for this device.</p>
+          {% endif %}
+        </div>
+
+        <!-- Tab 3: Final QC Decision -->
+        <div class="tab-pane fade" id="fq-{{ loop.index }}">
+          <form action="/cosmetic/advance" method="post" class="fqc-decision-form" style="max-width:400px">
+            <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+            <input type="hidden" name="barcode" value="{{ device.barcode }}">
+            <div class="mb-2">
+              <label class="form-label small">Final Status</label>
+              <select name="final_qc_status" class="form-select form-select-sm fqc-status-select">
+                {% for s in master_options('cosmetic_final_qc_status') %}<option value="{{ s }}">{{ s | title }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="mb-2 fqc-fail-only">
+              <label class="form-label small">Failure Reason <small class="text-muted">(if fail)</small></label>
+              <select name="failure_reason" class="form-select form-select-sm">
+                <option value="">— N/A —</option>
+                {% for r in master_options('qc_failure_reason') %}<option>{{ r }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="mb-2 fqc-pass-only">
+              <label class="form-label small">Grade</label>
+              <select name="grade" class="form-select form-select-sm">
+                <option value="">— No change —</option>
+                <option {{ 'selected' if device.grade and device.grade.value == 'A' }}>A</option>
+                <option {{ 'selected' if device.grade and device.grade.value == 'B' }}>B</option>
+                <option {{ 'selected' if device.grade and device.grade.value == 'C' }}>C</option>
+              </select>
+            </div>
+            <div class="mb-2 fqc-fail-only">
+              <label class="form-label small">Notes</label>
+              <input type="text" name="notes" class="form-control form-control-sm" placeholder="Remarks">
+            </div>
+            <button type="submit" class="btn btn-success w-100 btn-sm fqc-pass-only">
+              <i class="bi bi-patch-check me-1"></i>Complete
+            </button>
+            <button type="submit" class="btn btn-danger w-100 btn-sm fqc-fail-only">
+              <i class="bi bi-x-circle me-1"></i>Reject
+            </button>
+          </form>
+        </div>
+
+      </div>
     </div>
-    </div>
-    </div>
+    {% endfor %}
   </div>
 </div>
 {% else %}
 <div class="card border-0 shadow-sm"><div class="card-body text-center text-muted py-5">No devices awaiting Final QC.</div></div>
-{% endfor %}
-</div>
+{% endif %}
+
 <script>
+// 1/4 card list -> switches which device's 3/4 detail pane is shown.
+(function () {
+  document.querySelectorAll('.fqc-card').forEach(function (card) {
+    card.addEventListener('click', function (e) {
+      e.preventDefault();
+      document.querySelectorAll('.fqc-card').forEach(function (c) { c.classList.remove('active'); });
+      document.querySelectorAll('.fqc-card .text-white-50').forEach(function (el) { el.classList.replace('text-white-50', 'text-muted'); });
+      card.classList.add('active');
+      var sub = card.querySelector('.small');
+      if (sub) sub.classList.replace('text-muted', 'text-white-50');
+      document.querySelectorAll('.fqc-detail-pane').forEach(function (p) { p.classList.add('d-none'); });
+      var target = document.getElementById(card.dataset.target);
+      if (target) target.classList.remove('d-none');
+    });
+  });
+
+  // Deep-link support: /cosmetic/final_qc#dev-<id> (used after Revalidate IQC redirect)
+  var hash = window.location.hash.replace('#', '');
+  if (hash) {
+    var card = document.querySelector('.fqc-card[data-target="' + hash + '"]');
+    if (card) card.click();
+  }
+})();
+
 // Final QC Decision: PASS shows Grade + Complete; FAIL shows Notes + Reject.
 (function () {
   function applyState(form) {

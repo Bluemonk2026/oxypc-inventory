@@ -440,6 +440,92 @@ async def assign_bucket(
     return JSONResponse({"ok": True, "assigned": len(devices)})
 
 
+@router.post("/devices/{barcode}/assign")
+async def assign_device(
+    barcode: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+    department: str = Form(...),
+    assigned_user_id: str = Form(...),
+):
+    """Production Manager's first table (item 23) — same Assign functionality
+    and modal as the Allocation table's bucket-level Assign, scoped to one
+    device instead of a whole bucket."""
+    device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+
+    try:
+        user_uid = uuid.UUID(assigned_user_id)
+    except Exception:
+        raise HTTPException(400, "Invalid user ID")
+    engineer = (await db.execute(select(User).where(User.id == user_uid))).scalar_one_or_none()
+    if not engineer:
+        raise HTTPException(404, "Engineer not found")
+
+    target_stage = DEPT_TO_STAGE.get(department)
+    new_stage = STAGE_ENUM.get(target_stage) if target_stage else None
+    if not new_stage:
+        raise HTTPException(400, "Invalid repair level")
+
+    _from_wh = getattr(device, "warehouse", None) or "—"
+    transfer = StockTransfer(
+        device_id=device.id, transfer_type="transfer_to_trc",
+        from_warehouse=_from_wh, to_warehouse=_from_wh,
+        transferred_by=current_user.username, department=department,
+        barcode=device.barcode, serial_no=device.serial_no,
+        make=device.brand, model=device.model,
+        ram=str(device.ram_gb) + " GB" if device.ram_gb else None,
+        hdd=str(device.storage_gb) + " GB" if device.storage_gb else None,
+        category=device.sub_category,
+        product_stage=device.current_stage.value if device.current_stage else None,
+        transfer_date=app_now(), notes=f"Assigned via Production Manager — {device.barcode}",
+        created_by=current_user.username,
+    )
+    db.add(transfer)
+    await db.flush()
+
+    prev_stage = device.current_stage
+    prev_mv = (await db.execute(
+        select(StageMovement).where(
+            StageMovement.device_id == device.id,
+            StageMovement.to_stage == prev_stage,
+            StageMovement.exited_at == None,
+        ).order_by(StageMovement.moved_at.desc())
+    )).scalars().first()
+    if prev_mv:
+        prev_mv.exited_at = app_now()
+
+    device.current_stage = new_stage
+    device.updated_at = app_now()
+    db.add(StageMovement(
+        device_id=device.id, from_stage=prev_stage, to_stage=new_stage,
+        moved_by=current_user.username,
+        notes=f"Assigned to {engineer.full_name or engineer.username}",
+    ))
+    work_id = await _gen_work_id(db)
+    db.add(WorkOrder(
+        work_id=work_id, device_id=device.id, barcode=device.barcode,
+        stage=target_stage, assigned_role=DEPT_TO_ROLE.get(department),
+        assigned_user_id=engineer.id, assigned_username=engineer.username,
+        assigned_name=engineer.full_name, status="pending",
+        source_transfer_id=transfer.id, created_by=current_user.username,
+    ))
+    _label = f"{device.brand or ''} {device.model or ''}".strip()
+    await create_notification(
+        db, user_id=engineer.id,
+        title="Device Assigned to You",
+        message=(f"{device.barcode}" + (f" ({_label})" if _label else "")
+                 + f" assigned for {department} (WorkID: {work_id})."),
+        notification_type="info",
+        barcode=device.barcode, brand=device.brand, model=device.model,
+        stage=new_stage.value if hasattr(new_stage, "value") else str(new_stage),
+    )
+    await db.commit()
+    return JSONResponse({"ok": True, "work_id": work_id})
+
+
 @router.post("/buckets/{bucket_id}/assign-to-production")
 async def assign_bucket_to_production(
     bucket_id: str,

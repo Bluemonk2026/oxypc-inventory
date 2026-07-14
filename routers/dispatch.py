@@ -55,8 +55,66 @@ async def _build_requests_context(db: AsyncSession) -> dict:
             _seen[uname] = r.telecaller_name or uname
     telecaller_options = sorted(_seen.items(), key=lambda kv: kv[1].lower())
 
+    lot_overview = await _build_lot_overview(db)
+
     return {"requests": device_requests, "lot_requests": lot_requests,
-            "telecaller_options": telecaller_options}
+            "telecaller_options": telecaller_options, "lot_overview": lot_overview}
+
+
+async def _build_lot_overview(db: AsyncSession) -> list:
+    """New "Requests for Lot" table (item 28): every Lot with its device
+    count, requested count (source='lot' requests raised against any device
+    in that lot), a representative barcode for the Request button, and stock
+    / selling price straight off the Lot row."""
+    lots = (await db.execute(select(Lot).order_by(Lot.purchase_date.desc()))).scalars().all()
+    if not lots:
+        return []
+    lot_ids = [l.id for l in lots]
+
+    dev_rows = (await db.execute(
+        select(Device.lot_id, Device.id, Device.barcode, Device.device_type)
+        .where(Device.lot_id.in_(lot_ids), Device.is_active == True)
+    )).all()
+    devices_by_lot: dict = {}
+    for lot_id, dev_id, barcode, device_type in dev_rows:
+        devices_by_lot.setdefault(str(lot_id), []).append(
+            {"id": dev_id, "barcode": barcode, "device_type": device_type})
+
+    dev_ids_by_lot = {lid: {d["id"] for d in devs} for lid, devs in devices_by_lot.items()}
+    all_dev_ids = [d["id"] for devs in devices_by_lot.values() for d in devs]
+    requested_by_dev = {}
+    if all_dev_ids:
+        req_rows = (await db.execute(
+            select(TelecallerDispatchRequest.device_id, func.sum(TelecallerDispatchRequest.qty_requested))
+            .where(TelecallerDispatchRequest.source == "lot",
+                   TelecallerDispatchRequest.device_id.in_(all_dev_ids))
+            .group_by(TelecallerDispatchRequest.device_id)
+        )).all()
+        requested_by_dev = {str(did): int(qty or 0) for did, qty in req_rows}
+
+    overview = []
+    for lot in lots:
+        devs = devices_by_lot.get(str(lot.id), [])
+        if not devs:
+            continue  # no point showing a lot with nothing to request
+        type_counts: dict = {}
+        for d in devs:
+            if d["device_type"]:
+                type_counts[d["device_type"]] = type_counts.get(d["device_type"], 0) + 1
+        device_type = max(type_counts, key=type_counts.get) if type_counts else "—"
+        requested_qty = sum(requested_by_dev.get(str(d["id"]), 0) for d in devs)
+        overview.append({
+            "lot_number": lot.lot_number,
+            "purchase_date": lot.purchase_date,
+            "supplier_name": lot.supplier_name,
+            "device_type": device_type,
+            "total_quantity": len(devs),
+            "requested_quantity": requested_qty,
+            "stock_price": float(lot.buying_price or 0),
+            "selling_price": float(lot.selling_price) if lot.selling_price is not None else None,
+            "sample_barcode": devs[0]["barcode"],
+        })
+    return overview
 
 
 @router.get("/inventory-requests", response_class=HTMLResponse)

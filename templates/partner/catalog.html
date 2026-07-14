@@ -8,6 +8,51 @@
 </div>
 {% endif %}
 
+{% if request.query_params.get('success') %}
+<div class="alert alert-success py-2 small mb-3">{{ request.query_params.get('success')|replace('+',' ') }}</div>
+{% endif %}
+{% if request.query_params.get('error') %}
+<div class="alert alert-danger py-2 small mb-3">{{ request.query_params.get('error')|replace('+',' ') }}</div>
+{% endif %}
+
+{% if visible_lots %}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-transparent fw-semibold small"><i class="bi bi-box-seam me-2"></i>Lots Available to You</div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 small align-middle">
+      <thead class="table-light">
+        <tr><th class="ps-2">Lot Number</th><th>Purchase Date</th><th>Available Qty</th><th>Price</th><th style="width:150px">Action</th></tr>
+      </thead>
+      <tbody>
+        {% for l in visible_lots %}
+        <tr>
+          <td class="ps-2 font-monospace">{{ l.lot_number }}</td>
+          <td class="text-muted">{{ l.purchase_date.strftime('%d-%m-%Y') if l.purchase_date else '—' }}</td>
+          <td><span class="badge bg-info text-dark">{{ l.available_quantity }}</span></td>
+          <td>{% if l.price is not none %}&#8377;{{ '%.2f'|format(l.price) }}{% else %}—{% endif %}</td>
+          <td>
+            {% if l.booking %}
+            <form method="post" action="/partner/lots/{{ l.id }}/withdraw" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ partner_csrf }}">
+              <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2">Withdraw</button>
+            </form>
+            <span class="badge bg-warning text-dark ms-1">Booked &times;{{ l.booking.qty_requested }}</span>
+            {% else %}
+            <form method="post" action="/partner/lots/{{ l.id }}/book" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ partner_csrf }}">
+              <input type="hidden" name="qty" value="1">
+              <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2">Book</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 <form method="get" class="mb-3">
   <div class="row g-2">
     <div class="col-6">

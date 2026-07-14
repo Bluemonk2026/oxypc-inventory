@@ -98,6 +98,46 @@
   </div>
 </div>
 
+<!-- Requests for Lot — browse every lot, request or approve/handover -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-transparent">
+    <span class="fw-semibold"><i class="bi bi-box-seam me-2"></i>Requests for Lot</span>
+  </div>
+  <div class="card-body p-0">
+    <table id="lotOverviewTable" class="table table-hover mb-0 small align-middle">
+      <thead class="table-dark"><tr>
+        <th class="ps-3">Lot Number</th><th>Purchase Date</th><th>Supplier Name</th><th>Device Type</th>
+        <th>Total Quantity</th><th>Requested Quantity</th><th>Stock Price</th><th>Selling Price</th><th>Action</th>
+      </tr></thead>
+      <tbody>
+        {% for l in lot_overview %}
+        <tr>
+          <td class="ps-3 font-monospace">{{ l.lot_number }}</td>
+          <td class="text-muted small">{{ l.purchase_date.strftime('%d-%m-%Y') if l.purchase_date else '—' }}</td>
+          <td>{{ l.supplier_name or '—' }}</td>
+          <td>{{ l.device_type }}</td>
+          <td><span class="badge bg-info text-dark">{{ l.total_quantity }}</span></td>
+          <td><span class="badge bg-{{ 'warning text-dark' if l.requested_quantity else 'light text-muted border' }}">{{ l.requested_quantity }}</span></td>
+          <td>&#8377;{{ '%.2f'|format(l.stock_price) }}</td>
+          <td>{% if l.selling_price is not none %}&#8377;{{ '%.2f'|format(l.selling_price) }}{% else %}—{% endif %}</td>
+          <td>
+            <form method="post" action="/dispatch/request" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+              <input type="hidden" name="barcode" value="{{ l.sample_barcode }}">
+              <input type="hidden" name="source" value="lot">
+              <input type="hidden" name="qty" value="1">
+              <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2">Request</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center text-muted small py-3">No lots available.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 {% endblock %}
 {% block scripts %}
 <script>

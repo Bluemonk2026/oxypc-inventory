@@ -23,8 +23,10 @@ from models.dealers import Dealer
 from models.user import User
 from models.partner import (
     PartnerListing, PartnerLoginLog, PartnerListingView, PartnerBooking,
-    PartnerPaymentProof,
+    PartnerPaymentProof, LotDealerVisibility, LotBookingRequest,
 )
+from models.lot import Lot
+from models.device import Device
 from auth.dependencies import verify_password
 from auth.partner_auth import (
     get_current_partner, verify_partner_csrf, create_partner_token,
@@ -213,11 +215,49 @@ async def catalog(
         listings.sort(key=lambda l: ageing[str(l.id)]["days"] or 0, reverse=True)
 
     settings = await get_settings(db)
+
+    # ── Requests for Lot visibility (item 28) — direct Lot Management rows
+    # this dealer has been granted visibility on. Dealer-safe fields only:
+    # never expose lot.buying_price/supplier_name — "Price" here is the
+    # dealer-facing selling_price, same boundary rule as the rest of this file.
+    vis_rows = (await db.execute(
+        select(Lot).join(LotDealerVisibility, LotDealerVisibility.lot_id == Lot.id)
+        .where(LotDealerVisibility.dealer_id == dealer.id)
+        .order_by(Lot.purchase_date.desc())
+    )).scalars().all()
+    visible_lots = []
+    if vis_rows:
+        lot_ids = [l.id for l in vis_rows]
+        avail_rows = (await db.execute(
+            select(Device.lot_id, func.count(Device.id))
+            .where(Device.lot_id.in_(lot_ids), Device.is_active == True)
+            .group_by(Device.lot_id)
+        )).all()
+        avail_map = {str(lid): cnt for lid, cnt in avail_rows}
+        my_bookings = (await db.execute(
+            select(LotBookingRequest).where(
+                LotBookingRequest.dealer_id == dealer.id,
+                LotBookingRequest.lot_id.in_(lot_ids),
+                LotBookingRequest.status != "withdrawn",
+            )
+        )).scalars().all()
+        booking_by_lot = {str(b.lot_id): b for b in my_bookings}
+        for lot in vis_rows:
+            lid = str(lot.id)
+            visible_lots.append({
+                "id": lid, "lot_number": lot.lot_number,
+                "purchase_date": lot.purchase_date,
+                "available_quantity": avail_map.get(lid, 0),
+                "price": float(lot.selling_price) if lot.selling_price is not None else None,
+                "booking": booking_by_lot.get(lid),
+            })
+
     return templates.TemplateResponse("partner/catalog.html", {
         "request": request, "dealer": dealer, "listings": listings,
         "ageing": ageing, "incentive_text": settings.get("incentive_text") or "",
         "f_type": listing_type, "f_brand": brand, "f_grade": grade, "f_sort": sort,
         "partner_csrf": request.cookies.get(PARTNER_CSRF_COOKIE, ""),
+        "visible_lots": visible_lots,
     })
 
 
@@ -257,6 +297,68 @@ async def listing_detail(
         "error": request.query_params.get("error"),
         "partner_csrf": request.cookies.get(PARTNER_CSRF_COOKIE, ""),
     })
+
+
+@router.post("/lots/{lot_id}/book")
+async def book_lot(
+    request: Request,
+    lot_id: str,
+    qty: int = Form(1),
+    _csrf=Depends(verify_partner_csrf),
+    dealer: Dealer = Depends(get_current_partner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Catalog page 'Book' button (item 28) — only for Lots this dealer has
+    been granted visibility on. Raises a lightweight LotBookingRequest, not a
+    priced PartnerBooking (Lots aren't priced/tokened like PartnerListings)."""
+    visible = (await db.execute(
+        select(LotDealerVisibility).where(
+            LotDealerVisibility.lot_id == lot_id, LotDealerVisibility.dealer_id == dealer.id,
+        )
+    )).scalar_one_or_none()
+    if not visible:
+        return RedirectResponse(url="/partner/catalog?error=Lot+not+available+to+you", status_code=302)
+
+    existing = (await db.execute(
+        select(LotBookingRequest).where(
+            LotBookingRequest.lot_id == lot_id, LotBookingRequest.dealer_id == dealer.id,
+            LotBookingRequest.status != "withdrawn",
+        )
+    )).scalar_one_or_none()
+    if existing:
+        return RedirectResponse(url="/partner/catalog?error=Already+booked+this+lot", status_code=302)
+
+    booking = LotBookingRequest(lot_id=lot_id, dealer_id=dealer.id, qty_requested=max(1, qty))
+    db.add(booking)
+    await audit(db, action="LOT_BOOKING_REQUESTED", table_name="lot_booking_requests",
+                record_id=str(booking.id), new_value={"lot_id": lot_id, "dealer": dealer.business_name, "qty": qty},
+                notes=f"dealer:{dealer.business_name}", request=request)
+    await db.commit()
+    return RedirectResponse(url="/partner/catalog?success=Lot+booking+requested", status_code=302)
+
+
+@router.post("/lots/{lot_id}/withdraw")
+async def withdraw_lot_booking(
+    request: Request,
+    lot_id: str,
+    _csrf=Depends(verify_partner_csrf),
+    dealer: Dealer = Depends(get_current_partner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Catalog page 'Withdraw' button (item 28)."""
+    booking = (await db.execute(
+        select(LotBookingRequest).where(
+            LotBookingRequest.lot_id == lot_id, LotBookingRequest.dealer_id == dealer.id,
+            LotBookingRequest.status != "withdrawn",
+        )
+    )).scalar_one_or_none()
+    if not booking:
+        return RedirectResponse(url="/partner/catalog?error=No+active+booking+to+withdraw", status_code=302)
+    booking.status = "withdrawn"
+    await audit(db, action="LOT_BOOKING_WITHDRAWN", table_name="lot_booking_requests",
+                record_id=str(booking.id), notes=f"dealer:{dealer.business_name}", request=request)
+    await db.commit()
+    return RedirectResponse(url="/partner/catalog?success=Booking+withdrawn", status_code=302)
 
 
 @router.post("/listings/{listing_id}/book")
@@ -300,9 +402,24 @@ async def my_bookings(
     for b in bookings:
         if str(b.listing_id) not in listings:
             listings[str(b.listing_id)] = await db.get(PartnerListing, b.listing_id)
+
+    # Lot Booking Requests (item 28) — shown alongside the priced-listing
+    # bookings above, kept as a separate lightweight section since they're
+    # not part of the token-payment flow.
+    lot_bookings = (await db.execute(
+        select(LotBookingRequest).where(
+            LotBookingRequest.dealer_id == dealer.id, LotBookingRequest.status != "withdrawn",
+        ).order_by(LotBookingRequest.created_at.desc())
+    )).scalars().all()
+    lots_by_id = {}
+    for lb in lot_bookings:
+        if str(lb.lot_id) not in lots_by_id:
+            lots_by_id[str(lb.lot_id)] = await db.get(Lot, lb.lot_id)
+
     return templates.TemplateResponse("partner/bookings.html", {
         "request": request, "dealer": dealer, "bookings": bookings,
         "listings": listings,
+        "lot_bookings": lot_bookings, "lots_by_id": lots_by_id,
         "partner_csrf": request.cookies.get(PARTNER_CSRF_COOKIE, ""),
     })
 

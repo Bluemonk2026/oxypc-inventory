@@ -496,6 +496,44 @@ async def startup_event():
     except Exception as _me:
         print(f"  [MasterData] Could not load dropdown-options cache: {_me}")
 
+    # ── Periodic cache refresh (enables safe multi-worker deployment) ─────────
+    # Every in-memory cache above is populated once here and only invalidated
+    # by an explicit save-handler call in whichever worker process handled that
+    # request. With more than one uvicorn worker, every OTHER worker keeps
+    # serving stale data indefinitely (permissions, stage-transition rules,
+    # sidebar labels, master dropdown options, ...) since they're separate
+    # processes with separate memory. Reloading all of them on a fixed
+    # interval bounds that staleness to this interval regardless of which
+    # worker made the change, which is what makes it safe to run more than
+    # one worker (see deploy/oxypc.service and services/oxypc-inventory.service).
+    async def _refresh_all_caches_periodically(interval_seconds: int = 60):
+        from database import AsyncSessionLocal as _ASL_periodic
+        while True:
+            await asyncio.sleep(interval_seconds)
+            try:
+                async with _ASL_periodic() as _sess:
+                    from routers.master import load_all_permissions_to_cache as _p
+                    await _p(_sess)
+                from routers.sidebar_config import load_sidebar_labels_to_cache as _sc
+                async with _ASL_periodic() as _sess:
+                    await _sc(_sess)
+                from routers.landing_pages import load_page_titles_to_cache as _pt
+                async with _ASL_periodic() as _sess:
+                    await _pt(_sess)
+                from routers.landing_pages import load_breadcrumb_settings_to_cache as _bc
+                async with _ASL_periodic() as _sess:
+                    await _bc(_sess)
+                from utils.master_data import refresh_master_cache as _mc
+                async with _ASL_periodic() as _sess:
+                    await _mc(_sess)
+                from services.control_engine import invalidate_transitions_cache as _itc
+                _itc()  # lazy-reloads on next call in this worker
+            except Exception as _rce:
+                print(f"  [CacheRefresh] Periodic refresh failed (will retry next interval): {_rce}")
+
+    asyncio.create_task(_refresh_all_caches_periodically())
+    print("  [CacheRefresh] Periodic cache refresh started (60s interval)")
+
     # ── Print startup banner ───────────────────────────────────────────────────
     print(f"\n  {APP_NAME} started successfully")
     print(f"  URL: http://localhost:{APP_PORT}")

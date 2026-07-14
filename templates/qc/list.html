@@ -135,12 +135,13 @@
           {# 10 test rows #}
           <div id="stressTestGrid" class="d-flex flex-column gap-1"></div>
 
-          {# Verify QC / Go Cleaning — moved to the bottom of this panel so they
+          {# Fail / Complete — moved to the bottom of this panel so they
              act on whichever device is currently loaded here. #}
           <div class="d-flex gap-2 mt-3 pt-2 border-top">
-            <a id="stressVerifyQcBtn" href="#" class="btn btn-sm btn-primary flex-fill">Verify QC</a>
-            <button id="stressGoCleaningBtn" type="button" class="btn btn-sm btn-outline-secondary flex-fill"
-                    onclick="goCleaning()" title="Send to Cosmetic Refurb">Go Cleaning</button>
+            <button id="stressFailBtn" type="button" class="btn btn-sm btn-danger flex-fill"
+                    onclick="openFailModal()" title="Fail — assign to an L1/L2 engineer">Fail</button>
+            <button id="stressCompleteBtn" type="button" class="btn btn-sm btn-outline-secondary flex-fill"
+                    onclick="openCompleteModal()" title="Complete — send to Cosmetic Cleaning">Complete</button>
           </div>
 
         </div>{# /stressActiveArea #}
@@ -148,6 +149,70 @@
     </div>
   </div>
 
+</div>
+
+{# ── Fail modal: assign to L1/L2 engineer ─────────────────────────────────── #}
+<div class="modal fade" id="stressFailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-x-circle-fill text-danger me-2"></i>Fail — Assign to L1/L2 Engineer</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-3">Tag Number: <span id="failModalBarcode" class="font-monospace fw-semibold"></span></p>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">L1/L2 Engineer</label>
+          <select id="failEngineerSelect" class="form-select form-select-sm">
+            <option value="">— Select Engineer —</option>
+            {% for eng in l1l2_engineers %}
+            <option value="{{ eng.id }}">{{ eng.name }} ({{ eng.role.replace('_', ' ')|title }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">Notes</label>
+          <textarea id="failNotes" class="form-control form-control-sm" rows="3" placeholder="Failure reason / notes"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="failAssignBtn" class="btn btn-danger btn-sm" onclick="submitFail()">Assign</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Complete modal: assign to Paint/Cleaning engineer ────────────────────── #}
+<div class="modal fade" id="stressCompleteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-check-circle-fill text-success me-2"></i>Complete — Assign to Paint Engineer</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-3">Tag Number: <span id="completeModalBarcode" class="font-monospace fw-semibold"></span></p>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Paint Engineer</label>
+          <select id="completeEngineerSelect" class="form-select form-select-sm">
+            <option value="">— Select Engineer —</option>
+            {% for eng in paint_engineers %}
+            <option value="{{ eng.id }}">{{ eng.name }} ({{ eng.role.replace('_', ' ')|title }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">Notes</label>
+          <textarea id="completeNotes" class="form-control form-control-sm" rows="3" placeholder="Notes for cosmetic/cleaning stage"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="completeAssignBtn" class="btn btn-success btn-sm" onclick="submitComplete()">Assign</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 {% endblock %}
@@ -222,8 +287,6 @@ function activateStressTest(btn) {
   const activeRow = document.getElementById('row-' + _barcode);
   if (activeRow) activeRow.classList.add('stress-active-row');
 
-  document.getElementById('stressVerifyQcBtn').href = '/qc/new?barcode=' + encodeURIComponent(_barcode);
-
   document.getElementById('stressIdleMsg').classList.add('d-none');
   document.getElementById('stressActiveArea').classList.remove('d-none');
   document.getElementById('stressSaveRow').classList.add('d-none');
@@ -283,24 +346,79 @@ async function stopStressTests() {
   setSpinner(false);
 }
 
-async function goCleaning() {
+function openFailModal() {
   if (!_barcode) return;
-  const btn = document.getElementById('stressGoCleaningBtn');
+  document.getElementById('failModalBarcode').textContent = _barcode;
+  document.getElementById('failEngineerSelect').value = '';
+  document.getElementById('failNotes').value = '';
+  new bootstrap.Modal(document.getElementById('stressFailModal')).show();
+}
+
+function openCompleteModal() {
+  if (!_barcode) return;
+  document.getElementById('completeModalBarcode').textContent = _barcode;
+  document.getElementById('completeEngineerSelect').value = '';
+  document.getElementById('completeNotes').value = '';
+  new bootstrap.Modal(document.getElementById('stressCompleteModal')).show();
+}
+
+async function submitFail() {
+  if (!_barcode) return;
+  const engineerId = document.getElementById('failEngineerSelect').value;
+  if (!engineerId) { alert('Please select an L1/L2 engineer'); return; }
+  const notes = document.getElementById('failNotes').value;
+  const btn = document.getElementById('failAssignBtn');
   btn.disabled = true;
   try {
-    const r = await fetch('/cosmetic/send-to-cosmetic', {
+    const r = await fetch(`/stress/${_barcode}/fail`, {
       method: 'POST',
       headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF},
-      body: 'barcode=' + encodeURIComponent(_barcode) + '&csrf_token=' + encodeURIComponent(CSRF),
+      body: 'engineer_user_id=' + encodeURIComponent(engineerId) +
+            '&notes=' + encodeURIComponent(notes) +
+            '&csrf_token=' + encodeURIComponent(CSRF),
     });
     if (!r.ok) {
       const text = await r.text().catch(() => '');
-      alert('Failed to send to Cosmetic Refurb' + (text ? ': ' + text.slice(0, 200) : ''));
+      alert('Failed to assign' + (text ? ': ' + text.slice(0, 200) : ''));
       btn.disabled = false;
       return;
     }
-    // Stay on this page: remove the device's row from the table instead of
-    // following the endpoint's redirect (it's moved out of Stress Test now).
+    bootstrap.Modal.getInstance(document.getElementById('stressFailModal'))?.hide();
+    const row = document.getElementById('row-' + _barcode);
+    if (row) row.remove();
+    document.getElementById('stressIdleMsg').classList.remove('d-none');
+    document.getElementById('stressActiveArea').classList.add('d-none');
+    document.getElementById('stressTagBadge').textContent = '—';
+    _barcode = null;
+  } catch (e) {
+    alert('Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function submitComplete() {
+  if (!_barcode) return;
+  const engineerId = document.getElementById('completeEngineerSelect').value;
+  if (!engineerId) { alert('Please select a Paint engineer'); return; }
+  const notes = document.getElementById('completeNotes').value;
+  const btn = document.getElementById('completeAssignBtn');
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/stress/${_barcode}/complete-to-paint`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF},
+      body: 'engineer_user_id=' + encodeURIComponent(engineerId) +
+            '&notes=' + encodeURIComponent(notes) +
+            '&csrf_token=' + encodeURIComponent(CSRF),
+    });
+    if (!r.ok) {
+      const text = await r.text().catch(() => '');
+      alert('Failed to assign' + (text ? ': ' + text.slice(0, 200) : ''));
+      btn.disabled = false;
+      return;
+    }
+    bootstrap.Modal.getInstance(document.getElementById('stressCompleteModal'))?.hide();
     const row = document.getElementById('row-' + _barcode);
     if (row) row.remove();
     document.getElementById('stressIdleMsg').classList.remove('d-none');

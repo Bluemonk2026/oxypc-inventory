@@ -28,6 +28,10 @@ class WorkOrder(Base):
     assigned_name = Column(String(100), nullable=True)
 
     status = Column(String(20), nullable=False, default="pending")  # pending | in_progress | completed
+
+    # Full name of the L1/L2 engineer who raised a "Request to L3/L4" (shown as the
+    # Notes column on the L3/L4 Repair page). Null for ordinary stock-transfer WorkOrders.
+    requested_by_name = Column(String(100), nullable=True)
     source_transfer_id = Column(UUID(as_uuid=True), ForeignKey("stock_transfers.id"), nullable=True)
 
     assigned_at = Column(DateTime, nullable=False, default=app_now)

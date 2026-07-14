@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}L3/L4 Repair — OxyPC{% endblock %}
+{% block page_title %}L3/L4 Repair Stage{% endblock %}
+{% block content %}
+
+<div class="row g-3">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">L3/L4 Work Orders ({{ items|length }})</div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table id="l3l4Table" class="table table-hover mb-0 small">
+            <thead class="table-dark">
+              <tr><th>WorkID</th><th>Tag Number</th><th>Status</th><th>Bucket</th><th>Notes</th><th>Aging</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+              {% for it in items %}
+              <tr>
+                <td><span class="font-monospace fw-bold">{{ it.work_id }}</span></td>
+                <td><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
+                <td>
+                  <span class="badge bg-{{ 'success' if it.status == 'Completed' else ('danger' if 'Scrap' in it.status else ('info' if it.status == 'Repair Started' else 'secondary')) }}">{{ it.status }}</span>
+                </td>
+                <td>{% if it.bucket %}<span class="badge bg-warning text-dark font-monospace">{{ it.bucket }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                <td class="text-muted">{{ it.notes }}</td>
+                <td><span class="badge bg-{{ 'danger' if it.aging >= 3 else ('warning text-dark' if it.aging >= 1 else 'secondary') }}">{{ it.aging }} day{{ 's' if it.aging != 1 else '' }}</span></td>
+                <td class="text-nowrap">
+                  {% if it.status == 'Repair Started' %}
+                    <form method="post" action="/repair/l3l4-complete" class="d-inline">
+                      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                      <input type="hidden" name="device_id" value="{{ it.device_id }}">
+                      <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-check-lg"></i> Complete</button>
+                    </form>
+                    <button type="button" class="btn btn-sm btn-danger scrap-btn"
+                            data-device="{{ it.device_id }}" data-barcode="{{ it.barcode }}">
+                      <i class="bi bi-trash3"></i> Scrap</button>
+                  {% else %}
+                    <form method="post" action="/repair/l3l4-start" class="d-inline">
+                      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                      <input type="hidden" name="device_id" value="{{ it.device_id }}">
+                      <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-play-fill"></i> Start Repair</button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="7" class="text-center text-muted py-4">No L3/L4 work orders assigned.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Scrap modal -->
+<div class="modal fade" id="scrapModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" action="/repair/l3l4-scrap" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="device_id" id="sc_device">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-trash3 me-2"></i>Scrap Device</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2"><span class="text-muted small">Tag Number:</span> <strong id="sc_barcode">—</strong></div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="scrap_type" value="Normal Scrap" id="sc_normal" checked>
+          <label class="form-check-label" for="sc_normal">Normal Scrap</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="scrap_type" value="Replacement Scrap" id="sc_repl">
+          <label class="form-check-label" for="sc_repl">Replacement Scrap</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-danger">Confirm Scrap</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){ $('#l3l4Table').DataTable({}); });
+(function(){
+  var scModal = new bootstrap.Modal(document.getElementById('scrapModal'));
+  document.querySelectorAll('.scrap-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.getElementById('sc_device').value = btn.dataset.device;
+      document.getElementById('sc_barcode').textContent = btn.dataset.barcode;
+      scModal.show();
+    });
+  });
+})();
+</script>
+{% endblock %}

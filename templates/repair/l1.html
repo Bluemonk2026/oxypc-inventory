@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}L1 Repair — OxyPC{% endblock %}
-{% block page_title %}L1 Repair Stage{% endblock %}
+{% block title %}L1/L2 Repair — OxyPC{% endblock %}
+{% block page_title %}L1/L2 Repair Stage{% endblock %}
 {% block content %}
 
-{# Start L1 Repair section hidden per spec — repairs are started from the Devices in L1 table below. #}
+{# Right-side Complete Job panel removed — repair is now a status-driven flow on this table. #}
 
 <!-- Scrap warning / Suggest QC banners -->
 {% if scrap_warning_map %}
@@ -17,29 +17,16 @@
   <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
 </div>
 {% endif %}
-{% if suggest_qc_ids %}
-<div class="alert alert-info alert-dismissible fade show mb-3" role="alert">
-  <strong><i class="bi bi-arrow-right-circle-fill me-1"></i>Ready for QC</strong> — {{ suggest_qc_ids|length }} device(s) have no open repair jobs and may be moved to QC:
-  <ul class="mb-0 mt-1 small">
-    {% for device, lot_number in devices %}{% if device.id|string in suggest_qc_ids %}
-    <li><code>{{ device.barcode }}</code> – {{ device.brand or '' }} {{ device.model or '' }}</li>
-    {% endif %}{% endfor %}
-  </ul>
-  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-</div>
-{% endif %}
 
-<div class="d-flex flex-column flex-lg-row gap-3 align-items-start">
-
-  <!-- Devices in L1 (70%) -->
-  <div style="flex:1 1 70%; width:70%; min-width:0;">
+<div class="row g-3">
+  <div class="col-12">
     <div class="card border-0 shadow-sm">
-      <div class="card-header bg-transparent fw-semibold">Devices in L1 ({{ devices|length }})</div>
+      <div class="card-header bg-transparent fw-semibold">Devices in L1/L2 ({{ devices|length }})</div>
       <div class="card-body p-0">
         <div class="table-responsive">
           <table id="l1Table" class="table table-hover mb-0 small">
             <thead class="table-dark">
-              <tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Location</th><th>Parts Required</th><th>Parts Requested</th><th>Notes</th><th>Aging</th><th>Action</th></tr>
+              <tr><th>WorkID</th><th>Tag Number</th><th>Status</th><th>Bucket</th><th>Location</th><th>Parts Required</th><th>Parts Requested</th><th>Notes</th><th>Aging</th><th>L3/L4 Status</th><th>Action</th></tr>
             </thead>
             <tbody>
               {% for device, lot_number in devices %}
@@ -47,6 +34,10 @@
               <tr>
                 <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
                 <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a></td>
+                <td>
+                  {% set st = device.l1l2_status or 'New' %}
+                  <span class="badge bg-{{ 'info' if st == 'Repair Started' else ('primary' if st == 'Requested to L3/L4' else 'secondary') }}">{{ st }}</span>
+                </td>
                 <td>{% set bkt = bucket_map.get(device.id|string) if bucket_map is defined else None %}{% if bkt %}<span class="badge bg-warning text-dark font-monospace">{{ bkt }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                 <td>
                   {% set loc = location_map.get(device.id | string) %}
@@ -66,18 +57,34 @@
                 <td class="text-center">{% set pq = parts_requested_map.get(device.id|string, 0) if parts_requested_map is defined else 0 %}<span class="badge bg-{{ 'primary' if pq else 'light text-muted border' }}">{{ pq }}</span></td>
                 <td class="text-muted">{{ device.notes or '' }}</td>
                 <td>{% if wo %}<span class="badge bg-{{ 'danger' if wo.days_pending >= 3 else ('warning text-dark' if wo.days_pending >= 1 else 'secondary') }}">{{ wo.days_pending }} day{{ 's' if wo.days_pending != 1 else '' }}</span>{% if wo.paused %}<span class="badge bg-secondary ms-1" title="Frozen — a required part is out of stock"><i class="bi bi-pause-fill"></i> Paused</span>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                <td>
+                  {% if device.l34_status %}
+                  <span class="badge bg-{{ 'success' if device.l34_status == 'Completed' else ('danger' if 'Scrap' in device.l34_status else 'info') }}">{{ device.l34_status }}</span>
+                  {% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
                 <td class="text-nowrap">
-                  {% if started_ids is defined and device.id|string in started_ids %}
-                  <span class="badge rounded-pill bg-info"><i class="bi bi-play-circle me-1"></i>Repair Started</span>
+                  {% if device.l34_status in ['Normal Scrap', 'Replacement Scrap'] %}
+                    <form method="post" action="/repair/back-to-production" class="d-inline">
+                      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                      <input type="hidden" name="device_id" value="{{ device.id }}">
+                      <button type="submit" class="btn btn-sm btn-dark"><i class="bi bi-arrow-return-left"></i> Back to Production</button>
+                    </form>
+                  {% elif device.l1l2_status == 'Repair Started' %}
+                    <button type="button" class="btn btn-sm btn-success complete-btn"
+                            data-device="{{ device.id }}" data-barcode="{{ device.barcode }}">
+                      <i class="bi bi-check-lg"></i> Complete</button>
+                    <a href="/devices/{{ device.barcode }}?from=repair_l1#parts" class="btn btn-sm" style="background-color:#ffc107;color:#000;border-color:#ffc107;"><i class="bi bi-bag-plus"></i> Request Part</a>
                   {% else %}
-                  <form method="post" action="/repair/start" class="d-inline">
-                    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-                    <input type="hidden" name="barcode" value="{{ device.barcode }}">
-                    <input type="hidden" name="stage" value="{{ stage }}">
-                    <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-play-fill"></i> Start Repair</button>
-                  </form>
+                    <form method="post" action="/repair/l1l2-start" class="d-inline">
+                      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                      <input type="hidden" name="device_id" value="{{ device.id }}">
+                      <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-play-fill"></i> Start Repair</button>
+                    </form>
+                    <button type="button" class="btn btn-sm btn-outline-primary request-l3l4-btn"
+                            data-device="{{ device.id }}" data-barcode="{{ device.barcode }}">
+                      <i class="bi bi-arrow-up-right-circle"></i> Request to L3/L4</button>
+                    <a href="/devices/{{ device.barcode }}?from=repair_l1#parts" class="btn btn-sm" style="background-color:#ffc107;color:#000;border-color:#ffc107;"><i class="bi bi-bag-plus"></i> Request Part</a>
                   {% endif %}
-                  <a href="/devices/{{ device.barcode }}?from=repair_l1#parts" class="btn btn-sm" style="background-color:#ffc107;color:#000000;border-color:#ffc107;"><i class="bi bi-bag-plus"></i> Request Part</a>
                 </td>
               </tr>
               {% endfor %}
@@ -86,49 +93,81 @@
         </div>
       </div>
     </div>
-
   </div>
+</div>
 
-  <!-- Complete L1 Repair Job (30%) -->
-  <div style="flex:1 1 30%; width:30%; min-width:0;">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-header bg-success-subtle fw-semibold"><i class="bi bi-check-circle me-2"></i>Complete L1 Repair Job</div>
-      <div class="card-body">
-        <form action="/repair/complete" method="post">
-          <div class="row g-2">
-            <div class="col-12">
-              <label class="form-label small fw-semibold">Open Job</label>
-              <select name="job_id" class="form-select" required>
-                <option value="">-- Select open job --</option>
-                {% for job, barcode, brand, model in open_jobs %}
-                <option value="{{ job.id }}">{{ barcode }} — {{ brand or '' }} {{ model or '' }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-12">
-              <label class="form-label small fw-semibold d-block">Final Status</label>
-              {% for opt in ['Completed','Request to L2'] %}
-              <div class="form-check">
-                <input class="form-check-input" type="radio" name="final_status" value="{{ opt }}" id="fs_l1_{{ loop.index }}">
-                <label class="form-check-label" for="fs_l1_{{ loop.index }}">{{ opt }}</label>
-              </div>
-              {% endfor %}
-            </div>
-            <div class="col-12">
-              <label class="form-label small fw-semibold">Resolution / Work Done</label>
-              <input type="text" name="resolution" class="form-control" placeholder="Resolution / work done">
-            </div>
-          </div>
-          <button class="btn btn-success mt-3 w-100"><i class="bi bi-check-lg me-1"></i>Mark Complete</button>
-        </form>
+<!-- Request to L3/L4 modal -->
+<div class="modal fade" id="requestL3L4Modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" action="/repair/request-l3l4" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="device_id" id="rl_device">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-arrow-up-right-circle me-2"></i>Request to L3/L4</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-    </div>
+      <div class="modal-body">
+        <div class="mb-2"><span class="text-muted small">Tag Number:</span> <strong id="rl_barcode">—</strong></div>
+        <label class="form-label small fw-semibold">L3/L4 Engineer</label>
+        <select name="assigned_l3l4_username" class="form-select" required>
+          <option value="">-- Select engineer --</option>
+          {% for e in l3l4_engineers %}<option value="{{ e.username }}">{{ e.full_name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Assign</button>
+      </div>
+    </form>
   </div>
+</div>
 
+<!-- Complete → Stress Test modal -->
+<div class="modal fade" id="completeStressModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" action="/repair/l1l2-complete-to-stress" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="device_id" id="cs_device">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-check-circle me-2"></i>Complete — Assign Stress Test</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2"><span class="text-muted small">Tag Number:</span> <strong id="cs_barcode">—</strong></div>
+        <label class="form-label small fw-semibold">Stress Test Engineer</label>
+        <select name="stress_engineer_username" class="form-select" required>
+          <option value="">-- Select engineer --</option>
+          {% for e in stress_engineers %}<option value="{{ e.username }}">{{ e.full_name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-success">Assign</button>
+      </div>
+    </form>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
 $(document).ready(function(){ $('#l1Table').DataTable({}); });
+(function(){
+  var rlModal = new bootstrap.Modal(document.getElementById('requestL3L4Modal'));
+  var csModal = new bootstrap.Modal(document.getElementById('completeStressModal'));
+  document.querySelectorAll('.request-l3l4-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.getElementById('rl_device').value = btn.dataset.device;
+      document.getElementById('rl_barcode').textContent = btn.dataset.barcode;
+      rlModal.show();
+    });
+  });
+  document.querySelectorAll('.complete-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.getElementById('cs_device').value = btn.dataset.device;
+      document.getElementById('cs_barcode').textContent = btn.dataset.barcode;
+      csModal.show();
+    });
+  });
+})();
 </script>
 {% endblock %}

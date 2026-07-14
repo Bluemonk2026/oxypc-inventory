@@ -3,21 +3,6 @@
 {% block page_title %}Final QC{% endblock %}
 {% block content %}
 
-<nav class="mb-3">
-  <ol class="breadcrumb small">
-    <li class="breadcrumb-item"><a href="/cosmetic">Cosmetic Pipeline</a></li>
-    <li class="breadcrumb-item active">Final QC</li>
-  </ol>
-</nav>
-
-<!-- Stage nav tabs -->
-<div class="d-flex gap-2 mb-3 flex-wrap">
-  {% for s in pipeline %}
-  <a href="/cosmetic/{{ s.value }}"
-     class="btn btn-sm {{ 'btn-primary' if s == stage else 'btn-outline-secondary' }}">{{ stage_labels[s] }}</a>
-  {% endfor %}
-</div>
-
 <div class="mb-3">
   <span class="badge bg-warning text-dark fs-6 px-3 py-2">{{ devices|length }} device(s) awaiting Final QC</span>
   <span class="text-muted small ms-2">Review IQC details + parts, revalidate if needed, then grade and move to Ready to Sale.</span>

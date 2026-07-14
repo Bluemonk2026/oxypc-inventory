@@ -142,8 +142,11 @@
       </a></li>
       {% endif %}
       {% if has_perm(role,'repair_l3','enable') %}
-      <li><a href="/repair/l3" class="nav-link {% if '/repair/l3' in request.url.path %}active{% endif %}">
+      <li><a href="/repair/l3" class="nav-link {% if request.url.path == '/repair/l3' %}active{% endif %}">
         <i class="bi bi-cpu me-2"></i> {{ sidebar_label('repair_l3', 'L3 Repair') }}
+      </a></li>
+      <li><a href="/repair/l3l4" class="nav-link {% if '/repair/l3l4' in request.url.path %}active{% endif %}">
+        <i class="bi bi-cpu-fill me-2"></i> {{ sidebar_label('repair_l3l4', 'L3/L4 Repair') }}
       </a></li>
       {% endif %}
       {% if has_perm(role,'qc_check','enable') %}

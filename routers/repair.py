@@ -50,6 +50,324 @@ def stage_allowed(stage: str):
     return role_map.get(stage, require_roles(UserRole.admin))
 
 
+# ── WorkID generation for the status-driven L1/L2 ↔ L3/L4 hand-off flow ────────
+# work_orders.work_id is VARCHAR(12). "L3L4-"/"L1L2-" prefixes (5 chars) leave 7
+# digits → 12 chars total, which fits the column without a widening migration.
+async def _gen_prefixed_work_id(db: AsyncSession, prefix: str) -> str:
+    width = 12 - len(prefix)
+    base = (await db.execute(
+        select(func.count(WorkOrder.id)).where(WorkOrder.work_id.like(f"{prefix}%"))
+    )).scalar() or 0
+    n = base + 1
+    for _ in range(100000):
+        wid = f"{prefix}{str(n).zfill(width)}"
+        taken = (await db.execute(
+            select(WorkOrder.id).where(WorkOrder.work_id == wid)
+        )).scalar_one_or_none()
+        if not taken:
+            return wid
+        n += 1
+    raise HTTPException(500, "Could not allocate a WorkID")
+
+
+async def _close_open_movement(db, device):
+    """Mark the device's current open StageMovement as exited (mirrors the
+    existing pattern used throughout complete_repair)."""
+    prev_mv = (await db.execute(
+        select(StageMovement)
+        .where(StageMovement.device_id == device.id,
+               StageMovement.to_stage == device.current_stage,
+               StageMovement.exited_at == None)
+        .order_by(StageMovement.moved_at.desc())
+    )).scalars().first()
+    if prev_mv:
+        prev_mv.exited_at = app_now()
+
+
+@router.post("/l1l2-start")
+async def l1l2_start(
+    request: Request,
+    device_id: str = Form(...),
+    csrf_token: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Lightweight status-only Start Repair for the reworked L1/L2 page."""
+    device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    device.l1l2_status = "Repair Started"
+    device.updated_at = app_now()
+    await audit(db, user=current_user, action="L1L2_REPAIR_STARTED",
+                table_name="devices", record_id=str(device.id),
+                notes=f"L1/L2 repair started on {device.barcode}", request=request)
+    await db.commit()
+    return RedirectResponse(url="/repair/l1?success=Repair+started", status_code=302)
+
+
+@router.post("/request-l3l4")
+async def request_l3l4(
+    request: Request,
+    device_id: str = Form(...),
+    assigned_l3l4_username: str = Form(...),
+    csrf_token: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Raise an L3/L4 request: device stays in L1/L2, a NEW (L3L4-prefixed)
+    WorkOrder is created for the chosen L3/L4 engineer. The existing L1/L2
+    WorkOrder is left untouched (a device can hold two open WorkOrders)."""
+    device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    eng = (await db.execute(
+        select(User).where(User.username == assigned_l3l4_username)
+    )).scalar_one_or_none()
+    if not eng:
+        raise HTTPException(404, "Selected L3/L4 engineer not found")
+
+    device.l1l2_status = "Requested to L3/L4"
+    device.updated_at = app_now()
+
+    work_id = await _gen_prefixed_work_id(db, "L3L4-")
+    db.add(WorkOrder(
+        work_id=work_id, device_id=device.id, barcode=device.barcode,
+        stage="l3", assigned_role="l3_engineer",
+        assigned_user_id=eng.id, assigned_username=eng.username,
+        assigned_name=eng.full_name, status="pending",
+        requested_by_name=current_user.full_name or current_user.username,
+        created_by=current_user.username,
+    ))
+    await create_notification(
+        db, user_id=eng.id, title="L3/L4 Repair Requested",
+        message=(f"{device.barcode} was sent to you for L3/L4 repair by "
+                 f"{current_user.full_name or current_user.username} (WorkID: {work_id})."),
+        notification_type="info", barcode=device.barcode,
+        brand=device.brand, model=device.model, stage="l3",
+    )
+    await audit(db, user=current_user, action="REQUEST_L3L4",
+                table_name="work_orders", record_id=str(device.id),
+                new_value={"work_id": work_id, "assigned": eng.username}, request=request)
+    await db.commit()
+    return RedirectResponse(url="/repair/l1?success=Requested+to+L3/L4", status_code=302)
+
+
+@router.post("/l1l2-complete-to-stress")
+async def l1l2_complete_to_stress(
+    request: Request,
+    device_id: str = Form(...),
+    stress_engineer_username: str = Form(...),
+    csrf_token: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Complete L1/L2: move the device to Stress Test (qc_check) and assign it
+    to the chosen Stress Test engineer."""
+    device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    eng = (await db.execute(
+        select(User).where(User.username == stress_engineer_username)
+    )).scalar_one_or_none()
+    if not eng:
+        raise HTTPException(404, "Selected Stress Test engineer not found")
+
+    prev = device.current_stage
+    await _close_open_movement(db, device)
+    # Close any open L1/L2 WorkOrders for this device
+    from sqlalchemy import update as sa_update
+    await db.execute(
+        sa_update(WorkOrder)
+        .where(WorkOrder.device_id == device.id,
+               or_(WorkOrder.work_id.like("L1L2-%"), WorkOrder.stage.in_(["l1", "l2"])),
+               WorkOrder.status != "completed")
+        .values(status="completed", completed_at=app_now())
+    )
+    device.current_stage = DeviceStage.qc_check
+    device.l1l2_status = "Completed"
+    device.updated_at = app_now()
+    db.add(StageMovement(device_id=device.id, from_stage=prev, to_stage=DeviceStage.qc_check,
+                         moved_by=current_user.username,
+                         notes=f"L1/L2 completed — assigned to Stress Test ({eng.full_name or eng.username})"))
+    # A WorkOrder makes the assignment visible on the WorkID Status board
+    work_id = await _gen_prefixed_work_id(db, "STRS-")
+    db.add(WorkOrder(
+        work_id=work_id, device_id=device.id, barcode=device.barcode,
+        stage="qc", assigned_role="qc_inspector",
+        assigned_user_id=eng.id, assigned_username=eng.username,
+        assigned_name=eng.full_name, status="pending",
+        requested_by_name=current_user.full_name or current_user.username,
+        created_by=current_user.username,
+    ))
+    await create_notification(
+        db, user_id=eng.id, title="Device Assigned for Stress Test",
+        message=(f"{device.barcode} was moved to Stress Test and assigned to you by "
+                 f"{current_user.full_name or current_user.username}."),
+        notification_type="info", barcode=device.barcode,
+        brand=device.brand, model=device.model, stage="qc_check",
+    )
+    await audit(db, user=current_user, action="L1L2_COMPLETE_TO_STRESS",
+                table_name="devices", record_id=str(device.id),
+                new_value={"assigned": eng.username}, request=request)
+    await db.commit()
+    return RedirectResponse(url="/repair/l1?success=Moved+to+Stress+Test", status_code=302)
+
+
+@router.post("/back-to-production")
+async def back_to_production(
+    request: Request,
+    device_id: str = Form(...),
+    csrf_token: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """After an L3/L4 scrap decision, push the device into the Production
+    Manager's 'Scrap Products from Repair Line' table (current_stage=scrapped)."""
+    device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    prev = device.current_stage
+    await _close_open_movement(db, device)
+    device.current_stage = DeviceStage.scrapped
+    device.updated_at = app_now()
+    db.add(StageMovement(device_id=device.id, from_stage=prev, to_stage=DeviceStage.scrapped,
+                         moved_by=current_user.username,
+                         notes=f"Back to Production — {device.l34_status or 'Scrap'} from repair line"))
+    await audit(db, user=current_user, action="BACK_TO_PRODUCTION",
+                table_name="devices", record_id=str(device.id),
+                notes=f"{device.l34_status or 'Scrap'} → Scrap Products", request=request)
+    await db.commit()
+    return RedirectResponse(url="/repair/l1?success=Sent+to+Scrap+Products", status_code=302)
+
+
+# ── L3/L4 Repair page (WorkOrder-driven, per assigned engineer) ────────────────
+@router.get("/l3l4", response_class=HTMLResponse)
+async def l3l4_list(request: Request,
+                    db: AsyncSession = Depends(get_db),
+                    current_user: User = Depends(get_current_user)):
+    is_admin = current_user.role.value == "admin"
+    stmt = (select(WorkOrder, Device, Lot.lot_number)
+            .join(Device, WorkOrder.device_id == Device.id)
+            .join(Lot, Device.lot_id == Lot.id, isouter=True)
+            .where(WorkOrder.work_id.like("L3L4-%"),
+                   WorkOrder.status != "completed")
+            .order_by(WorkOrder.assigned_at.desc()))
+    if not is_admin:
+        stmt = stmt.where(WorkOrder.assigned_user_id == current_user.id)
+    rows = (await db.execute(stmt)).all()
+
+    today = app_now().date()
+    bucket_map: dict = {}
+    bucket_ids = [d.bucket_id for _, d, _ in rows if d.bucket_id]
+    if bucket_ids:
+        bkt_rows = (await db.execute(select(Bucket).where(Bucket.id.in_(bucket_ids)))).scalars().all()
+        bkt_by_id = {str(b.id): b.bucket_number for b in bkt_rows}
+        for _, d, _ln in rows:
+            if d.bucket_id:
+                bucket_map[str(d.id)] = bkt_by_id.get(str(d.bucket_id), "")
+
+    items = []
+    for wo, dev, lot_number in rows:
+        aging = max(0, (today - wo.assigned_at.date()).days) if wo.assigned_at else 0
+        items.append({
+            "work_id": wo.work_id,
+            "device_id": str(dev.id),
+            "barcode": dev.barcode,
+            "status": dev.l34_status or "New",
+            "bucket": bucket_map.get(str(dev.id), ""),
+            "notes": wo.requested_by_name or "—",
+            "aging": aging,
+        })
+    return templates.TemplateResponse("repair/l3l4.html", {
+        "request": request, "current_user": current_user,
+        "items": items, "total": len(items),
+    })
+
+
+@router.post("/l3l4-start")
+async def l3l4_start(
+    request: Request,
+    device_id: str = Form(...),
+    csrf_token: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    from sqlalchemy import update as sa_update
+    await db.execute(
+        sa_update(WorkOrder)
+        .where(WorkOrder.device_id == device.id, WorkOrder.work_id.like("L3L4-%"),
+               WorkOrder.status != "completed")
+        .values(status="in_progress", started_at=app_now())
+    )
+    device.l34_status = "Repair Started"
+    device.updated_at = app_now()
+    await audit(db, user=current_user, action="L3L4_REPAIR_STARTED",
+                table_name="devices", record_id=str(device.id),
+                notes=f"L3/L4 repair started on {device.barcode}", request=request)
+    await db.commit()
+    return RedirectResponse(url="/repair/l3l4?success=Repair+started", status_code=302)
+
+
+@router.post("/l3l4-complete")
+async def l3l4_complete(
+    request: Request,
+    device_id: str = Form(...),
+    csrf_token: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    from sqlalchemy import update as sa_update
+    await db.execute(
+        sa_update(WorkOrder)
+        .where(WorkOrder.device_id == device.id, WorkOrder.work_id.like("L3L4-%"),
+               WorkOrder.status != "completed")
+        .values(status="completed", completed_at=app_now())
+    )
+    device.l34_status = "Completed"
+    device.updated_at = app_now()
+    await audit(db, user=current_user, action="L3L4_COMPLETE",
+                table_name="devices", record_id=str(device.id),
+                notes=f"L3/L4 completed on {device.barcode}", request=request)
+    await db.commit()
+    return RedirectResponse(url="/repair/l3l4?success=Repair+completed", status_code=302)
+
+
+@router.post("/l3l4-scrap")
+async def l3l4_scrap(
+    request: Request,
+    device_id: str = Form(...),
+    scrap_type: str = Form(...),
+    csrf_token: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if scrap_type not in ("Normal Scrap", "Replacement Scrap"):
+        raise HTTPException(400, "Invalid scrap type")
+    device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    from sqlalchemy import update as sa_update
+    await db.execute(
+        sa_update(WorkOrder)
+        .where(WorkOrder.device_id == device.id, WorkOrder.work_id.like("L3L4-%"),
+               WorkOrder.status != "completed")
+        .values(status="completed", completed_at=app_now())
+    )
+    device.l34_status = scrap_type
+    device.updated_at = app_now()
+    await audit(db, user=current_user, action="L3L4_SCRAP",
+                table_name="devices", record_id=str(device.id),
+                notes=f"{scrap_type} on {device.barcode}", request=request)
+    await db.commit()
+    return RedirectResponse(url="/repair/l3l4?success=Scrap+recorded", status_code=302)
+
+
 @router.get("/{stage}", response_class=HTMLResponse)
 async def repair_list(stage: str, request: Request,
                       db: AsyncSession = Depends(get_db),
@@ -243,8 +561,19 @@ async def repair_list(stage: str, request: Request,
             if device.bucket_id:
                 bucket_map[str(device.id)] = bkt_by_id.get(str(device.bucket_id), "")
 
+    # ── Engineer dropdowns for the L1/L2 hand-off modals ──────────────────────
+    l3l4_engineers = (await db.execute(
+        select(User).where(User.role == "l3_engineer", User.status == True)
+        .order_by(User.full_name)
+    )).scalars().all()
+    stress_engineers = (await db.execute(
+        select(User).where(User.role == "qc_inspector", User.status == True)
+        .order_by(User.full_name)
+    )).scalars().all()
+
     return templates.TemplateResponse(f"repair/{stage}.html", {
         "request": request, "devices": devices, "open_jobs": open_jobs,
+        "l3l4_engineers": l3l4_engineers, "stress_engineers": stress_engineers,
         "stage": stage.upper(), "current_user": current_user,
         "returned_job_ids": returned_job_ids,
         "location_map": location_map,

@@ -114,6 +114,8 @@ Table devices {
   bios_password bool [default: false]
   grade varchar(10)
   final_qc_status varchar(10) [note: 'pass / fail — set on Final QC decision, indexed']
+  l1l2_status varchar(30) [default: 'New', note: 'New | Repair Started | Requested to L3/L4 — drives L1/L2 Repair page actions']
+  l34_status varchar(30) [note: 'Repair Started | Completed | Normal Scrap | Replacement Scrap — set by L3/L4 page, read by L1/L2 L3/L4-Status col']
   current_stage varchar(30) [not null, default: 'iqc', note: 'indexed']
   floor varchar(50)
   warehouse varchar(100)
@@ -1351,6 +1353,7 @@ Table work_orders {
   created_at datetime [default: `now()`]
   paused_since datetime [note: 'set when a required part hits 0 stock; cleared on resume']
   paused_days_total int [not null, default: 0, note: 'accumulated frozen days across pause cycles']
+  requested_by_name varchar(100) [note: 'L1/L2 engineer full name who raised a Request-to-L3/L4 (Notes col on L3/L4 page)']
 }
 
 Table part_requests {

@@ -122,6 +122,9 @@ class Device(Base):
     grn_number = Column(String(50), nullable=True)     # Goods Receipt Note ref
     return_status = Column(Boolean, nullable=False, default=False, server_default=text("false"))  # True once returned via Process Return
     replaced = Column(String(120), nullable=True)      # "Replaced by <tag>" / "Replaced from <tag>" (L3 device swap)
+    # ── L1/L2 → L3/L4 status-driven hand-off flow (additive; auto-provisioned by db_validator) ──
+    l1l2_status = Column(String(30), nullable=True, default="New")   # New | Repair Started | Requested to L3/L4
+    l34_status  = Column(String(30), nullable=True)                  # (blank) | Repair Started | Completed | Normal Scrap | Replacement Scrap
     device_price = Column(Numeric(12, 2), nullable=True)  # Individual device buying price
     qty           = Column(Integer, nullable=True, server_default="1")  # Units this record covers (default 1)
     lot_line_item_id = Column(UUID(as_uuid=True), ForeignKey("lot_line_items.id"), nullable=True)

@@ -17,17 +17,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Body
-from fastapi.responses import JSONResponse, StreamingResponse
+import uuid as uuid_module
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Body
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_user, verify_csrf
 from database import get_db
-from models.device import Device
-from models.user import User
+from models.device import Device, DeviceStage, StageMovement
+from models.user import User, UserRole
 from models.stress import StressTestResult
+from models.work_order import WorkOrder
+from routers.transfers import _gen_work_id
+from services.audit_engine import audit
+from services.notifications import create_notification
 import stress_runner as sr
 from utils.timezone import app_now
 
@@ -384,6 +390,162 @@ async def list_results(
         }
         for r in records
     ]
+
+
+@router.post("/{barcode}/fail")
+async def stress_fail_assign(
+    barcode: str,
+    engineer_user_id: str = Form(...),
+    notes: str = Form(""),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """'Fail' — assign the device to an L1/L2 engineer.
+
+    Replicates the exact WorkOrder + stage-move mechanism Stock Transfer uses
+    when assigning a device to an L1/L2 engineer (see routers/transfers.py
+    `_move_devices_bulk`), so the device shows up on that engineer's L1/L2
+    Repair "assigned to me" table via the existing WorkOrder query in
+    routers/repair.py (`WorkOrder.stage == stage, status != completed`).
+    """
+    dev_res = await db.execute(select(Device).where(Device.barcode == barcode))
+    device = dev_res.scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, f"Device {barcode} not found")
+
+    try:
+        eng_uuid = uuid_module.UUID(engineer_user_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(400, "Invalid engineer selected")
+
+    engineer = (await db.execute(select(User).where(User.id == eng_uuid))).scalar_one_or_none()
+    if not engineer or engineer.role not in (UserRole.l1_engineer, UserRole.l2_engineer):
+        raise HTTPException(400, "Selected user is not an active L1/L2 engineer")
+
+    target_stage_str = "l1" if engineer.role == UserRole.l1_engineer else "l2"
+    new_stage = DeviceStage.l1 if target_stage_str == "l1" else DeviceStage.l2
+
+    prev_stage = device.current_stage
+    prev_mv = (await db.execute(
+        select(StageMovement).where(
+            StageMovement.device_id == device.id,
+            StageMovement.to_stage == prev_stage,
+            StageMovement.exited_at == None,
+        ).order_by(StageMovement.moved_at.desc())
+    )).scalars().first()
+    if prev_mv:
+        prev_mv.exited_at = app_now()
+
+    device.current_stage = new_stage
+    device.updated_at = app_now()
+    move_notes = f"Stress Test Failed — assigned to {engineer.full_name or engineer.username}"
+    if notes:
+        move_notes += f". {notes}"
+    db.add(StageMovement(device_id=device.id, from_stage=prev_stage, to_stage=new_stage,
+                         moved_by=current_user.username, notes=move_notes))
+
+    work_id = await _gen_work_id(db)
+    db.add(WorkOrder(
+        work_id=work_id, device_id=device.id, barcode=device.barcode,
+        stage=target_stage_str, assigned_role=engineer.role.value,
+        assigned_user_id=engineer.id, assigned_username=engineer.username,
+        assigned_name=engineer.full_name, status="pending",
+        created_by=current_user.username,
+    ))
+
+    await create_notification(
+        db, user_id=engineer.id, title="Device Assigned to You",
+        message=(f"{device.barcode} failed Stress Test and has been assigned to you for "
+                 f"{target_stage_str.upper()} repair (WorkID: {work_id})."),
+        notification_type="warning",
+        barcode=device.barcode, brand=device.brand, model=device.model,
+        stage=new_stage.value,
+    )
+
+    await audit(db, user=current_user, action="STRESS_FAIL_ASSIGNED",
+                table_name="devices", record_id=str(device.id),
+                new_value={"assigned_to": engineer.username, "stage": target_stage_str,
+                           "work_id": work_id, "notes": notes},
+                request=None)
+
+    await db.commit()
+    return RedirectResponse(url="/qc?success=Device+failed+%26+assigned+to+" +
+                             (engineer.full_name or engineer.username).replace(" ", "+"),
+                             status_code=302)
+
+
+@router.post("/{barcode}/complete-to-paint")
+async def stress_complete_to_paint(
+    barcode: str,
+    engineer_user_id: str = Form(...),
+    notes: str = Form(""),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """'Complete' — send the device to the Cosmetic 'Cleaning' stage, assigned
+    to a Paint/Cleaning-stage engineer.
+
+    Reuses the exact stage-set logic from routers/cosmetic.py's
+    `send_to_cosmetic` (QC Check -> Cleaning), and additionally records a
+    WorkOrder (same mechanism used for L1/L2/L3 assignment) so the assignment
+    is traceable, since Device has no assigned_username field of its own.
+    """
+    dev_res = await db.execute(select(Device).where(Device.barcode == barcode))
+    device = dev_res.scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, f"Device {barcode} not found")
+
+    try:
+        eng_uuid = uuid_module.UUID(engineer_user_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(400, "Invalid engineer selected")
+
+    engineer = (await db.execute(select(User).where(User.id == eng_uuid))).scalar_one_or_none()
+    allowed_paint_roles = (UserRole.qc_inspector, UserRole.inventory_manager, UserRole.sales_manager)
+    if not engineer or engineer.role not in allowed_paint_roles:
+        raise HTTPException(400, "Selected user is not an active Paint/Cleaning engineer")
+
+    prev_stage = device.current_stage
+    device.current_stage = DeviceStage.cleaning
+    device.updated_at = app_now()
+    move_notes = f"Sent to Cosmetic Refurbishment (Cleaning) — assigned to {engineer.full_name or engineer.username}"
+    if notes:
+        move_notes += f". {notes}"
+    db.add(StageMovement(device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.cleaning,
+                         moved_by=current_user.username, notes=move_notes))
+
+    work_id = await _gen_work_id(db)
+    db.add(WorkOrder(
+        # WorkOrder.stage is String(5) (sized for "l1"/"l2"/"l3" only) — use
+        # the same 5-char-max convention rather than widening the column;
+        # this record is purely for traceability (no repair.py query reads
+        # WorkOrder rows with stage="clean").
+        work_id=work_id, device_id=device.id, barcode=device.barcode,
+        stage="clean", assigned_role=engineer.role.value,
+        assigned_user_id=engineer.id, assigned_username=engineer.username,
+        assigned_name=engineer.full_name, status="pending",
+        created_by=current_user.username,
+    ))
+
+    await create_notification(
+        db, user_id=engineer.id, title="Device Assigned to You",
+        message=(f"{device.barcode} completed Stress Test and has been sent to Cleaning, "
+                 f"assigned to you (WorkID: {work_id})."),
+        notification_type="info",
+        barcode=device.barcode, brand=device.brand, model=device.model,
+        stage=DeviceStage.cleaning.value,
+    )
+
+    await audit(db, user=current_user, action="STRESS_COMPLETE_TO_PAINT",
+                table_name="devices", record_id=str(device.id),
+                new_value={"assigned_to": engineer.username, "stage": "cleaning",
+                           "work_id": work_id, "notes": notes},
+                request=None)
+
+    await db.commit()
+    return RedirectResponse(url="/qc?success=Device+sent+to+Cleaning+%26+assigned+to+" +
+                             (engineer.full_name or engineer.username).replace(" ", "+"),
+                             status_code=302)
 
 
 @router.get("/has-results")

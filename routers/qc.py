@@ -89,10 +89,41 @@ async def qc_list(request: Request, db: AsyncSession = Depends(get_db),
                 "run_at":        run_at.strftime("%d %b %Y %H:%M") if run_at else "",
             }
 
+    # ── Engineer pools for the Stress panel's Fail / Complete modals ─────────
+    # "Fail" assigns to an L1/L2 engineer (same pool + WorkOrder mechanism as
+    # Stock Transfer's engineer assignment — see routers/transfers.py).
+    l1l2_result = await db.execute(
+        select(User).where(
+            User.role.in_([UserRole.l1_engineer, UserRole.l2_engineer]),
+            User.status == True,
+        ).order_by(User.full_name)
+    )
+    l1l2_engineers = [
+        {"id": str(u.id), "name": u.full_name or u.username, "username": u.username,
+         "role": u.role.value}
+        for u in l1l2_result.scalars().all()
+    ]
+    # "Complete" assigns to a Cosmetic/Cleaning-stage engineer. There is no
+    # dedicated "paint" role in UserRole — reuse the same role pool that is
+    # already permitted on the Cosmetic module (routers/cosmetic.py `allowed`).
+    paint_result = await db.execute(
+        select(User).where(
+            User.role.in_([UserRole.qc_inspector, UserRole.inventory_manager,
+                           UserRole.sales_manager]),
+            User.status == True,
+        ).order_by(User.full_name)
+    )
+    paint_engineers = [
+        {"id": str(u.id), "name": u.full_name or u.username, "username": u.username,
+         "role": u.role.value}
+        for u in paint_result.scalars().all()
+    ]
+
     return templates.TemplateResponse("qc/list.html", {
         "request": request, "devices": devices, "current_user": current_user,
         "location_map": location_map, "stress_map": stress_map,
         "total": total,
+        "l1l2_engineers": l1l2_engineers, "paint_engineers": paint_engineers,
     })
 
 

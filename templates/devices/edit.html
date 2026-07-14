@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Edit {{ device.barcode }} — OxyPC{% endblock %}
 {% block head %}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.bootstrap5.min.css">
+<link rel="stylesheet" href="/static/vendor/tom-select/css/tom-select.bootstrap5.min.css">
 <style>.sec-hd{ color:#1a56db !important; }</style>
 {% endblock %}
 {% block page_title %}Edit Device{% endblock %}
@@ -467,7 +467,7 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+<script src="/static/vendor/tom-select/js/tom-select.complete.min.js"></script>
 <script>
 async function loadMasterOptions(category, selectId, currentVal) {
   try {

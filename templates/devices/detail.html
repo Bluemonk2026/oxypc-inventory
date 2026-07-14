@@ -22,6 +22,13 @@
     <a href="/devices/{{ device.barcode }}/edit" class="btn btn-sm btn-outline-warning">
       <i class="bi bi-pencil me-1"></i>Edit
     </a>
+    {% set _from = request.query_params.get('from', '') %}
+    {% if _from.startswith('repair_') %}
+    {% set _stage = _from[7:] %}
+    <a href="/repair/{{ _stage }}" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-arrow-left me-1"></i>Back to {{ _stage | upper }} Repair
+    </a>
+    {% endif %}
     <a href="/devices" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-arrow-left me-1"></i>Back to Inventory
     </a>
@@ -277,6 +284,7 @@
             <input type="hidden" name="barcode" value="{{ device.barcode }}">
             <input type="hidden" name="request_type" id="pr_request_type" value="new">
             <input type="hidden" name="part_id" id="pr_part_id" value="">
+            <input type="hidden" name="from_page" value="{{ request.query_params.get('from', '') }}">
             <div class="modal-header">
               <h6 class="modal-title fw-semibold" id="pr_modal_title"><i class="bi bi-bag-plus me-2"></i>New Part Request</h6>
               <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

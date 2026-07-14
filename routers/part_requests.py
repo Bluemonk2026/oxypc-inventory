@@ -46,6 +46,7 @@ async def create_part_request(
     part_category: str = Form(""),
     request_type: str = Form("new"),
     qty: int = Form(1),
+    from_page: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(eng_allowed),
 ):
@@ -74,7 +75,8 @@ async def create_part_request(
                 record_id=None, new_value={"barcode": barcode, "part": part_name, "qty": qty},
                 request=request)
     await db.commit()
-    return RedirectResponse(url=f"/devices/{barcode}?success=Part+request+raised+for+{part_name}",
+    suffix = f"&from={from_page}" if from_page else ""
+    return RedirectResponse(url=f"/devices/{barcode}?success=Part+request+raised+for+{part_name}{suffix}",
                             status_code=302)
 
 

@@ -72,10 +72,10 @@
                     <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                     <input type="hidden" name="barcode" value="{{ device.barcode }}">
                     <input type="hidden" name="stage" value="{{ stage }}">
-                    <button type="submit" class="btn btn-sm btn-primary" {% if pq < pr %}disabled title="Requested quantity is less than required — request more parts first"{% endif %}><i class="bi bi-play-fill"></i> Start Repair</button>
+                    <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-play-fill"></i> Start Repair</button>
                   </form>
                   {% endif %}
-                  <a href="/devices/{{ device.barcode }}#parts" class="btn btn-sm" style="background-color:#ffc107;color:#000000;border-color:#ffc107;"><i class="bi bi-bag-plus"></i> Request Part</a>
+                  <a href="/devices/{{ device.barcode }}?from=repair_l3#parts" class="btn btn-sm" style="background-color:#ffc107;color:#000000;border-color:#ffc107;"><i class="bi bi-bag-plus"></i> Request Part</a>
                 </td>
               </tr>
               {% endfor %}

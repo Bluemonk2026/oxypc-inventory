@@ -289,22 +289,14 @@ async def start_repair(
     if not has_perm(current_user.role.value, repair_module, "add"):
         raise HTTPException(403, f"You do not have permission to add {repair_module} repairs")
 
-    # Requested quantity must cover the required quantity before repair can
-    # start (mirrors the disabled Start Repair button on the l1/l2/l3 list —
-    # enforced here too since the button's disabled attribute alone doesn't
-    # stop a direct POST).
-    iqc = (await db.execute(
-        select(IQCInspection).where(IQCInspection.device_id == device.id)
-    )).scalars().first()
-    required_qty = sum(1 for r in compute_required(iqc, device) if r["required"])
-    requested_qty = (await db.execute(
-        select(func.count(PartRequest.id)).where(
-            PartRequest.device_id == device.id,
-            PartRequest.status.in_(["requested", "handed_over"]),
-        )
-    )).scalar() or 0
-    if requested_qty < required_qty:
-        raise HTTPException(400, "Requested parts quantity is less than required — request more parts before starting repair")
+    # NOTE: a hard "requested >= required parts" gate was tried here and on the
+    # Start Repair button, but compute_required()'s fallback (no IQC record on
+    # a device) treats nearly every part category as "required" — with no
+    # devices in this dataset carrying an IQC record, that made Start Repair
+    # permanently blocked for everything. Reverted; parts_required_map /
+    # parts_requested_map are still shown as informational columns on the
+    # list page so an engineer can see what's outstanding without being
+    # locked out of starting the job.
 
     await validate_repair_level(device, level, db)
     await validate_transition(device, device_stage, db, override_admin=is_admin)

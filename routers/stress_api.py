@@ -437,6 +437,11 @@ async def stress_fail_assign(
         prev_mv.exited_at = app_now()
 
     device.current_stage = new_stage
+    # Reset the L1/L2 workflow statuses — a device returning from a stress fail
+    # starts a fresh repair cycle; stale "Completed"/"Repair Started" badges on
+    # the L1/L2 page were contradictory (found in the 2026-07-15 UX audit).
+    device.l1l2_status = "New"
+    device.l34_status = None
     device.updated_at = app_now()
     move_notes = f"Stress Test Failed — assigned to {engineer.full_name or engineer.username}"
     if notes:

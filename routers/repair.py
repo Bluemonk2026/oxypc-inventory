@@ -940,6 +940,10 @@ async def complete_repair(
                                  moved_by=current_user.username,
                                  notes=f"{job.stage} completed — {final_status or 'OK'}"))
             device.current_stage = next_s; device.updated_at = app_now()
+            # Keep the L1/L2 status column consistent when completing via the
+            # side Complete-Job panel (the old path predates l1l2_status).
+            if current in (DeviceStage.l1, DeviceStage.l2):
+                device.l1l2_status = "Completed"
             # Broadcast stage-change alert to all managers/admins (user_id=None = all users)
             await create_notification(
                 db,

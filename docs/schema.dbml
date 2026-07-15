@@ -108,6 +108,8 @@ Table devices {
   hdd_capacity_gb int
   hdd_type varchar(20)
   hdd_speed varchar(20)
+  ram_summary varchar(255) [note: 'per-DIMM auto-detected summary from IQC agent, e.g. "8GB DDR4 3200MHz Samsung x2"']
+  hdd_summary varchar(255) [note: 'per-disk auto-detected summary from IQC agent, e.g. "512GB NVMe Samsung"']
   battery_health_pct int
   screen_size varchar(20)
   color varchar(30)
@@ -1400,7 +1402,13 @@ Table telecaller_dispatch_requests {
   qty_requested int [not null, default: 1]
   qty_available int [not null, default: 1]
   grade varchar(10)
-  status varchar(20) [not null, default: 'requested', note: 'requested|approved']
+  status varchar(20) [not null, default: 'requested', note: 'requested|approved|rejected']
+  rejected_notes varchar(500) [note: 'shown as tooltip on Rejected pill (Inventory Requests + Ready to Sale)']
+  rejected_at datetime
+  rejected_by varchar(50)
+  source varchar(20) [not null, default: 'device', note: 'device|lot — lot = Model Summary bulk request']
+  model_name varchar(150)
+  model_make varchar(100)
   created_at datetime [default: `now()`]
   approved_at datetime
   approved_by varchar(50)

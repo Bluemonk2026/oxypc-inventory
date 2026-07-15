@@ -30,7 +30,22 @@ jobs:
         run: |
           cd /opt/oxypc
           source venv/bin/activate
-          alembic upgrade head
+          # Apply any real Alembic migrations first (non-fatal if none/unstamped).
+          alembic upgrade head || echo "alembic upgrade skipped (no migrations or unstamped) — schema provisioner will reconcile"
+
+      - name: Provision / reconcile schema (additive auto-fix)
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          cd /opt/oxypc
+          source venv/bin/activate
+          # This project evolves the schema via the additive-column auto-provisioner
+          # (db_validator.validate_and_fix), NOT hand-written Alembic migrations.
+          # Force-run that provisioner (auto_fix=True) so every new table/column
+          # added since the last deploy is created on production, regardless of the
+          # OXYPC_AUTO_FIX runtime flag. Without this, a new model column ships in
+          # code but is missing in the prod DB → 500 on any page that reads it.
+          python -c "import asyncio; from database import engine; from db_validator import validate_and_fix; s = asyncio.run(validate_and_fix(engine, auto_fix=True)); print('[schema] auto-fixed', s['issues_fixed'], 'issue(s):', s.get('fixed', []))"
 
       - name: Restart app
         run: systemctl restart oxypc

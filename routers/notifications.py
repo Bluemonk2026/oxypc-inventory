@@ -13,9 +13,9 @@ from templates_config import templates
 from database import get_db
 from models.user import User
 from models.notification import Notification
-from auth.dependencies import get_current_user
+from auth.dependencies import get_current_user, verify_csrf
 
-router = APIRouter(tags=["notifications"])
+router = APIRouter(tags=["notifications"], dependencies=[Depends(verify_csrf)])
 
 
 @router.get("/notifications/alerts", response_class=HTMLResponse)

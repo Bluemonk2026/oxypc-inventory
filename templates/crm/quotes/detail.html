@@ -134,9 +134,11 @@
       <a href="/crm/quotes/{{ quote.id }}/print" class="btn btn-sm btn-outline-primary" target="_blank">
         <i class="bi bi-printer me-1"></i>Print Quote
       </a>
+      {# WhatsApp integration removed — Share via WhatsApp button disabled
       <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#waShareModal">
         <i class="bi bi-whatsapp me-1"></i>Share via WhatsApp
       </button>
+      #}
       {% if opp %}
       <a href="/crm/sales/{{ opp.id }}" class="btn btn-sm btn-outline-info">
         <i class="bi bi-arrow-left me-1"></i>Back to Opportunity
@@ -150,6 +152,7 @@
   </div>
 </div>
 
+{# WhatsApp integration removed — WA Share Modal disabled
 <!-- WA Share Modal -->
 <div class="modal fade" id="waShareModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
@@ -196,5 +199,6 @@ OxyPC Team</textarea>
     </div>
   </div>
 </div>
+#}
 
 {% endblock %}

@@ -92,12 +92,35 @@ async def l1l2_start(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Lightweight status-only Start Repair for the reworked L1/L2 page."""
+    """Lightweight status-only Start Repair for the reworked L1/L2 page.
+
+    Also creates a RepairJob for the device at its current L1/L2 stage so it
+    surfaces in `open_jobs` — the "Complete L1/L2 Repair Job" side panel's
+    Open-Job dropdown is populated from RepairJob rows, so without this the
+    panel is unusable (BUG 1)."""
     device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
     if not device:
         raise HTTPException(404, "Device not found")
     device.l1l2_status = "Repair Started"
     device.updated_at = app_now()
+
+    # Stage label ("L1"/"L2") derived from the device's current stage — this is
+    # exactly what repair_list's open_jobs query filters on (RepairJob.stage).
+    stage_label = (device.current_stage.value if device.current_stage else "l1").upper()
+    existing_job = (await db.execute(
+        select(RepairJob).where(
+            RepairJob.device_id == device.id,
+            RepairJob.stage == stage_label,
+            RepairJob.status != RepairStatus.completed,
+        )
+    )).scalars().first()
+    if not existing_job:
+        db.add(RepairJob(
+            device_id=device.id, stage=stage_label,
+            engineer_id=current_user.id, engineer_name=current_user.full_name,
+            assigned_engineer=current_user.full_name,
+            status=RepairStatus.in_progress,
+        ))
     await audit(db, user=current_user, action="L1L2_REPAIR_STARTED",
                 table_name="devices", record_id=str(device.id),
                 notes=f"L1/L2 repair started on {device.barcode}", request=request)

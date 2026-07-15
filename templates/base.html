@@ -360,11 +360,13 @@
         <i class="bi bi-arrow-return-left me-2"></i> {{ sidebar_label('returns', 'Returns') }}
       </a></li>
       {% endif %}
+      {# WhatsApp integration removed — nav entry disabled
       {% if has_perm(role,'whatsapp','enable') %}
       <li><a href="/whatsapp" class="nav-link {% if request.url.path.startswith('/whatsapp') %}active{% endif %}">
         <i class="bi bi-whatsapp me-2"></i> {{ sidebar_label('whatsapp', 'WhatsApp') }}
       </a></li>
       {% endif %}
+      #}
       {% if has_perm(role,'assign_dealer_leads','enable') %}
       <li><a href="/assign-dealer-leads" class="nav-link {% if request.url.path.startswith('/assign-dealer-leads') %}active{% endif %}">
         <i class="bi bi-person-lines-fill me-2"></i> {{ sidebar_label('assign_dealer_leads', 'Assign Dealer Leads') }}
@@ -544,11 +546,13 @@
               <i class="bi bi-people me-2"></i> Attendance Config
             </a></li>
             {% endif %}
+            {# WhatsApp integration removed — WA Audit Log nav entry disabled
             {% if role == 'admin' or has_perm(role,'wa_audit_log','enable') %}
             <li><a href="/whatsapp/audit" class="nav-link py-1 small {% if '/whatsapp/audit' in request.url.path %}active{% endif %}">
               <i class="bi bi-whatsapp me-2 text-success"></i> {{ sidebar_label('wa_audit_log', 'WA Audit Log') }}
             </a></li>
             {% endif %}
+            #}
             {% if has_perm(role,'spare_parts_purchase','enable') %}
             <li><a href="/spare-parts/purchase" class="nav-link py-1 small {% if '/purchase' in request.url.path %}active{% endif %}">
               <i class="bi bi-bag-plus me-2"></i> {{ sidebar_label('spare_parts_purchase', 'Parts Purchased') }}
@@ -824,6 +828,11 @@ $.extend(true, $.fn.dataTable.defaults, {
 </div>
 <script>
 (function () {
+  // Session/inactivity auto-logout DISABLED — a logged-in user stays logged in
+  // until they click Logout. No countdown, no "session expiring" modal, no
+  // forced redirect to /auth/login. (Server-side JWT lifetime is controlled by
+  // ACCESS_TOKEN_EXPIRE_MINUTES in config.py.)
+  return;
   var IDLE_LIMIT_SECS = 3600;  // warn once the browser has been idle 60 minutes
   var WARN_BEFORE_SECS = 300;  // modal shows 5 minutes before that cutoff (or absolute expiry)
   function getCookieVal(name) {

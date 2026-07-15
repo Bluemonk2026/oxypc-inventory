@@ -13,9 +13,9 @@ from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
 from models.lot import Lot
 from models.engines import DeviceCosting
-from auth.dependencies import get_current_user, require_roles
+from auth.dependencies import get_current_user, require_roles, verify_csrf
 
-router = APIRouter(tags=["scrap"])
+router = APIRouter(tags=["scrap"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.l3_engineer,
                         UserRole.sales, UserRole.sales_manager)
 

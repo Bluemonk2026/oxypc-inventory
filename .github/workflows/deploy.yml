@@ -38,4 +38,4 @@ jobs:
       - name: Health check
         run: |
           sleep 3
-          curl -sf http://127.0.0.1:8000/health || curl -sf http://127.0.0.1:8000/ || echo "App started"
+          curl -sf http://127.0.0.1:8000/health || curl -sf http://127.0.0.1:8000/ || exit 1

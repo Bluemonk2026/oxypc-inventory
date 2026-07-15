@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, date
+from utils.timezone import app_now
 from decimal import Decimal
 from typing import Optional, Any
 
@@ -132,7 +133,7 @@ class CallService:
             lot_id=payload.get("lot_id"),
             lot_line_item_id=payload.get("lot_line_item_id"),
             called_by=actor_username,
-            call_date=payload.get("call_date") or datetime.utcnow(),
+            call_date=payload.get("call_date") or app_now(),
             call_outcome=payload.get("call_outcome"),
             quantity_required=payload.get("quantity_required"),
             budget=_to_decimal(payload.get("budget")),
@@ -236,7 +237,7 @@ class CallService:
         await db.execute(
             TelecallingRecord.__table__.update()
             .where(TelecallingRecord.id == record_id)
-            .values(is_active=False, deleted_at=datetime.utcnow(),
+            .values(is_active=False, deleted_at=app_now(),
                     notes=func.coalesce(TelecallingRecord.notes, "") +
                           f"\n[CANCELLED by {actor}] {reason}")
         )

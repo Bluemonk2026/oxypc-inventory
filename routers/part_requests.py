@@ -10,7 +10,7 @@ from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Request, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 
 from database import get_db
 from models.user import User, UserRole
@@ -60,11 +60,37 @@ async def create_part_request(
     stage = device.current_stage.value if device.current_stage else None
     if stage not in ("l1", "l2", "l3"):
         stage = wo.stage if wo else None
+
+    # ── Resolve part_id to a real SparePart (BUG 3) ───────────────────────────
+    # The spare-parts fulfilment page looks up stock by PartRequest.part_id, and
+    # the repair/detail "In Stock" display shows the stock of the SparePart it
+    # matched. If those diverge (or part_id arrives empty because a category→
+    # name cascade came up blank), spare-parts shows 0 while repair shows stock.
+    # Prefer the part_id the form sent (the exact record whose stock was shown);
+    # otherwise fall back to the same fuzzy match the display uses so a real
+    # SparePart id is stored rather than None.
+    resolved_part_id = _as_uuid(part_id)
+    if resolved_part_id:
+        exists = (await db.execute(
+            select(SparePart.id).where(SparePart.id == resolved_part_id)
+        )).scalar_one_or_none()
+        if not exists:
+            resolved_part_id = None
+    if not resolved_part_id:
+        conds = [SparePart.name.ilike(f"%{part_name}%")]
+        if part_category.strip():
+            conds.append(SparePart.category == part_category.strip())
+        sp_match = (await db.execute(
+            select(SparePart).where(or_(*conds)).order_by(SparePart.qty_in_stock.desc())
+        )).scalars().first()
+        if sp_match:
+            resolved_part_id = sp_match.id
+
     pr = PartRequest(
         work_order_id=wo.id if wo else None,
         work_id=wo.work_id if wo else None,
         device_id=device.id, barcode=device.barcode, stage=stage,
-        part_id=_as_uuid(part_id), part_name=part_name,
+        part_id=resolved_part_id, part_name=part_name,
         part_category=part_category.strip() or None,
         request_type=request_type.strip() or "new",
         requested_by=current_user.username, engineer_name=current_user.full_name,

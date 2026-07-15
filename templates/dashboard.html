@@ -116,7 +116,9 @@
         <div><span class="fs-5 fw-bold {% if user_queue.get('dealer_overdue_count',0) > 0 %}text-danger{% else %}text-muted{% endif %}">{{ user_queue.get('dealer_overdue_count', 0) }}</span><span class="ms-1 text-muted small">overdue orders</span></div>
         <a href="/dealers" class="btn btn-sm btn-success"><i class="bi bi-building me-1"></i>My Dealers</a>
         <a href="/telecalling" class="btn btn-sm btn-outline-success"><i class="bi bi-telephone me-1"></i>Calling List</a>
+        {# WhatsApp integration removed — button disabled
         <a href="/whatsapp" class="btn btn-sm btn-outline-dark"><i class="bi bi-whatsapp me-1"></i>WhatsApp</a>
+        #}
       </div>
     </div>
   </div>

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from decimal import Decimal
 from datetime import datetime
+from utils.timezone import app_now
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -86,7 +87,7 @@ async def refresh_parts_cost(device: Device, db: AsyncSession) -> DeviceCosting:
     costing.parts_cost  = parts_sum
     costing.labour_cost = labour_sum
     costing.total_cost  = costing.base_cost + costing.parts_cost + costing.labour_cost
-    costing.updated_at  = datetime.utcnow()
+    costing.updated_at  = app_now()
     return costing
 
 
@@ -135,7 +136,7 @@ async def auto_scrap_device(
     """Move device to scrapped stage with audit log. Called by cost engine."""
     prev = device.current_stage
     device.current_stage = DeviceStage.scrapped
-    device.updated_at = datetime.utcnow()
+    device.updated_at = app_now()
     movement = StageMovement(
         device_id=device.id,
         from_stage=prev,

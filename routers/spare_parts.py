@@ -6,6 +6,7 @@ import io
 import secrets
 from templates_config import templates
 from datetime import datetime
+from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, File, UploadFile, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -294,7 +295,7 @@ async def delete_part(part_id: str, request: Request,
     if not part:
         raise HTTPException(404, "Part not found")
     part.is_trashed = True
-    part.trashed_at = datetime.utcnow()
+    part.trashed_at = app_now()
     await audit(db, action="PART_MASTER_DELETE", user=current_user,
                 table_name="spare_parts", record_id=str(part.id))
     await db.commit()

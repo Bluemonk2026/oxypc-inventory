@@ -9,6 +9,7 @@ Rules:
   total_days    > 90  → is_dead_stock = True
 """
 from datetime import datetime, timezone
+from utils.timezone import app_now
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -35,7 +36,7 @@ async def refresh_aging(db: AsyncSession) -> dict:
     Recalculate aging for all active devices.
     Returns summary: { "updated": int, "stuck": int, "dead_stock": int }
     """
-    now = datetime.utcnow()
+    now = app_now()
     summary = {"updated": 0, "stuck": 0, "dead_stock": 0}
 
     result = await db.execute(

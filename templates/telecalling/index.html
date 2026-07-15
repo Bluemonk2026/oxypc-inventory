@@ -180,12 +180,14 @@
                   <a href="/dealers/{{ rec.dealer_id }}/call" class="btn btn-sm btn-success">
                     Call Now
                   </a>
+                  {# WhatsApp integration removed — button disabled
                   {% if rec.dealer and rec.dealer.whatsapp_number %}
                   <a href="/whatsapp/compose?dealer_id={{ rec.dealer_id }}"
                      class="btn btn-sm btn-outline-dark">
                     <i class="bi bi-whatsapp"></i>
                   </a>
                   {% endif %}
+                  #}
                 </td>
               </tr>
               {% endfor %}

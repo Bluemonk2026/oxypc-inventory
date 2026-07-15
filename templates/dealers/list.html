@@ -302,9 +302,11 @@
                 <a href="/dealers/{{ d.id }}/call" class="btn btn-outline-success" title="Log Call">
                   <i class="bi bi-telephone-plus"></i>
                 </a>
+                {# WhatsApp integration removed — button disabled
                 <a href="/whatsapp/compose?dealer_id={{ d.id }}" class="btn btn-outline-dark" title="WhatsApp">
                   <i class="bi bi-whatsapp"></i>
                 </a>
+                #}
                 <button type="button" class="btn btn-outline-secondary" title="Edit" onclick='openDealerEditModal({{ row_data | tojson }})'>
                   <i class="bi bi-pencil"></i>
                 </button>

@@ -252,12 +252,12 @@
                 {% elif _eng %}
                 <div class="d-flex align-items-center gap-1 flex-wrap">
                   <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2" {% if not p.required %}disabled{% endif %}
-                          onclick="openPartRequestModal('new', 1, '{{ p.category | e }}')">
+                          onclick="openPartRequestModal('new', 1, '{{ p.category | e }}', '{{ p.part_id }}', '{{ p.label | e }}')">
                     <i class="bi bi-bag-plus"></i> New Request</button>
                   <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" {% if not p.required %}disabled{% endif %}
                           onmouseenter="if(!this.disabled)this.classList.replace('btn-outline-secondary','btn-outline-warning')"
                           onmouseleave="this.classList.replace('btn-outline-warning','btn-outline-secondary')"
-                          onclick="openPartRequestModal('replace', 1, '{{ p.category | e }}')">
+                          onclick="openPartRequestModal('replace', 1, '{{ p.category | e }}', '{{ p.part_id }}', '{{ p.label | e }}')">
                     <i class="bi bi-arrow-repeat"></i> Replace Request</button>
                   <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 faulty-part-btn"
                           data-label="{{ p.label | e }}" data-category="{{ p.category | e }}" data-part-id="{{ p.part_id }}">
@@ -342,7 +342,7 @@
         document.getElementById('pr_part_id').value = nameSel.selectedOptions[0]?.dataset.id || '';
       }
 
-      function openPartRequestModal(requestType, qty, prefillCategory) {
+      function openPartRequestModal(requestType, qty, prefillCategory, matchedPartId, partLabel) {
         document.getElementById('pr_request_type').value = requestType;
         document.getElementById('pr_qty').value = qty || 1;
         document.getElementById('pr_modal_title').innerHTML = requestType === 'replace'
@@ -350,14 +350,47 @@
           : '<i class="bi bi-bag-plus me-2"></i>New Part Request';
 
         var catSel = document.getElementById('pr_category');
+        var nameSel = document.getElementById('pr_part_name');
         catSel.innerHTML = '<option value="">— Select —</option>' +
           PART_CATEGORY_OPTIONS.map(function(c) { return '<option value="' + c + '">' + c + '</option>'; }).join('');
-        if (prefillCategory && PART_CATEGORY_OPTIONS.includes(prefillCategory)) {
-          catSel.value = prefillCategory;
-        } else {
+
+        // BUG 3: for a request tied to a specific required-part row we already
+        // know the exact SparePart whose stock was shown (matchedPartId). Submit
+        // THAT id — not the category→name cascade, whose vocabulary (master
+        // iqc_part_category) doesn't match the PARTS_MATRIX categories and so
+        // comes up empty, silently storing part_id = NULL. When we have a match,
+        // bypass the cascade so spare-parts looks up the same record.
+        var form = document.getElementById('partRequestForm');
+        var hiddenName = form.querySelector('input[type=hidden][name="part_name"]');
+        if (matchedPartId) {
           catSel.value = '';
+          catSel.disabled = true;
+          // A disabled <select> is NOT submitted, so mirror the value into a
+          // hidden part_name input (the endpoint requires part_name).
+          nameSel.innerHTML = '<option value="' + (partLabel || '').replace(/"/g,'&quot;') +
+            '" data-id="' + matchedPartId + '" selected>' + (partLabel || 'Selected part') + '</option>';
+          nameSel.disabled = true;
+          nameSel.removeAttribute('required');
+          if (!hiddenName) {
+            hiddenName = document.createElement('input');
+            hiddenName.type = 'hidden'; hiddenName.name = 'part_name';
+            form.appendChild(hiddenName);
+          }
+          hiddenName.value = partLabel || 'Selected part';
+          document.getElementById('pr_part_id').value = matchedPartId;
+          document.getElementById('pr_part_category').value = prefillCategory || '';
+        } else {
+          if (hiddenName) hiddenName.remove();
+          catSel.disabled = false;
+          nameSel.disabled = false;
+          nameSel.setAttribute('required', 'required');
+          if (prefillCategory && PART_CATEGORY_OPTIONS.includes(prefillCategory)) {
+            catSel.value = prefillCategory;
+          } else {
+            catSel.value = '';
+          }
+          prFillPartNames();
         }
-        prFillPartNames();
 
         new bootstrap.Modal(document.getElementById('partRequestModal')).show();
       }

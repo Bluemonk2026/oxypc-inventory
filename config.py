@@ -26,7 +26,7 @@ def _get(section, key, default):
 
 DATABASE_URL = os.environ.get("OXYPC_DATABASE_URL") or _get("database", "url", "postgresql+asyncpg://oxypc:oxypc123@localhost:5432/oxypc_db")
 SECRET_KEY = os.environ.get("OXYPC_SECRET_KEY") or _get("security", "secret_key", secrets.token_hex(32))
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("OXYPC_TOKEN_EXPIRE_MINUTES") or _get("security", "access_token_expire_minutes", "1440"))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("OXYPC_TOKEN_EXPIRE_MINUTES") or _get("security", "access_token_expire_minutes", "43200"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("OXYPC_REFRESH_DAYS") or _get("security", "refresh_token_expire_days", "7"))
 APP_PORT = int(os.environ.get("OXYPC_PORT") or _get("app", "port", "8000"))
 APP_HOST = os.environ.get("OXYPC_HOST") or _get("app", "host", "0.0.0.0")

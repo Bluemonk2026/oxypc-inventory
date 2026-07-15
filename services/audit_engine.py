@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 import json
 from datetime import datetime
+from utils.timezone import app_now
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,7 +51,7 @@ async def audit(
         old_value = json.dumps(old_value, default=str) if old_value else None,
         new_value = json.dumps(new_value, default=str) if new_value else None,
         notes     = notes,
-        timestamp = datetime.utcnow(),
+        timestamp = app_now(),
         ip_address= ip,
     )
     db.add(log)

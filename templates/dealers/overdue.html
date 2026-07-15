@@ -52,8 +52,10 @@
             <td>
               <div class="d-flex gap-1">
                 <a href="/dealers/{{ dealer.id }}" class="btn btn-sm btn-outline-primary" title="View dealer"><i class="bi bi-eye"></i></a>
+                {# WhatsApp integration removed — reminder button disabled
                 <a href="/whatsapp/compose?dealer_id={{ dealer.id }}&type=payment_reminder&order_id={{ order.id }}"
                    class="btn btn-sm btn-outline-warning" title="Send WhatsApp reminder"><i class="bi bi-whatsapp"></i></a>
+                #}
               </div>
             </td>
           </tr>

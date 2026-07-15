@@ -342,8 +342,38 @@ async def validate_and_fix(engine: AsyncEngine, auto_fix: bool = True) -> dict:
     from database import Base
     import models  # noqa
 
+    # ── Phase 0: reconcile Postgres enum TYPES with the Python enums ─────────
+    # ADD COLUMN IF NOT EXISTS covers new columns, but a new *value* on an
+    # existing enum (e.g. DeviceStage.putty) silently ships in code while the
+    # DB type stays stale → InvalidTextRepresentationError 500s in production.
+    # ALTER TYPE ... ADD VALUE cannot run inside a transaction, so this phase
+    # uses its own AUTOCOMMIT connection before the main transactional pass.
+    enum_fixes: list[str] = []
+    if auto_fix:
+        wanted: dict[str, set] = {}
+        for table in Base.metadata.tables.values():
+            for col in table.columns:
+                t = col.type
+                if hasattr(t, "enums") and getattr(t, "name", None):
+                    wanted.setdefault(t.name, set()).update(t.enums)
+        async with engine.connect() as raw:
+            ac = await raw.execution_options(isolation_level="AUTOCOMMIT")
+            for enum_name, values in sorted(wanted.items()):
+                rows = await ac.execute(text(
+                    "SELECT e.enumlabel FROM pg_enum e "
+                    "JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = :n"
+                ), {"n": enum_name})
+                existing = {r[0] for r in rows}
+                if not existing:
+                    continue  # type doesn't exist yet — create_all will make it complete
+                for val in sorted(values - existing):
+                    await ac.execute(text(
+                        f"ALTER TYPE {enum_name} ADD VALUE IF NOT EXISTS '{val}'"))
+                    enum_fixes.append(f"Added enum value {enum_name}.'{val}'")
+
     async with engine.begin() as conn:
         v = SchemaValidator(conn)
+        v.fixed.extend(enum_fixes)
 
         # ── Phase 1: check + fix missing tables ───────────────────────────────
         await v.check_tables(Base.metadata)

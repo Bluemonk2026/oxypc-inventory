@@ -206,6 +206,16 @@ async def l1l2_complete_to_stress(
                WorkOrder.status != "completed")
         .values(status="completed", completed_at=app_now())
     )
+    # Also close any open RepairJobs so the device drops out of the side
+    # "Complete Job" panel's dropdown — otherwise a stale job entry lets the
+    # engineer submit /repair/complete after the device already moved to
+    # qc_check, which 409s with a STAGE CONFLICT.
+    await db.execute(
+        sa_update(RepairJob)
+        .where(RepairJob.device_id == device.id,
+               RepairJob.status == RepairStatus.in_progress)
+        .values(status=RepairStatus.completed, completed_at=app_now())
+    )
     device.current_stage = DeviceStage.qc_check
     device.l1l2_status = "Completed"
     device.updated_at = app_now()
@@ -251,6 +261,15 @@ async def back_to_production(
         raise HTTPException(404, "Device not found")
     prev = device.current_stage
     await _close_open_movement(db, device)
+    # Close open RepairJobs so the device drops out of the Complete-Job panel
+    # (a stale entry would 409 with STAGE CONFLICT after the device leaves L1/L2).
+    from sqlalchemy import update as sa_update
+    await db.execute(
+        sa_update(RepairJob)
+        .where(RepairJob.device_id == device.id,
+               RepairJob.status == RepairStatus.in_progress)
+        .values(status=RepairStatus.completed, completed_at=app_now())
+    )
     device.current_stage = DeviceStage.scrapped
     device.updated_at = app_now()
     db.add(StageMovement(device_id=device.id, from_stage=prev, to_stage=DeviceStage.scrapped,
@@ -410,7 +429,11 @@ async def repair_list(stage: str, request: Request,
     jobs_result = await db.execute(
         select(RepairJob, Device.barcode, Device.brand, Device.model)
         .join(Device, RepairJob.device_id == Device.id)
-        .where(RepairJob.stage == stage.upper(), RepairJob.status != RepairStatus.completed)
+        .where(RepairJob.stage == stage.upper(), RepairJob.status != RepairStatus.completed,
+               # Only devices still physically in this stage — a job whose device
+               # already moved (stress fail, transfer, scrap) must not be offered
+               # in the Complete-Job dropdown or /repair/complete 409s on it.
+               Device.current_stage == device_stage, Device.is_active == True)
         .order_by(RepairJob.started_at.desc())
     )
     open_jobs = jobs_result.all()

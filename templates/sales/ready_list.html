@@ -75,6 +75,7 @@
         {% endif %}
         {% set _approved = approved_ids is defined and (device.id|string in approved_ids) %}
         {% set _requested = requested_ids is defined and (device.id|string in requested_ids) %}
+        {% set _rejected_notes = (rejected_notes_map.get(device.id|string) if rejected_notes_map is defined else None) %}
         <tr data-barcode="{{ device.barcode }}" data-serial="{{ device.serial_no or '' }}">
           <td>{% if not _approved and not _requested %}<input type="checkbox" class="form-check-input readyChk" value="{{ device.barcode }}">{% endif %}</td>
           <td class="text-nowrap"><a href="/devices/{{ device.barcode }}" class="text-decoration-none"><code class="fw-bold">{{ device.barcode }}</code></a>
@@ -122,6 +123,9 @@
               {% elif _requested %}
               <span class="badge bg-warning text-dark align-self-center">Requested</span>
               {% else %}
+              {% if _rejected_notes is not none %}
+              <span class="badge bg-danger align-self-center" title="{{ _rejected_notes }}">Rejected</span>
+              {% endif %}
               <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#dispatchModal"
                       data-barcode="{{ device.barcode }}" data-model="{{ device.brand or '' }} {{ device.model or '' }}">Request</button>
               {% endif %}

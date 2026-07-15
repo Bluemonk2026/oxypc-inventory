@@ -98,6 +98,7 @@ PERM_MODULES = [
     # ── Top-level ──────────────────────────────────────────────────
     ("dashboard",            "Admin Dashboard"),
     ("dispatch",             "TRC Dashboard"),
+    ("inventory_requests",   "Inventory Request"),
     ("devices",              "Inventory Search"),
     # ── ATTENDANCE ─────────────────────────────────────────────────
     ("attendance",           "My Attendance"),

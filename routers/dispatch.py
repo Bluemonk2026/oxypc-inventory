@@ -334,3 +334,22 @@ async def approve_dispatch(req_id: str, request: Request, db: AsyncSession = Dep
                 record_id=str(r.id), new_value={"barcode": r.barcode}, request=request)
     await db.commit()
     return RedirectResponse(url="/dispatch?success=Request+approved", status_code=302)
+
+
+@router.post("/dispatch/{req_id}/reject")
+async def reject_dispatch(req_id: str, request: Request, notes: str = Form(...),
+                          db: AsyncSession = Depends(get_db),
+                          current_user: User = Depends(approve_allowed)):
+    r = (await db.execute(
+        select(TelecallerDispatchRequest).where(TelecallerDispatchRequest.id == _as_uuid(req_id))
+    )).scalar_one_or_none()
+    if not r:
+        raise HTTPException(404, "Request not found")
+    r.status = "rejected"
+    r.rejected_notes = notes.strip()
+    r.rejected_at = app_now()
+    r.rejected_by = current_user.username
+    await audit(db, user=current_user, action="DISPATCH_REJECTED", table_name="telecaller_dispatch_requests",
+                record_id=str(r.id), new_value={"barcode": r.barcode, "notes": r.rejected_notes}, request=request)
+    await db.commit()
+    return RedirectResponse(url="/inventory-requests?success=Request+rejected", status_code=302)

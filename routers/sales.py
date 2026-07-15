@@ -99,16 +99,20 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
     # ── Dispatch-request state (#21): Sell enabled only after approval ───────
     device_ids = [d.id for d, *_ in devices]
     approved_ids, requested_ids = set(), set()
+    rejected_notes_map = {}
     if device_ids:
         drs = (await db.execute(
-            select(TelecallerDispatchRequest.device_id, TelecallerDispatchRequest.status)
+            select(TelecallerDispatchRequest.device_id, TelecallerDispatchRequest.status,
+                   TelecallerDispatchRequest.rejected_notes)
             .where(TelecallerDispatchRequest.device_id.in_(device_ids))
         )).all()
-        for did, st in drs:
+        for did, st, notes in drs:
             if st == "approved":
                 approved_ids.add(str(did))
             elif st == "requested":
                 requested_ids.add(str(did))
+            elif st == "rejected":
+                rejected_notes_map[str(did)] = notes or ""
 
     # ── Warranty (item 1): 30 days from most recent sale of this device ──────
     sold_map = await latest_sold_at_map(db, device_ids)
@@ -155,6 +159,7 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
         "request": request, "devices": devices, "current_user": current_user,
         "interested_dealers": interested_dealers,
         "approved_ids": approved_ids, "requested_ids": requested_ids,
+        "rejected_notes_map": rejected_notes_map,
         "warranty_map": warranty_map, "model_summary_ready": model_summary_ready,
         "lot_overview": lot_overview,
     })

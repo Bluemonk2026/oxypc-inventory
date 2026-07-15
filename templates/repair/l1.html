@@ -3,7 +3,6 @@
 {% block page_title %}L1/L2 Repair Stage{% endblock %}
 {% block content %}
 
-{# Right-side Complete Job panel removed — repair is now a status-driven flow on this table. #}
 
 <!-- Scrap warning / Suggest QC banners -->
 {% if scrap_warning_map %}
@@ -18,8 +17,10 @@
 </div>
 {% endif %}
 
-<div class="row g-3">
-  <div class="col-12">
+<div class="d-flex flex-column flex-lg-row gap-3 align-items-start">
+
+  <!-- Devices in L1/L2 (70%) -->
+  <div style="flex:1 1 70%; width:70%; min-width:0;">
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-transparent fw-semibold">Devices in L1/L2 ({{ devices|length }})</div>
       <div class="card-body p-0">
@@ -94,6 +95,44 @@
       </div>
     </div>
   </div>
+
+  <!-- Complete L1/L2 Repair Job (30%) -->
+  <div style="flex:1 1 30%; width:30%; min-width:0;">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-success-subtle fw-semibold"><i class="bi bi-check-circle me-2"></i>Complete L1/L2 Repair Job</div>
+      <div class="card-body">
+        <form action="/repair/complete" method="post">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+          <div class="row g-2">
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Open Job</label>
+              <select name="job_id" class="form-select" required>
+                <option value="">-- Select open job --</option>
+                {% for job, barcode, brand, model in open_jobs %}
+                <option value="{{ job.id }}">{{ barcode }} — {{ brand or '' }} {{ model or '' }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold d-block">Final Status</label>
+              {% for opt in ['Completed','Request to L2'] %}
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="final_status" value="{{ opt }}" id="fs_l1_{{ loop.index }}">
+                <label class="form-check-label" for="fs_l1_{{ loop.index }}">{{ opt }}</label>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Resolution / Work Done</label>
+              <input type="text" name="resolution" class="form-control" placeholder="Resolution / work done">
+            </div>
+          </div>
+          <button class="btn btn-success mt-3 w-100"><i class="bi bi-check-lg me-1"></i>Mark Complete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <!-- Request to L3/L4 modal -->

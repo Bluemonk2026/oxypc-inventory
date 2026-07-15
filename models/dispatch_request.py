@@ -25,7 +25,10 @@ class TelecallerDispatchRequest(Base):
     qty_available = Column(Integer, nullable=False, default=1)
     grade = Column(String(10), nullable=True)
 
-    status = Column(String(20), nullable=False, default="requested", index=True)  # requested | approved
+    status = Column(String(20), nullable=False, default="requested", index=True)  # requested | approved | rejected
+    rejected_notes = Column(String(500), nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+    rejected_by = Column(String(50), nullable=True)
 
     # ── Lot-level requests (Model Summary "Request" button on Ready to Sale) ──
     # source distinguishes a bulk request raised against a model group from the

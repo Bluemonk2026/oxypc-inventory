@@ -35,6 +35,7 @@ DEVICE_CORE_FIELDS = [
 ]
 DEVICE_REST_FIELDS = [
     "device_type", "storage_type", "hdd_capacity_gb",
+    "ram_summary", "hdd_summary",
     "total_ram_count", "total_ram_size", "total_hdd_count", "total_hdd_size",
     "invoice_number",
     "screen_size", "battery_health_pct", "bios_password", "color", "grade",
@@ -375,6 +376,8 @@ async def upload_devices(
                 ram_gb=_i(row, "ram_gb"), storage_gb=_i(row, "storage_gb"),
                 storage_type=_s(row, "storage_type"),
                 hdd_capacity_gb=_i(row, "hdd_capacity_gb"),
+                ram_summary=_s(row, "ram_summary"),
+                hdd_summary=_s(row, "hdd_summary"),
                 total_ram_count=_s(row, "total_ram_count"),
                 total_ram_size=_s(row, "total_ram_size"),
                 total_hdd_count=_s(row, "total_hdd_count"),
@@ -493,6 +496,8 @@ def _apply_row_to_device(device: Device, row: dict) -> None:
     if s("generation"): device.generation = s("generation")
     if i("ram_gb") is not None: device.ram_gb = i("ram_gb")
     if i("storage_gb") is not None: device.storage_gb = i("storage_gb")
+    if s("ram_summary"): device.ram_summary = s("ram_summary")
+    if s("hdd_summary"): device.hdd_summary = s("hdd_summary")
     if s("storage_type"): device.storage_type = s("storage_type")
     if i("hdd_capacity_gb") is not None: device.hdd_capacity_gb = i("hdd_capacity_gb")
     if s("total_ram_count"): device.total_ram_count = s("total_ram_count")

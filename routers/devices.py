@@ -430,8 +430,8 @@ async def export_devices(
     writer = csv.writer(output)
     writer.writerow([
         "Barcode", "Lot", "GRN", "Invoice No", "Sub-Category", "Brand", "Model", "Device Type",
-        "Serial No", "CPU", "CPU Make", "Generation", "RAM GB", "Total RAM Count", "Total RAM Size",
-        "SSD GB", "Storage Type",
+        "Serial No", "CPU", "CPU Make", "Generation", "RAM GB", "RAM", "Total RAM Count", "Total RAM Size",
+        "SSD GB", "Storage Type", "Hard Drive",
         "HDD GB", "Total HDD Count", "Total HDD Size", "Screen Size", "Battery %", "BIOS Pwd", "Color",
         "Grade", "Stage", "Floor", "Warehouse", "Notes", "Created", "Updated"
     ])
@@ -439,9 +439,9 @@ async def export_devices(
         writer.writerow([
             device.barcode, lot_number, device.grn_number, device.invoice_number, device.sub_category,
             device.brand, device.model, device.device_type, device.serial_no,
-            device.cpu, device.cpu_make, device.generation, device.ram_gb,
+            device.cpu, device.cpu_make, device.generation, device.ram_gb, device.ram_summary,
             device.total_ram_count, device.total_ram_size, device.storage_gb,
-            device.storage_type, device.hdd_capacity_gb,
+            device.storage_type, device.hdd_summary, device.hdd_capacity_gb,
             device.total_hdd_count, device.total_hdd_size, device.screen_size,
             device.battery_health_pct, "Yes" if device.bios_password else "No",
             device.color, device.grade,

@@ -99,8 +99,8 @@
             <td>{{ device.model or '—' }}</td>
             <td>{{ device.device_type or '—' }}</td>
             <td class="text-muted small">{{ device.cpu or '—' }}</td>
-            <td>{{ device.ram_gb ~ 'GB' if device.ram_gb else '—' }}</td>
-            <td>{{ (device.storage_gb|string ~ 'GB ' ~ (device.storage_type or '')) if device.storage_gb else '—' }}</td>
+            <td>{{ device.ram_summary or (device.ram_gb ~ 'GB' if device.ram_gb else '—') }}</td>
+            <td>{{ device.hdd_summary or ((device.storage_gb|string ~ 'GB ' ~ (device.storage_type or '')) if device.storage_gb else '—') }}</td>
             <td>
               {% if device.grade %}
               <span class="badge bg-{{ 'success' if device.grade == 'A' else 'warning' if device.grade == 'B' else 'danger' }}">{{ device.grade }}</span>
@@ -120,11 +120,6 @@
                   <i class="bi bi-box-arrow-in-right me-1"></i>Move to Inventory
                 </button>
               </form>
-              {% else %}
-              <a href="/grn/post-iqc?highlight_tag={{ device.barcode|urlencode }}" class="btn btn-sm btn-warning py-0 px-2"
-                 title="No GRN assigned — assign one in GRN post IQC">
-                <i class="bi bi-link-45deg me-1"></i>Assign GRN
-              </a>
               {% endif %}
               <button class="btn btn-sm btn-outline-danger py-0 px-1 ms-1"
                       onclick="if(confirm('Move {{ device.barcode }} to Trash?')) { document.getElementById('trashIQC_{{ loop.index }}').submit(); }"

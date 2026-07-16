@@ -430,7 +430,7 @@ async def export_devices(
     writer = csv.writer(output)
     writer.writerow([
         "Barcode", "Lot", "GRN", "Invoice No", "Sub-Category", "Brand", "Model", "Device Type",
-        "Serial No", "CPU", "Generation", "RAM GB", "Total RAM Count", "Total RAM Size",
+        "Serial No", "CPU", "CPU Make", "Generation", "RAM GB", "Total RAM Count", "Total RAM Size",
         "SSD GB", "Storage Type",
         "HDD GB", "Total HDD Count", "Total HDD Size", "Screen Size", "Battery %", "BIOS Pwd", "Color",
         "Grade", "Stage", "Floor", "Warehouse", "Notes", "Created", "Updated"
@@ -439,7 +439,7 @@ async def export_devices(
         writer.writerow([
             device.barcode, lot_number, device.grn_number, device.invoice_number, device.sub_category,
             device.brand, device.model, device.device_type, device.serial_no,
-            device.cpu, device.generation, device.ram_gb,
+            device.cpu, device.cpu_make, device.generation, device.ram_gb,
             device.total_ram_count, device.total_ram_size, device.storage_gb,
             device.storage_type, device.hdd_capacity_gb,
             device.total_hdd_count, device.total_hdd_size, device.screen_size,
@@ -718,6 +718,7 @@ async def device_edit_save(
     serial_no: str = Form(""),
     grn_number: str = Form(""),
     cpu: str = Form(""),
+    cpu_make: str = Form(""),
     generation: str = Form(""),
     ram_gb: str = Form(""),
     storage_gb: str = Form(""),
@@ -770,6 +771,7 @@ async def device_edit_save(
     device.serial_no = serial_no or None
     device.grn_number = grn_number or None
     device.cpu = cpu or None
+    device.cpu_make = cpu_make or None
     device.generation = generation or None
     # int-or-None: tolerates non-numeric dropdown values like "Not Available" / "Not Checked"
     device.ram_gb = int(ram_gb) if (ram_gb or "").strip().isdigit() else None

@@ -163,39 +163,57 @@
               <label class="form-label small">Model</label>
               <input type="text" name="model" class="form-control form-control-sm" tabindex="-1" placeholder="—">
             </div>
-            <div class="col-md-3">
+          </div>
+
+          <!-- ── Row 1: CPU | CPU Make | Generation ── -->
+          <div class="row g-2 mb-2">
+            <div class="col-md-4">
               <label class="form-label small">CPU / Processor</label>
-              {% set cur_cpu = device.cpu if device else '' %}
-              <input type="text" name="cpu" class="form-control form-control-sm" value="{{ cur_cpu }}" placeholder="—">
+              <input type="text" name="cpu" id="iqc-cpu" class="form-control form-control-sm" value="{{ device.cpu if device else '' }}" placeholder="—">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-4">
+              <label class="form-label small">CPU Make</label>
+              <input type="text" name="cpu_make" id="iqc-cpu-make" class="form-control form-control-sm" value="{{ device.cpu_make if device and device.cpu_make else '' }}" placeholder="Intel / AMD / Apple">
+            </div>
+            <div class="col-md-4">
               <label class="form-label small">Generation</label>
-              <input type="text" name="generation" class="form-control form-control-sm" value="{{ device.generation if device else '' }}" placeholder="—">
+              <input type="text" name="generation" id="iqc-generation" class="form-control form-control-sm" value="{{ device.generation if device else '' }}" placeholder="—">
             </div>
-            <div class="col-md-2">
+          </div>
+
+          <!-- ── Row 2: Total RAM Count | Total RAM Size | RAM ── -->
+          <div class="row g-2 mb-2">
+            <div class="col-md-4">
               <label class="form-label small">Total RAM Count</label>
               <input type="text" name="total_ram_count" class="form-control form-control-sm" value="{{ device.total_ram_count if device and device.total_ram_count else '' }}" placeholder="e.g. 2">
             </div>
-            <div class="col-md-2">
+            <div class="col-md-4">
               <label class="form-label small">Total RAM Size</label>
               <input type="text" name="total_ram_size" class="form-control form-control-sm" value="{{ device.total_ram_size if device and device.total_ram_size else '' }}" placeholder="e.g. 16GB">
             </div>
             <div class="col-md-4">
               <label class="form-label small">RAM</label>
-              <input type="text" name="ram_summary" class="form-control form-control-sm" value="{{ device.ram_summary if device and device.ram_summary else '' }}" placeholder="e.g. 16GB_DDR4_2300MHz_Samsung">
+              <input type="text" name="ram_summary" class="form-control form-control-sm" value="{{ device.ram_summary if device and device.ram_summary else '' }}" placeholder="e.g. 16GB_DDR4_2300_Samsung">
             </div>
-            <div class="col-md-2">
-              <label class="form-label small">Total HardDrive Count</label>
+          </div>
+
+          <!-- ── Row 3: Total Hard Drive Count | Total Hard Drive Size | Hard Drive ── -->
+          <div class="row g-2 mb-3">
+            <div class="col-md-4">
+              <label class="form-label small">Total Hard Drive Count</label>
               <input type="text" name="total_hdd_count" class="form-control form-control-sm" value="{{ device.total_hdd_count if device and device.total_hdd_count else '' }}" placeholder="e.g. 1">
             </div>
-            <div class="col-md-2">
-              <label class="form-label small">Total HardDrive Size</label>
+            <div class="col-md-4">
+              <label class="form-label small">Total Hard Drive Size</label>
               <input type="text" name="total_hdd_size" class="form-control form-control-sm" value="{{ device.total_hdd_size if device and device.total_hdd_size else '' }}" placeholder="e.g. 512GB">
             </div>
             <div class="col-md-4">
               <label class="form-label small">Hard Drive</label>
-              <input type="text" name="hdd_summary" class="form-control form-control-sm" value="{{ device.hdd_summary if device and device.hdd_summary else '' }}" placeholder="e.g. 520GB_SSD_5400RPM_Samsung">
+              <input type="text" name="hdd_summary" class="form-control form-control-sm" value="{{ device.hdd_summary if device and device.hdd_summary else '' }}" placeholder="e.g. 520GB_SSD_7400_Samsung">
             </div>
+          </div>
+
+          <div class="row g-2 mb-3">
             <div class="col-md-3">
               <label class="form-label small">Screen Size</label>
               <select name="screen_size" class="form-select form-select-sm">
@@ -777,9 +795,14 @@ document.querySelector('[name="barcode"]').addEventListener('change', function()
       setInput('model', d.model);
       setInput('color', d.color);
       setInput('cpu', d.cpu);
+      setInput('cpu_make', d.cpu_make);
       setInput('generation', d.generation);
       setInput('ram_summary', d.ram_summary);
       setInput('hdd_summary', d.hdd_summary);
+      setInput('total_ram_count', d.total_ram_count);
+      setInput('total_ram_size', d.total_ram_size);
+      setInput('total_hdd_count', d.total_hdd_count);
+      setInput('total_hdd_size', d.total_hdd_size);
       setSelect('screen_size', d.screen_size);
       setInput('battery_health_pct', d.battery_health_pct);
       if (d.bios_password) document.querySelector('[name="bios_password"]').checked = true;

@@ -30,7 +30,7 @@ allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
 # follows. Shared by both the template download and the upload parser so
 # the two can never drift apart. ────────────────────────────────────────────
 DEVICE_CORE_FIELDS = [
-    "Tag No", "serial_no", "brand", "model", "cpu", "generation", "ram_gb", "storage_gb",
+    "Tag No", "serial_no", "brand", "model", "cpu", "cpu_make", "generation", "ram_gb", "storage_gb",
     "category", "lot_number",
 ]
 DEVICE_REST_FIELDS = [
@@ -371,7 +371,7 @@ async def upload_devices(
                 device_type=_s(row, "device_type"),
                 serial_no=_s(row, "serial_no"),
                 grn_number=_s(row, "grn_number"),
-                cpu=_s(row, "cpu"), generation=_s(row, "generation"),
+                cpu=_s(row, "cpu"), cpu_make=_s(row, "cpu_make"), generation=_s(row, "generation"),
                 ram_gb=_i(row, "ram_gb"), storage_gb=_i(row, "storage_gb"),
                 storage_type=_s(row, "storage_type"),
                 hdd_capacity_gb=_i(row, "hdd_capacity_gb"),
@@ -489,6 +489,7 @@ def _apply_row_to_device(device: Device, row: dict) -> None:
     if s("device_type"): device.device_type = s("device_type")
     if s("serial_no"): device.serial_no = s("serial_no")
     if s("cpu"): device.cpu = s("cpu")
+    if s("cpu_make"): device.cpu_make = s("cpu_make")
     if s("generation"): device.generation = s("generation")
     if i("ram_gb") is not None: device.ram_gb = i("ram_gb")
     if i("storage_gb") is not None: device.storage_gb = i("storage_gb")

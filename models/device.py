@@ -97,6 +97,7 @@ class Device(Base):
     serial_no = Column(String(100), nullable=True)
     sub_category = Column(String(20), nullable=True, index=True)   # Laptop / Desktop / TFT
     cpu = Column(String(100), nullable=True)
+    cpu_make = Column(String(100), nullable=True)   # Intel / AMD / Apple (additive, auto-provisioned by db_validator)
     generation = Column(String(50), nullable=True)
     ram_gb = Column(Integer, nullable=True)
     ram_type = Column(String(20), nullable=True)

@@ -86,7 +86,7 @@ $mons=@(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorBasicDisplayPar
 foreach($mn in $mons){if($mn.MaxHorizontalImageSize -gt 0 -and $mn.MaxVerticalImageSize -gt 0){$dd=[math]::Round([math]::Sqrt(($mn.MaxHorizontalImageSize*$mn.MaxHorizontalImageSize)+($mn.MaxVerticalImageSize*$mn.MaxVerticalImageSize))/2.54,1);if($dd -gt 5 -and $dd -lt 40){if(-not $scr -or $dd -lt $scr){$scr=$dd}}}}
 [ordered]@{
  manufacturer="$($cs.Manufacturer)";model="$($cs.Model)";serial="$($bios.SerialNumber)";
- cpu="$(($cpu.Name).Trim())";cores=$cpu.NumberOfCores;ram_gb=[math]::Round($cs.TotalPhysicalMemory/1GB);
+ cpu="$(($cpu.Name).Trim())";cpu_make="$($cpu.Manufacturer)".Trim();cores=$cpu.NumberOfCores;ram_gb=[math]::Round($cs.TotalPhysicalMemory/1GB);
  chassis=@($encl.ChassisTypes);has_battery=[bool]$batt;battery_pct=$batt.EstimatedChargeRemaining;battery_health=$bh;
  screen_in=$scr;gpu="$($gpu.Name)";os="$($os.Caption)";disks=$pd;ram_sticks=$ram
 } | ConvertTo-Json -Depth 5 -Compress
@@ -121,7 +121,7 @@ def _format_ram_summary(sticks):
             segs.append(t)
         speed = str(s.get("speed") or "").strip()
         if speed and speed != "0":
-            segs.append(f"{speed}MHz")
+            segs.append(speed)
         make = str(s.get("make") or "").strip()
         if make:
             segs.append(make)
@@ -145,7 +145,7 @@ def _format_hdd_summary(drives):
             segs.append(dtype)
         rpm = d.get("rpm")
         if rpm:
-            segs.append(f"{int(rpm)}RPM")
+            segs.append(str(int(rpm)))
         make = str(d.get("make") or "").strip()
         if make:
             segs.append(make)
@@ -177,6 +177,36 @@ def _intel_gen(cpu):
         g = n[:2] if len(n) >= 5 else (n[:1] if len(n) == 4 else None)
         if g:
             return f"{int(g)}th Gen"
+    return None
+
+
+def _generation(cpu):
+    """Generation across Intel / AMD Ryzen / Apple M-series. Extends _intel_gen."""
+    import re
+    g = _intel_gen(cpu)
+    if g:
+        return g
+    if cpu:
+        m = re.search(r"Ryzen\s+([3579])", cpu)
+        if m:
+            return f"AMD Ryzen {m.group(1)}"
+        m2 = re.search(r"Apple\s+(M\d+)\s*(Pro|Max|Ultra)?", cpu)
+        if m2:
+            return f"Apple {m2.group(1)}{(' ' + m2.group(2)) if m2.group(2) else ''}"
+    return None
+
+
+def _cpu_make(cpu, manufacturer=None):
+    """Derive Intel / AMD / Apple from the CPU manufacturer string or, failing
+    that, by parsing the CPU name."""
+    import re
+    src = f"{manufacturer or ''} {cpu or ''}".lower()
+    if "intel" in src or "genuineintel" in src:
+        return "Intel"
+    if "amd" in src or "authenticamd" in src or "ryzen" in src:
+        return "AMD"
+    if "apple" in src or re.match(r"^\s*m\d", (cpu or "").strip(), re.I):
+        return "Apple"
     return None
 
 
@@ -224,7 +254,10 @@ def _detect_host_hardware():
         f["serial_no"] = serial
     if info.get("cpu"):
         f["cpu"] = info["cpu"]
-    gen = _intel_gen(info.get("cpu"))
+    make = _cpu_make(info.get("cpu"), info.get("cpu_make"))
+    if make:
+        f["cpu_make"] = make
+    gen = _generation(info.get("cpu"))
     if gen:
         f["generation"] = gen
     if info.get("ram_gb"):
@@ -232,11 +265,21 @@ def _detect_host_hardware():
             f["ram_gb"] = int(info["ram_gb"])
         except (TypeError, ValueError):
             pass
-    ram_summary = _format_ram_summary(info.get("ram_sticks") or [])
+    ram_sticks = info.get("ram_sticks") or []
+    if isinstance(ram_sticks, dict):
+        ram_sticks = [ram_sticks]
+    ram_summary = _format_ram_summary(ram_sticks)
     if ram_summary:
         f["ram_summary"] = ram_summary
     elif info.get("ram_gb"):
         f["ram_summary"] = f"{int(info['ram_gb'])}GB"
+    # Total RAM Count = number of DIMMs; Total RAM Size = summed GB
+    ram_dimms = [s for s in ram_sticks if s.get("capacityGB")]
+    if ram_dimms:
+        f["total_ram_count"] = str(len(ram_dimms))
+        f["total_ram_size"] = f"{sum(int(s['capacityGB']) for s in ram_dimms)}GB"
+    elif info.get("ram_gb"):
+        f["total_ram_size"] = f"{int(info['ram_gb'])}GB"
     f["sub_category"] = sub
     f["device_type"] = sub
     prim = (ssd or hdd or disks)
@@ -252,6 +295,12 @@ def _detect_host_hardware():
     hdd_summary = _format_hdd_summary(disks)
     if hdd_summary:
         f["hdd_summary"] = hdd_summary
+    # Total Hard Drive Count = # physical disks; Total Hard Drive Size = summed GB
+    hdd_disks = [d for d in disks if d.get("sizeGB")]
+    if hdd_disks:
+        f["total_hdd_count"] = str(len(hdd_disks))
+        tot_gb = sum(int(d["sizeGB"]) for d in hdd_disks)
+        f["total_hdd_size"] = f"{round(tot_gb / 1000)}TB" if tot_gb >= 1000 else f"{tot_gb}GB"
     if info.get("screen_in"):
         f["screen_size"] = str(info["screen_in"])
     bh = info.get("battery_health")
@@ -556,8 +605,15 @@ async def iqc_bulk_apply_grade_type(
     invoice_number: str = Form(""),
     po_number: str = Form(""),
     cpu: str = Form(""),
+    cpu_make: str = Form(""),
+    generation: str = Form(""),
     ram_gb: str = Form(""),
     storage_gb: str = Form(""),
+    total_ram_count: str = Form(""),
+    total_ram_size: str = Form(""),
+    total_hdd_count: str = Form(""),
+    total_hdd_size: str = Form(""),
+    hdd_summary: str = Form(""),
     to_stage: str = Form(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
@@ -605,8 +661,11 @@ async def iqc_bulk_apply_grade_type(
         return RedirectResponse(url=f"{return_to}?error=No+devices+selected", status_code=302)
     to_stage = (to_stage or "").strip()
     if (not device_type.strip() and not grade.strip() and not invoice_number.strip()
-            and not po_number.strip() and not cpu.strip() and not ram_gb.strip()
-            and not storage_gb.strip() and not to_stage):
+            and not po_number.strip() and not cpu.strip() and not cpu_make.strip()
+            and not generation.strip() and not ram_gb.strip() and not storage_gb.strip()
+            and not total_ram_count.strip() and not total_ram_size.strip()
+            and not total_hdd_count.strip() and not total_hdd_size.strip()
+            and not hdd_summary.strip() and not to_stage):
         return RedirectResponse(url=f"{return_to}?error=Select+a+field+to+apply", status_code=302)
 
     result = await db.execute(select(Device).where(Device.barcode.in_(barcodes)))
@@ -632,10 +691,24 @@ async def iqc_bulk_apply_grade_type(
             device.po_number = po_number.strip()
         if cpu.strip():
             device.cpu = cpu.strip()
+        if cpu_make.strip():
+            device.cpu_make = cpu_make.strip()
+        if generation.strip():
+            device.generation = generation.strip()
         if ram_gb.strip() and ram_gb.strip().isdigit():
             device.ram_gb = int(ram_gb.strip())
         if storage_gb.strip() and storage_gb.strip().isdigit():
             device.storage_gb = int(storage_gb.strip())
+        if total_ram_count.strip():
+            device.total_ram_count = total_ram_count.strip()
+        if total_ram_size.strip():
+            device.total_ram_size = total_ram_size.strip()
+        if total_hdd_count.strip():
+            device.total_hdd_count = total_hdd_count.strip()
+        if total_hdd_size.strip():
+            device.total_hdd_size = total_hdd_size.strip()
+        if hdd_summary.strip():
+            device.hdd_summary = hdd_summary.strip()
         if new_stage is not None:
             try:
                 await validate_transition(device, new_stage, db, override_admin=is_admin)
@@ -652,7 +725,12 @@ async def iqc_bulk_apply_grade_type(
                 table_name="devices", record_id=",".join(str(d.id) for d in devices)[:50],
                 new_value={"device_type": device_type or None, "grade": grade or None,
                            "invoice_number": invoice_number or None, "po_number": po_number or None,
-                           "cpu": cpu or None, "ram_gb": ram_gb or None, "storage_gb": storage_gb or None,
+                           "cpu": cpu or None, "cpu_make": cpu_make or None,
+                           "generation": generation or None,
+                           "ram_gb": ram_gb or None, "storage_gb": storage_gb or None,
+                           "total_ram_count": total_ram_count or None, "total_ram_size": total_ram_size or None,
+                           "total_hdd_count": total_hdd_count or None, "total_hdd_size": total_hdd_size or None,
+                           "hdd_summary": hdd_summary or None,
                            "to_stage": to_stage or None, "count": len(devices)},
                 request=request)
     await db.commit()
@@ -732,6 +810,7 @@ async def iqc_create(
     serial_no: str = Form(""),
     grn_number: str = Form(""),
     cpu: str = Form(""),
+    cpu_make: str = Form(""),
     generation: str = Form(""),
     ram_summary: str = Form(""),
     hdd_summary: str = Form(""),
@@ -897,7 +976,7 @@ async def iqc_create(
         brand=brand or None, model=model or None, device_type=device_type or None,
         serial_no=serial_no or None,
         grn_number=grn_number or None,
-        cpu=cpu or None, generation=generation or None,
+        cpu=cpu or None, cpu_make=cpu_make or None, generation=generation or None,
         ram_summary=ram_summary or None, hdd_summary=hdd_summary or None,
         total_ram_count=total_ram_count or None, total_ram_size=total_ram_size or None,
         total_hdd_count=total_hdd_count or None, total_hdd_size=total_hdd_size or None,
@@ -1028,9 +1107,14 @@ async def lookup_device(barcode: str, db: AsyncSession = Depends(get_db), curren
         "serial_no": device.serial_no,
         "grn_number": device.grn_number,
         "cpu": device.cpu,
+        "cpu_make": device.cpu_make,
         "generation": device.generation,
         "ram_summary": device.ram_summary,
         "hdd_summary": device.hdd_summary,
+        "total_ram_count": device.total_ram_count,
+        "total_ram_size": device.total_ram_size,
+        "total_hdd_count": device.total_hdd_count,
+        "total_hdd_size": device.total_hdd_size,
         "screen_size": device.screen_size,
         "battery_health_pct": device.battery_health_pct,
         "bios_password": device.bios_password,

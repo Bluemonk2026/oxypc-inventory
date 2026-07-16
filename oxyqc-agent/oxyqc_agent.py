@@ -225,7 +225,7 @@ $clk=[math]::Round($cpu.MaxClockSpeed/1000.0,2)
 $onAC=$true; if($batt -and $batt.BatteryStatus -eq 1){$onAC=$false}
 [ordered]@{
  manufacturer="$($cs.Manufacturer)";model="$($cs.Model)";serial="$($bios.SerialNumber)";
- cpu="$(($cpu.Name).Trim())";clock=$clk;cores=$cpu.NumberOfCores;ram_gb=[math]::Round($cs.TotalPhysicalMemory/1GB);
+ cpu="$(($cpu.Name).Trim())";cpu_make="$($cpu.Manufacturer)".Trim();clock=$clk;cores=$cpu.NumberOfCores;ram_gb=[math]::Round($cs.TotalPhysicalMemory/1GB);
  chassis=@($encl.ChassisTypes);has_battery=[bool]$batt;battery_pct=$batt.EstimatedChargeRemaining;battery_health=$bh;on_ac=$onAC;
  screen_in=$scr;gpu="$($gpu.Name)";os="$($os.Caption)";disks=$pd;ram_sticks=$ram;
  kbd=(st $kbd);touchpad=(st $ptr);sound=(st $snd);camera=(st $cam);wifi=(st $wifi);usbctrl=(st $usb);
@@ -283,6 +283,19 @@ def _generation(cpu):
         m2 = re.search(r"Apple\s+(M\d+)\s*(Pro|Max|Ultra)?", cpu)
         if m2:
             return f"Apple {m2.group(1)}{(' ' + m2.group(2)) if m2.group(2) else ''}"
+    return None
+
+
+def _cpu_make(cpu, manufacturer=None):
+    """Derive Intel / AMD / Apple from the CPU manufacturer string (Windows
+    Win32_Processor.Manufacturer) or by parsing the CPU/chip name (macOS)."""
+    src = f"{manufacturer or ''} {cpu or ''}".lower()
+    if "intel" in src or "genuineintel" in src:
+        return "Intel"
+    if "amd" in src or "authenticamd" in src or "ryzen" in src:
+        return "AMD"
+    if "apple" in src or re.match(r"^\s*m\d", (cpu or "").strip(), re.I):
+        return "Apple"
     return None
 
 
@@ -361,7 +374,7 @@ def format_ram_summary(sticks):
             segs.append(t)
         speed = str(s.get("speed") or "").strip()
         if speed and speed not in ("0",):
-            segs.append(f"{speed}MHz")
+            segs.append(speed)
         make = str(s.get("make") or "").strip()
         if make:
             segs.append(make)
@@ -387,7 +400,7 @@ def format_hdd_summary(drives):
             segs.append(dtype)
         rpm = d.get("rpm")
         if rpm:
-            segs.append(f"{int(rpm)}RPM")
+            segs.append(str(int(rpm)))
         make = str(d.get("make") or "").strip()
         if make:
             segs.append(make)
@@ -750,6 +763,9 @@ def detect():
     cpu_clean = _clean_cpu(info.get("cpu"), info.get("clock"))
     if cpu_clean:
         f["cpu"] = cpu_clean            # processor + speed only
+    make = _cpu_make(info.get("cpu"), info.get("cpu_make"))
+    if make:
+        f["cpu_make"] = make
     gen = _generation(info.get("cpu"))
     if gen:
         f["generation"] = gen
@@ -767,6 +783,14 @@ def detect():
         # or a Windows station where Win32_PhysicalMemory returned nothing) —
         # fall back to just the total size rather than leaving the field blank.
         f["ram_summary"] = f"{int(info['ram_gb'])}GB"
+    # Total RAM Count = # DIMMs (Apple Silicon unified → 1); Total RAM Size = summed GB
+    ram_dimms = [s for s in ram_sticks if s.get("capacityGB")]
+    if ram_dimms:
+        f["total_ram_count"] = str(len(ram_dimms))
+        f["total_ram_size"] = f"{sum(int(s['capacityGB']) for s in ram_dimms)}GB"
+    elif info.get("ram_gb"):
+        f["total_ram_count"] = "1"
+        f["total_ram_size"] = f"{int(info['ram_gb'])}GB"
     f["sub_category"] = sub
     f["device_type"] = sub
     prim = (ssd or hdd or disks)
@@ -782,6 +806,12 @@ def detect():
     hdd_summary = format_hdd_summary(disks)
     if hdd_summary:
         f["hdd_summary"] = hdd_summary
+    # Total Hard Drive Count = # physical disks; Total Hard Drive Size = summed GB
+    hdd_disks = [d for d in disks if d.get("sizeGB")]
+    if hdd_disks:
+        f["total_hdd_count"] = str(len(hdd_disks))
+        _tot_gb = sum(int(d["sizeGB"]) for d in hdd_disks)
+        f["total_hdd_size"] = f"{round(_tot_gb / 1000)}TB" if _tot_gb >= 1000 else f"{_tot_gb}GB"
     scr = _snap_screen(info.get("screen_in"))
     if scr:
         f["screen_size"] = scr

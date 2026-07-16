@@ -412,19 +412,54 @@
               <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="scrap">Scrap</option>
             </select>
           </div>
-          <div class="mb-3">
-            <label class="form-label small">CPU</label>
-            <input type="text" name="cpu" class="form-control form-control-sm" placeholder="Leave blank to leave unchanged">
+          <!-- Row 1: CPU | CPU Make | Generation (mirrors the IQC form grouping) -->
+          <div class="row g-2 mb-2">
+            <div class="col">
+              <label class="form-label small">CPU</label>
+              <input type="text" name="cpu" class="form-control form-control-sm" placeholder="Leave blank">
+            </div>
+            <div class="col">
+              <label class="form-label small">CPU Make</label>
+              <input type="text" name="cpu_make" class="form-control form-control-sm" placeholder="Intel / AMD / Apple">
+            </div>
+            <div class="col">
+              <label class="form-label small">Generation</label>
+              <input type="text" name="generation" class="form-control form-control-sm" placeholder="e.g. 10th Gen">
+            </div>
           </div>
-          <div class="row g-2 mb-3">
+          <!-- Row 2: Total RAM Count | Total RAM Size | RAM (GB) -->
+          <div class="row g-2 mb-2">
+            <div class="col">
+              <label class="form-label small">Total RAM Count</label>
+              <input type="text" name="total_ram_count" class="form-control form-control-sm" placeholder="e.g. 2">
+            </div>
+            <div class="col">
+              <label class="form-label small">Total RAM Size</label>
+              <input type="text" name="total_ram_size" class="form-control form-control-sm" placeholder="e.g. 16GB">
+            </div>
             <div class="col">
               <label class="form-label small">RAM (GB)</label>
               <input type="text" name="ram_gb" class="form-control form-control-sm" placeholder="e.g. 16">
             </div>
+          </div>
+          <!-- Row 3: Total Hard Drive Count | Total Hard Drive Size | Hard Drive -->
+          <div class="row g-2 mb-2">
             <div class="col">
-              <label class="form-label small">Storage (GB)</label>
-              <input type="text" name="storage_gb" class="form-control form-control-sm" placeholder="e.g. 512">
+              <label class="form-label small">Total Hard Drive Count</label>
+              <input type="text" name="total_hdd_count" class="form-control form-control-sm" placeholder="e.g. 1">
             </div>
+            <div class="col">
+              <label class="form-label small">Total Hard Drive Size</label>
+              <input type="text" name="total_hdd_size" class="form-control form-control-sm" placeholder="e.g. 512GB">
+            </div>
+            <div class="col">
+              <label class="form-label small">Hard Drive</label>
+              <input type="text" name="hdd_summary" class="form-control form-control-sm" placeholder="512GB_SSD_7400_Samsung">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small">Storage (GB)</label>
+            <input type="text" name="storage_gb" class="form-control form-control-sm" placeholder="e.g. 512">
           </div>
           <div class="mb-3">
             <label class="form-label small">Invoice Number</label>

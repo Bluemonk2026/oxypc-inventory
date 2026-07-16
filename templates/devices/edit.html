@@ -117,6 +117,10 @@
               <input type="text" name="cpu" class="form-control form-control-sm" value="{{ device.cpu or '' }}" placeholder="e.g. Intel Core i5">
             </div>
             <div class="col-md-3">
+              <label class="form-label small">CPU Make</label>
+              <input type="text" name="cpu_make" class="form-control form-control-sm" value="{{ device.cpu_make or '' }}" placeholder="Intel / AMD / Apple">
+            </div>
+            <div class="col-md-3">
               <label class="form-label small">Generation</label>
               <input type="text" name="generation" class="form-control form-control-sm" value="{{ device.generation or '' }}" placeholder="e.g. 8th Gen">
             </div>

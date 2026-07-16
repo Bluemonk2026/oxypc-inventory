@@ -98,6 +98,7 @@ Table devices {
   serial_no varchar(100)
   sub_category varchar(20) [note: 'indexed']
   cpu varchar(100)
+  cpu_make varchar(100) [note: 'Intel / AMD / Apple — derived from IQC agent or manual entry']
   generation varchar(50)
   ram_gb int
   storage_gb int

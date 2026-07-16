@@ -32,6 +32,16 @@ _require_receivables = require_roles(
     UserRole.sales_manager,
     UserRole.inventory_manager,
 )
+
+# Company financials (P&L, lot P&L) — management only. The router-level
+# _REPORT_ROLES gate is deliberately broad (it covers operational reports like
+# stock-aging for sales/QC), so these two financial endpoints add a stricter
+# per-route gate: sales reps and QC inspectors must NOT see company revenue/
+# COGS/margins. (Flagged in the 2026-07-15 RBAC audit.)
+_require_financials = require_roles(
+    UserRole.inventory_manager,
+    UserRole.sales_manager,
+)
 router = APIRouter(
     prefix="/reports",
     tags=["reports"],
@@ -40,7 +50,7 @@ router = APIRouter(
 
 
 @router.get("/lot-pl", response_class=HTMLResponse)
-async def lot_pl_report(request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def lot_pl_report(request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(_require_financials)):
     lots_result = await db.execute(select(Lot).order_by(Lot.created_at.desc()))
     lots = lots_result.scalars().all()
 
@@ -162,7 +172,7 @@ async def sales_report(request: Request, db: AsyncSession = Depends(get_db), cur
 
 
 @router.get("/export/lot-pl")
-async def export_lot_pl(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def export_lot_pl(db: AsyncSession = Depends(get_db), current_user: User = Depends(_require_financials)):
     lots_result = await db.execute(
         select(Lot).order_by(Lot.created_at.desc()).limit(MAX_EXPORT_ROWS)
     )
@@ -237,7 +247,7 @@ async def business_pl(
     request: Request,
     year: int = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(_require_financials),
 ):
     if not year:
         year = app_now().year

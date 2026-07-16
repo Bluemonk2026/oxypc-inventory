@@ -269,14 +269,16 @@ def _detect_host_hardware():
     if isinstance(ram_sticks, dict):
         ram_sticks = [ram_sticks]
     ram_summary = _format_ram_summary(ram_sticks)
-    # Total RAM Count = number of DIMMs; plain summed size like "16GB"
+    # Total RAM Count = number of DIMMs; plain summed size like "16GB" (or "1TB" if >= 1000GB)
     ram_dimms = [s for s in ram_sticks if s.get("capacityGB")]
     ram_plain = None
     if ram_dimms:
         f["total_ram_count"] = str(len(ram_dimms))
-        ram_plain = f"{sum(int(s['capacityGB']) for s in ram_dimms)}GB"
+        _rg = sum(int(s["capacityGB"]) for s in ram_dimms)
+        ram_plain = f"{round(_rg / 1000)}TB" if _rg >= 1000 else f"{_rg}GB"
     elif info.get("ram_gb"):
-        ram_plain = f"{int(info['ram_gb'])}GB"
+        _rg = int(info["ram_gb"])
+        ram_plain = f"{round(_rg / 1000)}TB" if _rg >= 1000 else f"{_rg}GB"
     if not ram_summary and info.get("ram_gb"):
         ram_summary = f"{int(info['ram_gb'])}GB"
     # Swapped per spec: "Total RAM Size" holds the combined string,

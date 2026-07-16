@@ -124,13 +124,31 @@
               <label class="form-label small">Generation</label>
               <input type="text" name="generation" class="form-control form-control-sm" value="{{ device.generation or '' }}" placeholder="e.g. 8th Gen">
             </div>
+            <!-- RAM trio (mirrors IQC entry): Total RAM Count | Total RAM Size | RAM -->
             <div class="col-md-3">
-              <label class="form-label small">RAM (GB)</label>
-              <input type="text" name="ram_gb" class="form-control form-control-sm" value="{{ device.ram_gb if device.ram_gb else '' }}" placeholder="e.g. 8">
+              <label class="form-label small">Total RAM Count</label>
+              <input type="text" name="total_ram_count" class="form-control form-control-sm" value="{{ device.total_ram_count or '' }}" placeholder="e.g. 2">
             </div>
             <div class="col-md-3">
-              <label class="form-label small">Storage Capacity (GB)</label>
-              <input type="text" name="storage_gb" class="form-control form-control-sm" value="{{ device.storage_gb if device.storage_gb else '' }}" placeholder="e.g. 256">
+              <label class="form-label small">Total RAM Size</label>
+              <input type="text" name="total_ram_size" class="form-control form-control-sm" value="{{ device.total_ram_size or '' }}" placeholder="e.g. 16GB_DDR4_2300_Samsung">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">RAM</label>
+              <input type="text" name="ram_summary" class="form-control form-control-sm" value="{{ device.ram_summary or '' }}" placeholder="e.g. 16GB or 1TB">
+            </div>
+            <!-- Hard Drive trio (mirrors IQC entry): Total Hard Drive Count | Total Hard Drive Size | Hard Drive -->
+            <div class="col-md-3">
+              <label class="form-label small">Total Hard Drive Count</label>
+              <input type="text" name="total_hdd_count" class="form-control form-control-sm" value="{{ device.total_hdd_count or '' }}" placeholder="e.g. 1">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Total Hard Drive Size</label>
+              <input type="text" name="total_hdd_size" class="form-control form-control-sm" value="{{ device.total_hdd_size or '' }}" placeholder="e.g. 520GB_SSD_7400_Samsung">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small">Hard Drive</label>
+              <input type="text" name="hdd_summary" class="form-control form-control-sm" value="{{ device.hdd_summary or '' }}" placeholder="e.g. 512GB or 1TB">
             </div>
             <div class="col-md-3">
               <label class="form-label small">Storage Type</label>

@@ -722,6 +722,12 @@ async def device_edit_save(
     generation: str = Form(""),
     ram_gb: str = Form(""),
     storage_gb: str = Form(""),
+    total_ram_count: str = Form(""),
+    total_ram_size: str = Form(""),
+    ram_summary: str = Form(""),
+    total_hdd_count: str = Form(""),
+    total_hdd_size: str = Form(""),
+    hdd_summary: str = Form(""),
     storage_type: str = Form(""),
     hdd_capacity_gb: str = Form(""),
     screen_size: str = Form(""),
@@ -773,9 +779,20 @@ async def device_edit_save(
     device.cpu = cpu or None
     device.cpu_make = cpu_make or None
     device.generation = generation or None
-    # int-or-None: tolerates non-numeric dropdown values like "Not Available" / "Not Checked"
-    device.ram_gb = int(ram_gb) if (ram_gb or "").strip().isdigit() else None
-    device.storage_gb = int(storage_gb) if (storage_gb or "").strip().isdigit() else None
+    # ram_gb/storage_gb inputs were replaced on the Edit form by the IQC-style
+    # RAM/Hard Drive (summary) fields; keep them non-destructive — only overwrite
+    # the legacy numeric columns when a value is actually submitted.
+    if (ram_gb or "").strip():
+        device.ram_gb = int(ram_gb) if ram_gb.strip().isdigit() else None
+    if (storage_gb or "").strip():
+        device.storage_gb = int(storage_gb) if storage_gb.strip().isdigit() else None
+    # IQC-style hardware fields (plain summed size in RAM / Hard Drive)
+    device.total_ram_count = total_ram_count.strip() or None
+    device.total_ram_size = total_ram_size.strip() or None
+    device.ram_summary = ram_summary.strip() or None
+    device.total_hdd_count = total_hdd_count.strip() or None
+    device.total_hdd_size = total_hdd_size.strip() or None
+    device.hdd_summary = hdd_summary.strip() or None
     device.storage_type = storage_type or None
     device.hdd_capacity_gb = int(hdd_capacity_gb) if (hdd_capacity_gb or "").strip().isdigit() else None
     device.screen_size = screen_size or None

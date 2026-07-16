@@ -781,15 +781,17 @@ def detect():
         # or a Windows station where Win32_PhysicalMemory returned nothing) —
         # fall back to just the total size rather than leaving the field blank.
         ram_summary = f"{int(info['ram_gb'])}GB"
-    # Total RAM Count = # DIMMs (Apple Silicon unified → 1); plain summed size like "16GB"
+    # Total RAM Count = # DIMMs (Apple Silicon unified → 1); plain summed size like "16GB" (or "1TB" if >= 1000GB)
     ram_dimms = [s for s in ram_sticks if s.get("capacityGB")]
     ram_plain = None
     if ram_dimms:
         f["total_ram_count"] = str(len(ram_dimms))
-        ram_plain = f"{sum(int(s['capacityGB']) for s in ram_dimms)}GB"
+        _rg = sum(int(s["capacityGB"]) for s in ram_dimms)
+        ram_plain = f"{round(_rg / 1000)}TB" if _rg >= 1000 else f"{_rg}GB"
     elif info.get("ram_gb"):
         f["total_ram_count"] = "1"
-        ram_plain = f"{int(info['ram_gb'])}GB"
+        _rg = int(info["ram_gb"])
+        ram_plain = f"{round(_rg / 1000)}TB" if _rg >= 1000 else f"{_rg}GB"
     # Swapped per spec: "Total RAM Size" holds the combined string,
     # "RAM" (ram_summary) holds the plain summed size.
     if ram_summary:

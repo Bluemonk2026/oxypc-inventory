@@ -45,6 +45,7 @@ async def create_dealer_quotation(
     additional_notes: str = Form(default=""),
     product_name: list[str] = Form(default=[]),
     model_name: list[str] = Form(default=[]),
+    po_category: list[str] = Form(default=[]),
     quantity: list[str] = Form(default=[]),
     unit_price: list[str] = Form(default=[]),
     db: AsyncSession = Depends(get_db),
@@ -67,6 +68,7 @@ async def create_dealer_quotation(
         line_total = (Decimal(qty) * price).quantize(Decimal("0.01"))
         items.append({
             "product_name": name,
+            "po_category": (po_category[i] if i < len(po_category) else "").strip() or None,
             "model_name": (model_name[i] if i < len(model_name) else "").strip() or None,
             "quantity": qty,
             "unit_price": price,

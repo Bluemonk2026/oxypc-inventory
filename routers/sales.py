@@ -165,12 +165,44 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
     })
 
 
+def _unit_stock_price(device, lot) -> float:
+    """Device unit cost — device-level price if set, else avg lot cost (same
+    logic as the Ready-to-Sale Unit Cost column)."""
+    if device is not None and device.device_price:
+        return float(device.device_price)
+    if lot is not None and lot.qty:
+        return float(lot.buying_price or 0) / lot.qty
+    return 0.0
+
+
 @router.get("/sales/new", response_class=HTMLResponse)
 async def sale_new_form(request: Request, barcode: str = None,
+                        barcodes: str = None, qty: int = None,
+                        embed: int = 0,
                         db: AsyncSession = Depends(get_db),
                         current_user: User = Depends(allowed)):
     device = None; lot = None; stage_error = None; approved_qty = None
-    if barcode:
+    stock_price = None; prefill_barcode = None; prefill_qty = None; multi_count = 0
+
+    # ── Multi-sell prefill: comma-separated tag list (?barcodes=A,B&qty=N) ──
+    if barcodes:
+        codes, seen = [], set()
+        for c in barcodes.split(","):
+            c = c.strip()
+            if c and c not in seen:
+                seen.add(c); codes.append(c)
+        if codes:
+            prefill_barcode = ",".join(codes)
+            prefill_qty = qty or len(codes)
+            multi_count = len(codes)
+            rows = (await db.execute(
+                select(Device, Lot).outerjoin(Lot, Device.lot_id == Lot.id)
+                .where(Device.barcode.in_(codes))
+            )).all()
+            stock_price = sum(_unit_stock_price(d, l) for d, l in rows)
+            if rows:
+                device, lot = rows[0]  # representative device for the info alert
+    elif barcode:
         result = await db.execute(select(Device).where(Device.barcode == barcode))
         device = result.scalar_one_or_none()
         if device:
@@ -190,11 +222,15 @@ async def sale_new_form(request: Request, barcode: str = None,
             )).scalars().first()
             if appr:
                 approved_qty = appr.qty_requested
+            stock_price = _unit_stock_price(device, lot)
     next_num = await _next_sale_number(db)
     return templates.TemplateResponse("sales/new.html", {
         "request": request, "device": device, "lot": lot,
         "next_sale_number": next_num, "current_user": current_user,
         "error": stage_error, "approved_qty": approved_qty,
+        "stock_price": stock_price, "prefill_barcode": prefill_barcode,
+        "prefill_qty": prefill_qty, "multi_count": multi_count,
+        "embed": bool(embed),
     })
 
 
@@ -217,93 +253,134 @@ async def create_sale(
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("sales", "add")),
 ):
-    if qty > 1:
+    # ── Multi-sale support: barcode field may be a comma-separated tag list ──
+    codes, _seen = [], set()
+    for c in barcode.split(","):
+        c = c.strip()
+        if c and c not in _seen:
+            _seen.add(c); codes.append(c)
+    is_multi = len(codes) > 1
+
+    if qty > 1 and not is_multi:
         notes = f"[Qty:{qty}] {notes}".strip()
-    result = await db.execute(select(Device).where(Device.barcode == barcode))
-    device = result.scalar_one_or_none()
-    if not device:
-        return templates.TemplateResponse("sales/new.html", {
-            "request": request, "device": None, "lot": None,
-            "next_sale_number": await _next_sale_number(db),
-            "current_user": current_user,
-            "error": f"Device {barcode} not found",
-        })
-
-    # ── Control Engine: sale block ────────────────────────────────────────
-    try:
-        await validate_sale_allowed(device)
-    except HTTPException as e:
-        return templates.TemplateResponse("sales/new.html", {
-            "request": request, "device": device, "lot": None,
-            "next_sale_number": await _next_sale_number(db),
-            "current_user": current_user, "error": e.detail,
-        })
 
     try:
-        price = Decimal(sale_price)
+        price = Decimal(sale_price)  # per-unit price (form divides Total ÷ Qty)
     except Exception:
         return templates.TemplateResponse("sales/new.html", {
-            "request": request, "device": device, "lot": None,
+            "request": request, "device": None, "lot": None,
             "next_sale_number": await _next_sale_number(db),
             "current_user": current_user,
             "error": "Invalid sale price — please enter a valid number",
         })
 
-    # ── Cost Engine: below-cost warning ──────────────────────────────────
-    warn = await check_below_cost_warning(device, price, db)
-
-    sale_num = await _next_sale_number(db)
-    sold_at = app_now()
     wtype = warranty_type if warranty_type in ("none", "30_days", "6_months", "1_year") else "none"
-    warranty_expires_at = compute_warranty_expiry(sold_at, wtype)
-    sale = Sale(
-        sale_number=sale_num, device_id=device.id,
-        sale_price=price,
-        customer_name=customer_name or None, customer_phone=customer_phone or None,
-        customer_state=customer_state or None,
-        invoice_no=invoice_no or None, payment_mode=payment_mode,
-        sold_by=current_user.username, notes=notes or None,
-        invoice_file_path=invoice_file_path or None,
-        sold_at=sold_at,
-        warranty_type=wtype, warranty_expires_at=warranty_expires_at,
-    )
-    db.add(sale)
 
-    prev = device.current_stage
-    prev_mv = (await db.execute(
-        select(StageMovement)
-        .where(StageMovement.device_id == device.id,
-               StageMovement.to_stage  == prev,
-               StageMovement.exited_at == None)
-        .order_by(StageMovement.moved_at.desc())
-    )).scalars().first()
-    if prev_mv:
-        prev_mv.exited_at = app_now()
+    sold, skipped, warn, events = [], [], None, []
+    for code in codes:
+        result = await db.execute(select(Device).where(Device.barcode == code))
+        device = result.scalar_one_or_none()
+        if not device:
+            if not is_multi:
+                return templates.TemplateResponse("sales/new.html", {
+                    "request": request, "device": None, "lot": None,
+                    "next_sale_number": await _next_sale_number(db),
+                    "current_user": current_user,
+                    "error": f"Device {code} not found",
+                })
+            skipped.append(f"{code} (not found)")
+            continue
 
-    device.current_stage = DeviceStage.sold
-    device.updated_at    = app_now()
-    db.add(StageMovement(device_id=device.id, from_stage=prev, to_stage=DeviceStage.sold,
-                         moved_by=current_user.username, notes=f"Sold — {sale_num}"))
+        # ── Control Engine: sale block ────────────────────────────────────
+        try:
+            await validate_sale_allowed(device)
+        except HTTPException as e:
+            if not is_multi:
+                return templates.TemplateResponse("sales/new.html", {
+                    "request": request, "device": device, "lot": None,
+                    "next_sale_number": await _next_sale_number(db),
+                    "current_user": current_user, "error": e.detail,
+                })
+            skipped.append(f"{code} (blocked)")
+            continue
 
-    await audit(db, user=current_user, action="SALE_CREATED",
-                table_name="sales", record_id=str(device.id),
-                new_value={"sale_number": sale_num, "price": str(price),
-                           "below_cost": bool(warn)},
-                notes=warn, request=request)
+        # ── Cost Engine: below-cost warning (first one reported) ─────────
+        w = await check_below_cost_warning(device, price, db)
+        if w and not warn:
+            warn = w
+
+        sale_num = await _next_sale_number(db)
+        sold_at = app_now()
+        warranty_expires_at = compute_warranty_expiry(sold_at, wtype)
+        sale = Sale(
+            sale_number=sale_num, device_id=device.id,
+            sale_price=price,
+            customer_name=customer_name or None, customer_phone=customer_phone or None,
+            customer_state=customer_state or None,
+            invoice_no=invoice_no or None, payment_mode=payment_mode,
+            sold_by=current_user.username, notes=notes or None,
+            invoice_file_path=invoice_file_path or None,
+            sold_at=sold_at,
+            warranty_type=wtype, warranty_expires_at=warranty_expires_at,
+        )
+        db.add(sale)
+
+        prev = device.current_stage
+        prev_mv = (await db.execute(
+            select(StageMovement)
+            .where(StageMovement.device_id == device.id,
+                   StageMovement.to_stage  == prev,
+                   StageMovement.exited_at == None)
+            .order_by(StageMovement.moved_at.desc())
+        )).scalars().first()
+        if prev_mv:
+            prev_mv.exited_at = app_now()
+
+        device.current_stage = DeviceStage.sold
+        device.updated_at    = app_now()
+        db.add(StageMovement(device_id=device.id, from_stage=prev, to_stage=DeviceStage.sold,
+                             moved_by=current_user.username, notes=f"Sold — {sale_num}"))
+
+        await audit(db, user=current_user, action="SALE_CREATED",
+                    table_name="sales", record_id=str(device.id),
+                    new_value={"sale_number": sale_num, "price": str(price),
+                               "below_cost": bool(w)},
+                    notes=w, request=request)
+
+        sold.append(sale_num)
+        events.append({
+            "sale_number": sale_num,
+            "barcode": code,
+            "price": str(price),
+            "customer_name": customer_name or None,
+            "sold_by": current_user.username,
+            "_source": "sales_html",
+        })
+
+    if not sold:
+        return templates.TemplateResponse("sales/new.html", {
+            "request": request, "device": None, "lot": None,
+            "next_sale_number": await _next_sale_number(db),
+            "current_user": current_user,
+            "error": "No sales recorded — " + ("; ".join(skipped) or "no valid tag numbers"),
+        })
 
     await db.commit()
-    publish(EventType.SALE_COMPLETED, {
-        "sale_number": sale_num,
-        "barcode": barcode,
-        "price": str(price),
-        "customer_name": customer_name or None,
-        "sold_by": current_user.username,
-        "_source": "sales_html",
-    }, background_tasks)
-    redirect = f"/sales?success=Sale+{sale_num}+recorded"
+    for payload in events:
+        publish(EventType.SALE_COMPLETED, payload, background_tasks)
+
+    if is_multi:
+        redirect = f"/sales?success={len(sold)}+devices+sold"
+    else:
+        redirect = f"/sales?success=Sale+{sold[0]}+recorded"
+    warn_parts = []
     if warn:
+        warn_parts.append(warn)
+    if skipped:
+        warn_parts.append(f"{len(skipped)} skipped: " + ", ".join(skipped))
+    if warn_parts:
         import urllib.parse
-        redirect += f"&warning={urllib.parse.quote(warn)}"
+        redirect += f"&warning={urllib.parse.quote(' | '.join(warn_parts))}"
     return RedirectResponse(url=redirect, status_code=302)
 
 

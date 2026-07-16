@@ -44,6 +44,9 @@
       <button type="button" id="multiRequestBtn" class="btn btn-sm btn-outline-primary" disabled>
         <i class="bi bi-telephone-outbound me-1"></i>Multi-Request with selected (<span id="readySelCount">0</span>)
       </button>
+      <button type="button" id="multiSellBtn" class="btn btn-sm btn-outline-success" disabled>
+        <i class="bi bi-cart-plus me-1"></i>Multi-Sell with selected (<span id="readySelCount2">0</span>)
+      </button>
     </div>
   </div>
   <div class="card-body p-0">
@@ -114,7 +117,7 @@
           <td>
             <div class="d-flex gap-1 flex-wrap">
               {% if _approved %}
-              <a href="/sales/new?barcode={{ device.barcode }}" class="btn btn-sm btn-success">Sell</a>
+              <button type="button" class="btn btn-sm btn-success sell-btn" data-sell-url="/sales/new?barcode={{ device.barcode }}&embed=1">Sell</button>
               {% else %}
               <button class="btn btn-sm btn-success" disabled title="Needs telecaller request approval">Sell</button>
               {% endif %}
@@ -174,7 +177,7 @@
                       data-model="{{ g.model }}" data-make="{{ g.make }}"
                       data-barcodes='{{ g.barcodes | tojson }}' data-max="{{ g.total_count }}">Request</button>
               {% if g.barcodes %}
-              <a href="/sales/new?barcode={{ g.barcodes[0] }}" class="btn btn-sm btn-outline-success">Sell</a>
+              <button type="button" class="btn btn-sm btn-outline-success sell-btn" data-sell-url="/sales/new?barcode={{ g.barcodes[0] }}&embed=1">Sell</button>
               {% endif %}
             </div>
           </td>
@@ -275,6 +278,10 @@
               <input type="hidden" name="qty" value="1">
               <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2">Request</button>
             </form>
+            {% if l.sample_barcode %}
+            <button type="button" class="btn btn-sm btn-success py-0 px-2 ms-1 sell-btn"
+                    data-sell-url="/sales/new?barcode={{ l.sample_barcode }}&embed=1">Sell</button>
+            {% endif %}
           </td>
         </tr>
         {% else %}
@@ -282,6 +289,20 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+</div>
+<!-- New Sale modal: loads /sales/new in an iframe so selling never leaves this page -->
+<div class="modal fade" id="newSaleModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title"><i class="bi bi-cart-plus me-2"></i>New Sale</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <iframe id="newSaleFrame" src="about:blank" style="width:100%;height:80vh;border:0"></iframe>
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -329,8 +350,25 @@ function selectedReadyBarcodes(){ return Array.from(document.querySelectorAll('.
 function updateReadySel(){
   var n = selectedReadyBarcodes().length;
   $('#readySelCount').text(n);
+  $('#readySelCount2').text(n);
   $('#multiRequestBtn').prop('disabled', n === 0);
+  $('#multiSellBtn').prop('disabled', n === 0);
 }
+
+// ── New Sale modal (iframe) — shared by all Sell buttons ──
+function openSaleModal(url){
+  document.getElementById('newSaleFrame').src = url;
+  new bootstrap.Modal(document.getElementById('newSaleModal')).show();
+}
+document.addEventListener('click', function(e){
+  var b = e.target.closest('.sell-btn');
+  if (b && b.dataset.sellUrl) openSaleModal(b.dataset.sellUrl);
+});
+document.getElementById('multiSellBtn').addEventListener('click', function(){
+  var bcs = selectedReadyBarcodes();
+  if (!bcs.length) return;
+  openSaleModal('/sales/new?barcodes=' + encodeURIComponent(bcs.join(',')) + '&qty=' + bcs.length + '&embed=1');
+});
 $('#readyTable').on('change', '.readyChk', updateReadySel);
 document.getElementById('readySelectAll').addEventListener('change', function(){
   var ck = this.checked;

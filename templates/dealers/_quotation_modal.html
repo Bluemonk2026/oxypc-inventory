@@ -55,18 +55,19 @@
           <table class="table table-sm mb-0">
             <thead class="table-light">
               <tr>
-                <th style="width:26%">Product Name</th>
-                <th style="width:22%">Model Name</th>
+                <th style="width:18%">PO Category</th>
+                <th style="width:22%">Product Name</th>
+                <th style="width:18%">Model Name</th>
                 <th style="width:12%">Quantity</th>
-                <th style="width:16%">Unit Price</th>
-                <th style="width:16%">Total Price</th>
-                <th style="width:8%"></th>
+                <th style="width:14%">Unit Price</th>
+                <th style="width:14%">Total Price</th>
+                <th style="width:2%"></th>
               </tr>
             </thead>
             <tbody id="qtnItemsBody"></tbody>
             <tfoot>
               <tr class="table-light">
-                <th colspan="2" class="text-end">Totals</th>
+                <th colspan="3" class="text-end">Totals</th>
                 <th id="qtnTotalQty">0</th>
                 <th></th>
                 <th id="qtnTotalPrice">0.00</th>
@@ -96,10 +97,24 @@
 </div>
 
 <script>
-function qtnAddRow(name, model, qty, price){
+// PO Category options sourced from Master Data → Inventory Logistics group.
+var QTN_PO_CATEGORIES = {{ master_options('po_category') | tojson }};
+
+function qtnPoCategoryCellHtml(selected){
+  var opts = '<option value="">— Select —</option>';
+  QTN_PO_CATEGORIES.forEach(function(cat){
+    var sel = (cat === selected) ? ' selected' : '';
+    var safe = String(cat).replace(/"/g, '&quot;');
+    opts += '<option value="' + safe + '"' + sel + '>' + safe + '</option>';
+  });
+  return '<td><select name="po_category" class="form-select form-select-sm">' + opts + '</select></td>';
+}
+
+function qtnAddRow(name, model, qty, price, poCategory){
   var tbody = document.getElementById('qtnItemsBody');
   var tr = document.createElement('tr');
   tr.innerHTML =
+    qtnPoCategoryCellHtml(poCategory) +
     '<td><input type="text" name="product_name" class="form-control form-control-sm" value="' + (name || '').replace(/"/g, '&quot;') + '" required></td>' +
     '<td><input type="text" name="model_name" class="form-control form-control-sm" value="' + (model || '').replace(/"/g, '&quot;') + '"></td>' +
     '<td><input type="number" name="quantity" min="1" value="' + (qty || 1) + '" class="form-control form-control-sm qtnQty"></td>' +

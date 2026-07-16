@@ -282,6 +282,7 @@ MASTER_SEED = {
     "iqc_part_category": [
         "RAM", "HDD", "SSD", "Screen", "Battery", "Charging Port", "Keyboard",
         "Touchpad", "HDMI Port", "USB Port", "Ethernet Port", "Audio Jack",
-        "Speaker", "Wi-Fi", "Webcam", "DVD Drive", "Fan", "Hinge", "Other",
+        "Speaker", "Wi-Fi", "Webcam", "DVD Drive", "Fan", "Hinge",
+        "Motherboard", "Motherboard Parts", "Other",
     ],
 }

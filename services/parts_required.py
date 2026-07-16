@@ -53,6 +53,18 @@ PARTS_MATRIX = [
                           or _is(i.touchpad_missing, "Yes")),
     ("WiFi Card",         "Other",      "wifi",     lambda i, d: _faulty(i.wifi_status) or _is_sentinel(i.wifi_status)),
     ("Webcam",            "Other",      "webcam",   lambda i, d: _faulty(i.webcam_status) or _is_sentinel(i.webcam_status)),
+    # ── Remaining IQC hardware fields (item 3d) — one Parts Consumption row per
+    #    component captured on the IQC Entry form. Required when the field
+    #    reports a fault / "No"; count-only fields (Ethernet ports) never
+    #    auto-flag (mirrors the Adapter/Charger row). ────────────────────────
+    ("HDMI Port",         "HDMI Port",  "hdmi",     lambda i, d: _is(i.port_hdmi, "No") or _faulty(i.port_hdmi)),
+    ("USB Port",          "USB Port",   "usb",      lambda i, d: _is(i.port_usb_working, "No") or _faulty(i.port_usb_working)),
+    ("Audio Jack",        "Audio Jack", "audio",    lambda i, d: _is(i.port_audio_jack, "No") or _faulty(i.port_audio_jack)),
+    ("Ethernet Port",     "Ethernet Port", "ethernet", lambda i, d: False),
+    ("Charging Port",     "Charging Port", "charging", lambda i, d: _is(i.charging_port, "No") or _faulty(i.charging_port)),
+    ("DVD Drive",         "DVD Drive",  "dvd",      lambda i, d: _is(i.dvd_drive, "No") or _faulty(i.dvd_drive)),
+    ("Fan / Cooling",     "Fan",        "fan",      lambda i, d: _is(i.fan_working, "No") or _faulty(i.fan_working)),
+    ("Motherboard",       "Motherboard", "motherboard", lambda i, d: _is(i.status, "No Display") or _is(i.power_on, "No")),
 ]
 
 

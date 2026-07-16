@@ -299,7 +299,7 @@
             <td class="small">{% if l.selling_price is not none %}₹{{ "{:,.0f}".format(l.selling_price) }}{% else %}—{% endif %}</td>
             <td class="small">₹{{ "{:,.0f}".format(l.actual_selling) }}</td>
             {% endif %}
-            <td class="small">{{ l.notes }}</td>
+            <td class="small note-clamp" title="{{ l.notes }}">{{ l.notes[:150] }}{% if l.notes and l.notes|length > 150 %}…{% endif %}</td>
             <td class="text-nowrap">
               <button type="button" class="btn btn-xs btn-outline-primary py-0 px-1 small"
                       title="View" onclick='showLotDetail({{ ld_data | tojson }})'>
@@ -411,6 +411,20 @@
               <option value="">— Leave unchanged —</option>
               <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="scrap">Scrap</option>
             </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small">CPU</label>
+            <input type="text" name="cpu" class="form-control form-control-sm" placeholder="Leave blank to leave unchanged">
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col">
+              <label class="form-label small">RAM (GB)</label>
+              <input type="text" name="ram_gb" class="form-control form-control-sm" placeholder="e.g. 16">
+            </div>
+            <div class="col">
+              <label class="form-label small">Storage (GB)</label>
+              <input type="text" name="storage_gb" class="form-control form-control-sm" placeholder="e.g. 512">
+            </div>
           </div>
           <div class="mb-3">
             <label class="form-label small">Invoice Number</label>

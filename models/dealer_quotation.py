@@ -53,6 +53,7 @@ class DealerQuotationItem(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     quotation_id = Column(UUID(as_uuid=True), ForeignKey("dealer_quotations.id"), nullable=False, index=True)
+    po_category = Column(String(100), nullable=True)  # from master_options('po_category')
     product_name = Column(String(200), nullable=False)
     model_name = Column(String(200), nullable=True)
     quantity = Column(Integer, nullable=False, default=1)

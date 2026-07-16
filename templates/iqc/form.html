@@ -172,9 +172,25 @@
               <label class="form-label small">Generation</label>
               <input type="text" name="generation" class="form-control form-control-sm" value="{{ device.generation if device else '' }}" placeholder="—">
             </div>
+            <div class="col-md-2">
+              <label class="form-label small">Total RAM Count</label>
+              <input type="text" name="total_ram_count" class="form-control form-control-sm" value="{{ device.total_ram_count if device and device.total_ram_count else '' }}" placeholder="e.g. 2">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small">Total RAM Size</label>
+              <input type="text" name="total_ram_size" class="form-control form-control-sm" value="{{ device.total_ram_size if device and device.total_ram_size else '' }}" placeholder="e.g. 16GB">
+            </div>
             <div class="col-md-4">
               <label class="form-label small">RAM</label>
               <input type="text" name="ram_summary" class="form-control form-control-sm" value="{{ device.ram_summary if device and device.ram_summary else '' }}" placeholder="e.g. 16GB_DDR4_2300MHz_Samsung">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small">Total HardDrive Count</label>
+              <input type="text" name="total_hdd_count" class="form-control form-control-sm" value="{{ device.total_hdd_count if device and device.total_hdd_count else '' }}" placeholder="e.g. 1">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small">Total HardDrive Size</label>
+              <input type="text" name="total_hdd_size" class="form-control form-control-sm" value="{{ device.total_hdd_size if device and device.total_hdd_size else '' }}" placeholder="e.g. 512GB">
             </div>
             <div class="col-md-4">
               <label class="form-label small">Hard Drive</label>

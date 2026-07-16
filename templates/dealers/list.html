@@ -124,6 +124,12 @@
     <button type="button" class="btn btn-sm btn-primary" onclick="openDealerAddModal()">
       <i class="bi bi-plus-circle me-1"></i>Add Dealer
     </button>
+    {% if current_user.role.value in ['admin', 'sales_manager'] %}
+    <button type="button" id="dealerBulkDeleteBtn" class="btn btn-sm btn-outline-danger" disabled
+            onclick="submitDealerBulkDelete()">
+      <i class="bi bi-trash me-1"></i>Delete Selected (<span id="dealerSelCount">0</span>)
+    </button>
+    {% endif %}
     <a href="/dealers/followups-due?today_only=1" class="btn btn-sm btn-info text-dark">
       <i class="bi bi-calendar-check me-1"></i>Today Follow-ups
       <span class="badge bg-white text-info">{{ today_followup_count }}</span>
@@ -195,6 +201,9 @@
       <table class="table table-hover mb-0" id="dealersTable">
         <thead class="table-light">
           <tr class="text-nowrap">
+            {% if current_user.role.value in ['admin', 'sales_manager'] %}
+            <th style="width:1%"><input type="checkbox" id="dealerCheckAll" class="form-check-input" title="Select all"></th>
+            {% endif %}
             <th>ID</th>
             <th>Status</th>
             <th>Business Name</th>
@@ -257,6 +266,9 @@
             'assigned_to': d.assigned_to or '',
           } %}
           <tr>
+            {% if current_user.role.value in ['admin', 'sales_manager'] %}
+            <td><input type="checkbox" class="form-check-input dealerChk" value="{{ d.id }}"></td>
+            {% endif %}
             <td><code>{{ d.dealer_code }}</code></td>
             <td>
               {% if rc.get('outcome') %}
@@ -313,12 +325,21 @@
                 <button type="button" class="btn btn-outline-info" title="Quotation" onclick='openQuotationModal({{ row_data | tojson }})'>
                   <i class="bi bi-file-earmark-text"></i>
                 </button>
+                {% if current_user.role.value in ['admin', 'sales_manager'] %}
+                <form action="/dealers/{{ d.id }}/delete" method="post" class="d-inline"
+                      onsubmit="return confirm('Delete dealer {{ d.business_name }}? It will be moved to trash and hidden from all dealer lists.')">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                  <button type="submit" class="btn btn-outline-danger" title="Delete">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+                {% endif %}
               </div>
             </td>
           </tr>
           {% else %}
           <tr>
-            <td colspan="20" class="text-center text-muted py-4">
+            <td colspan="{{ 21 if current_user.role.value in ['admin', 'sales_manager'] else 20 }}" class="text-center text-muted py-4">
               No dealers found. <a href="#" onclick="openDealerAddModal(); return false;">Add your first dealer</a>
             </td>
           </tr>
@@ -547,12 +568,54 @@ function openDealerAddModal(){
   new bootstrap.Modal(document.getElementById('dealerEditModal')).show();
 }
 
+{% set _has_chk = current_user.role.value in ['admin', 'sales_manager'] %}
 if ($('#dealersTable tbody tr').length > 1 && $.fn.DataTable) {
   $('#dealersTable').DataTable({
     pageLength: 12,
     order: [],
-    columnDefs: [{ orderable: false, targets: [18] }],
+    // With the select column present every index shifts +1 (checkbox col 0
+    // non-orderable, Assigned col 19); without it, Assigned stays at 18.
+    columnDefs: [{ orderable: false, targets: {{ '[0, 19]' if _has_chk else '[18]' }} }],
   });
 }
+
+{% if _has_chk %}
+// ── Dealer bulk soft-delete (Trash) ────────────────────────────────────────
+function dealerSyncSelCount() {
+  var n = document.querySelectorAll('.dealerChk:checked').length;
+  var cnt = document.getElementById('dealerSelCount');
+  var btn = document.getElementById('dealerBulkDeleteBtn');
+  if (cnt) cnt.textContent = n;
+  if (btn) btn.disabled = (n === 0);
+}
+document.addEventListener('change', function(e) {
+  if (e.target && e.target.id === 'dealerCheckAll') {
+    document.querySelectorAll('.dealerChk').forEach(function(c) { c.checked = e.target.checked; });
+    dealerSyncSelCount();
+  } else if (e.target && e.target.classList && e.target.classList.contains('dealerChk')) {
+    dealerSyncSelCount();
+  }
+});
+function submitDealerBulkDelete() {
+  var ids = Array.prototype.map.call(
+    document.querySelectorAll('.dealerChk:checked'), function(c) { return c.value; });
+  if (!ids.length) return;
+  if (!confirm('Delete ' + ids.length + ' selected dealer(s)? They will be moved to trash and hidden from all dealer lists.')) return;
+  var f = document.createElement('form');
+  f.method = 'post';
+  f.action = '/dealers/bulk-delete';
+  var csrf = document.createElement('input');
+  csrf.type = 'hidden'; csrf.name = 'csrf_token';
+  csrf.value = '{{ request.cookies.get("csrf_token", "") }}';
+  f.appendChild(csrf);
+  ids.forEach(function(id) {
+    var i = document.createElement('input');
+    i.type = 'hidden'; i.name = 'dealer_ids'; i.value = id;
+    f.appendChild(i);
+  });
+  document.body.appendChild(f);
+  f.submit();
+}
+{% endif %}
 </script>
 {% endblock %}

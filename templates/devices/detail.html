@@ -78,9 +78,13 @@
             <tr><th class="ps-3 text-muted small">CPU</th><td>{{ device.cpu or '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">Generation</th><td>{{ device.generation or '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">RAM</th><td>{{ device.ram_gb ~ ' GB' if device.ram_gb else '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Total RAM Count</th><td>{{ device.total_ram_count or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Total RAM Size</th><td>{{ device.total_ram_size or '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">SSD</th>
               <td>{{ (device.storage_gb|string ~ ' GB ' ~ (device.storage_type or '')) if device.storage_gb else '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">HDD</th><td>{{ device.hdd_capacity_gb ~ ' GB' if device.hdd_capacity_gb else '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Total HardDrive Count</th><td>{{ device.total_hdd_count or '—' }}</td></tr>
+            <tr><th class="ps-3 text-muted small">Total HardDrive Size</th><td>{{ device.total_hdd_size or '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">Screen</th><td>{{ device.screen_size or '—' }}</td></tr>
             <tr><th class="ps-3 text-muted small">Battery Health</th>
               <td>
@@ -259,7 +263,7 @@
                           onmouseleave="this.classList.replace('btn-outline-warning','btn-outline-secondary')"
                           onclick="openPartRequestModal('replace', 1, '{{ p.category | e }}', '{{ p.part_id }}', '{{ p.label | e }}')">
                     <i class="bi bi-arrow-repeat"></i> Replace Request</button>
-                  <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 faulty-part-btn"
+                  <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 faulty-part-btn" {% if not p.required %}disabled{% endif %}
                           data-label="{{ p.label | e }}" data-category="{{ p.category | e }}" data-part-id="{{ p.part_id }}">
                     <i class="bi bi-exclamation-triangle"></i> Faulty</button>
                 </div>
@@ -354,43 +358,43 @@
         catSel.innerHTML = '<option value="">— Select —</option>' +
           PART_CATEGORY_OPTIONS.map(function(c) { return '<option value="' + c + '">' + c + '</option>'; }).join('');
 
-        // BUG 3: for a request tied to a specific required-part row we already
-        // know the exact SparePart whose stock was shown (matchedPartId). Submit
-        // THAT id — not the category→name cascade, whose vocabulary (master
-        // iqc_part_category) doesn't match the PARTS_MATRIX categories and so
-        // comes up empty, silently storing part_id = NULL. When we have a match,
-        // bypass the cascade so spare-parts looks up the same record.
+        // ALL fields stay enabled/editable (prefill is a starting point, not a
+        // lock). Any stray hidden part_name mirror from a previous open is
+        // removed so the visible, editable Part Name select is what submits.
         var form = document.getElementById('partRequestForm');
         var hiddenName = form.querySelector('input[type=hidden][name="part_name"]');
-        if (matchedPartId) {
-          catSel.value = '';
-          catSel.disabled = true;
-          // A disabled <select> is NOT submitted, so mirror the value into a
-          // hidden part_name input (the endpoint requires part_name).
-          nameSel.innerHTML = '<option value="' + (partLabel || '').replace(/"/g,'&quot;') +
-            '" data-id="' + matchedPartId + '" selected>' + (partLabel || 'Selected part') + '</option>';
-          nameSel.disabled = true;
-          nameSel.removeAttribute('required');
-          if (!hiddenName) {
-            hiddenName = document.createElement('input');
-            hiddenName.type = 'hidden'; hiddenName.name = 'part_name';
-            form.appendChild(hiddenName);
-          }
-          hiddenName.value = partLabel || 'Selected part';
-          document.getElementById('pr_part_id').value = matchedPartId;
-          document.getElementById('pr_part_category').value = prefillCategory || '';
+        if (hiddenName) hiddenName.remove();
+        catSel.disabled = false;
+        nameSel.disabled = false;
+        nameSel.setAttribute('required', 'required');
+
+        // Smart prefill: select the matched part's category, build its Part Name
+        // options, then pre-select the exact SparePart we already showed stock
+        // for (matchedPartId) so its id — not NULL — is submitted, while the
+        // user remains free to change either select.
+        if (prefillCategory && PART_CATEGORY_OPTIONS.includes(prefillCategory)) {
+          catSel.value = prefillCategory;
         } else {
-          if (hiddenName) hiddenName.remove();
-          catSel.disabled = false;
-          nameSel.disabled = false;
-          nameSel.setAttribute('required', 'required');
-          if (prefillCategory && PART_CATEGORY_OPTIONS.includes(prefillCategory)) {
-            catSel.value = prefillCategory;
-          } else {
-            catSel.value = '';
-          }
-          prFillPartNames();
+          catSel.value = '';
         }
+        prFillPartNames();
+        if (matchedPartId) {
+          // Ensure the matched part is present + selected even if the cascade's
+          // category filter didn't surface it (category vocab can diverge).
+          var opt = Array.prototype.find.call(nameSel.options, function(o) {
+            return o.dataset && o.dataset.id === matchedPartId;
+          });
+          if (!opt) {
+            opt = document.createElement('option');
+            opt.value = partLabel || 'Selected part';
+            opt.dataset.id = matchedPartId;
+            opt.textContent = partLabel || 'Selected part';
+            nameSel.appendChild(opt);
+          }
+          nameSel.value = opt.value;
+          document.getElementById('pr_part_id').value = matchedPartId;
+        }
+        document.getElementById('pr_part_category').value = catSel.value || prefillCategory || '';
 
         new bootstrap.Modal(document.getElementById('partRequestModal')).show();
       }

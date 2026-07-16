@@ -31,7 +31,7 @@ async def list_assign_dealer_leads(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_view),
 ):
-    base_query = select(Dealer)
+    base_query = select(Dealer).where(Dealer.trashed_at.is_(None))  # exclude soft-deleted
     if q:
         like = f"%{q}%"
         base_query = base_query.where(or_(
@@ -134,20 +134,25 @@ async def delete_dealer_lead(
     current_user: User = Depends(require_view),
     _perm: User = Depends(require_module_perm("assign_dealer_leads", "edit")),
 ):
-    """Soft-delete: dealer orders/calls/credit-notes reference this record, and
-    business records are never hard-deleted — set status=inactive instead."""
+    """Soft-delete (Trash): dealer orders/calls/credit-notes reference this
+    record, so business rows are never hard-deleted — set trashed_at instead so
+    the dealer disappears from BOTH Assign Dealer Leads and Dealer Management."""
+    from utils.timezone import app_now
     result = await db.execute(select(Dealer).where(Dealer.id == dealer_id))
     dealer = result.scalar_one_or_none()
     if not dealer:
         return RedirectResponse(url="/assign-dealer-leads?error=Dealer+not+found", status_code=302)
+    if dealer.trashed_at is not None:
+        return RedirectResponse(url="/assign-dealer-leads?success=Dealer+already+deleted", status_code=302)
 
     await audit(
-        db, user=current_user, action="DEALER_LEAD_DEACTIVATED",
+        db, user=current_user, action="DEALER_TRASHED",
         table_name="dealers", record_id=str(dealer.id),
-        old_value={"status": dealer.status},
-        new_value={"status": "inactive"},
+        old_value={"trashed_at": None},
+        new_value={"trashed_at": "now", "trashed_by": current_user.username},
         request=request,
     )
-    dealer.status = "inactive"
+    dealer.trashed_at = app_now()
+    dealer.trashed_by = current_user.username
     await db.commit()
-    return RedirectResponse(url="/assign-dealer-leads?success=Dealer+deactivated", status_code=302)
+    return RedirectResponse(url="/assign-dealer-leads?success=Dealer+deleted", status_code=302)

@@ -320,9 +320,18 @@ async def l3l4_list(request: Request,
             "notes": wo.requested_by_name or "—",
             "aging": aging,
         })
+
+    # Available parts for the on-page "Request Part" modal (same query
+    # repair_list uses) — the modal defaults its Part select to the
+    # "Motherboard Parts" category.
+    available_parts = (await db.execute(
+        select(SparePart).where(SparePart.qty_in_stock > 0).order_by(SparePart.name)
+    )).scalars().all()
+
     return templates.TemplateResponse("repair/l3l4.html", {
         "request": request, "current_user": current_user,
         "items": items, "total": len(items),
+        "available_parts": available_parts,
     })
 
 

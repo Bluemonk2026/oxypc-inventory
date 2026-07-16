@@ -429,17 +429,20 @@ async def export_devices(
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        "Barcode", "Lot", "GRN", "Sub-Category", "Brand", "Model", "Device Type",
-        "Serial No", "CPU", "Generation", "RAM GB", "SSD GB", "Storage Type",
-        "HDD GB", "Screen Size", "Battery %", "BIOS Pwd", "Color",
+        "Barcode", "Lot", "GRN", "Invoice No", "Sub-Category", "Brand", "Model", "Device Type",
+        "Serial No", "CPU", "Generation", "RAM GB", "Total RAM Count", "Total RAM Size",
+        "SSD GB", "Storage Type",
+        "HDD GB", "Total HDD Count", "Total HDD Size", "Screen Size", "Battery %", "BIOS Pwd", "Color",
         "Grade", "Stage", "Floor", "Warehouse", "Notes", "Created", "Updated"
     ])
     for device, lot_number in rows:
         writer.writerow([
-            device.barcode, lot_number, device.grn_number, device.sub_category,
+            device.barcode, lot_number, device.grn_number, device.invoice_number, device.sub_category,
             device.brand, device.model, device.device_type, device.serial_no,
-            device.cpu, device.generation, device.ram_gb, device.storage_gb,
-            device.storage_type, device.hdd_capacity_gb, device.screen_size,
+            device.cpu, device.generation, device.ram_gb,
+            device.total_ram_count, device.total_ram_size, device.storage_gb,
+            device.storage_type, device.hdd_capacity_gb,
+            device.total_hdd_count, device.total_hdd_size, device.screen_size,
             device.battery_health_pct, "Yes" if device.bios_password else "No",
             device.color, device.grade,
             STAGE_LABELS.get(device.current_stage, device.current_stage),
@@ -546,8 +549,11 @@ async def device_detail(
         .order_by(PartRequest.created_at.desc())
     )).scalars().all()
     req_by_part = {}
+    req_by_partid = {}
     for r in pr_rows:
         req_by_part.setdefault(r.part_name, r)  # latest per part (rows ordered desc)
+        if r.part_id:
+            req_by_partid.setdefault(str(r.part_id), r)  # latest per resolved SparePart
 
     # ── Parts Consumed table (#33): every Part Request row whose Action
     #    flipped to "Part Changed" (status == "received"), priced from the
@@ -578,7 +584,14 @@ async def device_detail(
             )).order_by(SparePart.qty_in_stock.desc())
         )).scalars().first()
         stock = int(sp.qty_in_stock) if sp and sp.qty_in_stock else 0
+        # Match an existing request either by the PARTS_MATRIX label (Faulty /
+        # matched-part flow submits part_name == label) OR by the resolved
+        # SparePart id (New/Replace via the category→name cascade submits the
+        # SparePart's own name, which never equals the label). Without the id
+        # fallback the "Requested" pill silently never appears for those.
         existing = req_by_part.get(row["label"])
+        if not existing and sp:
+            existing = req_by_partid.get(str(sp.id))
         parts_consumption.append({
             "label": row["label"],
             "category": sp.category if sp else row["category"],

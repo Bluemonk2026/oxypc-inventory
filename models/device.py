@@ -109,6 +109,11 @@ class Device(Base):
     hdd_speed = Column(String(20), nullable=True)
     ram_summary = Column(String(255), nullable=True)   # packed multi-stick string, e.g. "16GB_DDR4_2300MHz_Samsung, 8GB_DDR4_2133MHz_Crucial"
     hdd_summary = Column(String(255), nullable=True)    # packed multi-drive string, e.g. "520GB_SSD_5400RPM_Samsung, 1TB_SSD_7200RPM_Seagate"
+    # ── IQC RAM/HDD count + size (additive, auto-provisioned by db_validator) ──
+    total_ram_count = Column(String(50), nullable=True)
+    total_ram_size  = Column(String(50), nullable=True)
+    total_hdd_count = Column(String(50), nullable=True)
+    total_hdd_size  = Column(String(50), nullable=True)
     battery_health_pct = Column(Integer, nullable=True)  # 0-100 for laptops
     screen_size = Column(String(20), nullable=True)    # e.g. "14.0 FHD"
     color = Column(String(30), nullable=True)

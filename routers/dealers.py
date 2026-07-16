@@ -134,7 +134,7 @@ async def list_dealers(
     current_user: User = Depends(require_sales),
 ):
     from sqlalchemy import or_
-    base_query = select(Dealer)
+    base_query = select(Dealer).where(Dealer.trashed_at.is_(None))  # exclude soft-deleted
     if q:
         like = f"%{q}%"
         base_query = base_query.where(or_(
@@ -408,6 +408,67 @@ async def list_dealers(
         "quotations": await _recent_quotations(db),
         "company_settings": await get_company_settings(db),
     })
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_dealers(
+    request: Request,
+    dealer_ids: list[str] = Form(default=[]),
+    _csrf: None = Depends(verify_csrf),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_sales_mgr),
+):
+    """Soft-delete (Trash) the selected dealers. Restorable via trashed_at.
+    Hidden from Dealer Management + Assign Dealer Leads once trashed."""
+    ids = [i for i in (dealer_ids or []) if i]
+    if not ids:
+        return RedirectResponse(url="/dealers?error=No+dealers+selected", status_code=302)
+    dealers = (await db.execute(
+        select(Dealer).where(Dealer.id.in_(ids), Dealer.trashed_at.is_(None))
+    )).scalars().all()
+    now = app_now()
+    for dealer in dealers:
+        dealer.trashed_at = now
+        dealer.trashed_by = current_user.username
+    await audit(
+        db, user=current_user, action="DEALER_BULK_TRASHED",
+        table_name="dealers", record_id=f"bulk:{len(dealers)}",
+        new_value={"dealer_ids": [str(d.id) for d in dealers], "trashed_by": current_user.username},
+        request=request,
+    )
+    await db.commit()
+    return RedirectResponse(
+        url=f"/dealers?success={len(dealers)}+dealer(s)+deleted", status_code=302)
+
+
+@router.post("/{dealer_id}/delete")
+async def delete_dealer(
+    request: Request,
+    dealer_id: str,
+    _csrf: None = Depends(verify_csrf),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_sales_mgr),
+):
+    """Soft-delete (Trash) a single dealer — business rows are never hard-deleted
+    (orders/calls/credit-notes reference this record)."""
+    dealer = (await db.execute(
+        select(Dealer).where(Dealer.id == dealer_id)
+    )).scalar_one_or_none()
+    if not dealer:
+        return RedirectResponse(url="/dealers?error=Dealer+not+found", status_code=302)
+    if dealer.trashed_at is not None:
+        return RedirectResponse(url="/dealers?success=Dealer+already+deleted", status_code=302)
+    await audit(
+        db, user=current_user, action="DEALER_TRASHED",
+        table_name="dealers", record_id=str(dealer.id),
+        old_value={"trashed_at": None},
+        new_value={"trashed_at": "now", "trashed_by": current_user.username},
+        request=request,
+    )
+    dealer.trashed_at = app_now()
+    dealer.trashed_by = current_user.username
+    await db.commit()
+    return RedirectResponse(url="/dealers?success=Dealer+deleted", status_code=302)
 
 
 @router.get("/followups-due", response_class=HTMLResponse)

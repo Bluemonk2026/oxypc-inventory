@@ -555,6 +555,9 @@ async def iqc_bulk_apply_grade_type(
     grade: str = Form(""),
     invoice_number: str = Form(""),
     po_number: str = Form(""),
+    cpu: str = Form(""),
+    ram_gb: str = Form(""),
+    storage_gb: str = Form(""),
     to_stage: str = Form(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
@@ -601,7 +604,9 @@ async def iqc_bulk_apply_grade_type(
     if not barcodes:
         return RedirectResponse(url=f"{return_to}?error=No+devices+selected", status_code=302)
     to_stage = (to_stage or "").strip()
-    if not device_type.strip() and not grade.strip() and not invoice_number.strip() and not po_number.strip() and not to_stage:
+    if (not device_type.strip() and not grade.strip() and not invoice_number.strip()
+            and not po_number.strip() and not cpu.strip() and not ram_gb.strip()
+            and not storage_gb.strip() and not to_stage):
         return RedirectResponse(url=f"{return_to}?error=Select+a+field+to+apply", status_code=302)
 
     result = await db.execute(select(Device).where(Device.barcode.in_(barcodes)))
@@ -625,6 +630,12 @@ async def iqc_bulk_apply_grade_type(
             device.invoice_number = invoice_number.strip()
         if po_number.strip():
             device.po_number = po_number.strip()
+        if cpu.strip():
+            device.cpu = cpu.strip()
+        if ram_gb.strip() and ram_gb.strip().isdigit():
+            device.ram_gb = int(ram_gb.strip())
+        if storage_gb.strip() and storage_gb.strip().isdigit():
+            device.storage_gb = int(storage_gb.strip())
         if new_stage is not None:
             try:
                 await validate_transition(device, new_stage, db, override_admin=is_admin)
@@ -641,6 +652,7 @@ async def iqc_bulk_apply_grade_type(
                 table_name="devices", record_id=",".join(str(d.id) for d in devices)[:50],
                 new_value={"device_type": device_type or None, "grade": grade or None,
                            "invoice_number": invoice_number or None, "po_number": po_number or None,
+                           "cpu": cpu or None, "ram_gb": ram_gb or None, "storage_gb": storage_gb or None,
                            "to_stage": to_stage or None, "count": len(devices)},
                 request=request)
     await db.commit()
@@ -723,6 +735,10 @@ async def iqc_create(
     generation: str = Form(""),
     ram_summary: str = Form(""),
     hdd_summary: str = Form(""),
+    total_ram_count: str = Form(""),
+    total_ram_size: str = Form(""),
+    total_hdd_count: str = Form(""),
+    total_hdd_size: str = Form(""),
     screen_size: str = Form(""),
     battery_health_pct: str = Form(""),
     bios_password: str = Form(""),
@@ -883,6 +899,8 @@ async def iqc_create(
         grn_number=grn_number or None,
         cpu=cpu or None, generation=generation or None,
         ram_summary=ram_summary or None, hdd_summary=hdd_summary or None,
+        total_ram_count=total_ram_count or None, total_ram_size=total_ram_size or None,
+        total_hdd_count=total_hdd_count or None, total_hdd_size=total_hdd_size or None,
         screen_size=screen_size or None,
         battery_health_pct=int(battery_health_pct) if (battery_health_pct or "").strip().isdigit() else None,
         bios_password=(bios_password == "yes"),

@@ -40,6 +40,12 @@ class Dealer(Base):
     created_at = Column(DateTime, default=app_now)
     updated_at = Column(DateTime, default=app_now, onupdate=app_now)
 
+    # ── Soft-delete (Trash) — hides dealer from Dealer Management + Assign
+    #    Dealer Leads without physically removing rows referenced by orders/
+    #    calls/credit-notes. trashed_at IS NULL == live dealer. ──────────────
+    trashed_at = Column(DateTime, nullable=True)
+    trashed_by = Column(String(50), nullable=True)
+
     # ── Trade Partner portal (dealer-facing B2B web) ──────────────────────
     portal_enabled = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     portal_password_hash = Column(String(200), nullable=True)   # bcrypt; login id = portal_phone

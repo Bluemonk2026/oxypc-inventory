@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "embed_base.html" if embed else "base.html" %}
 {% block title %}New Sale — OxyPC{% endblock %}
 {% block page_title %}New Sale{% endblock %}
 {% block content %}
@@ -31,7 +31,8 @@
           <div class="mb-3">
             <label class="form-label fw-semibold">Device Tag Number <span class="text-danger">*</span></label>
             <input type="text" name="barcode" id="barcode" class="form-control barcode-field font-monospace"
-              value="{{ device.barcode if device else '' }}" placeholder="Scan tag number" autofocus required>
+              value="{{ prefill_barcode if prefill_barcode is defined and prefill_barcode else (device.barcode if device else '') }}" placeholder="Scan tag number" autofocus required>
+            <div class="form-text small text-muted">For multi-sale, enter comma-separated tag numbers.</div>
           </div>
           {% if device %}
           <div class="alert alert-success py-2 mb-3 small">
@@ -40,27 +41,47 @@
             {% if lot %} &bull; Lot: {{ lot.lot_number }} (₹{{ "{:,.0f}".format(lot.buying_price/lot.qty if lot.qty else 0) }}/unit cost){% endif %}
           </div>
           {% endif %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Stock Price (₹){% if multi_count is defined and multi_count and multi_count > 1 %} <span class="text-muted small">(sum of {{ multi_count }} selected devices' unit costs)</span>{% endif %}</label>
+            <div class="input-group">
+              <span class="input-group-text">₹</span>
+              <input type="text" id="stockPrice" class="form-control" readonly
+                     value="{{ '%.2f'|format(stock_price) if stock_price is defined and stock_price is not none else '' }}"
+                     placeholder="—" title="Device cost (device price if set, otherwise lot buying price ÷ lot qty)">
+            </div>
+          </div>
           <div class="row g-3">
-            <div class="col-md-6">
+            <div class="col-md-4">
               <label class="form-label fw-semibold">Sale Price (₹) <span class="text-danger">*</span></label>
               <div class="input-group">
                 <span class="input-group-text">₹</span>
-                <input type="number" name="sale_price" class="form-control" placeholder="0" min="0" step="0.01" required>
+                <input type="number" name="sale_price" id="salePrice" class="form-control" placeholder="0" min="0" step="0.01" required>
               </div>
+              <div class="form-text small text-muted">Per-unit price</div>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
+              <label class="form-label">Total Sale Price (₹)</label>
+              <div class="input-group">
+                <span class="input-group-text">₹</span>
+                <input type="number" id="totalSalePrice" class="form-control" placeholder="0" min="0" step="0.01">
+              </div>
+              <div class="form-text small text-muted">Autofills Sale Price = Total ÷ Quantity</div>
+            </div>
+            <div class="col-md-4">
               <label class="form-label">Quantity</label>
               {% if approved_qty %}
-              <input type="number" class="form-control" value="{{ approved_qty }}" disabled
+              <input type="number" id="qtyInput" class="form-control" value="{{ approved_qty }}" disabled
                      title="Quantity locked to approved telecaller request">
               <input type="hidden" name="qty" value="{{ approved_qty }}">
               <div class="form-text small text-muted">Locked to approved request quantity ({{ approved_qty }})</div>
               {% else %}
-              <input type="number" name="qty" class="form-control" value="1" min="1" max="500"
+              <input type="number" name="qty" id="qtyInput" class="form-control" value="{{ prefill_qty if prefill_qty is defined and prefill_qty else 1 }}" min="1" max="500"
                      title="Number of units (for bulk sale record). Each device still needs individual barcode.">
               <div class="form-text small text-muted">Units in this sale (informational — each device still tracked by barcode)</div>
               {% endif %}
             </div>
+          </div>
+          <div class="row g-3 mt-0">
           <div class="col-md-6">
               <label class="form-label">Payment Mode</label>
               <select name="payment_mode" class="form-select">
@@ -96,7 +117,7 @@
               <label class="form-label fw-semibold">Warranty</label>
               <select name="warranty_type" class="form-select">
                 {% for w in master_options('sale_warranty_type') %}
-                <option value="{{ w }}">{{ 'No Warranty' if w == 'none' else w | replace('_',' ') | title }}</option>
+                <option value="{{ w }}" {% if w == 'none' %}selected{% endif %}>{{ 'No Warranty' if w == 'none' else w | replace('_',' ') | title }}</option>
                 {% endfor %}
               </select>
             </div>
@@ -117,6 +138,15 @@
 </div>
 
 <script>
+// Total Sale Price → Sale Price = Total ÷ Quantity (live, 2dp; one direction only)
+document.getElementById('totalSalePrice').addEventListener('input', function(){
+  var total = parseFloat(this.value);
+  if (isNaN(total)) return;
+  var qtyEl = document.getElementById('qtyInput');
+  var qty = parseInt(qtyEl ? qtyEl.value : '1', 10);
+  if (!qty || qty < 1) qty = 1;
+  document.getElementById('salePrice').value = (total / qty).toFixed(2);
+});
 function getCookie(name) {
   var m = document.cookie.match('(?:^|;)\\s*' + name + '=([^;]*)');
   return m ? decodeURIComponent(m[1]) : '';

@@ -8,6 +8,10 @@
   <link rel="stylesheet" href="/static/vendor/bootstrap-icons/bootstrap-icons.css">
   <link rel="stylesheet" href="/static/vendor/datatables/css/dataTables.bootstrap5.min.css">
   <link rel="stylesheet" href="/static/css/app.css?v={{ ASSET_VERSION }}">
+  <style>
+    /* Clamp long notes/remarks/comment cells to 2 lines; full text on hover (title). */
+    .note-clamp { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; max-width:260px; }
+  </style>
   {% block head %}{% endblock %}
 </head>
 <body data-username="{{ current_user.username|default('anon', true) }}">

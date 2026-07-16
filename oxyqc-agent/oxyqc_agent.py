@@ -776,21 +776,26 @@ def detect():
             pass
     ram_sticks = info.get("ram_sticks") or []
     ram_summary = format_ram_summary(ram_sticks)
-    if ram_summary:
-        f["ram_summary"] = ram_summary
-    elif info.get("ram_gb"):
+    if not ram_summary and info.get("ram_gb"):
         # No per-DIMM breakdown available (e.g. Apple Silicon unified memory,
         # or a Windows station where Win32_PhysicalMemory returned nothing) —
         # fall back to just the total size rather than leaving the field blank.
-        f["ram_summary"] = f"{int(info['ram_gb'])}GB"
-    # Total RAM Count = # DIMMs (Apple Silicon unified → 1); Total RAM Size = summed GB
+        ram_summary = f"{int(info['ram_gb'])}GB"
+    # Total RAM Count = # DIMMs (Apple Silicon unified → 1); plain summed size like "16GB"
     ram_dimms = [s for s in ram_sticks if s.get("capacityGB")]
+    ram_plain = None
     if ram_dimms:
         f["total_ram_count"] = str(len(ram_dimms))
-        f["total_ram_size"] = f"{sum(int(s['capacityGB']) for s in ram_dimms)}GB"
+        ram_plain = f"{sum(int(s['capacityGB']) for s in ram_dimms)}GB"
     elif info.get("ram_gb"):
         f["total_ram_count"] = "1"
-        f["total_ram_size"] = f"{int(info['ram_gb'])}GB"
+        ram_plain = f"{int(info['ram_gb'])}GB"
+    # Swapped per spec: "Total RAM Size" holds the combined string,
+    # "RAM" (ram_summary) holds the plain summed size.
+    if ram_summary:
+        f["total_ram_size"] = ram_summary
+    if ram_plain:
+        f["ram_summary"] = ram_plain
     f["sub_category"] = sub
     f["device_type"] = sub
     prim = (ssd or hdd or disks)
@@ -804,14 +809,19 @@ def detect():
         if hsz:
             f["hdd_capacity_gb"] = hsz
     hdd_summary = format_hdd_summary(disks)
-    if hdd_summary:
-        f["hdd_summary"] = hdd_summary
-    # Total Hard Drive Count = # physical disks; Total Hard Drive Size = summed GB
+    # Total Hard Drive Count = # physical disks; plain summed size like "512GB"
     hdd_disks = [d for d in disks if d.get("sizeGB")]
+    hdd_plain = None
     if hdd_disks:
         f["total_hdd_count"] = str(len(hdd_disks))
         _tot_gb = sum(int(d["sizeGB"]) for d in hdd_disks)
-        f["total_hdd_size"] = f"{round(_tot_gb / 1000)}TB" if _tot_gb >= 1000 else f"{_tot_gb}GB"
+        hdd_plain = f"{round(_tot_gb / 1000)}TB" if _tot_gb >= 1000 else f"{_tot_gb}GB"
+    # Swapped per spec: "Total Hard Drive Size" holds the combined string,
+    # "Hard Drive" (hdd_summary) holds the plain summed size.
+    if hdd_summary:
+        f["total_hdd_size"] = hdd_summary
+    if hdd_plain:
+        f["hdd_summary"] = hdd_plain
     scr = _snap_screen(info.get("screen_in"))
     if scr:
         f["screen_size"] = scr

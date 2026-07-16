@@ -113,6 +113,10 @@
               <label class="form-label">Color</label>
               <input type="text" name="color" class="form-control" placeholder="Black / Silver / Dark Grey">
             </div>
+            <div class="col-md-3">
+              <label class="form-label">Invoice Number</label>
+              <input type="text" name="invoice_number" class="form-control" value="{{ device.invoice_number if device and device.invoice_number else '' }}" placeholder="e.g. INV-2026-0142">
+            </div>
             <div class="col-md-3 d-none">
               <label class="form-label">Sub-Category</label>
               <select name="sub_category" class="form-select">
@@ -165,15 +169,15 @@
             </div>
           </div>
 
-          <!-- ── Row 1: CPU | CPU Make | Generation ── -->
+          <!-- ── Row 1: CPU Make | CPU | Generation ── -->
           <div class="row g-2 mb-2">
-            <div class="col-md-4">
-              <label class="form-label small">CPU / Processor</label>
-              <input type="text" name="cpu" id="iqc-cpu" class="form-control form-control-sm" value="{{ device.cpu if device else '' }}" placeholder="—">
-            </div>
             <div class="col-md-4">
               <label class="form-label small">CPU Make</label>
               <input type="text" name="cpu_make" id="iqc-cpu-make" class="form-control form-control-sm" value="{{ device.cpu_make if device and device.cpu_make else '' }}" placeholder="Intel / AMD / Apple">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small">CPU / Processor</label>
+              <input type="text" name="cpu" id="iqc-cpu" class="form-control form-control-sm" value="{{ device.cpu if device else '' }}" placeholder="—">
             </div>
             <div class="col-md-4">
               <label class="form-label small">Generation</label>
@@ -189,11 +193,11 @@
             </div>
             <div class="col-md-4">
               <label class="form-label small">Total RAM Size</label>
-              <input type="text" name="total_ram_size" class="form-control form-control-sm" value="{{ device.total_ram_size if device and device.total_ram_size else '' }}" placeholder="e.g. 16GB">
+              <input type="text" name="total_ram_size" class="form-control form-control-sm" value="{{ device.total_ram_size if device and device.total_ram_size else '' }}" placeholder="e.g. 16GB_DDR4_2300_Samsung">
             </div>
             <div class="col-md-4">
               <label class="form-label small">RAM</label>
-              <input type="text" name="ram_summary" class="form-control form-control-sm" value="{{ device.ram_summary if device and device.ram_summary else '' }}" placeholder="e.g. 16GB_DDR4_2300_Samsung">
+              <input type="text" name="ram_summary" class="form-control form-control-sm" value="{{ device.ram_summary if device and device.ram_summary else '' }}" placeholder="e.g. 16GB">
             </div>
           </div>
 
@@ -205,11 +209,11 @@
             </div>
             <div class="col-md-4">
               <label class="form-label small">Total Hard Drive Size</label>
-              <input type="text" name="total_hdd_size" class="form-control form-control-sm" value="{{ device.total_hdd_size if device and device.total_hdd_size else '' }}" placeholder="e.g. 512GB">
+              <input type="text" name="total_hdd_size" class="form-control form-control-sm" value="{{ device.total_hdd_size if device and device.total_hdd_size else '' }}" placeholder="e.g. 520GB_SSD_7400_Samsung">
             </div>
             <div class="col-md-4">
               <label class="form-label small">Hard Drive</label>
-              <input type="text" name="hdd_summary" class="form-control form-control-sm" value="{{ device.hdd_summary if device and device.hdd_summary else '' }}" placeholder="e.g. 520GB_SSD_7400_Samsung">
+              <input type="text" name="hdd_summary" class="form-control form-control-sm" value="{{ device.hdd_summary if device and device.hdd_summary else '' }}" placeholder="e.g. 512GB">
             </div>
           </div>
 
@@ -363,7 +367,7 @@
               <label class="form-label small">Storage Health (%)</label>
               <input type="number" name="storage_health_pct" id="storage_health_pct" class="form-control form-control-sm" min="0" max="100" placeholder="—">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-3 d-none">
               <label class="form-label small">Fan Working</label>
               <select name="fan_working" id="fan_working" class="form-select form-select-sm">
                 <option value="">—</option><option>Yes</option><option>No</option>

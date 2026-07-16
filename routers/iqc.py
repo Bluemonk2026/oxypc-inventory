@@ -269,17 +269,22 @@ def _detect_host_hardware():
     if isinstance(ram_sticks, dict):
         ram_sticks = [ram_sticks]
     ram_summary = _format_ram_summary(ram_sticks)
-    if ram_summary:
-        f["ram_summary"] = ram_summary
-    elif info.get("ram_gb"):
-        f["ram_summary"] = f"{int(info['ram_gb'])}GB"
-    # Total RAM Count = number of DIMMs; Total RAM Size = summed GB
+    # Total RAM Count = number of DIMMs; plain summed size like "16GB"
     ram_dimms = [s for s in ram_sticks if s.get("capacityGB")]
+    ram_plain = None
     if ram_dimms:
         f["total_ram_count"] = str(len(ram_dimms))
-        f["total_ram_size"] = f"{sum(int(s['capacityGB']) for s in ram_dimms)}GB"
+        ram_plain = f"{sum(int(s['capacityGB']) for s in ram_dimms)}GB"
     elif info.get("ram_gb"):
-        f["total_ram_size"] = f"{int(info['ram_gb'])}GB"
+        ram_plain = f"{int(info['ram_gb'])}GB"
+    if not ram_summary and info.get("ram_gb"):
+        ram_summary = f"{int(info['ram_gb'])}GB"
+    # Swapped per spec: "Total RAM Size" holds the combined string,
+    # "RAM" (ram_summary) holds the plain summed size.
+    if ram_summary:
+        f["total_ram_size"] = ram_summary
+    if ram_plain:
+        f["ram_summary"] = ram_plain
     f["sub_category"] = sub
     f["device_type"] = sub
     prim = (ssd or hdd or disks)
@@ -293,14 +298,19 @@ def _detect_host_hardware():
         if hsz:
             f["hdd_capacity_gb"] = hsz
     hdd_summary = _format_hdd_summary(disks)
-    if hdd_summary:
-        f["hdd_summary"] = hdd_summary
-    # Total Hard Drive Count = # physical disks; Total Hard Drive Size = summed GB
+    # Total Hard Drive Count = # physical disks; plain summed size like "512GB"
     hdd_disks = [d for d in disks if d.get("sizeGB")]
+    hdd_plain = None
     if hdd_disks:
         f["total_hdd_count"] = str(len(hdd_disks))
         tot_gb = sum(int(d["sizeGB"]) for d in hdd_disks)
-        f["total_hdd_size"] = f"{round(tot_gb / 1000)}TB" if tot_gb >= 1000 else f"{tot_gb}GB"
+        hdd_plain = f"{round(tot_gb / 1000)}TB" if tot_gb >= 1000 else f"{tot_gb}GB"
+    # Swapped per spec: "Total Hard Drive Size" holds the combined string,
+    # "Hard Drive" (hdd_summary) holds the plain summed size.
+    if hdd_summary:
+        f["total_hdd_size"] = hdd_summary
+    if hdd_plain:
+        f["hdd_summary"] = hdd_plain
     if info.get("screen_in"):
         f["screen_size"] = str(info["screen_in"])
     bh = info.get("battery_health")
@@ -822,6 +832,7 @@ async def iqc_create(
     battery_health_pct: str = Form(""),
     bios_password: str = Form(""),
     color: str = Form(""),
+    invoice_number: str = Form(""),
     grade: str = Form(""),
     floor: str = Form(""),
     warehouse: str = Form(""),
@@ -984,6 +995,7 @@ async def iqc_create(
         battery_health_pct=int(battery_health_pct) if (battery_health_pct or "").strip().isdigit() else None,
         bios_password=(bios_password == "yes"),
         color=color or None,
+        invoice_number=invoice_number or None,
         grade=grade or None, current_stage=DeviceStage.iqc,
         floor=floor or None, warehouse=resolved_warehouse,
         location_id=resolved_location_id, notes=notes or None,

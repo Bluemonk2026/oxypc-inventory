@@ -84,7 +84,7 @@
               <form method="post" action="/stock/move-to-trc" class="d-inline">
                 <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                 <input type="hidden" name="barcode" value="{{ device.barcode }}">
-                <button type="submit" class="btn btn-sm btn-outline-info py-0 px-2"><i class="bi bi-cpu"></i> Move to TRC</button>
+                <button type="submit" class="btn btn-sm btn-outline-info py-0 px-2"><i class="bi bi-cpu"></i> Move to Production</button>
               </form>
             </td>
           </tr>
@@ -477,10 +477,7 @@ function loadBucketTable(){
         '<td>'+(b.category||'—')+'</td>'+
         '<td><span class="badge bg-secondary">'+b.device_count+'</span></td>'+
         '<td class="text-nowrap">'+
-          '<button class="btn btn-xs btn-outline-secondary btn-sm py-0 px-2 me-1 edit-bkt" data-id="'+b.id+'" data-name="'+(b.name||'')+'" data-location="'+(b.location||'')+'"><i class="bi bi-pencil"></i></button>'+
           '<button class="btn btn-xs btn-outline-warning btn-sm py-0 px-2 me-1 move-bkt-trc" data-id="'+b.id+'" data-number="'+b.bucket_number+'">Move to Production</button>'+
-          (b.assigned_to_production ? '' :
-          '<button class="btn btn-xs btn-outline-primary btn-sm py-0 px-2 assign-prod-btn" data-id="'+b.id+'" data-number="'+b.bucket_number+'" data-count="'+b.device_count+'"><i class="bi bi-send"></i> Assign to Production</button>')+
         '</td>'+
       '</tr>';
     }).join('');

@@ -74,6 +74,17 @@ async def _gen_work_id(db: AsyncSession) -> str:
     return str(n).zfill(12)
 
 
+async def _resolve_assigned_user(db: AsyncSession, assigned_user_id: str):
+    """Resolve the 'Assign To Employee' selection to a User, or None."""
+    if not assigned_user_id:
+        return None
+    try:
+        uid = uuid.UUID(assigned_user_id)
+    except Exception:
+        return None
+    return (await db.execute(select(User).where(User.id == uid))).scalar_one_or_none()
+
+
 async def _engineers_by_role(db: AsyncSession) -> dict:
     """{role_value: [{id, name, username}]} for active L1/L2/L3 engineers."""
     rows = (await db.execute(
@@ -136,11 +147,13 @@ async def new_transfer_form(
         .order_by(MasterData.display_order, MasterData.value)
     )
     warehouses = [r[0] for r in wh_result.all()] or FALLBACK_WAREHOUSES
-    users_by_role = await _engineers_by_role(db)
+    all_users = (await db.execute(
+        select(User).where(User.status == True).order_by(User.full_name)
+    )).scalars().all()
     return templates.TemplateResponse("transfers/form.html", {
         "request": request, "device": device, "barcode": barcode,
         "warehouses": warehouses, "departments": DEPARTMENTS,
-        "users_by_role": users_by_role, "dept_to_role": DEPT_TO_ROLE,
+        "all_users": all_users,
         "current_user": current_user, "error": None,
         "now": app_now(),
     })
@@ -296,16 +309,8 @@ async def create_transfer(
     except Exception:
         t_date = app_now()
 
-    _to_loc_id = None
-    if to_location_id:
-        try:
-            _to_loc_id = uuid.UUID(to_location_id)
-        except Exception:
-            _to_loc_id = None
-
-    target_stage = DEPT_TO_STAGE.get(department)
     assign_uid = None
-    if target_stage and assigned_user_id:
+    if assigned_user_id:
         try:
             assign_uid = uuid.UUID(assigned_user_id)
         except Exception:
@@ -314,6 +319,8 @@ async def create_transfer(
         (await db.execute(select(User).where(User.id == assign_uid))).scalar_one_or_none()
         if assign_uid else None
     )
+    if not assigned_user:
+        return RedirectResponse(url="/transfers/new?error=Select+an+employee+to+assign", status_code=302)
 
     moved, not_found, work_ids = [], [], []
     for bc in barcodes:
@@ -328,16 +335,12 @@ async def create_transfer(
             continue
         device, lot_number = row
 
-        if _to_loc_id:
-            device.location_id = _to_loc_id
-            device.updated_at = app_now()
-
         _from_wh = from_warehouse or getattr(device, "warehouse", None) or "—"
         _to_wh = to_warehouse or _from_wh
         transfer = StockTransfer(
             device_id=device.id,
             move_kind="device",
-            to_location_id=_to_loc_id,
+            to_location_id=None,
             transfer_type=transfer_type,
             from_warehouse=_from_wh,
             to_warehouse=_to_wh,
@@ -365,49 +368,29 @@ async def create_transfer(
         db.add(transfer)
         await db.flush()
 
-        # ── Work assignment: assigning to an L1/L2/L3 engineer creates a 12-digit
-        #    WorkID and moves the device into that repair stage. ─────────
-        if target_stage and assigned_user:
-            u = assigned_user
-            new_stage = STAGE_ENUM[target_stage]
-            prev_stage = device.current_stage
-            prev_mv = (await db.execute(
-                select(StageMovement).where(
-                    StageMovement.device_id == device.id,
-                    StageMovement.to_stage == prev_stage,
-                    StageMovement.exited_at == None,
-                ).order_by(StageMovement.moved_at.desc())
-            )).scalars().first()
-            if prev_mv:
-                prev_mv.exited_at = app_now()
-            device.current_stage = new_stage
-            device.updated_at = app_now()
-            db.add(StageMovement(
-                device_id=device.id, from_stage=prev_stage, to_stage=new_stage,
-                moved_by=current_user.username,
-                notes=f"Assigned to {u.full_name or u.username} via Stock Transfer",
-            ))
-            work_id = await _gen_work_id(db)
-            db.add(WorkOrder(
-                work_id=work_id, device_id=device.id, barcode=device.barcode,
-                stage=target_stage, assigned_role=DEPT_TO_ROLE.get(department),
-                assigned_user_id=u.id, assigned_username=u.username,
-                assigned_name=u.full_name, status="pending",
-                source_transfer_id=transfer.id, created_by=current_user.username,
-            ))
-            work_ids.append(work_id)
-            _device_label = f"{device.brand or ''} {device.model or ''}".strip()
-            await create_notification(
-                db, user_id=u.id, title="Device Assigned to You",
-                message=(
-                    f"{device.barcode}"
-                    + (f" ({_device_label})" if _device_label else "")
-                    + f" has been assigned to you for {department} (WorkID: {work_id})."
-                ),
-                notification_type="info",
-                barcode=device.barcode, brand=device.brand, model=device.model,
-                stage=new_stage.value if hasattr(new_stage, "value") else str(new_stage),
-            )
+        # ── Assignment only: record the device against the chosen employee via a
+        #    WorkOrder. No device stage move and no repair-stage logic. ─────────
+        u = assigned_user
+        work_id = await _gen_work_id(db)
+        db.add(WorkOrder(
+            work_id=work_id, device_id=device.id, barcode=device.barcode,
+            stage="asgn", assigned_role=u.role.value if u.role else None,
+            assigned_user_id=u.id, assigned_username=u.username,
+            assigned_name=u.full_name, status="pending",
+            source_transfer_id=transfer.id, created_by=current_user.username,
+        ))
+        work_ids.append(work_id)
+        _device_label = f"{device.brand or ''} {device.model or ''}".strip()
+        await create_notification(
+            db, user_id=u.id, title="Device Assigned to You",
+            message=(
+                f"{device.barcode}"
+                + (f" ({_device_label})" if _device_label else "")
+                + f" has been assigned to you (WorkID: {work_id})."
+            ),
+            notification_type="info",
+            barcode=device.barcode, brand=device.brand, model=device.model,
+        )
         moved.append(bc)
 
     await audit(db, user=current_user, action="STOCK_TRANSFER",
@@ -434,26 +417,16 @@ async def create_transfer(
 async def _move_devices_bulk(
     db: AsyncSession, request: Request, current_user: User,
     devices: list, move_kind: str, bucket_id, lot_id, group_label: str,
-    transfer_type: str, department: str, transfer_date: str,
-    transferred_by: str, received_by: str, notes: str, to_location_id: str,
+    transfer_type: str, assigned_user: User, transfer_date: str,
+    transferred_by: str, received_by: str, notes: str,
 ):
-    """Shared bulk-move logic for Move Bucket / Move Lot tabs — creates one
-    StockTransfer row per member device and applies the same location update
-    and department/engineer assignment logic as the single-device path."""
+    """Shared bulk-assign logic for Move Bucket / Move Lot tabs — creates one
+    StockTransfer row per member device and a WorkOrder recording the device
+    against the chosen employee. No device stage move, no repair-stage logic."""
     try:
         t_date = datetime.strptime(transfer_date, "%Y-%m-%d") if transfer_date else app_now()
     except Exception:
         t_date = app_now()
-
-    _to_loc_id = None
-    if to_location_id:
-        try:
-            _to_loc_id = uuid.UUID(to_location_id)
-        except Exception:
-            _to_loc_id = None
-
-    target_stage = DEPT_TO_STAGE.get(department)
-    assigned_uid = None  # bucket/lot moves don't carry a single assigned_user_id field in this design
 
     moved = []
     for device in devices:
@@ -462,23 +435,19 @@ async def _move_devices_bulk(
             lot_row = (await db.execute(select(Lot.lot_number).where(Lot.id == device.lot_id))).scalar()
             lot_number = lot_row
 
-        if _to_loc_id:
-            device.location_id = _to_loc_id
-            device.updated_at = app_now()
-
         _from_wh = getattr(device, "warehouse", None) or "—"
         transfer = StockTransfer(
             device_id=device.id,
             move_kind=move_kind,
             bucket_id=bucket_id,
             lot_id=lot_id,
-            to_location_id=_to_loc_id,
+            to_location_id=None,
             transfer_type=transfer_type,
             from_warehouse=_from_wh,
             to_warehouse=_from_wh,
             transferred_by=transferred_by or current_user.username,
             received_by=received_by or None,
-            department=department or None,
+            department=None,
             barcode=device.barcode,
             serial_no=device.serial_no,
             make=device.brand,
@@ -495,6 +464,27 @@ async def _move_devices_bulk(
             created_by=current_user.username,
         )
         db.add(transfer)
+        await db.flush()
+
+        work_id = await _gen_work_id(db)
+        db.add(WorkOrder(
+            work_id=work_id, device_id=device.id, barcode=device.barcode,
+            stage="asgn", assigned_role=assigned_user.role.value if assigned_user.role else None,
+            assigned_user_id=assigned_user.id, assigned_username=assigned_user.username,
+            assigned_name=assigned_user.full_name, status="pending",
+            source_transfer_id=transfer.id, created_by=current_user.username,
+        ))
+        _device_label = f"{device.brand or ''} {device.model or ''}".strip()
+        await create_notification(
+            db, user_id=assigned_user.id, title="Device Assigned to You",
+            message=(
+                f"{device.barcode}"
+                + (f" ({_device_label})" if _device_label else "")
+                + f" has been assigned to you (WorkID: {work_id})."
+            ),
+            notification_type="info",
+            barcode=device.barcode, brand=device.brand, model=device.model,
+        )
         moved.append(device.barcode)
 
     await audit(db, user=current_user, action="STOCK_TRANSFER_BULK",
@@ -513,6 +503,7 @@ async def create_bucket_transfer(
     request: Request,
     unit_id: list[str] = Form(...),
     transfer_type: str = Form(...),
+    assigned_user_id: str = Form(""),
     department: str = Form(""),
     transfer_date: str = Form(""),
     transferred_by: str = Form(""),
@@ -523,11 +514,15 @@ async def create_bucket_transfer(
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("transfers", "add")),
 ):
-    """Move Bucket tab — one or more scanned bucket/location unit IDs; moves
-    every active device at each of those locations as StockTransfer rows."""
+    """Move Bucket tab — one or more scanned bucket/location unit IDs; assigns
+    every active device at those locations to the chosen employee."""
     unit_ids = [u.strip() for u in unit_id if u and u.strip()]
     if not unit_ids:
         return RedirectResponse(url="/transfers/new?error=No+bucket+IDs+scanned", status_code=302)
+
+    assigned_user = await _resolve_assigned_user(db, assigned_user_id)
+    if not assigned_user:
+        return RedirectResponse(url="/transfers/new?error=Select+an+employee+to+assign", status_code=302)
 
     total_moved, not_found = [], []
     for uid in unit_ids:
@@ -544,8 +539,8 @@ async def create_bucket_transfer(
             continue
         moved = await _move_devices_bulk(
             db, request, current_user, devices, "bucket", None, None, uid,
-            transfer_type, department, transfer_date, transferred_by, received_by,
-            notes, to_location_id,
+            transfer_type, assigned_user, transfer_date, transferred_by, received_by,
+            notes,
         )
         total_moved.extend(moved)
 
@@ -564,6 +559,7 @@ async def create_lot_transfer(
     request: Request,
     lot_number: list[str] = Form(...),
     transfer_type: str = Form(...),
+    assigned_user_id: str = Form(""),
     department: str = Form(""),
     transfer_date: str = Form(""),
     transferred_by: str = Form(""),
@@ -574,11 +570,15 @@ async def create_lot_transfer(
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("transfers", "add")),
 ):
-    """Move Lot tab — one or more scanned lot numbers; moves every active
-    member device of each lot as StockTransfer rows."""
+    """Move Lot tab — one or more scanned lot numbers; assigns every active
+    member device of each lot to the chosen employee."""
     lot_numbers = [n.strip() for n in lot_number if n and n.strip()]
     if not lot_numbers:
         return RedirectResponse(url="/transfers/new?error=No+lot+numbers+scanned", status_code=302)
+
+    assigned_user = await _resolve_assigned_user(db, assigned_user_id)
+    if not assigned_user:
+        return RedirectResponse(url="/transfers/new?error=Select+an+employee+to+assign", status_code=302)
 
     total_moved, not_found = [], []
     for ln in lot_numbers:
@@ -595,8 +595,8 @@ async def create_lot_transfer(
             continue
         moved = await _move_devices_bulk(
             db, request, current_user, devices, "lot", None, lot.id, ln,
-            transfer_type, department, transfer_date, transferred_by, received_by,
-            notes, to_location_id,
+            transfer_type, assigned_user, transfer_date, transferred_by, received_by,
+            notes,
         )
         total_moved.extend(moved)
 

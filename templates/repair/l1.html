@@ -19,15 +19,15 @@
 
 <div class="d-flex flex-column flex-lg-row gap-3 align-items-start">
 
-  <!-- Devices in L1/L2 (70%) -->
-  <div style="flex:1 1 70%; width:70%; min-width:0;">
+  <!-- Devices in L1/L2 -->
+  <div style="flex:1 1 100%; width:100%; min-width:0;">
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-transparent fw-semibold">Devices in L1/L2 ({{ devices|length }})</div>
       <div class="card-body p-0">
         <div class="table-responsive">
           <table id="l1Table" class="table table-hover mb-0 small">
             <thead class="table-dark">
-              <tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Location</th><th>Parts Required</th><th>Parts Requested</th><th>Notes</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>L3/L4 Status</th><th>Action</th></tr>
+              <tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Location</th><th>Parts Required</th><th>Parts Requested</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>L3/L4 Status</th><th>Action</th></tr>
             </thead>
             <tbody>
               {% for device, lot_number in devices %}
@@ -52,7 +52,6 @@
                 </td>
                 <td class="text-center">{% set pr = parts_required_map.get(device.id|string, 0) if parts_required_map is defined else 0 %}<span class="badge bg-{{ 'warning text-dark' if pr else 'light text-muted border' }}">{{ pr }}</span></td>
                 <td class="text-center">{% set pq = parts_requested_map.get(device.id|string, 0) if parts_requested_map is defined else 0 %}<span class="badge bg-{{ 'primary' if pq else 'light text-muted border' }}">{{ pq }}</span></td>
-                <td class="text-muted">{{ device.notes or '' }}</td>
                 <td class="text-muted">{{ device.repair_notes or '—' }}</td>
                 <td>{% if wo %}<span class="badge bg-{{ 'danger' if wo.days_pending >= 3 else ('warning text-dark' if wo.days_pending >= 1 else 'secondary') }}">{{ wo.days_pending }} day{{ 's' if wo.days_pending != 1 else '' }}</span>{% if wo.paused %}<span class="badge bg-secondary ms-1" title="Frozen — a required part is out of stock"><i class="bi bi-pause-fill"></i> Paused</span>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
                 <td>
@@ -75,7 +74,7 @@
                     <form method="post" action="/repair/l1l2-complete-to-stress" class="d-inline">
                       <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                       <input type="hidden" name="device_id" value="{{ device.id }}">
-                      <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-check-lg"></i> Complete</button>
+                      <button type="submit" class="btn btn-sm btn-success">Mark Complete</button>
                     </form>
                     <button type="button" class="btn btn-sm request-part-btn" style="background-color:#ffc107;color:#000;border-color:#ffc107;" data-barcode="{{ device.barcode }}"><i class="bi bi-bag-plus"></i> Request Part</button>
                   {% else %}
@@ -95,43 +94,6 @@
             </tbody>
           </table>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Complete L1/L2 Repair Job (30%) -->
-  <div style="flex:1 1 30%; width:30%; min-width:0;">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-header bg-success-subtle fw-semibold"><i class="bi bi-check-circle me-2"></i>Complete L1/L2 Repair Job</div>
-      <div class="card-body">
-        <form action="/repair/complete" method="post">
-          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-          <div class="row g-2">
-            <div class="col-12">
-              <label class="form-label small fw-semibold">Open Job</label>
-              <select name="job_id" class="form-select" required>
-                <option value="">-- Select open job --</option>
-                {% for job, barcode, brand, model in open_jobs %}
-                <option value="{{ job.id }}">{{ barcode }} — {{ brand or '' }} {{ model or '' }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-12">
-              <label class="form-label small fw-semibold d-block">Final Status</label>
-              {% for opt in ['Completed','Request to L2'] %}
-              <div class="form-check">
-                <input class="form-check-input" type="radio" name="final_status" value="{{ opt }}" id="fs_l1_{{ loop.index }}">
-                <label class="form-check-label" for="fs_l1_{{ loop.index }}">{{ opt }}</label>
-              </div>
-              {% endfor %}
-            </div>
-            <div class="col-12">
-              <label class="form-label small fw-semibold">Resolution / Work Done</label>
-              <input type="text" name="resolution" class="form-control" placeholder="Resolution / work done">
-            </div>
-          </div>
-          <button class="btn btn-success mt-3 w-100"><i class="bi bi-check-lg me-1"></i>Mark Complete</button>
-        </form>
       </div>
     </div>
   </div>

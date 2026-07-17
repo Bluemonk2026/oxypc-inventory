@@ -46,7 +46,6 @@
 
       <ul class="nav nav-tabs" id="fqcTabs-{{ loop.index }}" role="tablist">
         <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#rh-{{ loop.index }}" type="button">Repair History &amp; Parts</button></li>
-        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#rv-{{ loop.index }}" type="button">Revalidate IQC</button></li>
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#fq-{{ loop.index }}" type="button">Final QC</button></li>
       </ul>
       <div class="tab-content border border-top-0 rounded-bottom p-3 bg-white" style="max-height:65vh; overflow-y:auto;">
@@ -101,45 +100,7 @@
           {% endif %}
         </div>
 
-        <!-- Tab 2: Revalidate IQC (item 12) — editable re-entry of the physical
-             inspection checklist, so QC can correct a defect before releasing
-             the device, without leaving this page. -->
-        <div class="tab-pane fade" id="rv-{{ loop.index }}">
-          {% if iqc %}
-          <form method="post" action="/cosmetic/revalidate-iqc">
-            <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-            <input type="hidden" name="barcode" value="{{ device.barcode }}">
-            <div class="row g-2">
-              {% for field, label in [
-                ('power_on','Power On'), ('all_ok','All OK'), ('status','Status'),
-                ('screen_functional','Screen Functional'), ('screen_dot','Screen Dot'), ('screen_line','Screen Line'),
-                ('screen_broken','Screen Broken'), ('screen_scratch','Screen Scratch'), ('screen_flickering','Screen Flickering'),
-                ('keyboard_working','Keyboard Working'), ('keyboard_key_missing','Key Missing'),
-                ('touchpad_working','Touchpad Working'), ('touchpad_click_working','Touchpad Click'),
-                ('speaker_status','Speaker'), ('wifi_status','Wi-Fi'), ('webcam_status','Web Cam'),
-                ('port_hdmi','HDMI Port'), ('port_usb_working','USB Port'), ('port_audio_jack','Audio Jack'),
-                ('battery_present','Internal Battery'), ('battery_cable','Battery Cable'), ('charging_port','Charging Port'),
-                ('dvd_drive','DVD Drive'), ('hdd_connector','HDD Connector'), ('hdd_casing','HDD Casing'),
-                ('storage_health_pct','Storage Health %'), ('fan_working','Fan Working'), ('fan_sound_dba','Fan Sound (dBA)'),
-              ] %}
-              <div class="col-md-3">
-                <label class="form-label form-label-sm mb-1">{{ label }}</label>
-                <input type="text" name="{{ field }}" class="form-control form-control-sm" value="{{ iqc[field] if iqc[field] is not none else '' }}">
-              </div>
-              {% endfor %}
-              <div class="col-12">
-                <label class="form-label form-label-sm mb-1">Remarks</label>
-                <textarea name="remarks" class="form-control form-control-sm" rows="2">{{ iqc.remarks or '' }}</textarea>
-              </div>
-            </div>
-            <button type="submit" class="btn btn-sm btn-primary mt-3"><i class="bi bi-arrow-repeat me-1"></i>Revalidate</button>
-          </form>
-          {% else %}
-          <p class="text-muted small">No IQC inspection record found for this device.</p>
-          {% endif %}
-        </div>
-
-        <!-- Tab 3: Final QC Decision -->
+        <!-- Tab 2: Final QC Decision -->
         <div class="tab-pane fade" id="fq-{{ loop.index }}">
           <form action="/cosmetic/advance" method="post" class="fqc-decision-form" style="max-width:400px">
             <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">

@@ -41,6 +41,13 @@
         </a>
       </li>
       {% endif %}
+      {% if has_perm(role,'devices','enable') %}
+      <li class="nav-item">
+        <a href="/devices" class="nav-link {% if request.url.path.startswith('/devices') %}active{% endif %}">
+          <i class="bi bi-search me-2"></i> {{ sidebar_label('devices', 'Inventory Search') }}
+        </a>
+      </li>
+      {% endif %}
       {% if has_perm(role,'dispatch','enable') %}
       <li class="nav-item">
         <a href="/dispatch" class="nav-link {% if '/dispatch' in request.url.path %}active{% endif %}">
@@ -52,13 +59,6 @@
       <li class="nav-item">
         <a href="/inventory-requests" class="nav-link {% if '/inventory-requests' in request.url.path %}active{% endif %}">
           <i class="bi bi-inboxes me-2"></i> {{ sidebar_label('inventory_requests', 'Inventory Request') }}
-        </a>
-      </li>
-      {% endif %}
-      {% if has_perm(role,'devices','enable') %}
-      <li class="nav-item">
-        <a href="/devices" class="nav-link {% if request.url.path.startswith('/devices') %}active{% endif %}">
-          <i class="bi bi-search me-2"></i> {{ sidebar_label('devices', 'Inventory Search') }}
         </a>
       </li>
       {% endif %}

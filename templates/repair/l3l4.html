@@ -11,7 +11,7 @@
         <div class="table-responsive">
           <table id="l3l4Table" class="table table-hover mb-0 small">
             <thead class="table-dark">
-              <tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Notes</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>Action</th></tr>
+              <tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>Action</th></tr>
             </thead>
             <tbody>
               {% for it in items %}
@@ -19,7 +19,6 @@
                 <td><span class="font-monospace fw-bold">{{ it.work_id }}</span></td>
                 <td><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
                 <td>{% if it.bucket %}<span class="badge bg-warning text-dark font-monospace">{{ it.bucket }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-                <td class="note-clamp text-muted" title="{{ it.notes }}">{{ it.notes[:150] }}{% if it.notes and it.notes|length > 150 %}…{% endif %}</td>
                 <td class="note-clamp text-muted" title="{{ it.repair_notes or '' }}">{% if it.repair_notes %}{{ it.repair_notes[:150] }}{% if it.repair_notes|length > 150 %}…{% endif %}{% else %}—{% endif %}</td>
                 <td><span class="badge bg-{{ 'danger' if it.aging >= 3 else ('warning text-dark' if it.aging >= 1 else 'secondary') }}">{{ it.aging }} day{{ 's' if it.aging != 1 else '' }}</span></td>
                 <td>
@@ -30,7 +29,7 @@
                     <form method="post" action="/repair/l3l4-complete" class="d-inline">
                       <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                       <input type="hidden" name="device_id" value="{{ it.device_id }}">
-                      <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-check-lg"></i> Complete</button>
+                      <button type="submit" class="btn btn-sm btn-success">Mark Complete</button>
                     </form>
                     <button type="button" class="btn btn-sm btn-danger scrap-btn"
                             data-device="{{ it.device_id }}" data-barcode="{{ it.barcode }}">

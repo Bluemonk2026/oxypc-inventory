@@ -575,6 +575,17 @@ async def device_detail(
             "qty": qty, "total": unit_price * qty,
         })
     total_changed_parts_cost = sum(row["total"] for row in changed_parts_consumed)
+
+    # Net "In Stock" mirrors the Parts Dashboard: qty_in_stock minus the qty
+    # already handed over (status="handed_over") but not yet deducted from raw
+    # stock, so Stock Status here equals the Part Master In Stock column.
+    consumed_rows = (await db.execute(
+        select(PartRequest.part_id, func.sum(PartRequest.qty_handed_over))
+        .where(PartRequest.status == "handed_over", PartRequest.part_id.isnot(None))
+        .group_by(PartRequest.part_id)
+    )).all()
+    consumed_by_part = {str(pid): int(total or 0) for pid, total in consumed_rows}
+
     parts_consumption = []
     for row in required_rows:
         sp = (await db.execute(
@@ -583,7 +594,8 @@ async def device_detail(
                 SparePart.name.ilike(f"%{row['keyword']}%"),
             )).order_by(SparePart.qty_in_stock.desc())
         )).scalars().first()
-        stock = int(sp.qty_in_stock) if sp and sp.qty_in_stock else 0
+        raw_stock = int(sp.qty_in_stock) if sp and sp.qty_in_stock else 0
+        stock = max(0, raw_stock - (consumed_by_part.get(str(sp.id), 0) if sp else 0))
         # Match an existing request either by the PARTS_MATRIX label (Faulty /
         # matched-part flow submits part_name == label) OR by the resolved
         # SparePart id (New/Replace via the category→name cascade submits the

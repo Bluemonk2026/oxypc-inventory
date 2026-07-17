@@ -29,9 +29,10 @@ router = APIRouter(tags=["spare_parts"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.spare_parts_manager,
                          UserRole.qc_inspector, UserRole.sales_manager)
 
-BULK_CSV_HEADERS = ["part_name", "category", "part_brand", "part_model", "physical_qty",
-                    "price", "invoice_number", "po_number", "vendor_name", "grn_number"]
-BULK_CSV_EXAMPLE = ["DDR4 8GB RAM", "RAM", "Samsung", "M471A1K43", "10",
+BULK_CSV_HEADERS = ["part_name", "category", "part_brand", "part_model", "crate_number",
+                    "physical_qty", "price", "invoice_number", "po_number", "vendor_name",
+                    "grn_number"]
+BULK_CSV_EXAMPLE = ["DDR4 8GB RAM", "RAM", "Samsung", "M471A1K43", "CR-001", "10",
                     "500", "Internal", "Internal", "Internal", "Internal"]
 
 
@@ -132,7 +133,14 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     )).scalars().all()
     part_reqs = [r for r in all_part_reqs if r.request_type != "faulty"]
     faulty_reqs = [r for r in all_part_reqs if r.request_type == "faulty"]
-    part_stock = {str(p.id): int(p.qty_in_stock or 0) for p in parts}
+    part_stock = {
+        str(p.id): max(0, int(p.qty_in_stock or 0) - consumed_by_part.get(str(p.id), 0))
+        for p in parts
+    }
+    part_meta = {
+        str(p.id): {"crate": p.crate_number, "make": p.make, "model": p.model}
+        for p in parts
+    }
 
     # ── Pending part-sourcing requests, mirrored read-only from CRM (#15) ────
     sourcing = (await db.execute(
@@ -184,7 +192,8 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         "total_stock_value": total_stock_value,
         "consumed_this_month": consumed_this_month,
         "consumed_by_part": consumed_by_part,
-        "part_reqs": part_reqs, "faulty_reqs": faulty_reqs, "part_stock": part_stock, "sourcing": sourcing,
+        "part_reqs": part_reqs, "faulty_reqs": faulty_reqs, "part_stock": part_stock,
+        "part_meta": part_meta, "sourcing": sourcing,
         "deal_map": deal_map,
         "grn_docs": {},
         "grn_by_part_code": grn_by_part_code,
@@ -374,6 +383,9 @@ async def bulk_upload_parts(
             po_number = (row.get("po_number") or "Internal").strip() or "Internal"
             vendor_name = (row.get("vendor_name") or "Internal").strip() or "Internal"
             row_grn_number = (row.get("grn_number") or "Internal").strip() or "Internal"
+            make = (row.get("part_brand") or "").strip() or None
+            model = (row.get("part_model") or "").strip() or None
+            crate_number = (row.get("crate_number") or "").strip() or None
 
             db.add(PartsGRNLineItem(
                 grn_id=grn.id,
@@ -383,8 +395,8 @@ async def bulk_upload_parts(
                 vendor_name=vendor_name,
                 invoice_number=invoice_number,
                 part_name=part_name,
-                part_brand=(row.get("part_brand") or "").strip() or None,
-                part_model=(row.get("part_model") or "").strip() or None,
+                part_brand=make,
+                part_model=model,
                 invoice_qty=qty,
                 physical_qty=qty,
                 price=price,
@@ -392,12 +404,24 @@ async def bulk_upload_parts(
                 is_harvest=(source == "harvest"),
             ))
 
-            existing_part = (await db.execute(
-                select(SparePart).where(SparePart.part_code == part_id)
-            )).scalar_one_or_none()
+            match_q = select(SparePart).where(
+                func.lower(SparePart.name) == part_name.lower()
+            )
+            if make:
+                match_q = match_q.where(func.lower(SparePart.make) == make.lower())
+            else:
+                match_q = match_q.where(SparePart.make.is_(None))
+            if model:
+                match_q = match_q.where(func.lower(SparePart.model) == model.lower())
+            else:
+                match_q = match_q.where(SparePart.model.is_(None))
+            existing_part = (await db.execute(match_q)).scalars().first()
             if existing_part:
                 existing_part.qty_in_stock = int(existing_part.qty_in_stock or 0) + qty
-                existing_part.unit_price = price
+                if crate_number:
+                    existing_part.crate_number = crate_number
+                if price_raw:
+                    existing_part.unit_price = price
                 existing_part.is_trashed = False
                 existing_part.trashed_at = None
             else:
@@ -405,6 +429,7 @@ async def bulk_upload_parts(
                     part_code=part_id, name=part_name, category=category,
                     unit_price=price, qty_in_stock=qty, min_stock_alert=5,
                     supplier=vendor_name, source=source,
+                    make=make, model=model, crate_number=crate_number,
                 ))
             inserted += 1
         except Exception as e:

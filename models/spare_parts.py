@@ -29,6 +29,11 @@ class SparePart(Base):
     supplier = Column(String(100), nullable=True)
     notes = Column(Text, nullable=True)
     source = Column(String(10), nullable=True)
+    # Crate/Make/Model shown on Part Master + Part/Faulty Request tables and set via
+    # bulk upload (matched on name+make+model). Additive; auto-provisioned by db_validator.
+    crate_number = Column(String(50), nullable=True)
+    make = Column(String(100), nullable=True)
+    model = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=app_now)
     is_trashed = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     trashed_at = Column(DateTime, nullable=True)

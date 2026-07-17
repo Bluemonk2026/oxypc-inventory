@@ -260,13 +260,16 @@
                             onclick="verifyPartReceived('{{ r.id }}')">
                       <i class="bi bi-check2-circle"></i> Verify &times;{{ r.qty_handed_over }}
                     </button>
+                    <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 faulty-part-btn"
+                            data-label="{{ p.label | e }}" data-category="{{ p.category | e }}" data-part-id="{{ p.part_id }}">
+                      <i class="bi bi-exclamation-triangle"></i> Faulty</button>
                     <span id="changedPill_{{ r.id }}" class="badge bg-primary d-none">Part Changed</span>
                   {% elif r.status == 'received' %}<span class="badge bg-primary">Part Changed</span>
                   {% elif r.status == 'not_in_stock' %}<span class="badge bg-danger">Not In Stock</span>
                   {% elif r.status == 'procure' %}<span class="badge bg-info text-dark">Sent for Sourcing</span>
                   {% else %}<span class="badge bg-secondary">{{ r.status }}</span>{% endif %}
                 {% elif _eng %}
-                <div class="d-flex align-items-center gap-1 flex-wrap">
+                <div class="d-flex align-items-center gap-1 flex-wrap" data-part-actions="{{ p.part_id }}">
                   <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2" {% if not p.required %}disabled{% endif %}
                           onclick="openPartRequestModal('new', 1, '{{ p.category | e }}', '{{ p.part_id }}', '{{ p.label | e }}')">
                     <i class="bi bi-bag-plus"></i> New Request</button>
@@ -275,9 +278,6 @@
                           onmouseleave="this.classList.replace('btn-outline-warning','btn-outline-secondary')"
                           onclick="openPartRequestModal('replace', 1, '{{ p.category | e }}', '{{ p.part_id }}', '{{ p.label | e }}')">
                     <i class="bi bi-arrow-repeat"></i> Replace Request</button>
-                  <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 faulty-part-btn" {% if not p.required %}disabled{% endif %}
-                          data-label="{{ p.label | e }}" data-category="{{ p.category | e }}" data-part-id="{{ p.part_id }}">
-                    <i class="bi bi-exclamation-triangle"></i> Faulty</button>
                 </div>
                 {% else %}<span class="text-muted">—</span>{% endif %}
               </td>
@@ -294,7 +294,7 @@
     <div class="modal fade" id="partRequestModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog">
         <form method="post" action="/part-requests/create" id="partRequestForm"
-              onsubmit="var b=this.querySelector('button[type=submit]'); b.disabled=true; b.innerHTML='<i class=\'bi bi-hourglass-split\'></i> Submitting…';">
+              onsubmit="flipRowToRequested(); var b=this.querySelector('button[type=submit]'); b.disabled=true; b.innerHTML='<i class=\'bi bi-hourglass-split\'></i> Submitting…';">
           <div class="modal-content">
             <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
             <input type="hidden" name="barcode" value="{{ device.barcode }}">
@@ -358,7 +358,14 @@
         document.getElementById('pr_part_id').value = nameSel.selectedOptions[0]?.dataset.id || '';
       }
 
+      var _prRowPartId = '';
+      function flipRowToRequested() {
+        if (!_prRowPartId) return;
+        var cell = document.querySelector('[data-part-actions="' + _prRowPartId + '"]');
+        if (cell) cell.innerHTML = '<span class="badge bg-warning text-dark">Requested</span>';
+      }
       function openPartRequestModal(requestType, qty, prefillCategory, matchedPartId, partLabel) {
+        _prRowPartId = matchedPartId || '';
         document.getElementById('pr_request_type').value = requestType;
         document.getElementById('pr_qty').value = qty || 1;
         document.getElementById('pr_modal_title').innerHTML = requestType === 'replace'

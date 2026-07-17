@@ -52,13 +52,31 @@ app.add_middleware(
 )
 
 # ── HTTPS redirect — Railway terminates SSL at the edge and sets
-# X-Forwarded-Proto: http for plain-HTTP requests.  Redirect them to HTTPS.
-# Does not fire on local dev because the header is absent. ───────────────────
+# Upgrade plain-HTTP requests to HTTPS behind Railway's proxy.
+#
+# uvicorn runs with proxy_headers=True (see uvicorn.run below), so request.url.scheme
+# already reflects the real client scheme from X-Forwarded-Proto. We redirect off that
+# normalized value, NOT the raw header — the previous version compared the raw header
+# `== "http"`, which loops forever when a proxy hop presents a comma-joined or bare
+# "http" value on an already-HTTPS request (the cause of ERR_TOO_MANY_REDIRECTS).
+#
+# Loop-safety: we only redirect when the resolved scheme is exactly "http", so the
+# redirected HTTPS request (scheme "https") never redirects again. /health is exempt
+# so Railway's health check is never bounced. 307 keeps method/body and is not cached.
 @app.middleware("http")
 async def _force_https(request: Request, call_next):
-    if request.headers.get("x-forwarded-proto") == "http":
-        url = str(request.url).replace("http://", "https://", 1)
-        return RedirectResponse(url=url, status_code=301)
+    # Only a proxy in front of us sets X-Forwarded-Proto; when it is absent (local dev,
+    # direct connection) we do nothing, exactly as before. When present, we redirect off
+    # its FIRST token — never a bare `== "http"` on the whole header — so a comma-joined
+    # multi-hop value like "https,http" resolves to "https" and is passed straight through.
+    # That is the fix for the intermittent ERR_TOO_MANY_REDIRECTS: an already-HTTPS request
+    # can never bounce again. /health is exempt so Railway's health check is never redirected.
+    xfp = request.headers.get("x-forwarded-proto")
+    if xfp:
+        proto = xfp.split(",")[0].strip().lower()
+        if proto == "http" and request.url.path != "/health":
+            return RedirectResponse(url=str(request.url.replace(scheme="https")),
+                                    status_code=307)
     return await call_next(request)
 
 # ── Error logger (writes to errors.log next to main.py) ───────────────────────
@@ -562,4 +580,8 @@ if __name__ == "__main__":
         reload=False,
         log_level="info",
         workers=1,          # single async worker — avoids stale in-memory caches (_PERM_CACHE, _transitions_cache) across forked processes
+        # Behind Railway's proxy: trust X-Forwarded-Proto/-For so request.url.scheme is
+        # the real client scheme. Without this the HTTPS-redirect middleware loops.
+        proxy_headers=True,
+        forwarded_allow_ips="*",
     )

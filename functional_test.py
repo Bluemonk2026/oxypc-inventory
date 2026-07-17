@@ -27,9 +27,9 @@ TESTS = [
     ("IQC-02 IQC form", "GET", "http://localhost:8000/iqc/new", None, "IQC"),
     ("IQC-03 Lookup API", "GET", "http://localhost:8000/iqc/lookup?barcode=OXY-TEST-00001", None, None),
     ("REP-01 L1 queue", "GET", "http://localhost:8000/repair/l1", None, "L1"),
-    ("REP-02 L2 queue", "GET", "http://localhost:8000/repair/l2", None, "L2"),
-    ("REP-03 L3 queue", "GET", "http://localhost:8000/repair/l3", None, "L3"),
-    ("REP-04 Move form", "GET", "http://localhost:8000/repair/move/form", None, "Move"),
+    # REP-02/REP-03 retired: the /repair/l2 and /repair/l3 pages are withdrawn and now 404.
+    ("REP-04 L3/L4 queue", "GET", "http://localhost:8000/repair/l3l4", None, "L3"),
+    ("REP-05 Move form", "GET", "http://localhost:8000/repair/move/form", None, "Move"),
     ("QC-01 QC list", "GET", "http://localhost:8000/qc", None, "QC"),
     ("QC-02 QC new form", "GET", "http://localhost:8000/qc/new", None, "QC"),
     ("QC-03 QC form prefilled", "GET", f"http://localhost:8000/qc/new?barcode={DEVICE_BARCODE}", None, DEVICE_BARCODE),

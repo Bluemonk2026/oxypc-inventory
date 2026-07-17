@@ -177,8 +177,8 @@ FUNCTIONAL_ENDPOINTS = [
     ("F-IQC-02",  "GET", "/iqc/new",                           "IQC"),
     # REPAIR
     ("F-REP-01",  "GET", "/repair/l1",                         "L1"),
-    ("F-REP-02",  "GET", "/repair/l2",                         "L2"),
-    ("F-REP-03",  "GET", "/repair/l3",                         "L3"),
+    # F-REP-02/03 retired: /repair/l2 and /repair/l3 are withdrawn and now 404.
+    ("F-REP-04",  "GET", "/repair/l3l4",                       "L3"),
     # QC
     ("F-QC-01",   "GET", "/qc",                                "QC"),
     ("F-QC-02",   "GET", "/qc/new",                            "QC"),
@@ -896,9 +896,10 @@ RBAC_ACCESS = {
                     "deny":  ["/admin/users", "/sales"]},
     "uat_l1":      {"allow": ["/", "/repair/l1"],
                     "deny":  ["/admin/users"]},
-    "uat_l2":      {"allow": ["/", "/repair/l2"],
+    # L2/L3 pages withdrawn: uat_l2 has no repair page left, uat_l3 works via L3/L4.
+    "uat_l2":      {"allow": ["/"],
                     "deny":  ["/admin/users"]},
-    "uat_l3":      {"allow": ["/", "/repair/l3"],
+    "uat_l3":      {"allow": ["/", "/repair/l3l4"],
                     "deny":  ["/admin/users"]},
     "uat_qc":      {"allow": ["/", "/qc", "/qc/new"],
                     "deny":  ["/admin/users", "/sales"]},
@@ -1180,8 +1181,7 @@ async def section_performance(session):
         ("/devices",                    "Device list",          5.0),
         ("/devices?q=PERF-L01",         "Device search filter", 5.0),
         ("/repair/l1",                  "L1 queue",             5.0),
-        ("/repair/l2",                  "L2 queue",             5.0),
-        ("/repair/l3",                  "L3 queue",             5.0),
+        ("/repair/l3l4",                "L3/L4 queue",          5.0),
         ("/qc",                         "QC list",              5.0),
         ("/sales/ready",                "Ready to Sale",        5.0),
         ("/spare-parts",                "Spare parts",          5.0),

@@ -217,18 +217,16 @@ PHASE1_TESTS = [
       "4. Verify device cards are shown with action buttons",
       priority="CRITICAL", showstopper="YES"),
 
-    t("P1-REP-02","Phase 1","Repair","Repair L2 page",
-      "GET","/repair/l2",200,
-      f"1. Log in as admin\n"
-      f"2. Navigate to {APP_URL_DISPLAY}/repair/l2\n"
-      "3. Verify Level-2 repair queue page loads",
-      priority="HIGH"),
+    # P1-REP-02/03 retired: the /repair/l2 and /repair/l3 pages are withdrawn and now 404.
+    # Not re-expressed as expected=404 — this runner is unauthenticated, so auth-gated routes
+    # return 307 before reaching the handler and a 404 can never be observed (see line ~641,
+    # which only forgives a redirect when expected==200).
 
-    t("P1-REP-03","Phase 1","Repair","Repair L3 page",
-      "GET","/repair/l3",200,
+    t("P1-REP-04","Phase 1","Repair","Repair L3/L4 page",
+      "GET","/repair/l3l4",200,
       f"1. Log in as admin\n"
-      f"2. Navigate to {APP_URL_DISPLAY}/repair/l3\n"
-      "3. Verify Level-3 repair queue page loads",
+      f"2. Navigate to {APP_URL_DISPLAY}/repair/l3l4\n"
+      "3. Verify the L3/L4 repair queue page loads",
       priority="HIGH"),
 
     # QC

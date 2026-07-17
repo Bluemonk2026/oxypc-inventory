@@ -380,9 +380,11 @@ async def phase4_repair(session):
     record("P4-REPAIR", "REP-05", "Escalate 5 devices L1 → L2", l1_to_l2 >= 4,
            f"{l1_to_l2}/5 escalated")
 
-    # Verify L2 queue
-    status, text = await get_text(session, "/repair/l2")
-    record("P4-REPAIR", "REP-06", "L2 queue shows escalated devices", status == 200 and DEVICE_PREFIX in text)
+    # The /repair/l2 queue page is withdrawn; verify the escalation landed via Inventory Search,
+    # which still reports current stage.
+    status, text = await get_text(session, f"/devices?q={DEVICE_PREFIX}")
+    record("P4-REPAIR", "REP-06", "escalated devices visible in inventory at L2 stage",
+           status == 200 and DEVICE_PREFIX in text)
 
     # Devices 6-8: L2 → QC, devices 9-10: L2 → L3
     l2_to_qc = 0
@@ -413,9 +415,9 @@ async def phase4_repair(session):
     record("P4-REPAIR", "REP-08", "Escalate 2 devices L2 → L3", l2_to_l3 >= 1,
            f"{l2_to_l3}/2 escalated")
 
-    # Verify L3 queue (should now have devices)
-    status, text = await get_text(session, "/repair/l3")
-    record("P4-REPAIR", "REP-09", "L3 queue now populated (escalations from L2)",
+    # The /repair/l3 queue page is withdrawn; verify via Inventory Search instead.
+    status, text = await get_text(session, f"/devices?q={DEVICE_PREFIX}")
+    record("P4-REPAIR", "REP-09", "L2→L3 escalations visible in inventory",
            status == 200 and (DEVICE_PREFIX in text or l2_to_l3 == 0))
 
     # Devices 11-13: L1 → L2 → L3 → QC
@@ -783,15 +785,16 @@ ROLE_ACCESS_MAP = {
     "uat_l1": {
         "allowed":  ["/", "/repair/l1"],
         "denied":   ["/admin/users", "/sales"],
-        # Note: /repair/l2 is accessible (GAP-RBAC-01: L1 can view L2 queue - no write enforcement)
+        # GAP-RBAC-01 (L1 can read the L2 queue) is moot: /repair/l2 is withdrawn and 404s.
     },
     "uat_l2": {
-        "allowed":  ["/", "/repair/l2"],
+        # /repair/l2 is withdrawn — this role has no repair queue page left.
+        "allowed":  ["/"],
         "denied":   ["/admin/users", "/sales"],
-        # Note: /repair/l1 is accessible (same gap - documented as acceptable read-only cross-visibility)
     },
     "uat_l3": {
-        "allowed":  ["/", "/repair/l3"],
+        # /repair/l3 is withdrawn; L3 work is done from the L3/L4 queue.
+        "allowed":  ["/", "/repair/l3l4"],
         "denied":   ["/admin/users", "/sales"],
     },
     "uat_qc": {

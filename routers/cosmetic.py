@@ -245,8 +245,11 @@ async def advance_stage(
         if updated_cpu: device.cpu = updated_cpu
         if updated_generation: device.generation = updated_generation
         if warehouse: device.warehouse = warehouse
-        device.final_qc_status = "fail" if final_qc_status == "fail" else "pass"
-        if final_qc_status == "fail":
+        # Case-insensitive: master data stores "Fail"/"Pass" (title case), so an exact
+        # == "fail" match silently treats every Fail as a Pass in production.
+        _is_fail = final_qc_status.strip().lower() == "fail"
+        device.final_qc_status = "fail" if _is_fail else "pass"
+        if _is_fail:
             device.current_stage = DeviceStage.cleaning
             device.updated_at = app_now()
             movement = StageMovement(

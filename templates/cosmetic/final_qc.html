@@ -178,7 +178,8 @@
 (function () {
   function applyState(form) {
     var status = form.querySelector('.fqc-status-select').value;
-    var isFail = status === 'fail';
+    // Case-insensitive: master data stores "Fail"/"Pass" (title case), not lowercase.
+    var isFail = (status || '').trim().toLowerCase() === 'fail';
     form.querySelectorAll('.fqc-fail-only').forEach(function (el) {
       el.style.display = isFail ? '' : 'none';
     });

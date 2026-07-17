@@ -141,6 +141,7 @@ async def request_l3l4(
     request: Request,
     device_id: str = Form(...),
     assigned_l3l4_username: str = Form(...),
+    repair_notes: str = Form(""),
     csrf_token: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -158,6 +159,9 @@ async def request_l3l4(
         raise HTTPException(404, "Selected L3/L4 engineer not found")
 
     device.l1l2_status = "Requested to L3/L4"
+    # Blank box = leave any existing note alone
+    if repair_notes.strip():
+        device.repair_notes = repair_notes.strip()
     device.updated_at = app_now()
 
     work_id = await _gen_prefixed_work_id(db, "L3L4-")
@@ -187,21 +191,24 @@ async def request_l3l4(
 async def l1l2_complete_to_stress(
     request: Request,
     device_id: str = Form(...),
-    stress_engineer_username: str = Form(...),
+    stress_engineer_username: str = Form(""),
     csrf_token: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Complete L1/L2: move the device to Stress Test (qc_check) and assign it
-    to the chosen Stress Test engineer."""
+    """Complete L1/L2: move the device to Stress Test (qc_check). An engineer is
+    optional — with none the STRS- WorkOrder is still raised, unassigned, so the
+    WorkID Status board keeps full traceability."""
     device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
     if not device:
         raise HTTPException(404, "Device not found")
-    eng = (await db.execute(
-        select(User).where(User.username == stress_engineer_username)
-    )).scalar_one_or_none()
-    if not eng:
-        raise HTTPException(404, "Selected Stress Test engineer not found")
+    eng = None
+    if stress_engineer_username:
+        eng = (await db.execute(
+            select(User).where(User.username == stress_engineer_username)
+        )).scalar_one_or_none()
+        if not eng:
+            raise HTTPException(404, "Selected Stress Test engineer not found")
 
     prev = device.current_stage
     await _close_open_movement(db, device)
@@ -229,27 +236,30 @@ async def l1l2_complete_to_stress(
     device.updated_at = app_now()
     db.add(StageMovement(device_id=device.id, from_stage=prev, to_stage=DeviceStage.qc_check,
                          moved_by=current_user.username,
-                         notes=f"L1/L2 completed — assigned to Stress Test ({eng.full_name or eng.username})"))
+                         notes=(f"L1/L2 completed — assigned to Stress Test ({eng.full_name or eng.username})"
+                                if eng else "L1/L2 completed — moved to Stress Test (unassigned)")))
     # A WorkOrder makes the assignment visible on the WorkID Status board
     work_id = await _gen_prefixed_work_id(db, "STRS-")
     db.add(WorkOrder(
         work_id=work_id, device_id=device.id, barcode=device.barcode,
         stage="qc", assigned_role="qc_inspector",
-        assigned_user_id=eng.id, assigned_username=eng.username,
-        assigned_name=eng.full_name, status="pending",
+        assigned_user_id=eng.id if eng else None,
+        assigned_username=eng.username if eng else None,
+        assigned_name=eng.full_name if eng else None, status="pending",
         requested_by_name=current_user.full_name or current_user.username,
         created_by=current_user.username,
     ))
-    await create_notification(
-        db, user_id=eng.id, title="Device Assigned for Stress Test",
-        message=(f"{device.barcode} was moved to Stress Test and assigned to you by "
-                 f"{current_user.full_name or current_user.username}."),
-        notification_type="info", barcode=device.barcode,
-        brand=device.brand, model=device.model, stage="qc_check",
-    )
+    if eng:
+        await create_notification(
+            db, user_id=eng.id, title="Device Assigned for Stress Test",
+            message=(f"{device.barcode} was moved to Stress Test and assigned to you by "
+                     f"{current_user.full_name or current_user.username}."),
+            notification_type="info", barcode=device.barcode,
+            brand=device.brand, model=device.model, stage="qc_check",
+        )
     await audit(db, user=current_user, action="L1L2_COMPLETE_TO_STRESS",
                 table_name="devices", record_id=str(device.id),
-                new_value={"assigned": eng.username}, request=request)
+                new_value={"assigned": eng.username if eng else None}, request=request)
     await db.commit()
     return RedirectResponse(url="/repair/l1?success=Moved+to+Stress+Test", status_code=302)
 
@@ -326,6 +336,7 @@ async def l3l4_list(request: Request,
             "status": dev.l34_status or "New",
             "bucket": bucket_map.get(str(dev.id), ""),
             "notes": wo.requested_by_name or "—",
+            "repair_notes": dev.repair_notes or "—",
             "aging": aging,
         })
 

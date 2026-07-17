@@ -485,38 +485,45 @@ async def stress_fail_assign(
 @router.post("/{barcode}/complete-to-paint")
 async def stress_complete_to_paint(
     barcode: str,
-    engineer_user_id: str = Form(...),
+    engineer_user_id: str = Form(""),
     notes: str = Form(""),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """'Complete' — send the device to the Cosmetic 'Cleaning' stage, assigned
-    to a Paint/Cleaning-stage engineer.
+    """'Complete' — send the device to the Cosmetic 'Cleaning' stage.
 
     Reuses the exact stage-set logic from routers/cosmetic.py's
     `send_to_cosmetic` (QC Check -> Cleaning), and additionally records a
-    WorkOrder (same mechanism used for L1/L2/L3 assignment) so the assignment
+    WorkOrder (same mechanism used for L1/L2/L3 assignment) so the movement
     is traceable, since Device has no assigned_username field of its own.
+
+    `engineer_user_id` is optional: the QC 'Complete' button sends the tag
+    straight to Cleaning with an unassigned WorkOrder, while callers that do
+    pass an engineer still get validation, assignment and a notification.
     """
     dev_res = await db.execute(select(Device).where(Device.barcode == barcode))
     device = dev_res.scalar_one_or_none()
     if not device:
         raise HTTPException(404, f"Device {barcode} not found")
 
-    try:
-        eng_uuid = uuid_module.UUID(engineer_user_id)
-    except (ValueError, AttributeError, TypeError):
-        raise HTTPException(400, "Invalid engineer selected")
+    engineer = None
+    if engineer_user_id:
+        try:
+            eng_uuid = uuid_module.UUID(engineer_user_id)
+        except (ValueError, AttributeError, TypeError):
+            raise HTTPException(400, "Invalid engineer selected")
 
-    engineer = (await db.execute(select(User).where(User.id == eng_uuid))).scalar_one_or_none()
-    allowed_paint_roles = (UserRole.qc_inspector, UserRole.inventory_manager, UserRole.sales_manager)
-    if not engineer or engineer.role not in allowed_paint_roles:
-        raise HTTPException(400, "Selected user is not an active Paint/Cleaning engineer")
+        engineer = (await db.execute(select(User).where(User.id == eng_uuid))).scalar_one_or_none()
+        allowed_paint_roles = (UserRole.qc_inspector, UserRole.inventory_manager, UserRole.sales_manager)
+        if not engineer or engineer.role not in allowed_paint_roles:
+            raise HTTPException(400, "Selected user is not an active Paint/Cleaning engineer")
 
     prev_stage = device.current_stage
     device.current_stage = DeviceStage.cleaning
     device.updated_at = app_now()
-    move_notes = f"Sent to Cosmetic Refurbishment (Cleaning) — assigned to {engineer.full_name or engineer.username}"
+    move_notes = "Sent to Cosmetic Refurbishment (Cleaning)"
+    if engineer:
+        move_notes += f" — assigned to {engineer.full_name or engineer.username}"
     if notes:
         move_notes += f". {notes}"
     db.add(StageMovement(device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.cleaning,
@@ -529,31 +536,35 @@ async def stress_complete_to_paint(
         # this record is purely for traceability (no repair.py query reads
         # WorkOrder rows with stage="clean").
         work_id=work_id, device_id=device.id, barcode=device.barcode,
-        stage="clean", assigned_role=engineer.role.value,
-        assigned_user_id=engineer.id, assigned_username=engineer.username,
-        assigned_name=engineer.full_name, status="pending",
+        stage="clean", assigned_role=engineer.role.value if engineer else None,
+        assigned_user_id=engineer.id if engineer else None,
+        assigned_username=engineer.username if engineer else None,
+        assigned_name=engineer.full_name if engineer else None, status="pending",
         created_by=current_user.username,
     ))
 
-    await create_notification(
-        db, user_id=engineer.id, title="Device Assigned to You",
-        message=(f"{device.barcode} completed Stress Test and has been sent to Cleaning, "
-                 f"assigned to you (WorkID: {work_id})."),
-        notification_type="info",
-        barcode=device.barcode, brand=device.brand, model=device.model,
-        stage=DeviceStage.cleaning.value,
-    )
+    if engineer:
+        await create_notification(
+            db, user_id=engineer.id, title="Device Assigned to You",
+            message=(f"{device.barcode} completed Stress Test and has been sent to Cleaning, "
+                     f"assigned to you (WorkID: {work_id})."),
+            notification_type="info",
+            barcode=device.barcode, brand=device.brand, model=device.model,
+            stage=DeviceStage.cleaning.value,
+        )
 
     await audit(db, user=current_user, action="STRESS_COMPLETE_TO_PAINT",
                 table_name="devices", record_id=str(device.id),
-                new_value={"assigned_to": engineer.username, "stage": "cleaning",
-                           "work_id": work_id, "notes": notes},
+                new_value={"assigned_to": engineer.username if engineer else None,
+                           "stage": "cleaning", "work_id": work_id, "notes": notes},
                 request=None)
 
     await db.commit()
-    return RedirectResponse(url="/qc?success=Device+sent+to+Cleaning+%26+assigned+to+" +
-                             (engineer.full_name or engineer.username).replace(" ", "+"),
-                             status_code=302)
+    if engineer:
+        return RedirectResponse(url="/qc?success=Device+sent+to+Cleaning+%26+assigned+to+" +
+                                 (engineer.full_name or engineer.username).replace(" ", "+"),
+                                 status_code=302)
+    return RedirectResponse(url="/qc?success=Device+sent+to+Cleaning", status_code=302)
 
 
 @router.get("/has-results")

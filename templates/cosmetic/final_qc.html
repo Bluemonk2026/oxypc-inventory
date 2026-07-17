@@ -62,6 +62,11 @@
           </ul>
           {% else %}<p class="text-muted small">No repair jobs recorded.</p>{% endif %}
 
+          <div class="small fw-semibold text-muted">Repair Notes</div>
+          {% if device.repair_notes %}
+          <p class="small mb-3">{{ device.repair_notes }}</p>
+          {% else %}<p class="text-muted small mb-3">No repair notes recorded.</p>{% endif %}
+
           <div class="small fw-semibold text-muted">Parts Consumed <small class="text-muted">(required)</small></div>
           {% set pl = parts_map.get(device.id|string, []) %}
           {% if pl %}

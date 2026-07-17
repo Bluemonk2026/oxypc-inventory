@@ -182,6 +182,16 @@
       </div>
     </div>
     {% endif %}
+    {% if device.repair_notes %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-tools me-2"></i>Repair Notes
+      </div>
+      <div class="card-body">
+        <p class="mb-0 small">{{ device.repair_notes }}</p>
+      </div>
+    </div>
+    {% endif %}
 
     <!-- Work ID History -->
     <div class="card border-0 shadow-sm mb-3">

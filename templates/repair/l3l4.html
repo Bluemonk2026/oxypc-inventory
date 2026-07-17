@@ -11,19 +11,20 @@
         <div class="table-responsive">
           <table id="l3l4Table" class="table table-hover mb-0 small">
             <thead class="table-dark">
-              <tr><th>WorkID</th><th>Tag Number</th><th>Status</th><th>Bucket</th><th>Notes</th><th>Aging</th><th>Action</th></tr>
+              <tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Notes</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>Action</th></tr>
             </thead>
             <tbody>
               {% for it in items %}
               <tr>
                 <td><span class="font-monospace fw-bold">{{ it.work_id }}</span></td>
                 <td><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
+                <td>{% if it.bucket %}<span class="badge bg-warning text-dark font-monospace">{{ it.bucket }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                <td class="note-clamp text-muted" title="{{ it.notes }}">{{ it.notes[:150] }}{% if it.notes and it.notes|length > 150 %}…{% endif %}</td>
+                <td class="note-clamp text-muted" title="{{ it.repair_notes or '' }}">{% if it.repair_notes %}{{ it.repair_notes[:150] }}{% if it.repair_notes|length > 150 %}…{% endif %}{% else %}—{% endif %}</td>
+                <td><span class="badge bg-{{ 'danger' if it.aging >= 3 else ('warning text-dark' if it.aging >= 1 else 'secondary') }}">{{ it.aging }} day{{ 's' if it.aging != 1 else '' }}</span></td>
                 <td>
                   <span class="badge bg-{{ 'success' if it.status == 'Completed' else ('danger' if 'Scrap' in it.status else ('info' if it.status == 'Repair Started' else 'secondary')) }}">{{ it.status }}</span>
                 </td>
-                <td>{% if it.bucket %}<span class="badge bg-warning text-dark font-monospace">{{ it.bucket }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-                <td class="note-clamp text-muted" title="{{ it.notes }}">{{ it.notes[:150] }}{% if it.notes and it.notes|length > 150 %}…{% endif %}</td>
-                <td><span class="badge bg-{{ 'danger' if it.aging >= 3 else ('warning text-dark' if it.aging >= 1 else 'secondary') }}">{{ it.aging }} day{{ 's' if it.aging != 1 else '' }}</span></td>
                 <td class="text-nowrap">
                   {% if it.status == 'Repair Started' %}
                     <form method="post" action="/repair/l3l4-complete" class="d-inline">
@@ -49,8 +50,6 @@
                   {% endif %}
                 </td>
               </tr>
-              {% else %}
-              <tr><td colspan="7" class="text-center text-muted py-4">No L3/L4 work orders assigned.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -126,7 +125,11 @@
 {% endblock %}
 {% block scripts %}
 <script>
-$(document).ready(function(){ $('#l3l4Table').DataTable({}); });
+$(document).ready(function(){
+  $('#l3l4Table').DataTable({
+    language: { emptyTable: "No L3/L4 work orders assigned." }
+  });
+});
 (function(){
   var scModal = new bootstrap.Modal(document.getElementById('scrapModal'));
   document.querySelectorAll('.scrap-btn').forEach(function(btn){

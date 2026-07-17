@@ -135,6 +135,10 @@ class Device(Base):
     qty           = Column(Integer, nullable=True, server_default="1")  # Units this record covers (default 1)
     lot_line_item_id = Column(UUID(as_uuid=True), ForeignKey("lot_line_items.id"), nullable=True)
     notes = Column(Text, nullable=True)
+    # Repair-authored note captured on the Request to L3/L4 modal; surfaced as the Repair Notes
+    # column on L1/L2, L3/L4, Final QC and Device Detail. Distinct from `notes` above, which is
+    # the generic device note. Additive; auto-provisioned by db_validator.
+    repair_notes = Column(Text, nullable=True)
     scrap_verified = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     is_active  = Column(Boolean, nullable=False, default=True, server_default=text("true"))
     deleted_at = Column(DateTime, nullable=True)

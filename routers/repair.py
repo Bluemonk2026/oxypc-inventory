@@ -33,7 +33,10 @@ from services.parts_required import compute_required
 
 router = APIRouter(prefix="/repair", tags=["repair"], dependencies=[Depends(verify_csrf)])
 
-STAGE_MAP  = {"l1": DeviceStage.l1, "l2": DeviceStage.l2, "l3": DeviceStage.l3}
+# "l2"/"l3" retired: the /repair/l2 and /repair/l3 pages are withdrawn, so the
+# catch-all GET /{stage} 404s on them. L1 work now completes straight to Stress
+# Test; deeper repair is handled by the separate /repair/l3l4 endpoints.
+STAGE_MAP  = {"l1": DeviceStage.l1}
 NEXT_STAGE = {DeviceStage.l1: DeviceStage.l2, DeviceStage.l2: DeviceStage.l3, DeviceStage.l3: DeviceStage.qc_check}
 LEVEL_MAP  = {"l1": 1, "l2": 2, "l3": 3}
 
@@ -911,6 +914,42 @@ async def complete_repair(
             brand=device.brand,
             model=device.model,
             stage=DeviceStage.stock_in.value,
+        )
+
+    elif (final_status.strip() == "Completed" and device
+          and device.current_stage in (DeviceStage.l1, DeviceStage.l2)):
+        # Side "Complete Job" panel on the L1/L2 pages. A Completed L1/L2 job
+        # moves the tag straight to Stress Test (qc_check). Movement bookkeeping
+        # mirrors l1l2_complete_to_stress; unlike that endpoint this path
+        # deliberately does NOT pick a Stress Test engineer and does NOT create a
+        # STRS- WorkOrder — the tag lands unassigned in the Stress Test queue.
+        # assert_device_in_stage already ran above against the job's own stage.
+        from sqlalchemy import update as sa_update
+        current = device.current_stage
+        await _close_open_movement(db, device)
+        # Close any other open repair jobs at this stage before moving
+        await db.execute(
+            sa_update(RepairJob)
+            .where(RepairJob.device_id == device.id,
+                   RepairJob.stage     == job.stage,
+                   RepairJob.status    == RepairStatus.in_progress)
+            .values(status=RepairStatus.completed, completed_at=app_now())
+        )
+        device.current_stage = DeviceStage.qc_check
+        device.l1l2_status   = "Completed"
+        device.updated_at    = app_now()
+        db.add(StageMovement(device_id=device.id, from_stage=current,
+                             to_stage=DeviceStage.qc_check,
+                             moved_by=current_user.username,
+                             notes=f"{job.stage} completed — moved to Stress Test"))
+        await create_notification(
+            db, user_id=None, title="Device Stage Changed",
+            message=(f"{device.barcode} moved from {current.value} to "
+                     f"{DeviceStage.qc_check.value} by "
+                     f"{current_user.full_name or current_user.username}."),
+            notification_type="alert", barcode=device.barcode,
+            brand=device.brand, model=device.model,
+            stage=DeviceStage.qc_check.value,
         )
 
     elif (move_to_next == "yes"

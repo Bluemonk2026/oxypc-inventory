@@ -165,6 +165,67 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
     })
 
 
+@router.post("/sales/ready/upload-tags")
+async def upload_ready_tags(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(ready_allowed),
+):
+    """Bulk Upload Tags on Ready to Sale — reads a single-column CSV of tag
+    numbers and reports back which are ready to sale, so the page can tick the
+    matching rows. Read-only: selects nothing, changes nothing."""
+    content = await file.read()
+    try:
+        text_data = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            text_data = content.decode("utf-16")
+        except UnicodeDecodeError:
+            text_data = content.decode("latin-1")
+    reader = csv.DictReader(io.StringIO(text_data))
+
+    # Accept `tag_number` or `barcode`, any casing — read by header name so a
+    # user's extra columns can't shift the one we want out from under us.
+    field_map = {(f or "").strip().lower(): f for f in (reader.fieldnames or [])}
+    key = field_map.get("tag_number") or field_map.get("barcode")
+    if not key:
+        return JSONResponse(
+            {"error": "CSV must have a 'tag_number' (or 'barcode') column header"},
+            status_code=400,
+        )
+
+    tags, errors = [], []
+    seen = set()
+    for i, row in enumerate(reader, start=2):
+        tag = (row.get(key) or "").strip()
+        if not tag:
+            errors.append(f"Row {i}: tag_number is empty")
+            continue
+        if tag in seen:
+            continue
+        seen.add(tag)
+        tags.append(tag)
+
+    if not tags:
+        return JSONResponse({"found": [], "not_found": [], "not_ready": [], "errors": errors})
+
+    stages = dict((await db.execute(
+        select(Device.barcode, Device.current_stage).where(Device.barcode.in_(tags))
+    )).all())
+
+    found, not_found, not_ready = [], [], []
+    for tag in tags:
+        if tag not in stages:
+            not_found.append(tag)
+        elif stages[tag] != DeviceStage.ready_to_sale:
+            not_ready.append(tag)
+        else:
+            found.append(tag)
+
+    return JSONResponse({"found": found, "not_found": not_found,
+                         "not_ready": not_ready, "errors": errors})
+
+
 def _unit_stock_price(device, lot) -> float:
     """Device unit cost — device-level price if set, else avg lot cost (same
     logic as the Ready-to-Sale Unit Cost column)."""

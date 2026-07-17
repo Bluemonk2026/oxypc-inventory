@@ -244,7 +244,6 @@ async def advance_stage(
         if updated_model: device.model = updated_model
         if updated_cpu: device.cpu = updated_cpu
         if updated_generation: device.generation = updated_generation
-        if grade: device.grade = grade
         if warehouse: device.warehouse = warehouse
         device.final_qc_status = "fail" if final_qc_status == "fail" else "pass"
         if final_qc_status == "fail":
@@ -261,6 +260,9 @@ async def advance_stage(
                 url="/cosmetic/final_qc?error=Final+QC+Failed,+sent+back+for+rework",
                 status_code=302
             )
+
+        # Pass only — the Grade dropdown is hidden on fail but still posts its value.
+        if grade: device.grade = grade
 
     prev = current
     device.current_stage = next_stage

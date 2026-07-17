@@ -142,15 +142,9 @@
         <i class="bi bi-tools me-2"></i> {{ sidebar_label('repair_l1', 'L1 Repair') }}
       </a></li>
       {% endif %}
-      {% if has_perm(role,'repair_l2','enable') %}
-      <li><a href="/repair/l2" class="nav-link {% if '/repair/l2' in request.url.path %}active{% endif %}">
-        <i class="bi bi-wrench me-2"></i> {{ sidebar_label('repair_l2', 'L2 Repair') }}
-      </a></li>
-      {% endif %}
+      {# L2 Repair and L3 Repair nav links retired — /repair/l2 and /repair/l3 are
+         no longer routed. The L3/L4 link below keeps the same repair_l3 guard. #}
       {% if has_perm(role,'repair_l3','enable') %}
-      <li><a href="/repair/l3" class="nav-link {% if request.url.path == '/repair/l3' %}active{% endif %}">
-        <i class="bi bi-cpu me-2"></i> {{ sidebar_label('repair_l3', 'L3 Repair') }}
-      </a></li>
       <li><a href="/repair/l3l4" class="nav-link {% if '/repair/l3l4' in request.url.path %}active{% endif %}">
         <i class="bi bi-cpu-fill me-2"></i> {{ sidebar_label('repair_l3l4', 'L3/L4 Repair') }}
       </a></li>

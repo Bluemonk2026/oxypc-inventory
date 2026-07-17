@@ -316,11 +316,18 @@
                 <div class="col-md-6">
                   <label class="form-label form-label-sm mb-1">Part Name</label>
                   <select name="part_name" id="pr_part_name" class="form-select form-select-sm" required
-                          onchange="document.getElementById('pr_part_id').value = this.selectedOptions[0]?.dataset.id || ''">
+                          onchange="prFillPartModels()">
                     <option value="">— Select a category first —</option>
                   </select>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-6">
+                  <label class="form-label form-label-sm mb-1">Part Model</label>
+                  <select id="pr_part_model" class="form-select form-select-sm" required
+                          onchange="prSelectModel()">
+                    <option value="">— Select a part name first —</option>
+                  </select>
+                </div>
+                <div class="col-md-6">
                   <label class="form-label form-label-sm mb-1">Quantity</label>
                   <input type="number" name="qty" id="pr_qty" class="form-control form-control-sm" min="1" value="1" required>
                 </div>
@@ -346,16 +353,59 @@
         document.getElementById('pr_part_category').value = cat;
         var nameSel = document.getElementById('pr_part_name');
         var matches = ALL_SPARE_PARTS.filter(function(sp) { return sp.category === cat; });
+        var seen = {};
+        var names = matches.filter(function(sp) {
+          if (seen[sp.name]) return false;
+          seen[sp.name] = true;
+          return true;
+        });
         if (!cat) {
           nameSel.innerHTML = '<option value="">— Select a category first —</option>';
-        } else if (!matches.length) {
+        } else if (!names.length) {
           nameSel.innerHTML = '<option value="">No parts in this category</option>';
         } else {
-          nameSel.innerHTML = matches.map(function(sp) {
-            return '<option value="' + sp.name.replace(/"/g,'&quot;') + '" data-id="' + sp.id + '">' + sp.name + '</option>';
+          nameSel.innerHTML = '<option value="">— Select —</option>' + names.map(function(sp) {
+            var nm = sp.name.replace(/"/g,'&quot;');
+            return '<option value="' + nm + '">' + sp.name + '</option>';
           }).join('');
         }
-        document.getElementById('pr_part_id').value = nameSel.selectedOptions[0]?.dataset.id || '';
+        prFillPartModels();
+      }
+
+      function prFillPartModels() {
+        var cat = document.getElementById('pr_category').value;
+        var name = document.getElementById('pr_part_name').value;
+        var modelSel = document.getElementById('pr_part_model');
+        document.getElementById('pr_part_id').value = '';
+        var matches = ALL_SPARE_PARTS.filter(function(sp) {
+          return sp.category === cat && sp.name === name;
+        });
+        var seen = {};
+        matches = matches.filter(function(sp) {
+          if (seen[sp.id]) return false;
+          seen[sp.id] = true;
+          return true;
+        });
+        if (!name) {
+          modelSel.innerHTML = '<option value="">— Select a part name first —</option>';
+          return;
+        }
+        if (!matches.length) {
+          modelSel.innerHTML = '<option value="">No parts</option>';
+          return;
+        }
+        modelSel.innerHTML = matches.map(function(sp) {
+          var label = sp.model || '— Not specified —';
+          return '<option value="' + sp.id + '">' + label + '</option>';
+        }).join('');
+        if (matches.length === 1) {
+          modelSel.value = matches[0].id;
+        }
+        prSelectModel();
+      }
+
+      function prSelectModel() {
+        document.getElementById('pr_part_id').value = document.getElementById('pr_part_model').value || '';
       }
 
       var _prRowPartId = '';
@@ -398,20 +448,29 @@
         }
         prFillPartNames();
         if (matchedPartId) {
-          // Ensure the matched part is present + selected even if the cascade's
-          // category filter didn't surface it (category vocab can diverge).
-          var opt = Array.prototype.find.call(nameSel.options, function(o) {
-            return o.dataset && o.dataset.id === matchedPartId;
-          });
-          if (!opt) {
-            opt = document.createElement('option');
-            opt.value = partLabel || 'Selected part';
-            opt.dataset.id = matchedPartId;
-            opt.textContent = partLabel || 'Selected part';
-            nameSel.appendChild(opt);
+          // Drive the Name + Model selects so the matched SparePart resolves.
+          var matched = ALL_SPARE_PARTS.filter(function(sp) { return sp.id === matchedPartId; })[0];
+          var modelSel = document.getElementById('pr_part_model');
+          if (matched) {
+            var hasName = Array.prototype.some.call(nameSel.options, function(o) { return o.value === matched.name; });
+            if (!hasName) {
+              var nOpt = document.createElement('option');
+              nOpt.value = matched.name;
+              nOpt.textContent = matched.name;
+              nameSel.appendChild(nOpt);
+            }
+            nameSel.value = matched.name;
+            prFillPartModels();
           }
-          nameSel.value = opt.value;
-          document.getElementById('pr_part_id').value = matchedPartId;
+          var hasModel = Array.prototype.some.call(modelSel.options, function(o) { return o.value === matchedPartId; });
+          if (!hasModel) {
+            var mOpt = document.createElement('option');
+            mOpt.value = matchedPartId;
+            mOpt.textContent = (matched && matched.model) || partLabel || 'Selected part';
+            modelSel.appendChild(mOpt);
+          }
+          modelSel.value = matchedPartId;
+          prSelectModel();
         }
         document.getElementById('pr_part_category').value = catSel.value || prefillCategory || '';
 

@@ -104,6 +104,9 @@
         <button id="expSel_partsTable" class="btn btn-outline-info btn-sm" onclick="spExport('partsTable',true)" disabled>
           <i class="bi bi-download me-1"></i>Export Selected
         </button>
+        <button id="delSel_partsTable" class="btn btn-outline-danger btn-sm" onclick="spBulkDelete()" disabled>
+          <i class="bi bi-trash3 me-1"></i>Delete Selected
+        </button>
         <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addPartModal">
           <i class="bi bi-plus-circle me-1"></i>Add Part
         </button>
@@ -146,7 +149,7 @@
           {% set consumed = consumed_by_part.get(part.id|string, 0) %}
           {% set live_stock = part.qty_in_stock - consumed %}
           <tr class="{{ 'table-danger' if live_stock <= part.min_stock_alert else '' }}">
-            <td><input type="checkbox" class="form-check-input sp-cb" data-tbl="partsTable"></td>
+            <td><input type="checkbox" class="form-check-input sp-cb" data-tbl="partsTable" value="{{ part.id }}"></td>
             <td><code>{{ part.part_code }}</code></td>
             <td>
               {% set grn = grn_by_part_code.get(part.part_code, {}) %}
@@ -781,22 +784,53 @@ function submitSourcingReupload() {
 }
 
 // ── Select-All checkboxes ──────────────────────────────────────────────────
+function spToggleSelButtons(tbl) {
+  var anyChecked = document.querySelectorAll('#' + tbl + ' .sp-cb:checked').length > 0;
+  var exp = document.getElementById('expSel_' + tbl);
+  if (exp) exp.disabled = !anyChecked;
+  var del = document.getElementById('delSel_' + tbl);
+  if (del) del.disabled = !anyChecked;
+}
+
 document.querySelectorAll('.sp-sa').forEach(function(sa) {
   sa.addEventListener('change', function() {
     var tbl = this.dataset.tbl;
     document.querySelectorAll('#' + tbl + ' .sp-cb').forEach(function(c) { c.checked = sa.checked; });
-    var btn = document.getElementById('expSel_' + tbl);
-    if (btn) btn.disabled = !sa.checked;
+    spToggleSelButtons(tbl);
   });
 });
 
-// ── Row checkbox → enable/disable Export Selected ─────────────────────────
+// ── Row checkbox → enable/disable Export/Delete Selected ──────────────────
 document.addEventListener('change', function(e) {
   if (!e.target.classList.contains('sp-cb')) return;
-  var tbl = e.target.dataset.tbl;
-  var anyChecked = document.querySelectorAll('#' + tbl + ' .sp-cb:checked').length > 0;
-  var btn = document.getElementById('expSel_' + tbl);
-  if (btn) btn.disabled = !anyChecked;
+  spToggleSelButtons(e.target.dataset.tbl);
 });
+
+function spBulkDelete() {
+  var ids = Array.prototype.map.call(
+    document.querySelectorAll('#partsTable .sp-cb:checked'),
+    function(c) { return c.value; }
+  );
+  if (!ids.length) return;
+  if (!confirm('Delete ' + ids.length + ' selected part(s)?')) return;
+  var csrf = "{{ request.cookies.get('csrf_token','') }}";
+  var body = new URLSearchParams();
+  body.append('csrf_token', csrf);
+  ids.forEach(function(id) { body.append('ids', id); });
+  fetch('/spare-parts/bulk-delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: body
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d && typeof d.deleted === 'number') {
+      location.reload();
+    } else {
+      alert('Delete failed: ' + ((d && d.error) || 'Unknown error'));
+    }
+  })
+  .catch(function() { alert('Network error — please try again.'); });
+}
 </script>
 {% endblock %}

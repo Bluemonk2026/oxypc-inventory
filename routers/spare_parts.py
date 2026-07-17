@@ -311,6 +311,27 @@ async def delete_part(part_id: str, request: Request,
     return RedirectResponse(url="/spare-parts?success=Part+deleted", status_code=302)
 
 
+@router.post("/spare-parts/bulk-delete")
+async def bulk_delete_parts(request: Request, ids: list[str] = Form([]),
+                            db: AsyncSession = Depends(get_db),
+                            current_user: User = Depends(allowed)):
+    deleted = 0
+    for part_id in ids:
+        result = await db.execute(select(SparePart).where(SparePart.id == part_id))
+        part = result.scalar_one_or_none()
+        if not part:
+            continue
+        part.is_trashed = True
+        part.trashed_at = app_now()
+        deleted += 1
+    if deleted:
+        await audit(db, action="PART_MASTER_BULK_DELETE", user=current_user,
+                    table_name="spare_parts",
+                    notes=f"Bulk soft-deleted {deleted} part(s): {', '.join(ids)}")
+        await db.commit()
+    return {"deleted": deleted}
+
+
 @router.get("/spare-parts/bulk-template")
 async def download_bulk_template(current_user: User = Depends(get_current_user)):
     output = io.StringIO()

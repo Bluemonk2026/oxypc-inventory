@@ -621,7 +621,7 @@ async def device_detail(
         select(SparePart).order_by(SparePart.category, SparePart.name)
     )
     all_spare_parts = [
-        {"id": str(sp.id), "name": sp.name, "category": sp.category}
+        {"id": str(sp.id), "name": sp.name, "category": sp.category, "model": sp.model}
         for sp in all_parts_result.scalars().all()
     ]
 

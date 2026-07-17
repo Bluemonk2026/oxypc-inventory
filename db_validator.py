@@ -116,11 +116,14 @@ def _sql_type(col) -> str:
     """Convert SQLAlchemy column type to a safe ADD COLUMN SQL type string."""
     import sqlalchemy as sa
     t = col.type
+    # Text must be tested before String: sa.Text subclasses sa.String, so the String
+    # branch would otherwise claim every Text column and, finding no .length, cap it
+    # at VARCHAR(255) — silently truncating long free-text on insert.
+    if isinstance(t, sa.Text):
+        return "TEXT"
     if isinstance(t, sa.String):
         length = t.length or 255
         return f"VARCHAR({length})"
-    if isinstance(t, sa.Text):
-        return "TEXT"
     if isinstance(t, sa.Integer):
         return "INTEGER"
     if isinstance(t, sa.Boolean):

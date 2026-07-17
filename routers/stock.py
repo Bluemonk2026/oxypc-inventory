@@ -91,8 +91,11 @@ async def lot_number_exists(lot_number: str, exclude_id: str = "",
         break
     return JSONResponse({"exists": exists})
 
+# "L3 Engineer" retired along with the /repair/l3 page — L3 work now runs on L3L4- WorkOrders.
+# Department here only labels the StockTransfer row (it never moves a device stage), and no
+# transfer has ever used it, so dropping it changes no history.
 STOCK_DEPARTMENTS = [
-    "IQC Handler", "L1 Engineer", "L2 Engineer", "L3 Engineer",
+    "IQC Handler", "L1 Engineer", "L2 Engineer",
     "QC Handler", "Inventory Manager", "Sales Manager", "Parts Manager",
 ]
 

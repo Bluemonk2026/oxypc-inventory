@@ -422,8 +422,11 @@ async def stress_fail_assign(
     if not engineer or engineer.role not in (UserRole.l1_engineer, UserRole.l2_engineer):
         raise HTTPException(400, "Selected user is not an active L1/L2 engineer")
 
-    target_stage_str = "l1" if engineer.role == UserRole.l1_engineer else "l2"
-    new_stage = DeviceStage.l1 if target_stage_str == "l1" else DeviceStage.l2
+    # Both L1 and L2 engineers work the same /repair/l1 queue, and the l2 stage is retired,
+    # so a stress failure always lands in l1 regardless of who it is assigned to. Routing an
+    # L2 engineer's device to DeviceStage.l2 would strand it in a stage with no page.
+    target_stage_str = "l1"
+    new_stage = DeviceStage.l1
 
     prev_stage = device.current_stage
     prev_mv = (await db.execute(

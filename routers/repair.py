@@ -37,7 +37,12 @@ router = APIRouter(prefix="/repair", tags=["repair"], dependencies=[Depends(veri
 # catch-all GET /{stage} 404s on them. L1 work now completes straight to Stress
 # Test; deeper repair is handled by the separate /repair/l3l4 endpoints.
 STAGE_MAP  = {"l1": DeviceStage.l1}
-NEXT_STAGE = {DeviceStage.l1: DeviceStage.l2, DeviceStage.l2: DeviceStage.l3, DeviceStage.l3: DeviceStage.qc_check}
+# Forward move out of repair is always Stress Test. The old l1→l2→l3 ladder is gone:
+# /repair/l1 is the merged L1/L2 queue and L3/L4 runs on WorkOrders, not stages.
+# l2/l3 keys are kept so any legacy device still sitting in those stages can move on.
+NEXT_STAGE = {DeviceStage.l1: DeviceStage.qc_check,
+              DeviceStage.l2: DeviceStage.qc_check,
+              DeviceStage.l3: DeviceStage.qc_check}
 LEVEL_MAP  = {"l1": 1, "l2": 2, "l3": 3}
 
 
@@ -834,19 +839,27 @@ async def complete_repair(
     elif final_status in ("Escalate to L3", "Escalate to L2",
                           "Request to L3", "Request to L2") and device:
         from sqlalchemy import update as sa_update
-        escalate_to = DeviceStage.l3 if "L3" in final_status else DeviceStage.l2
+        # The l2/l3 stages are retired, so escalation no longer moves the device: L1 and L2
+        # share the /repair/l1 queue, and L3/L4 is raised as a separate WorkOrder via
+        # /repair/request-l3l4. Sending it to l2/l3 here would strand it in a stage with no page.
+        escalate_to = DeviceStage.l1
         is_admin    = current_user.role.value == "admin"
         current     = device.current_stage
-        await validate_transition(device, escalate_to, db, override_admin=is_admin)
-        prev_mv = (await db.execute(
-            select(StageMovement)
-            .where(StageMovement.device_id == device.id,
-                   StageMovement.to_stage  == current,
-                   StageMovement.exited_at == None)
-            .order_by(StageMovement.moved_at.desc())
-        )).scalars().first()
-        if prev_mv:
-            prev_mv.exited_at = app_now()
+        if current != escalate_to:
+            await validate_transition(device, escalate_to, db, override_admin=is_admin)
+            prev_mv = (await db.execute(
+                select(StageMovement)
+                .where(StageMovement.device_id == device.id,
+                       StageMovement.to_stage  == current,
+                       StageMovement.exited_at == None)
+                .order_by(StageMovement.moved_at.desc())
+            )).scalars().first()
+            if prev_mv:
+                prev_mv.exited_at = app_now()
+            db.add(StageMovement(device_id=device.id, from_stage=current, to_stage=escalate_to,
+                                 moved_by=current_user.username,
+                                 notes=f"{job.stage} escalated — {final_status}"))
+            device.current_stage = escalate_to
         # Close any other open repair jobs at this stage
         await db.execute(
             sa_update(RepairJob)
@@ -855,12 +868,9 @@ async def complete_repair(
                    RepairJob.status    == RepairStatus.in_progress)
             .values(status=RepairStatus.completed, completed_at=app_now())
         )
-        db.add(StageMovement(device_id=device.id, from_stage=current, to_stage=escalate_to,
-                             moved_by=current_user.username,
-                             notes=f"{job.stage} escalated — {final_status}"))
-        device.current_stage = escalate_to
-        device.updated_at    = app_now()
-        # Carry the same WorkID to the next level (re-stage the open WorkOrder)
+        device.l1l2_status = "New"
+        device.updated_at  = app_now()
+        # Carry the same WorkID forward (re-stage the open WorkOrder)
         await db.execute(
             sa_update(WorkOrder)
             .where(WorkOrder.device_id == device.id, WorkOrder.status != "completed")

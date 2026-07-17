@@ -27,9 +27,11 @@ FALLBACK_WAREHOUSES = [
     "Bluemonk House Showroom", "Bluemonk Showroom", "Other",
 ]
 
-DEPT_TO_STAGE = {"L1 Engineer": "l1", "L2 Engineer": "l2"}
+# L1 and L2 engineers share the merged /repair/l1 queue and the l2 stage is retired, so an
+# L2 assignment lands in l1 — routing it to DeviceStage.l2 would strand the whole bucket.
+DEPT_TO_STAGE = {"L1 Engineer": "l1", "L2 Engineer": "l1"}
 DEPT_TO_ROLE  = {"L1 Engineer": "l1_engineer", "L2 Engineer": "l2_engineer"}
-STAGE_ENUM    = {"l1": DeviceStage.l1, "l2": DeviceStage.l2}
+STAGE_ENUM    = {"l1": DeviceStage.l1}
 
 
 async def _gen_work_id(db: AsyncSession) -> str:

@@ -47,14 +47,16 @@ DEPARTMENTS = [
 ]
 
 # Departments that map to a repair stage + create a WorkOrder when a user is assigned
-DEPT_TO_STAGE = {"L1 Engineer": "l1", "L2 Engineer": "l2", "L3 Engineer": "l3"}
+# All repair assignment lands in the merged L1/L2 queue (/repair/l1). The l2/l3 stages are
+# retired and have no page, so mapping a department to them would strand the device.
+DEPT_TO_STAGE = {"L1 Engineer": "l1", "L2 Engineer": "l1", "L3 Engineer": "l1"}
 DEPT_TO_ROLE = {
     "IQC Handler": "iqc_inspector", "L1 Engineer": "l1_engineer",
     "L2 Engineer": "l2_engineer", "L3 Engineer": "l3_engineer",
     "QC Handler": "qc_inspector", "Inventory Manager": "inventory_manager",
     "Sales Manager": "sales_manager", "Parts Manager": "spare_parts_manager",
 }
-STAGE_ENUM = {"l1": DeviceStage.l1, "l2": DeviceStage.l2, "l3": DeviceStage.l3}
+STAGE_ENUM = {"l1": DeviceStage.l1}
 
 
 async def _gen_work_id(db: AsyncSession) -> str:

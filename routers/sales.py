@@ -28,7 +28,9 @@ from models.crm import CRMSalesOpportunity, CRMContact
 from models.dispatch_request import TelecallerDispatchRequest
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from services.control_engine import validate_sale_allowed
-from services.cost_engine import check_below_cost_warning
+from services.cost_engine import (
+    check_below_cost_warning, get_or_create_costings, below_cost_warning_for,
+)
 from services.audit_engine import audit
 from services.event_bus import EventType, publish
 from utils.warranty import (
@@ -337,10 +339,56 @@ async def create_sale(
 
     wtype = warranty_type if warranty_type in ("none", "30_days", "6_months", "1_year") else "none"
 
+    # ── Resolve the whole batch up front (set-based, not per device) ──────────
+    # This loop used to issue ~10 sequential round trips PER DEVICE. Against a
+    # database in another region that made a 600-tag bulk sale ~6,000 serial
+    # round trips and it never finished inside a request timeout. Everything the
+    # loop needs is now fetched in a fixed handful of queries regardless of size.
+    devices_by_code = {
+        d.barcode: d for d in (await db.execute(
+            select(Device).where(Device.barcode.in_(codes))
+        )).scalars().all()
+    }
+    found = [devices_by_code[c] for c in codes if c in devices_by_code]
+
+    # Costing rows for below-cost warnings (2 queries for the whole batch).
+    costings = await get_or_create_costings(found, db)
+
+    # Open stage movements to close, keyed by device — one query, not one each.
+    open_moves = {}
+    if found:
+        for mv in (await db.execute(
+            select(StageMovement)
+            .where(StageMovement.device_id.in_([d.id for d in found]),
+                   StageMovement.exited_at == None)
+            .order_by(StageMovement.moved_at.desc())
+        )).scalars().all():
+            # Keep the newest per (device, to_stage); ordering above is desc.
+            open_moves.setdefault((mv.device_id, mv.to_stage), mv)
+
+    # Sale numbers: drawn in one call instead of one nextval per device. Count is
+    # the devices that will ACTUALLY sell, not the tags submitted — drawing per
+    # submitted tag would burn a number for every skipped tag and leave holes in
+    # the SALE- sequence. validate_sale_allowed is pure in-memory, so this
+    # pre-pass costs no queries and keeps eligibility defined in one place.
+    eligible = 0
+    for d in found:
+        try:
+            await validate_sale_allowed(d)
+            eligible += 1
+        except HTTPException:
+            pass
+    sale_numbers = [
+        f"SALE-{n:04d}" for n in (await db.execute(
+            text("SELECT nextval('sale_number_seq') FROM generate_series(1, :n)"),
+            {"n": eligible},
+        )).scalars().all()
+    ] if eligible else []
+
     sold, skipped, warn, events = [], [], None, []
+    _num_idx = 0
     for code in codes:
-        result = await db.execute(select(Device).where(Device.barcode == code))
-        device = result.scalar_one_or_none()
+        device = devices_by_code.get(code)
         if not device:
             if not is_multi:
                 return templates.TemplateResponse("sales/new.html", {
@@ -366,11 +414,12 @@ async def create_sale(
             continue
 
         # ── Cost Engine: below-cost warning (first one reported) ─────────
-        w = await check_below_cost_warning(device, price, db)
+        w = below_cost_warning_for(costings.get(device.id), price)
         if w and not warn:
             warn = w
 
-        sale_num = await _next_sale_number(db)
+        sale_num = sale_numbers[_num_idx]
+        _num_idx += 1
         sold_at = app_now()
         warranty_expires_at = compute_warranty_expiry(sold_at, wtype)
         sale = Sale(
@@ -387,13 +436,7 @@ async def create_sale(
         db.add(sale)
 
         prev = device.current_stage
-        prev_mv = (await db.execute(
-            select(StageMovement)
-            .where(StageMovement.device_id == device.id,
-                   StageMovement.to_stage  == prev,
-                   StageMovement.exited_at == None)
-            .order_by(StageMovement.moved_at.desc())
-        )).scalars().first()
+        prev_mv = open_moves.get((device.id, prev))
         if prev_mv:
             prev_mv.exited_at = app_now()
 

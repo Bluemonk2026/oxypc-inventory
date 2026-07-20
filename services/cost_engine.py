@@ -28,6 +28,74 @@ SCRAP_WARNING_RATIO = Decimal("0.70")   # warn if cost > 70% of expected sale va
 WARNING_RATIO       = Decimal("0.90")   # below-cost warning threshold
 
 
+def _base_cost_for(device: Device, lot: Lot | None) -> Decimal:
+    """Landed per-unit cost: (lot acquisition price + GST) / qty, unless the device
+    carries its own price. Shared by the single and batch costing paths so the two
+    can never drift apart on the money maths."""
+    base = Decimal("0")
+    if lot and lot.buying_price and lot.qty:
+        gst_total = (
+            Decimal(str(lot.sgst or 0))
+            + Decimal(str(lot.cgst or 0))
+            + Decimal(str(lot.igst or 0))
+        )
+        base = (Decimal(str(lot.buying_price)) + gst_total) / Decimal(str(max(lot.qty, 1)))
+    if device.device_price:
+        base = Decimal(str(device.device_price))
+    return base
+
+
+async def get_or_create_costings(
+    devices: list[Device], db: AsyncSession
+) -> dict:
+    """Batch form of get_or_create_costing: {device.id: DeviceCosting} in 2 queries.
+
+    The per-device version costs 1-2 round trips each, which is fine for one device
+    and ruinous for a bulk sale — 600 devices meant 1,200 sequential round trips to
+    a database on another continent. This resolves the whole set at once.
+
+    Rows created here are only added to the session; the caller commits.
+    """
+    if not devices:
+        return {}
+
+    device_ids = [d.id for d in devices]
+    existing = (await db.execute(
+        select(DeviceCosting).where(DeviceCosting.device_id.in_(device_ids))
+    )).scalars().all()
+    by_device = {c.device_id: c for c in existing}
+
+    missing = [d for d in devices if d.id not in by_device]
+    if missing:
+        lot_ids = {d.lot_id for d in missing if d.lot_id}
+        lots = {}
+        if lot_ids:
+            lots = {l.id: l for l in (await db.execute(
+                select(Lot).where(Lot.id.in_(lot_ids))
+            )).scalars().all()}
+        for d in missing:
+            base = _base_cost_for(d, lots.get(d.lot_id))
+            costing = DeviceCosting(
+                device_id=d.id, base_cost=base,
+                parts_cost=Decimal("0"), labour_cost=Decimal("0"),
+                total_cost=base, expected_sale_value=None,
+            )
+            db.add(costing)
+            by_device[d.id] = costing
+    return by_device
+
+
+def below_cost_warning_for(costing: DeviceCosting, sale_price: Decimal) -> str | None:
+    """Pure form of check_below_cost_warning for an already-loaded costing row."""
+    total = (costing.total_cost if costing else None) or Decimal("0")
+    if total > 0 and Decimal(str(sale_price)) < total:
+        return (
+            f"BELOW-COST WARNING: sale price ₹{float(sale_price):.2f} is less than "
+            f"device total cost ₹{float(total):.2f}. Sale will proceed but profit is negative."
+        )
+    return None
+
+
 async def get_or_create_costing(device: Device, db: AsyncSession) -> DeviceCosting:
     """Fetch (or create) the DeviceCosting row for this device."""
     result = await db.execute(
@@ -38,18 +106,8 @@ async def get_or_create_costing(device: Device, db: AsyncSession) -> DeviceCosti
         # Calculate base cost from lot
         lot_result = await db.execute(select(Lot).where(Lot.id == device.lot_id))
         lot = lot_result.scalar_one_or_none()
-        base = Decimal("0")
         expected = None
-        if lot and lot.buying_price and lot.qty:
-            # Landed cost = acquisition price + GST paid (sgst + cgst + igst)
-            gst_total = (
-                Decimal(str(lot.sgst or 0))
-                + Decimal(str(lot.cgst or 0))
-                + Decimal(str(lot.igst or 0))
-            )
-            base = (Decimal(str(lot.buying_price)) + gst_total) / Decimal(str(max(lot.qty, 1)))
-        if device.device_price:
-            base = Decimal(str(device.device_price))
+        base = _base_cost_for(device, lot)
 
         costing = DeviceCosting(
             device_id=device.id,

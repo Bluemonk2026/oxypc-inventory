@@ -19,6 +19,7 @@
       </div>
       <div class="card-body">
         <form method="post" action="{% if edit_call %}/dealers/{{ dealer.id }}/calls/{{ edit_call.id }}/edit{% else %}/dealers/{{ dealer.id }}/call{% endif %}">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
           <div class="row g-3">
 
             {% if edit_call %}

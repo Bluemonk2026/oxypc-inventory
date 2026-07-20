@@ -21,7 +21,14 @@ from models.dealer_quotation import DealerQuotation
 from routers.company_settings import get_company_settings
 from services.audit_engine import audit
 
-router = APIRouter(prefix="/dealers", tags=["dealers"])
+# CSRF is enforced at the router, not per endpoint. Nine of the fourteen POSTs
+# here were unprotected — creating and editing dealers, logging calls, raising
+# orders, recording payments and the CSV bulk upload — because the check was
+# opt-in and easy to forget on a new route. A router-level dependency closes the
+# whole surface and makes the next endpoint secure by default.
+# verify_csrf is a no-op for GET/HEAD/OPTIONS, so read routes are unaffected.
+router = APIRouter(prefix="/dealers", tags=["dealers"],
+                   dependencies=[Depends(verify_csrf)])
 
 # Telecalling deal-detail dropdown categories — admin-managed via /admin/master
 # (Telecalling accordion section). Keys map 1:1 to DealerCall form field names.

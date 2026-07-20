@@ -8,6 +8,7 @@
     <div class="card border-0 shadow-sm">
       <div class="card-body">
         <form method="post" action="{% if dealer %}/dealers/{{ dealer.id }}/edit{% else %}/dealers/new{% endif %}">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
           <div class="row g-3">
             <div class="col-md-4">
               <label class="form-label fw-semibold">Business Name <span class="text-danger">*</span></label>

@@ -18,6 +18,7 @@ from models.work_order import WorkOrder
 from models.location import StorageLocation
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from services.notifications import create_notification
+from services.audit_engine import audit
 
 router = APIRouter(tags=["buckets"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
@@ -295,6 +296,39 @@ async def edit_bucket(
     bucket.updated_at = app_now()
     await db.commit()
     return JSONResponse({"ok": True})
+
+
+@router.post("/buckets/{bucket_id}/rename")
+async def rename_bucket(
+    bucket_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+    name: str = Form(default=""),
+):
+    """Inventory Manager bucket table 'Edit' action — renames the bucket only.
+    Kept separate from /buckets/{id}/edit because that endpoint treats a blank
+    field as 'keep existing', so it can never clear a name; this one sets the
+    value explicitly (blank → NULL), which the name-only modal needs."""
+    try:
+        uid = uuid.UUID(bucket_id)
+    except Exception:
+        raise HTTPException(400, "Invalid bucket ID")
+    bucket = (await db.execute(select(Bucket).where(Bucket.id == uid))).scalar_one_or_none()
+    if not bucket:
+        raise HTTPException(404, "Bucket not found")
+
+    old_name = bucket.name
+    bucket.name = name.strip() or None
+    bucket.updated_at = app_now()
+    await audit(
+        db, action="BUCKET_RENAMED", user=current_user,
+        table_name="buckets", record_id=str(bucket.id),
+        old_value={"name": old_name}, new_value={"name": bucket.name},
+        notes=f"Bucket {bucket.bucket_number} renamed", request=request,
+    )
+    await db.commit()
+    return JSONResponse({"ok": True, "name": bucket.name or ""})
 
 
 @router.post("/buckets/{bucket_id}/move-to-trc")

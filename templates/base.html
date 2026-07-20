@@ -740,6 +740,12 @@ $.extend(true, $.fn.dataTable.defaults, {
           <textarea id="ticketFeedback" class="form-control" rows="6"
                     placeholder="Describe the issue, feature request, or feedback in detail…"></textarea>
         </div>
+        <div class="mb-2">
+          <label class="form-label small">Screenshots <span class="text-muted">(optional, up to 2)</span></label>
+          <input type="file" id="ticketPhotos" class="form-control form-control-sm"
+                 accept="image/png,image/jpeg,image/gif,image/webp" multiple>
+          <div class="form-text small">PNG, JPG, GIF or WEBP — 5 MB each.</div>
+        </div>
         <div id="ticketError" class="text-danger small mt-1"></div>
       </div>
       <div class="modal-footer">
@@ -760,6 +766,7 @@ $.extend(true, $.fn.dataTable.defaults, {
   // Clear modal state each time it opens
   document.getElementById('raiseTicketModal')?.addEventListener('show.bs.modal', function () {
     document.getElementById('ticketFeedback').value = '';
+    document.getElementById('ticketPhotos').value = '';
     document.getElementById('ticketError').textContent = '';
   });
   // Focus textarea after animation completes
@@ -775,9 +782,17 @@ $.extend(true, $.fn.dataTable.defaults, {
       errEl.textContent = 'Please enter feedback before submitting.';
       return;
     }
+    // The picker allows multiple, so the two-file cap is enforced here as well as
+    // server-side — telling the user up front beats a silent truncation.
+    var files = document.getElementById('ticketPhotos').files;
+    if (files.length > 2) {
+      errEl.textContent = 'Please attach at most 2 photos.';
+      return;
+    }
     var fd = new FormData();
     fd.append('feedback', feedback);
     fd.append('csrf_token', csrfToken());
+    for (var i = 0; i < files.length; i++) fd.append('photos', files[i]);
     try {
       var resp = await fetch('/tickets/raise', {
         method: 'POST',

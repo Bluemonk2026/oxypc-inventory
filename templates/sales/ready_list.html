@@ -123,7 +123,7 @@
           <td>
             <div class="d-flex gap-1 flex-wrap">
               {% if _approved %}
-              <button type="button" class="btn btn-sm btn-success sell-btn" data-barcodes="{{ device.barcode }}">Sell</button>
+              <a href="/sales/new?barcodes={{ device.barcode }}&qty=1" class="btn btn-sm btn-success">Sell</a>
               {% else %}
               <button class="btn btn-sm btn-success" disabled title="Needs telecaller request approval">Sell</button>
               {% endif %}
@@ -183,7 +183,7 @@
                       data-model="{{ g.model }}" data-make="{{ g.make }}"
                       data-barcodes='{{ g.barcodes | tojson }}' data-max="{{ g.total_count }}">Request</button>
               {% if g.barcodes %}
-              <button type="button" class="btn btn-sm btn-outline-success sell-btn" data-barcodes="{{ g.barcodes|join(',') }}">Sell</button>
+              <a href="/sales/new?barcodes={{ g.barcodes|join(',') }}&qty={{ g.barcodes|length }}" class="btn btn-sm btn-outline-success">Sell</a>
               {% endif %}
             </div>
           </td>
@@ -285,8 +285,8 @@
               <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2">Request</button>
             </form>
             {% if l.sample_barcode %}
-            <button type="button" class="btn btn-sm btn-success py-0 px-2 ms-1 sell-btn"
-                    data-barcodes="{{ l.sample_barcode }}">Sell</button>
+            <a href="/sales/new?barcodes={{ l.sample_barcode }}&qty=1"
+               class="btn btn-sm btn-success py-0 px-2 ms-1">Sell</a>
             {% endif %}
           </td>
         </tr>
@@ -314,93 +314,6 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
         <button type="button" id="bulkTagBtn" class="btn btn-primary"><i class="bi bi-check2-square me-1"></i>Select Tags</button>
-      </div>
-    </div>
-  </div>
-</div>
-<!-- New Sale modal — a real form on this page, posted over AJAX.
-     This used to embed /sales/new in an iframe. A frame made failures invisible
-     (the error rendered inside it, or the redirect reloaded the whole sales list
-     into a 80vh box) and gave the user nothing to act on. Posting directly means
-     the server's actual response is shown right here, in this dialog. -->
-<div class="modal fade" id="newSaleModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header py-2">
-        <h5 class="modal-title"><i class="bi bi-cart-plus me-2"></i>New Sale</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <form id="saleForm" class="modal-body">
-        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-        <input type="hidden" name="barcode" id="sf_barcode">
-
-        <div class="alert alert-info py-2 small d-flex align-items-center gap-2" id="sf_summary">
-          <i class="bi bi-upc-scan"></i><span id="sf_summaryText"></span>
-        </div>
-        <div class="alert alert-danger py-2 small d-none" id="sf_error"></div>
-
-        <div class="row g-2">
-          <div class="col-md-4">
-            <label class="form-label small">Quantity</label>
-            <input type="number" name="qty" id="sf_qty" class="form-control form-control-sm" min="1" readonly>
-            <div class="form-text small">Tag numbers selected</div>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label small">Sale Price <span class="text-muted">(per unit)</span></label>
-            <input type="text" name="sale_price" id="sf_price" class="form-control form-control-sm" required>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label small">Total Sale Price</label>
-            <input type="text" id="sf_total" class="form-control form-control-sm">
-            <div class="form-text small">Total ÷ Qty fills unit price</div>
-          </div>
-
-          <div class="col-md-6">
-            <label class="form-label small">Customer Name</label>
-            <input type="text" name="customer_name" class="form-control form-control-sm">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small">Customer Phone</label>
-            <input type="text" name="customer_phone" class="form-control form-control-sm">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small">Customer State</label>
-            <input type="text" name="customer_state" class="form-control form-control-sm">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small">Invoice No</label>
-            <input type="text" name="invoice_no" class="form-control form-control-sm">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small">Payment Mode</label>
-            <select name="payment_mode" class="form-select form-select-sm">
-              <option value="cash">Cash</option>
-              <option value="upi">UPI</option>
-              <option value="bank">Bank Transfer</option>
-              <option value="credit">Credit</option>
-            </select>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label small">Warranty</label>
-            <select name="warranty_type" class="form-select form-select-sm">
-              <option value="none" selected>No Warranty</option>
-              <option value="30_days">30 Days</option>
-              <option value="6_months">6 Months</option>
-              <option value="1_year">1 Year</option>
-            </select>
-          </div>
-          <div class="col-12">
-            <label class="form-label small">Notes</label>
-            <input type="text" name="notes" class="form-control form-control-sm">
-          </div>
-        </div>
-      </form>
-      <div class="modal-footer py-2">
-        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" id="sf_submit" class="btn btn-sm btn-success">
-          <span class="spinner-border spinner-border-sm me-1 d-none" id="sf_spin"></span>
-          <i class="bi bi-check-circle me-1"></i>Record Sale
-        </button>
       </div>
     </div>
   </div>
@@ -457,65 +370,19 @@ function updateReadySel(){
   $('#multiSellBtn').prop('disabled', n === 0);
 }
 
-// ── New Sale modal — real form, posted over AJAX ──
-// Every Sell button (single row, model group, lot) and Multi-Sell all funnel into
-// the same dialog; the only difference is how many tag numbers go into it.
-function openSaleModal(barcodes){
-  var f = document.getElementById('saleForm');
-  f.reset();
-  document.getElementById('sf_error').classList.add('d-none');
-  document.getElementById('sf_barcode').value = barcodes.join(',');
-  document.getElementById('sf_qty').value = barcodes.length;
-  document.getElementById('sf_total').value = '';
-  document.getElementById('sf_summaryText').textContent =
-    barcodes.length === 1 ? ('Selling tag ' + barcodes[0])
-                          : ('Selling ' + barcodes.length + ' tag numbers');
-  new bootstrap.Modal(document.getElementById('newSaleModal')).show();
-}
-document.addEventListener('click', function(e){
-  var b = e.target.closest('.sell-btn');
-  if (b && b.dataset.barcodes) openSaleModal(b.dataset.barcodes.split(','));
-});
+// ── Selling — always goes to the full New Sale page ──
+// Selling used to happen in a dialog on this page (first an iframe, then an
+// in-page form). Both were fragile: the whole flow hung off JavaScript that,
+// if anything above it threw, left the buttons silently dead. A plain
+// navigation has no such failure mode — the row Sell buttons are ordinary
+// links, and Multi-Sell only needs the selected tags in the query string.
 document.getElementById('multiSellBtn').addEventListener('click', function(){
   var bcs = selectedReadyBarcodes();
-  if (bcs.length) openSaleModal(bcs);
+  if (!bcs.length) return;
+  window.location = '/sales/new?barcodes=' + encodeURIComponent(bcs.join(','))
+                  + '&qty=' + bcs.length;
 });
 
-// Total ÷ Qty fills the per-unit price, matching how the standalone form behaves.
-document.getElementById('sf_total').addEventListener('input', function(){
-  var qty = parseInt(document.getElementById('sf_qty').value, 10) || 1;
-  var tot = parseFloat(this.value);
-  if (!isNaN(tot)) document.getElementById('sf_price').value = (tot / qty).toFixed(2);
-});
-
-document.getElementById('sf_submit').addEventListener('click', function(){
-  var btn = this, err = document.getElementById('sf_error');
-  var spin = document.getElementById('sf_spin');
-  var fd = new FormData(document.getElementById('saleForm'));
-  if (!fd.get('sale_price')) {
-    err.textContent = 'Enter a sale price.'; err.classList.remove('d-none'); return;
-  }
-  err.classList.add('d-none');
-  btn.disabled = true; spin.classList.remove('d-none');
-
-  // X-Requested-With makes the endpoint answer in JSON, so a failure arrives as
-  // text we can put in front of the user instead of a page we'd have to embed.
-  fetch('/sales/new', {
-    method: 'POST', body: fd, credentials: 'same-origin',
-    headers: { 'X-Requested-With': 'XMLHttpRequest' }
-  })
-  .then(function(r){ return r.json().catch(function(){
-      throw new Error('Server returned ' + r.status + ' ' + r.statusText);
-    }); })
-  .then(function(d){
-    if (!d.ok) throw new Error(d.error || 'Sale failed');
-    window.location = d.redirect || '/sales';
-  })
-  .catch(function(e){
-    btn.disabled = false; spin.classList.add('d-none');
-    err.textContent = e.message; err.classList.remove('d-none');
-  });
-});
 $('#readyTable').on('change', '.readyChk', updateReadySel);
 document.getElementById('readySelectAll').addEventListener('change', function(){
   var ck = this.checked;

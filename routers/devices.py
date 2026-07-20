@@ -23,7 +23,7 @@ from models.part_request import PartRequest
 from models.work_order import WorkOrder
 from models.engines import DeviceCosting
 from models.sales import Sale
-from services.parts_required import compute_required
+from services.parts_required import compute_required, LEGACY_LABELS
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from utils.warranty import warranty_from_sold_at, warranty_status_for_sale
 from utils.master_data import master_values
@@ -586,29 +586,92 @@ async def device_detail(
     )).all()
     consumed_by_part = {str(pid): int(total or 0) for pid, total in consumed_rows}
 
+    # Resolve every Parts Consumption row to its Part Master row by NAME in a
+    # single query. Two reasons this is one query and not one-per-row: the DB
+    # lives in a different region from the app, so a per-row loop pays the
+    # round-trip latency N times; and matching by name (not category/keyword)
+    # is what makes this table agree with the Parts Dashboard, which keys its
+    # In Stock column off the Part Master row itself.
+    # is_trashed==False mirrors the dashboard's own filter — a trashed part is
+    # not "stock you can use", and including it here would over-report.
+    wanted_names = {row["label"].strip().lower() for row in required_rows}
+    sp_by_name = {}
+    if wanted_names:
+        name_rows = (await db.execute(
+            select(SparePart).where(
+                SparePart.is_trashed == False,
+                func.lower(func.trim(SparePart.name)).in_(wanted_names),
+            ).order_by(SparePart.qty_in_stock.desc())
+        )).scalars().all()
+        for sp_row in name_rows:
+            # Ordered by stock desc, so setdefault keeps the best-stocked row
+            # when a name is duplicated in Part Master.
+            sp_by_name.setdefault((sp_row.name or "").strip().lower(), sp_row)
+
+    # Category roll-up for the labels with no exact name match.
+    #
+    # PARTS_MATRIX labels are generic component types ("Keyboard", "Display");
+    # Part Master rows are specific SKUs ("HP UK Keyboard", "15.6-inch HD Panel").
+    # That is one-to-many, so an exact name match resolves for almost none of them
+    # and there is no single "correct" SKU to show. Summing the category answers
+    # the question the engineer is actually asking — do we have a keyboard on the
+    # shelf — and every SKU in the sum is netted the same way the Parts Dashboard
+    # nets it, so the two pages still reconcile.
+    wanted_cats = {row["category"] for row in required_rows if row.get("category")}
+    cat_totals: dict[str, int] = {}
+    if wanted_cats:
+        cat_rows = (await db.execute(
+            select(SparePart).where(
+                SparePart.is_trashed == False,
+                SparePart.category.in_(wanted_cats),
+            )
+        )).scalars().all()
+        for sp_row in cat_rows:
+            net = max(0, int(sp_row.qty_in_stock or 0)
+                         - consumed_by_part.get(str(sp_row.id), 0))
+            cat_totals[sp_row.category] = cat_totals.get(sp_row.category, 0) + net
+
     parts_consumption = []
     for row in required_rows:
-        sp = (await db.execute(
-            select(SparePart).where(or_(
-                SparePart.category == row["category"],
-                SparePart.name.ilike(f"%{row['keyword']}%"),
-            )).order_by(SparePart.qty_in_stock.desc())
-        )).scalars().first()
-        raw_stock = int(sp.qty_in_stock) if sp and sp.qty_in_stock else 0
-        stock = max(0, raw_stock - (consumed_by_part.get(str(sp.id), 0) if sp else 0))
+        sp = sp_by_name.get(row["label"].strip().lower())
+        rolled_up = False
+        if sp is not None:
+            raw_stock = int(sp.qty_in_stock or 0)
+            stock = max(0, raw_stock - consumed_by_part.get(str(sp.id), 0))
+        elif row.get("category") in cat_totals:
+            # Flagged as a category total in the UI rather than shown bare — it
+            # answers a broader question than "how many of this exact part", and
+            # presenting it as the latter is how the old code went wrong.
+            stock = cat_totals[row["category"]]
+            rolled_up = True
+        else:
+            # Nothing in that category either. Showing 0 would read as "out of
+            # stock" when the truth is "we have no record" — a purchasing
+            # decision made on that is a wrong decision. Show "no match" instead.
+            stock = None
         # Match an existing request either by the PARTS_MATRIX label (Faulty /
         # matched-part flow submits part_name == label) OR by the resolved
         # SparePart id (New/Replace via the category→name cascade submits the
         # SparePart's own name, which never equals the label). Without the id
         # fallback the "Requested" pill silently never appears for those.
         existing = req_by_part.get(row["label"])
+        for _legacy in LEGACY_LABELS.get(row["label"], ()):
+            # Requests raised before the "Screen / Display" -> "Display" and
+            # "Adapter / Charger" -> "Adapter" renames stored the OLD label in
+            # part_name. Without this the Requested/Verify pill would silently
+            # vanish for every in-flight request on those two parts.
+            if existing:
+                break
+            existing = req_by_part.get(_legacy)
         if not existing and sp:
             existing = req_by_partid.get(str(sp.id))
         parts_consumption.append({
             "label": row["label"],
             "category": sp.category if sp else row["category"],
             "required": row["required"],
-            "in_stock": stock > 0,
+            "matched": sp is not None,
+            "rolled_up": rolled_up,
+            "in_stock": stock is not None and stock > 0,
             "stock_qty": stock,
             "part_id": str(sp.id) if sp else "",
             "part_code": sp.part_code if sp else None,

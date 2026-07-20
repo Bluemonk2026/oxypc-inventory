@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from database import get_db
+from utils.csv_decode import decode_csv_bytes
 from models.user import User, UserRole
 from models.device import Device
 from models.lot import Lot
@@ -363,14 +364,7 @@ async def bulk_upload_parts(
         raise HTTPException(400, "Invalid source")
 
     content = await file.read()
-    for enc in ("utf-8-sig", "utf-16", "latin-1"):
-        try:
-            text = content.decode(enc)
-            break
-        except UnicodeDecodeError:
-            continue
-    else:
-        raise HTTPException(400, "Could not decode file")
+    text = decode_csv_bytes(content)
 
     reader = csv.DictReader(io.StringIO(text))
     rows = list(reader)

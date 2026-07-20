@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, Integer
 from sqlalchemy.orm import selectinload
 from database import get_db
+from utils.csv_decode import decode_csv_bytes
 from models.dealers import Dealer, DealerCall, DealerAssignment, DealerOrder, DealerCreditNote
 from models.user import User, UserRole
 from models.master import MasterData
@@ -761,13 +762,7 @@ async def dealers_bulk_upload_submit(
                 rows_data.append(row_dict)
         else:
             # CSV — auto-detect encoding then delimiter
-            try:
-                text_content = raw.decode("utf-8-sig")
-            except UnicodeDecodeError:
-                try:
-                    text_content = raw.decode("utf-16")
-                except UnicodeDecodeError:
-                    text_content = raw.decode("latin-1")
+            text_content = decode_csv_bytes(raw)
             text_content = text_content.replace('\r\n', '\n').replace('\r', '\n').strip()
 
             # Auto-detect delimiter (comma, semicolon, tab, pipe)
@@ -939,14 +934,7 @@ async def dealer_calls_bulk_upload(
         return RedirectResponse(url="/dealers?error=No+file+uploaded", status_code=302)
 
     raw = await upload.read()
-    for enc in ("utf-8-sig", "utf-16", "latin-1"):
-        try:
-            text = raw.decode(enc)
-            break
-        except UnicodeDecodeError:
-            continue
-    else:
-        return RedirectResponse(url="/dealers?error=Could+not+decode+file", status_code=302)
+    text = decode_csv_bytes(raw)
 
     text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
 

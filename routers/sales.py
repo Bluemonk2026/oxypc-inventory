@@ -20,6 +20,7 @@ from sqlalchemy import select, func, text, or_
 from fastapi.responses import StreamingResponse
 
 from database import get_db
+from utils.csv_decode import decode_csv_bytes
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
 from models.lot import Lot
@@ -177,13 +178,7 @@ async def upload_ready_tags(
     numbers and reports back which are ready to sale, so the page can tick the
     matching rows. Read-only: selects nothing, changes nothing."""
     content = await file.read()
-    try:
-        text_data = content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        try:
-            text_data = content.decode("utf-16")
-        except UnicodeDecodeError:
-            text_data = content.decode("latin-1")
+    text_data = decode_csv_bytes(content)
     reader = csv.DictReader(io.StringIO(text_data))
 
     # Accept `tag_number` or `barcode`, any casing — read by header name so a

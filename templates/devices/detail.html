@@ -334,7 +334,19 @@
               <td class="ps-3 small fw-semibold">{{ p.label }}</td>
               <td>{% if p.required %}<span class="badge bg-warning text-dark">Yes</span>{% else %}<span class="badge bg-light text-muted border">No</span>{% endif %}</td>
               <td>
-                {% if p.in_stock %}<span class="badge bg-success">In Stock &times;{{ p.stock_qty }}</span>
+                {# No Part Master row for this name: stock is unknown, not zero.
+                   Rendering "Out of Stock" here would invite a purchase order
+                   against a part we simply have no record of. #}
+                {% if p.rolled_up %}
+                {# Category total, not this exact SKU. Labelled so nobody reads it
+                   as "we hold N of this precise part" — Part Master stocks SKUs
+                   ("HP UK Keyboard"), this row is a component type ("Keyboard"). #}
+                <span class="badge bg-info text-dark"
+                      title="Total across all {{ p.category }} parts in Part Master — this component has no single matching SKU">
+                  {{ p.stock_qty }} in {{ p.category }}
+                </span>
+                {% elif not p.matched %}<span class="badge bg-secondary" title="No Part Master entry with this name or category">&mdash; no match</span>
+                {% elif p.in_stock %}<span class="badge bg-success">In Stock &times;{{ p.stock_qty }}</span>
                 {% else %}<span class="badge bg-danger">Out of Stock</span>{% endif %}
               </td>
               <td>

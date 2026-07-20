@@ -43,13 +43,13 @@ PARTS_MATRIX = [
                           or (d is not None and d.battery_health_pct is not None and d.battery_health_pct < 40)),
     ("Keyboard",          "Keyboard",   "keyboard", lambda i, d: _is(i.keyboard_working, "No") or _is_sentinel(i.keyboard_working)
                           or _is(i.keyboard_key_missing, "Yes")),
-    ("Screen / Display",  "Screen",     "screen",   lambda i, d: _is(i.status, "No Display")
+    ("Display",           "Screen",     "screen",   lambda i, d: _is(i.status, "No Display")
                           or _is(i.screen_broken, "Yes") or _is(i.screen_line, "Yes")
                           or _is(i.screen_dot, "Yes") or _is(i.screen_flickering, "Yes")
                           or _is(i.screen_missing, "Yes") or _is(i.screen_functional, "No")
                           or _is_sentinel(i.screen_functional)),
     ("Hinge",             "Other",      "hinge",    lambda i, d: _is(i.screen_hinge_broken, "Yes") or _is_sentinel(i.screen_hinge_broken)),
-    ("Adapter / Charger", "Charger",    "charger",  lambda i, d: False),
+    ("Adapter",           "Charger",    "charger",  lambda i, d: False),
     ("Speaker",           "Other",      "speaker",  lambda i, d: _faulty(i.speaker_status) or _is_sentinel(i.speaker_status)),
     ("Touchpad",          "Other",      "touchpad", lambda i, d: _is(i.touchpad_working, "No") or _is_sentinel(i.touchpad_working)
                           or _is(i.touchpad_missing, "Yes")),
@@ -68,6 +68,16 @@ PARTS_MATRIX = [
     ("Fan Working",       "Fan",        "fan",      lambda i, d: _is(i.fan_working, "No") or _faulty(i.fan_working)),
     ("Motherboard",       "Motherboard", "motherboard", lambda i, d: _is(i.status, "No Display") or _is(i.power_on, "No")),
 ]
+
+
+# Older labels that PartRequest.part_name rows may still carry in the database.
+# The label is the join key for "does this part already have a request?", so a
+# rename without this map would orphan every historical / in-flight request.
+# New label -> tuple of previously used labels.
+LEGACY_LABELS = {
+    "Display": ("Screen / Display",),
+    "Adapter": ("Adapter / Charger",),
+}
 
 
 class _NullIQC:

@@ -328,6 +328,17 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         resp = RedirectResponse(url=(exc.headers or {}).get("Location", "/auth/login"))
         resp.headers["Cache-Control"] = "no-store"
         return resp
+    # A gateway-class failure on the login page means the backend behind us is
+    # unhealthy (database unreachable, dependency down). An error card telling
+    # the user to "wait a minute" on a LOGIN page is a dead end — they cannot get
+    # in and there is nothing on the page to retry. Send them to the site root,
+    # which re-enters the normal routing once the backend recovers.
+    # Note: this only catches gateway errors OUR app raises. A 502 emitted by the
+    # platform edge while the app itself is down never reaches this code.
+    if code in (502, 503, 504) and request.url.path.startswith("/auth/login"):
+        resp = RedirectResponse(url="/", status_code=302)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
     detail_msg = exc.detail if isinstance(exc.detail, str) and exc.detail.strip() else None
     try:
         import http as _http

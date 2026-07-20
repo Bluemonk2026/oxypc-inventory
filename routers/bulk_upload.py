@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse,
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from database import get_db
+from utils.csv_decode import decode_csv_bytes
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.iqc_inspection import IQCInspection
@@ -276,13 +277,7 @@ async def upload_devices(
     current_user: User = Depends(allowed),
 ):
     content = await file.read()
-    try:
-        text = content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        try:
-            text = content.decode("utf-16")
-        except UnicodeDecodeError:
-            text = content.decode("latin-1")
+    text = decode_csv_bytes(content)
     reader = csv.DictReader(io.StringIO(text))
     inserted, errors = 0, []
     # Rows held back for the duplicate-review modal instead of hard-erroring —

@@ -254,6 +254,28 @@
   </div>
 </div>
 
+<!-- Rename Bucket modal — Bucket Name only -->
+<div class="modal fade" id="renameBucketModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Edit Bucket Name</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="renameBktId">
+        <div class="text-muted small mb-2">Bucket <span id="renameBktNum" class="font-monospace"></span></div>
+        <label class="form-label fw-semibold">Bucket Name</label>
+        <input type="text" id="renameBktName" class="form-control" placeholder="Enter bucket name">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" id="renameBktSubmit" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Edit Bucket modal -->
 <div class="modal fade" id="editBucketModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
@@ -403,6 +425,29 @@ $(document).on('click', '.edit-bkt', function(){
   new bootstrap.Modal(document.getElementById('editBucketModal')).show();
 });
 
+// Bucket table 'Edit' action — Bucket Name only
+$(document).on('click', '.rename-bkt', function(){
+  document.getElementById('renameBktId').value = this.dataset.id;
+  document.getElementById('renameBktNum').textContent = this.dataset.number;
+  document.getElementById('renameBktName').value = this.dataset.name || '';
+  new bootstrap.Modal(document.getElementById('renameBucketModal')).show();
+});
+
+document.getElementById('renameBktSubmit').addEventListener('click', function(){
+  var id = document.getElementById('renameBktId').value;
+  var fd = new FormData();
+  fd.append('csrf_token', getCsrf());
+  fd.append('name', document.getElementById('renameBktName').value);
+  fetch('/buckets/'+id+'/rename', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
+    if(d.ok){
+      bootstrap.Modal.getInstance(document.getElementById('renameBucketModal')).hide();
+      loadBucketTable();
+    } else {
+      alert(d.detail || 'Failed to rename bucket.');
+    }
+  });
+});
+
 $(document).on('click', '.move-bkt-trc', function(){
   var id=this.dataset.id, num=this.dataset.number;
   if(!confirm('Move Bucket '+num+' to TRC Production?')) return;
@@ -422,6 +467,12 @@ $(document).on('click', '.move-bkt-trc', function(){
     });
 });
 
+// Bucket names are free text and land in both cell text and data- attributes
+function esc(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                  .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 // Load bucket table — destroys and reinits DataTable each time
 function loadBucketTable(){
   fetch('/api/buckets?status=stock_in').then(function(r){return r.json();}).then(function(buckets){
@@ -434,11 +485,14 @@ function loadBucketTable(){
     tbody.innerHTML = buckets.map(function(b){
       return '<tr>'+
         '<td><a href="#" class="font-monospace fw-bold text-decoration-none view-bkt-tags" data-id="'+b.id+'" data-number="'+b.bucket_number+'">'+b.bucket_number+'</a></td>'+
-        '<td>'+(b.name||'—')+'</td>'+
+        // Name cell opens the same Tags-in-Bucket modal as the number cell —
+        // blank names still get a clickable placeholder so the row behaves the same.
+        '<td><a href="#" class="text-decoration-none view-bkt-tags" data-id="'+b.id+'" data-number="'+b.bucket_number+'">'+(b.name ? esc(b.name) : '—')+'</a></td>'+
         '<td>'+(b.location||'—')+'</td>'+
         '<td>'+(b.category||'—')+'</td>'+
         '<td><span class="badge bg-secondary">'+b.device_count+'</span></td>'+
         '<td class="text-nowrap">'+
+          '<button class="btn btn-xs btn-outline-primary btn-sm py-0 px-2 me-1 rename-bkt" data-id="'+b.id+'" data-number="'+b.bucket_number+'" data-name="'+esc(b.name||'')+'">Edit</button>'+
           '<button class="btn btn-xs btn-outline-warning btn-sm py-0 px-2 me-1 move-bkt-trc" data-id="'+b.id+'" data-number="'+b.bucket_number+'">Move to Production</button>'+
         '</td>'+
       '</tr>';

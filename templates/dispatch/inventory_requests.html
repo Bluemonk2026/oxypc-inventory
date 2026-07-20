@@ -22,18 +22,27 @@
         </select>
         <input type="text" id="tcSearch" class="form-control form-control-sm" style="min-width:200px"
                placeholder="Search Tag Number…">
+        {% if _appr %}
+        <button type="button" id="tcApproveSelBtn" class="btn btn-sm btn-success text-nowrap" disabled>
+          <i class="bi bi-check-all me-1"></i>Approve Selected (<span id="tcSelCount">0</span>)
+        </button>
+        {% endif %}
       </div>
     </div>
   </div>
   <div class="card-body p-0">
     <table id="tcRequestsTable" class="table table-hover mb-0 small align-middle">
       <thead class="table-dark"><tr>
-        <th class="ps-3">Telecaller Name</th><th>Request Date</th><th>Tag Number</th><th>Quantity Requested</th><th>Quantity Available</th><th>Action</th>
+        <th class="ps-3">{% if _appr %}<input type="checkbox" id="tcSelectAll" class="form-check-input">{% endif %}</th>
+        <th>Telecaller Name</th><th>Request Date</th><th>Tag Number</th><th>Quantity Requested</th><th>Quantity Available</th><th>Action</th>
       </tr></thead>
       <tbody>
         {% for r in requests %}
         <tr data-telecaller="{{ r.telecaller_username or '' }}" data-barcode="{{ (r.barcode or '')|lower }}">
-          <td class="ps-3">{{ r.telecaller_name or r.telecaller_username or '—' }}</td>
+          {# Only pending rows get a checkbox — approved/rejected rows are skipped
+             server-side anyway, so offering them would just inflate the count. #}
+          <td class="ps-3">{% if _appr and r.status == 'requested' %}<input type="checkbox" class="form-check-input tcChk" value="{{ r.id }}">{% endif %}</td>
+          <td>{{ r.telecaller_name or r.telecaller_username or '—' }}</td>
           <td class="text-muted small">{{ r.created_at.strftime('%d-%m-%Y') if r.created_at else '—' }}</td>
           <td><a href="/devices/{{ r.barcode }}" class="font-monospace text-decoration-none">{{ r.barcode }}</a></td>
           <td>{{ r.qty_requested }}</td>
@@ -55,7 +64,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="text-center text-muted small py-3">No telecaller requests raised.</td></tr>
+        <tr><td colspan="7" class="text-center text-muted small py-3">No telecaller requests raised.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -65,21 +74,30 @@
 <!-- Sales Request for Lot (moved here from TRC Dashboard) -->
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-header bg-transparent">
-    <span class="fw-semibold">
-      <i class="bi bi-collection me-2"></i>Sales Request for Lot
-      <span class="badge bg-warning text-dark ms-1">{{ lot_requests|selectattr('status','equalto','requested')|list|length }} pending</span>
-    </span>
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span class="fw-semibold">
+        <i class="bi bi-collection me-2"></i>Sales Request for Lot
+        <span class="badge bg-warning text-dark ms-1">{{ lot_requests|selectattr('status','equalto','requested')|list|length }} pending</span>
+      </span>
+      {% if _appr %}
+      <button type="button" id="lotApproveSelBtn" class="btn btn-sm btn-success text-nowrap ms-auto" disabled>
+        <i class="bi bi-check-all me-1"></i>Approve Selected (<span id="lotSelCount">0</span>)
+      </button>
+      {% endif %}
+    </div>
   </div>
   <div class="card-body p-0">
     <table id="lotRequestsTable" class="table table-hover mb-0 small align-middle">
       <thead class="table-dark"><tr>
-        <th class="ps-3">Telecaller Name</th><th>Request Date</th><th>Model</th><th>Make</th>
+        <th class="ps-3">{% if _appr %}<input type="checkbox" id="lotSelectAll" class="form-check-input">{% endif %}</th>
+        <th>Telecaller Name</th><th>Request Date</th><th>Model</th><th>Make</th>
         <th>Tag Number</th><th>Quantity Requested</th><th>Quantity Available</th><th>Action</th>
       </tr></thead>
       <tbody>
         {% for r in lot_requests %}
         <tr>
-          <td class="ps-3">{{ r.telecaller_name or r.telecaller_username or '—' }}</td>
+          <td class="ps-3">{% if _appr and r.status == 'requested' %}<input type="checkbox" class="form-check-input lotChk" value="{{ r.id }}">{% endif %}</td>
+          <td>{{ r.telecaller_name or r.telecaller_username or '—' }}</td>
           <td class="text-muted small">{{ r.created_at.strftime('%d-%m-%Y') if r.created_at else '—' }}</td>
           <td>{{ r.model_name or '—' }}</td>
           <td>{{ r.model_make or '—' }}</td>
@@ -103,57 +121,26 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="text-center text-muted small py-3">No lot-level requests raised.</td></tr>
+        <tr><td colspan="9" class="text-center text-muted small py-3">No lot-level requests raised.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
 
-<!-- Requests for Lot — browse every lot, request or approve/handover -->
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-header bg-transparent">
-    <span class="fw-semibold"><i class="bi bi-box-seam me-2"></i>Requests for Lot</span>
-  </div>
-  <div class="card-body p-0">
-    <table id="lotOverviewTable" class="table table-hover mb-0 small align-middle">
-      <thead class="table-dark"><tr>
-        <th class="ps-3">Lot Number</th><th>Purchase Date</th><th>Supplier Name</th><th>Device Type</th>
-        <th>Total Quantity</th><th>Requested Quantity</th>
-        {% if can_view_pricing(current_user) %}<th>Stock Price</th><th>Selling Price</th>{% endif %}
-        <th>Action</th>
-      </tr></thead>
-      <tbody>
-        {% for l in lot_overview %}
-        <tr>
-          <td class="ps-3 font-monospace">{{ l.lot_number }}</td>
-          <td class="text-muted small">{{ l.purchase_date.strftime('%d-%m-%Y') if l.purchase_date else '—' }}</td>
-          <td>{{ l.supplier_name or '—' }}</td>
-          <td>{{ l.device_type }}</td>
-          <td><span class="badge bg-info text-dark">{{ l.total_quantity }}</span></td>
-          <td><span class="badge bg-{{ 'warning text-dark' if l.requested_quantity else 'light text-muted border' }}">{{ l.requested_quantity }}</span></td>
-          {% if can_view_pricing(current_user) %}
-          <td>&#8377;{{ '%.2f'|format(l.stock_price) }}</td>
-          <td>{% if l.selling_price is not none %}&#8377;{{ '%.2f'|format(l.selling_price) }}{% else %}—{% endif %}</td>
-          {% endif %}
-          <td>
-            <form method="post" action="/dispatch/request" class="d-inline">
-              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-              <input type="hidden" name="barcode" value="{{ l.sample_barcode }}">
-              <input type="hidden" name="source" value="lot">
-              <input type="hidden" name="qty" value="1">
-              <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2">Request</button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="9" class="text-center text-muted small py-3">No lots available.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-
+{% if _appr %}
+{# One form per table, submitted by JS after it clones the ticked ids in as
+   hidden fields — DataTables pages rows out of the DOM, so a plain form
+   wrapping the table would silently drop selections on other pages. #}
+<form method="post" action="/dispatch/bulk-approve" id="tcBulkForm" class="d-none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+  <div id="tcBulkIds"></div>
+</form>
+<form method="post" action="/dispatch/bulk-approve" id="lotBulkForm" class="d-none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+  <div id="lotBulkIds"></div>
+</form>
+{% endif %}
 
 <!-- Reject Request modal -->
 <div class="modal fade" id="rejectReqModal" tabindex="-1" aria-hidden="true">
@@ -185,10 +172,51 @@ document.querySelectorAll('.reject-btn').forEach(function (btn) {
     new bootstrap.Modal(document.getElementById('rejectReqModal')).show();
   });
 });
+// ── Bulk approve wiring, shared by both request tables ──
+// dt.$() is used instead of querySelectorAll so ticked rows that DataTables has
+// paged out of the DOM still make it into the submitted batch.
+function wireBulkApprove(dt, tableId, chkCls, selectAllId, btnId, countId, formId, idsBoxId){
+  var btn = document.getElementById(btnId);
+  if (!btn) return;  // non-approver: no checkboxes rendered at all
+  function selectedIds(){
+    var boxes = dt ? dt.$('.' + chkCls + ':checked').toArray()
+                   : Array.prototype.slice.call(document.querySelectorAll('#' + tableId + ' .' + chkCls + ':checked'));
+    return boxes.map(function(c){ return c.value; });
+  }
+  function refresh(){
+    var n = selectedIds().length;
+    document.getElementById(countId).textContent = n;
+    btn.disabled = n === 0;
+  }
+  $('#' + tableId).on('change', '.' + chkCls, refresh);
+  var all = document.getElementById(selectAllId);
+  if (all) all.addEventListener('change', function(){
+    var ck = this.checked;
+    var boxes = dt ? dt.$('.' + chkCls).toArray()
+                   : Array.prototype.slice.call(document.querySelectorAll('#' + tableId + ' .' + chkCls));
+    boxes.forEach(function(c){ c.checked = ck; });
+    refresh();
+  });
+  btn.addEventListener('click', function(){
+    var ids = selectedIds();
+    if (!ids.length) return;
+    var box = document.getElementById(idsBoxId);
+    box.innerHTML = '';
+    ids.forEach(function(v){
+      var inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = 'ids'; inp.value = v;
+      box.appendChild(inp);
+    });
+    document.getElementById(formId).submit();
+  });
+  refresh();
+}
+
 $(document).ready(function(){
+  var tcDt = null, lotDt = null;
   var $tc = $('#tcRequestsTable');
   if ($tc.length && $tc.find('tbody tr[data-barcode]').length){
-    var tcDt = $tc.DataTable({ pageLength: 12, ordering:false, dom:'rtip', searching:true });
+    tcDt = $tc.DataTable({ pageLength: 12, ordering:false, dom:'rtip', searching:true });
     var filterSel = document.getElementById('tcFilter');
     var searchBox = document.getElementById('tcSearch');
     $.fn.dataTable.ext.search.push(function(settings, data, dataIndex){
@@ -204,8 +232,13 @@ $(document).ready(function(){
 
   var $lr = $('#lotRequestsTable');
   if ($lr.length && $lr.find('tbody tr td').length > 1){
-    $lr.DataTable({ pageLength: 12, ordering:false, dom:'rtip' });
+    lotDt = $lr.DataTable({ pageLength: 12, ordering:false, dom:'rtip' });
   }
+
+  wireBulkApprove(tcDt, 'tcRequestsTable', 'tcChk', 'tcSelectAll',
+                  'tcApproveSelBtn', 'tcSelCount', 'tcBulkForm', 'tcBulkIds');
+  wireBulkApprove(lotDt, 'lotRequestsTable', 'lotChk', 'lotSelectAll',
+                  'lotApproveSelBtn', 'lotSelCount', 'lotBulkForm', 'lotBulkIds');
 });
 </script>
 {% endblock %}

@@ -1,5 +1,9 @@
 """Ticket raising system — users log feedback, can see own tickets."""
-from fastapi import APIRouter, Depends, Form, Request
+import shutil
+import time
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +26,35 @@ async def _next_ticket_id(db: AsyncSession) -> str:
     result = await db.execute(select(func.count(Ticket.id)))
     n = (result.scalar() or 0) + 1
     return str(10000000 + n)  # Always 8 digits, starts at 10000001
+
+
+# Only real image types are accepted. A ticket attachment is displayed straight
+# back to an admin, so anything that could be served as active content is refused
+# rather than sanitised — the feature does not need that flexibility.
+ALLOWED_PHOTO_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+MAX_PHOTOS = 2
+MAX_PHOTO_BYTES = 5 * 1024 * 1024
+
+
+async def _save_photo(photo: UploadFile, ticket_id: str, idx: int) -> str | None:
+    """Persist one attachment and return its /uploads path, or None if unusable."""
+    if not photo or not photo.filename:
+        return None
+    if photo.content_type not in ALLOWED_PHOTO_TYPES:
+        return None
+    upload_dir = Path("uploads/tickets")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    # Extension comes from the vetted content type, never from the user-supplied
+    # filename — that string is attacker-controlled and ends up on disk.
+    ext = {"image/png": "png", "image/jpeg": "jpg",
+           "image/gif": "gif", "image/webp": "webp"}[photo.content_type]
+    dest = upload_dir / f"tkt_{ticket_id}_{idx}_{int(time.time())}.{ext}"
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(photo.file, f)
+    if dest.stat().st_size > MAX_PHOTO_BYTES:
+        dest.unlink(missing_ok=True)   # our own just-written temp, not user data
+        return None
+    return "/" + str(dest).replace("\\", "/")
 
 
 def _age_pill(raised_on) -> tuple[str, str]:
@@ -48,6 +81,7 @@ def _ticket_ctx(t: Ticket) -> dict:
         "raised_by":  t.raised_by,
         "feedback":   t.feedback or "",
         "notes":      t.notes or "",
+        "photos":     [p for p in (t.photo1_path, t.photo2_path) if p],
         "age_label":  age_label,
         "age_cls":    age_cls,
     }
@@ -78,15 +112,26 @@ async def list_tickets(
 @router.post("/raise")
 async def raise_ticket(
     feedback: str = Form(...),
+    photos: list[UploadFile] = File(default=[]),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     if not feedback.strip():
         return JSONResponse({"error": "Feedback cannot be empty."}, status_code=400)
+    tid = await _next_ticket_id(db)
+    # Extra files are ignored rather than rejected: the form already limits the
+    # picker to two, so more arriving means a crafted request, not a user error.
+    saved = []
+    for i, photo in enumerate((photos or [])[:MAX_PHOTOS], start=1):
+        path = await _save_photo(photo, tid, i)
+        if path:
+            saved.append(path)
     ticket = Ticket(
-        ticket_id=await _next_ticket_id(db),
+        ticket_id=tid,
         raised_by=current_user.username,
         feedback=feedback.strip(),
+        photo1_path=saved[0] if len(saved) > 0 else None,
+        photo2_path=saved[1] if len(saved) > 1 else None,
     )
     db.add(ticket)
     await db.commit()
@@ -99,6 +144,7 @@ async def raise_ticket(
 @router.post("/{ticket_id}/close")
 async def close_ticket(
     ticket_id: str,
+    notes: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -112,6 +158,10 @@ async def close_ticket(
     if ticket.status == "Closed":
         return JSONResponse({"error": "Already closed."}, status_code=400)
     ticket.status = "Closed"
+    # Closing notes are appended, never overwritten — an earlier note is part of
+    # the ticket's history and a later closer should not silently erase it.
+    if notes.strip():
+        ticket.notes = (ticket.notes + "\n" + notes.strip()) if ticket.notes else notes.strip()
     ticket.updated_at = app_now()
     await db.commit()
     return JSONResponse({"ok": True})

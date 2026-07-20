@@ -55,14 +55,12 @@ async def _build_requests_context(db: AsyncSession) -> dict:
             _seen[uname] = r.telecaller_name or uname
     telecaller_options = sorted(_seen.items(), key=lambda kv: kv[1].lower())
 
-    lot_overview = await _build_lot_overview(db)
-
     return {"requests": device_requests, "lot_requests": lot_requests,
-            "telecaller_options": telecaller_options, "lot_overview": lot_overview}
+            "telecaller_options": telecaller_options}
 
 
 async def _build_lot_overview(db: AsyncSession) -> list:
-    """New "Requests for Lot" table (item 28): every Lot with its device
+    """"Requests for Lot" table (item 28): every Lot with its device
     count, requested count (source='lot' requests raised against any device
     in that lot), a representative barcode for the Request button, and stock
     / selling price straight off the Lot row."""
@@ -319,6 +317,19 @@ async def create_dispatch_request(request: Request, barcode: list[str] = Form(..
     return RedirectResponse(url=f"/sales/ready?success={msg}", status_code=302)
 
 
+def _apply_approval(r: TelecallerDispatchRequest, current_user: User) -> bool:
+    """Single source of truth for what "approved" means to a dispatch request.
+    Both the single-row and the bulk endpoint go through here so the two can
+    never drift apart. Returns False when the row is not eligible (already
+    approved, or rejected) so callers can skip it instead of failing."""
+    if r.status != "requested":
+        return False
+    r.status = "approved"
+    r.approved_at = app_now()
+    r.approved_by = current_user.username
+    return True
+
+
 @router.post("/dispatch/{req_id}/approve")
 async def approve_dispatch(req_id: str, request: Request, db: AsyncSession = Depends(get_db),
                            current_user: User = Depends(approve_allowed)):
@@ -327,13 +338,51 @@ async def approve_dispatch(req_id: str, request: Request, db: AsyncSession = Dep
     )).scalar_one_or_none()
     if not r:
         raise HTTPException(404, "Request not found")
-    r.status = "approved"
-    r.approved_at = app_now()
-    r.approved_by = current_user.username
+    if not _apply_approval(r, current_user):
+        return RedirectResponse(url="/inventory-requests?error=Request+is+no+longer+pending",
+                                status_code=302)
     await audit(db, user=current_user, action="DISPATCH_APPROVED", table_name="telecaller_dispatch_requests",
                 record_id=str(r.id), new_value={"barcode": r.barcode}, request=request)
     await db.commit()
     return RedirectResponse(url="/dispatch?success=Request+approved", status_code=302)
+
+
+@router.post("/dispatch/bulk-approve")
+async def bulk_approve_dispatch(request: Request, ids: list[str] = Form([]),
+                                db: AsyncSession = Depends(get_db),
+                                current_user: User = Depends(approve_allowed)):
+    """Approve every ticked row from one of the Inventory Requests tables.
+
+    Deliberately set-based: one IN query for the whole batch. The database
+    lives in a different region from the app, so a per-id SELECT loop turns a
+    50-row approval into 50 cross-region round trips."""
+    uuids = [u for u in (_as_uuid(i) for i in ids if i) if u is not None]
+    if not uuids:
+        return RedirectResponse(url="/inventory-requests?error=No+requests+selected", status_code=302)
+
+    rows = (await db.execute(
+        select(TelecallerDispatchRequest).where(TelecallerDispatchRequest.id.in_(uuids))
+    )).scalars().all()
+
+    approved = []
+    for r in rows:
+        if _apply_approval(r, current_user):
+            approved.append(r)
+    # Anything asked for but not approved — ineligible status, or an id that no
+    # longer exists — is reported back as skipped rather than aborting the batch.
+    skipped = len(uuids) - len(approved)
+
+    if approved:
+        await audit(db, user=current_user, action="DISPATCH_BULK_APPROVED",
+                    table_name="telecaller_dispatch_requests", record_id=f"bulk:{len(approved)}",
+                    new_value={"request_ids": [str(r.id) for r in approved],
+                               "barcodes": [r.barcode for r in approved],
+                               "skipped": skipped},
+                    request=request)
+        await db.commit()
+    return RedirectResponse(
+        url=f"/inventory-requests?success={len(approved)}+approved,+{skipped}+skipped",
+        status_code=302)
 
 
 @router.post("/dispatch/{req_id}/reject")

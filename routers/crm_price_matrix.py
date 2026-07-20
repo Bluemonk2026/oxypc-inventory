@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from templates_config import templates
 from database import get_db
+from utils.csv_decode import decode_csv_bytes
 from auth.dependencies import get_current_user, verify_csrf
 from models.user import User, UserRole
 from models.crm import GradePriceMatrix, GRADES, MATERIAL_TYPES
@@ -260,13 +261,7 @@ async def upload_matrix(
                 )))
         elif filename.endswith(".csv"):
             # ── Encoding fallback chain ────────────────────────────────────────
-            text = None
-            for enc in ("utf-8-sig", "utf-16", "latin-1"):
-                try:
-                    text = content.decode(enc)
-                    break
-                except (UnicodeDecodeError, Exception):
-                    continue
+            text = decode_csv_bytes(content)
             if text is None:
                 return RedirectResponse(
                     url="/crm/price-matrix?error=Could+not+decode+CSV+file+%28try+saving+as+UTF-8%29",

@@ -37,6 +37,28 @@ router = APIRouter(prefix="/repair", tags=["repair"], dependencies=[Depends(veri
 # catch-all GET /{stage} 404s on them. L1 work now completes straight to Stress
 # Test; deeper repair is handled by the separate /repair/l3l4 endpoints.
 STAGE_MAP  = {"l1": DeviceStage.l1}
+
+# Roles that see the entire repair queue instead of just their own work.
+# Everyone else sees the tags assigned to them plus the unclaimed pool — an
+# engineer has no reason to see a colleague's bench, but hiding unclaimed tags
+# from everyone is how devices go missing: most tags in L1 have no work order
+# yet, and a strict own-only filter would make them invisible to every engineer
+# at once, visible only to a supervisor who happens to look.
+#
+# "production_manager" is NOT a role in this system — it is a module/page name.
+# inventory_manager already serves as the Production Manager for TRC and bucket
+# work (see the note in routers/buckets.py::production_manager), which is what
+# actually grants that oversight here. The string is listed anyway so that if a
+# custom role by that name is ever created in the permission matrix, it inherits
+# the full queue without needing a code change.
+FULL_QUEUE_ROLES = {"admin", "trc_manager", "inventory_manager", "production_manager"}
+
+
+def _sees_full_queue(user) -> bool:
+    """True for supervisors. Custom roles (trc_manager) are plain strings, not
+    UserRole members, so read the value defensively rather than assuming an enum."""
+    role = user.role.value if hasattr(user.role, "value") else str(user.role or "")
+    return role in FULL_QUEUE_ROLES
 # Forward move out of repair is always Stress Test. The old l1→l2→l3 ladder is gone:
 # /repair/l1 is the merged L1/L2 queue and L3/L4 runs on WorkOrders, not stages.
 # l2/l3 keys are kept so any legacy device still sitting in those stages can move on.
@@ -305,14 +327,14 @@ async def back_to_production(
 async def l3l4_list(request: Request,
                     db: AsyncSession = Depends(get_db),
                     current_user: User = Depends(get_current_user)):
-    is_admin = current_user.role.value == "admin"
+    full_queue = _sees_full_queue(current_user)
     stmt = (select(WorkOrder, Device, Lot.lot_number)
             .join(Device, WorkOrder.device_id == Device.id)
             .join(Lot, Device.lot_id == Lot.id, isouter=True)
             .where(WorkOrder.work_id.like("L3L4-%"),
                    WorkOrder.status != "completed")
             .order_by(WorkOrder.assigned_at.desc()))
-    if not is_admin:
+    if not full_queue:
         stmt = stmt.where(WorkOrder.assigned_user_id == current_user.id)
     rows = (await db.execute(stmt)).all()
 
@@ -453,7 +475,33 @@ async def repair_list(stage: str, request: Request,
         .order_by(Device.updated_at.desc())
     )
     devices = result.all()
+
+    # ── Scope to this engineer's own bench ───────────────────────────────────
+    # Own tags plus anything unclaimed. Filtering here, before the maps below,
+    # means every downstream count and lookup is scoped automatically rather
+    # than each one needing to remember.
+    if not _sees_full_queue(current_user):
+        dev_ids = [d.id for d, _ in devices]
+        assigned_to_other: set[str] = set()
+        if dev_ids:
+            wo_rows = (await db.execute(
+                select(WorkOrder.device_id, WorkOrder.assigned_user_id)
+                .where(WorkOrder.device_id.in_(dev_ids),
+                       WorkOrder.stage == stage,
+                       WorkOrder.status != "completed",
+                       WorkOrder.assigned_user_id.isnot(None))
+            )).all()
+            others, mine = set(), set()
+            for did, uid in wo_rows:
+                (mine if uid == current_user.id else others).add(str(did))
+            # Collect both sides first, then subtract: a device can carry more
+            # than one open work order, and an assignment to me must win however
+            # the rows happen to be ordered.
+            assigned_to_other = others - mine
+        devices = [(d, ln) for d, ln in devices if str(d.id) not in assigned_to_other]
+
     total = len(devices)
+    visible_ids = {str(d.id) for d, _ in devices}
     jobs_result = await db.execute(
         select(RepairJob, Device.barcode, Device.brand, Device.model)
         .join(Device, RepairJob.device_id == Device.id)
@@ -465,6 +513,9 @@ async def repair_list(stage: str, request: Request,
         .order_by(RepairJob.started_at.desc())
     )
     open_jobs = jobs_result.all()
+    # Same scope as the table above — otherwise the Complete-Job dropdown would
+    # still list a colleague's device even though its row is hidden.
+    open_jobs = [r for r in open_jobs if str(r.RepairJob.device_id) in visible_ids]
 
     # Current location per device
     location_map = {}

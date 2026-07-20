@@ -851,6 +851,7 @@ async def stock_in_list(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
     device_type: str = Query(default=""),
+    lot_number: str = Query(default=""),
 ):
     # Full dataset (no server-side page cap) so the scan/search box can match
     # against every stock-in device, not just the current page; pagination is
@@ -858,6 +859,8 @@ async def stock_in_list(
     stock_filters = [Device.current_stage == DeviceStage.stock_in, Device.is_active == True]
     if device_type:
         stock_filters.append(Device.device_type == device_type)
+    if lot_number:
+        stock_filters.append(Lot.lot_number == lot_number)
 
     base_stmt = (
         select(Device, Lot.lot_number)
@@ -915,6 +918,19 @@ async def stock_in_list(
             )).scalars().all()
             location_map = {l.id: l for l in loc_rows}
 
+    # Lot Number filter options — every lot that still has stock-in devices,
+    # independent of the currently applied filters so the dropdown never
+    # narrows itself down to the single selected value.
+    lot_number_options = [
+        ln for (ln,) in (await db.execute(
+            select(Lot.lot_number)
+            .join(Device, Device.lot_id == Lot.id)
+            .where(Device.current_stage == DeviceStage.stock_in, Device.is_active == True)
+            .distinct()
+            .order_by(Lot.lot_number)
+        )).all()
+    ]
+
     return templates.TemplateResponse("lots/stock_in.html", {
         "request": request, "devices": devices, "current_user": current_user,
         "analytics": analytics, "assigned_dept_map": assigned_dept_map,
@@ -923,6 +939,8 @@ async def stock_in_list(
         "total": total,
         "device_type": device_type,
         "device_type_options": await master_values(db, "device_type"),
+        "lot_number": lot_number,
+        "lot_number_options": lot_number_options,
         "zone_options": [
             (z.value, ZONE_LABELS.get(z, z.value))
             for z in [ZoneType.workshop, ZoneType.holding, ZoneType.dispatch, ZoneType.showroom, ZoneType.warehouse]

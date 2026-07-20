@@ -86,14 +86,14 @@
         <i class="bi bi-receipt me-2"></i> {{ sidebar_label('grn', 'GRN with Invoice') }}
       </a></li>
       {% endif %}
-      {% if has_perm(role,'lots','enable') %}
-      <li><a href="/lots" class="nav-link {% if '/lots' in request.url.path %}active{% endif %}">
-        <i class="bi bi-box-seam me-2"></i> {{ sidebar_label('lots', 'Lot Overview') }}
-      </a></li>
-      {% endif %}
       {% if has_perm(role,'iqc','enable') %}
       <li><a href="/iqc" class="nav-link {% if '/iqc' in request.url.path %}active{% endif %}">
         <i class="bi bi-clipboard-check me-2"></i> {{ sidebar_label('iqc', 'IQC Line Items') }}
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'lots','enable') %}
+      <li><a href="/lots" class="nav-link {% if '/lots' in request.url.path %}active{% endif %}">
+        <i class="bi bi-box-seam me-2"></i> {{ sidebar_label('lots', 'Lot Overview') }}
       </a></li>
       {% endif %}
       {% if has_perm(role,'grn_post_iqc','enable') %}

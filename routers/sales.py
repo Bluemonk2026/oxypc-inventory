@@ -316,6 +316,21 @@ async def create_sale(
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("sales", "add")),
 ):
+    # The Ready to Sale page posts this form over AJAX so a bulk sale never leaves
+    # the page. Those callers get JSON — including the real failure text, which an
+    # embedded page could only render into a frame the user then had to read.
+    # Ordinary form posts are unaffected and still redirect/render as before.
+    xhr = request.headers.get("x-requested-with", "").lower() == "xmlhttprequest"
+
+    async def _fail(message: str, device=None, lot=None, status: int = 400):
+        if xhr:
+            return JSONResponse({"ok": False, "error": message}, status_code=status)
+        return templates.TemplateResponse("sales/new.html", {
+            "request": request, "device": device, "lot": lot,
+            "next_sale_number": await _next_sale_number(db),
+            "current_user": current_user, "error": message,
+        })
+
     # ── Multi-sale support: barcode field may be a comma-separated tag list ──
     codes, _seen = [], set()
     for c in barcode.split(","):
@@ -330,12 +345,7 @@ async def create_sale(
     try:
         price = Decimal(sale_price)  # per-unit price (form divides Total ÷ Qty)
     except Exception:
-        return templates.TemplateResponse("sales/new.html", {
-            "request": request, "device": None, "lot": None,
-            "next_sale_number": await _next_sale_number(db),
-            "current_user": current_user,
-            "error": "Invalid sale price — please enter a valid number",
-        })
+        return await _fail("Invalid sale price — please enter a valid number")
 
     wtype = warranty_type if warranty_type in ("none", "30_days", "6_months", "1_year") else "none"
 
@@ -391,12 +401,7 @@ async def create_sale(
         device = devices_by_code.get(code)
         if not device:
             if not is_multi:
-                return templates.TemplateResponse("sales/new.html", {
-                    "request": request, "device": None, "lot": None,
-                    "next_sale_number": await _next_sale_number(db),
-                    "current_user": current_user,
-                    "error": f"Device {code} not found",
-                })
+                return await _fail(f"Device {code} not found")
             skipped.append(f"{code} (not found)")
             continue
 
@@ -405,11 +410,7 @@ async def create_sale(
             await validate_sale_allowed(device)
         except HTTPException as e:
             if not is_multi:
-                return templates.TemplateResponse("sales/new.html", {
-                    "request": request, "device": device, "lot": None,
-                    "next_sale_number": await _next_sale_number(db),
-                    "current_user": current_user, "error": e.detail,
-                })
+                return await _fail(e.detail, device=device)
             skipped.append(f"{code} (blocked)")
             continue
 
@@ -462,12 +463,8 @@ async def create_sale(
         })
 
     if not sold:
-        return templates.TemplateResponse("sales/new.html", {
-            "request": request, "device": None, "lot": None,
-            "next_sale_number": await _next_sale_number(db),
-            "current_user": current_user,
-            "error": "No sales recorded — " + ("; ".join(skipped) or "no valid tag numbers"),
-        })
+        return await _fail(
+            "No sales recorded — " + ("; ".join(skipped) or "no valid tag numbers"))
 
     await db.commit()
     for payload in events:
@@ -485,6 +482,11 @@ async def create_sale(
     if warn_parts:
         import urllib.parse
         redirect += f"&warning={urllib.parse.quote(' | '.join(warn_parts))}"
+    if xhr:
+        return JSONResponse({
+            "ok": True, "sold": len(sold), "skipped": skipped,
+            "warning": " | ".join(warn_parts) or None, "redirect": redirect,
+        })
     return RedirectResponse(url=redirect, status_code=302)
 
 

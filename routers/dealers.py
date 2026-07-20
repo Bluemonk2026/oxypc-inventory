@@ -889,6 +889,191 @@ async def dealers_bulk_upload_submit(
     })
 
 
+@router.get("/calls/bulk-upload-template")
+async def dealer_calls_bulk_upload_template():
+    """Return a sample CSV template for dealer call-record bulk upload."""
+    header = (
+        "dealer_phone,business_name,call_date,call_type,call_mode,duration_mins,call_outcome,"
+        "items_discussed,quote_given,next_followup_date,notes,calling_remark,category,"
+        "product_model,configuration,qty,asking_price,deal_status,assigned_to\n"
+    )
+    sample = (
+        "9876543210,Example Traders,2026-07-15,outbound,phone,12,interested,"
+        "i5 8th Gen laptops,45000,2026-07-22,Wants 20 units,Price sensitive,Laptop,"
+        "ThinkPad T480,i5/8GB/256GB,20,44000,negotiation,sales_user\n"
+        ",ABC Electronics,2026-07-16,inbound,whatsapp,,callback,"
+        "Desktops,,,Asked for quote,,Desktop,,,,,open,\n"
+    )
+    content = header + sample
+    return StreamingResponse(
+        iter([content.encode("utf-8-sig")]),
+        media_type="text/csv; charset=utf-8-sig",
+        headers={"Content-Disposition": "attachment; filename=dealer_calls_bulk_upload_template.csv"},
+    )
+
+
+@router.post("/calls/bulk-upload", response_class=HTMLResponse)
+async def dealer_calls_bulk_upload(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_sales),
+    _csrf: None = Depends(verify_csrf),
+):
+    """Bulk-add DealerCall rows from CSV via the Dealer Management page.
+
+    Each row is resolved to an existing dealer by phone (preferred) or by
+    business_name (case-insensitive fallback). Rows that cannot be resolved or
+    fail validation are skipped and reported — one bad row never aborts the
+    whole upload. Dealer lookup is done with two set-based IN queries rather
+    than per-row round trips (the DB lives in a different region)."""
+    form = await request.form()
+    upload = form.get("file")
+    if not upload or not hasattr(upload, "read"):
+        return RedirectResponse(url="/dealers?error=No+file+uploaded", status_code=302)
+
+    raw = await upload.read()
+    for enc in ("utf-8-sig", "utf-16", "latin-1"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        return RedirectResponse(url="/dealers?error=Could+not+decode+file", status_code=302)
+
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    # ── Header-name matching (case-insensitive, order-independent) ──────────
+    def _norm(s) -> str:
+        if not s or not isinstance(s, str):
+            return ""
+        return s.lower().strip().replace(" ", "_").replace("-", "_")
+
+    _CALL_ALIASES = {
+        "phone":          "dealer_phone", "mobile":        "dealer_phone",
+        "mobile_number":  "dealer_phone", "contact_no":    "dealer_phone",
+        "dealer_mobile":  "dealer_phone", "phone_number":  "dealer_phone",
+        "dealer_name":    "business_name", "company":      "business_name",
+        "company_name":   "business_name", "firm_name":    "business_name",
+        "date":           "call_date",     "called_on":    "call_date",
+        "mode":           "call_mode",     "type":         "call_type",
+        "outcome":        "call_outcome",  "status":       "deal_status",
+        "duration":       "duration_mins", "remark":       "calling_remark",
+        "remarks":        "calling_remark",
+        "model":          "product_model", "config":       "configuration",
+        "quantity":       "qty",           "required_quantity": "qty",
+        "price":          "asking_price",  "quote":        "quote_given",
+        "followup_date":  "next_followup_date",
+        "next_followup":  "next_followup_date",
+        "assigned":       "assigned_to",   "sales_person": "assigned_to",
+    }
+
+    reader = csv.DictReader(io.StringIO(text))
+    raw_fields = reader.fieldnames or []
+    reader.fieldnames = [
+        _CALL_ALIASES.get(_norm(h), _norm(h)) for h in raw_fields
+    ]
+    rows = [
+        {k: (str(v).strip() if v is not None else "") for k, v in r.items() if k}
+        for r in reader
+    ]
+    if not rows:
+        return RedirectResponse(url="/dealers?error=No+rows+found+in+file", status_code=302)
+
+    # ── Resolve dealers set-based (two IN queries, not one query per row) ───
+    want_phones = {r.get("dealer_phone", "").strip() for r in rows if r.get("dealer_phone", "").strip()}
+    want_names = {r.get("business_name", "").strip().lower() for r in rows if r.get("business_name", "").strip()}
+
+    by_phone: dict = {}
+    by_name: dict = {}
+    if want_phones:
+        res = await db.execute(select(Dealer).where(Dealer.phone.in_(want_phones)))
+        by_phone = {d.phone: d for d in res.scalars().all()}
+    if want_names:
+        res = await db.execute(
+            select(Dealer).where(func.lower(Dealer.business_name).in_(want_names))
+        )
+        by_name = {(d.business_name or "").strip().lower(): d for d in res.scalars().all()}
+
+    # ── Per-row parse helpers ──────────────────────────────────────────────
+    def _to_date(val: str):
+        if not val:
+            return None
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y"):
+            try:
+                return datetime.strptime(val, fmt)
+            except ValueError:
+                continue
+        raise ValueError(f"unrecognised date '{val}'")
+
+    def _to_int(val: str):
+        return int(float(val)) if val else None
+
+    def _to_dec(val: str):
+        return Decimal(val.replace(",", "")) if val else None
+
+    valid_types = {"outbound", "inbound"}
+    valid_modes = {"phone", "whatsapp", "in_person"}
+
+    inserted, errors = 0, []
+    for i, row in enumerate(rows, start=2):  # row 1 = header
+        try:
+            phone = row.get("dealer_phone", "").strip()
+            name = row.get("business_name", "").strip()
+            dealer = by_phone.get(phone) if phone else None
+            if dealer is None and name:
+                dealer = by_name.get(name.lower())
+            if dealer is None:
+                errors.append(
+                    f"Row {i}: no dealer found for phone '{phone or '-'}' / business_name '{name or '-'}'"
+                )
+                continue
+
+            call_type = (row.get("call_type", "").strip().lower() or "outbound")
+            if call_type not in valid_types:
+                call_type = "outbound"
+            call_mode = (row.get("call_mode", "").strip().lower() or "phone")
+            if call_mode not in valid_modes:
+                call_mode = "phone"
+
+            db.add(DealerCall(
+                dealer_id=dealer.id,
+                called_by=current_user.username,
+                call_date=_to_date(row.get("call_date", "").strip()) or app_now(),
+                call_type=call_type,
+                call_mode=call_mode,
+                duration_mins=_to_int(row.get("duration_mins", "").strip()),
+                call_outcome=row.get("call_outcome", "").strip().lower() or None,
+                items_discussed=row.get("items_discussed", "").strip() or None,
+                quote_given=_to_dec(row.get("quote_given", "").strip()),
+                next_followup_date=_to_date(row.get("next_followup_date", "").strip()),
+                notes=row.get("notes", "").strip() or None,
+                calling_remark=row.get("calling_remark", "").strip() or None,
+                category=row.get("category", "").strip() or None,
+                product_model=row.get("product_model", "").strip() or None,
+                configuration=row.get("configuration", "").strip() or None,
+                qty=_to_int(row.get("qty", "").strip()),
+                asking_price=_to_dec(row.get("asking_price", "").strip()),
+                deal_status=row.get("deal_status", "").strip().lower() or None,
+                assigned_to=row.get("assigned_to", "").strip() or None,
+            ))
+            inserted += 1
+        except Exception as exc:
+            errors.append(f"Row {i}: {exc}")
+
+    await audit(db, action="DEALER_CALL_BULK_UPLOAD", user=current_user,
+                table_name="dealer_calls", record_id="bulk",
+                new_value={"inserted": inserted, "skipped": len(errors), "rows": len(rows)})
+    await db.commit()
+
+    return templates.TemplateResponse("bulk_upload/result.html", {
+        "request": request, "current_user": current_user,
+        "upload_type": "Dealer Call Records",
+        "inserted": inserted, "errors": errors,
+        "back_url": "/dealers",
+    })
+
+
 @router.get("/new", response_class=HTMLResponse)
 async def new_dealer_form(
     request: Request,

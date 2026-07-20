@@ -5,7 +5,27 @@
 {% if request.query_params.get('success') %}
 <div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success')|replace('+',' ') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
 {% endif %}
+<!-- Bucket Allocation section -->
 <div class="d-flex justify-content-between align-items-center mb-2">
+  <h6 class="fw-bold mb-0"><i class="bi bi-box me-2"></i>Bucket Allocation</h6>
+</div>
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small">
+        <thead class="table-secondary">
+          <tr><th>Bucket Number</th><th>Location</th><th>Category</th><th>Bucket Qty</th><th>Received Qty</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="trcBucketTbody">
+          <tr><td colspan="7" class="text-center text-muted py-3">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+  <h6 class="fw-bold mb-0"><i class="bi bi-upc-scan me-2"></i>Assigned Tag Number</h6>
   <span class="text-muted small">{{ total }} device(s) in Production</span>
 </div>
 <div class="card border-0 shadow-sm">
@@ -136,44 +156,6 @@
         <button type="submit" class="btn btn-warning"><i class="bi bi-check-lg me-1"></i>Record Replacement</button>
       </div>
     </form>
-  </div>
-</div>
-
-<!-- Bucket Allocation section -->
-<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
-  <h6 class="fw-bold mb-0"><i class="bi bi-box me-2"></i>Bucket Allocation</h6>
-</div>
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-body p-0">
-    <div class="table-responsive">
-      <table class="table table-hover mb-0 small">
-        <thead class="table-secondary">
-          <tr><th>Bucket Number</th><th>Location</th><th>Category</th><th>Bucket Qty</th><th>Received Qty</th><th>Status</th><th>Actions</th></tr>
-        </thead>
-        <tbody id="trcBucketTbody">
-          <tr><td colspan="7" class="text-center text-muted py-3">Loading…</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- Movement table (Batch D Task 4) -->
-<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
-  <h6 class="fw-bold mb-0"><i class="bi bi-arrow-left-right me-2"></i>Movement</h6>
-</div>
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-body p-0">
-    <div class="table-responsive">
-      <table id="prodMovementTable" class="table table-hover mb-0 small">
-        <thead class="table-secondary">
-          <tr><th>Location ID</th><th>Location Type</th><th>Count of Tag Number</th><th>Total Pass</th><th>Total Fail</th><th>Assigned To</th><th>Stage</th><th>Action</th></tr>
-        </thead>
-        <tbody id="prodMovementTbody">
-          <tr><td colspan="8" class="text-center text-muted py-3">Loading…</td></tr>
-        </tbody>
-      </table>
-    </div>
   </div>
 </div>
 
@@ -557,33 +539,6 @@ document.getElementById('asgDevSubmit').addEventListener('click', function(){
 // Bootstrap tooltips (Location hover — Batch D Task 1)
 document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el){ new bootstrap.Tooltip(el); });
 
-// ── Movement table (Batch D Task 4) ─────────────────────────────────────────
-function loadProdMovementTable(){
-  fetch('/api/buckets?status=stock_in,trc_pending,validated').then(function(r){return r.json();}).then(function(buckets){
-    var tbody = document.getElementById('prodMovementTbody');
-    var relevant = buckets.filter(function(b){ return b.assigned_to_production; });
-    if(!relevant.length){
-      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No buckets assigned to production yet.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = relevant.map(function(b){
-      return '<tr>'+
-        '<td>'+(b.location_unit_id||'—')+'</td>'+
-        '<td>'+(b.location_type||'—')+'</td>'+
-        '<td><span class="badge bg-info text-dark">'+b.device_count+'</span></td>'+
-        '<td><span class="badge bg-success">'+b.total_pass+'</span></td>'+
-        '<td><span class="badge bg-danger">'+b.total_fail+'</span></td>'+
-        '<td><span class="badge bg-primary">Production</span></td>'+
-        '<td><span class="badge bg-light text-dark">'+b.status+'</span></td>'+
-        '<td class="text-nowrap">'+
-          '<button class="btn btn-xs btn-outline-primary btn-sm py-0 px-2 assign-eng-btn" data-id="'+b.id+'" data-number="'+b.bucket_number+'"><i class="bi bi-person-check"></i> Assign to Engineer</button>'+
-        '</td>'+
-      '</tr>';
-    }).join('');
-  });
-}
-loadProdMovementTable();
-
 // ── Allocation table: buckets assigned to Production, i.e. handed to L1/L2 ──
 function loadProdAllocationTable(){
   fetch('/api/buckets?status=stock_in,trc_pending,validated').then(function(r){return r.json();}).then(function(buckets){
@@ -616,7 +571,6 @@ $(document).on('click', '.assign-eng-btn', function(){
   fetch('/buckets/'+id+'/assign-to-engineer', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
     if(d.ok){
       alert('Assigned '+d.assigned+' device(s) to L1 Engineer.');
-      loadProdMovementTable();
       loadProdAllocationTable();
       loadTrcBuckets();
     }

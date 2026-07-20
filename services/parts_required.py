@@ -29,15 +29,17 @@ def _is_sentinel(val):
     return str(val).strip().lower() in _SENTINELS
 
 
+# Labels are the IQC Entry form's hardware field names (templates/iqc/form.html)
+# so a Parts Consumption row reads with the same name the technician saw at IQC.
 PARTS_MATRIX = [
     # RAM required when RAM = "Not Available" (blank → stored as None)
     ("RAM",               "RAM",        "ram",      lambda i, d: d is not None and d.ram_gb is None),
-    # SSD / Storage required when SSD Capacity OR Storage Type = "Not Available"
-    ("SSD / Storage",     "SSD",        "ssd",      lambda i, d: d is not None and (d.storage_gb is None or not d.storage_type)),
-    # HDD Connector/Caddy required when HDD connector faulty/unclear OR HDD Capacity = "Not Available"
-    ("HDD Connector/Caddy", "HDD",      "hdd",      lambda i, d: _is(i.hdd_connector, "No") or _is_sentinel(i.hdd_connector)
+    # Hard Drive required when SSD Capacity OR Storage Type = "Not Available"
+    ("Hard Drive",        "SSD",        "ssd",      lambda i, d: d is not None and (d.storage_gb is None or not d.storage_type)),
+    # HDD Connector required when HDD connector faulty/unclear OR HDD Capacity = "Not Available"
+    ("HDD Connector",     "HDD",        "hdd",      lambda i, d: _is(i.hdd_connector, "No") or _is_sentinel(i.hdd_connector)
                           or (d is not None and d.hdd_capacity_gb is None)),
-    ("Battery",           "Battery",    "battery",  lambda i, d: _is(i.battery_present, "No") or _is_sentinel(i.battery_present)
+    ("Internal Battery",  "Battery",    "battery",  lambda i, d: _is(i.battery_present, "No") or _is_sentinel(i.battery_present)
                           or (d is not None and d.battery_health_pct is not None and d.battery_health_pct < 40)),
     ("Keyboard",          "Keyboard",   "keyboard", lambda i, d: _is(i.keyboard_working, "No") or _is_sentinel(i.keyboard_working)
                           or _is(i.keyboard_key_missing, "Yes")),
@@ -51,19 +53,19 @@ PARTS_MATRIX = [
     ("Speaker",           "Other",      "speaker",  lambda i, d: _faulty(i.speaker_status) or _is_sentinel(i.speaker_status)),
     ("Touchpad",          "Other",      "touchpad", lambda i, d: _is(i.touchpad_working, "No") or _is_sentinel(i.touchpad_working)
                           or _is(i.touchpad_missing, "Yes")),
-    ("WiFi Card",         "Other",      "wifi",     lambda i, d: _faulty(i.wifi_status) or _is_sentinel(i.wifi_status)),
-    ("Webcam",            "Other",      "webcam",   lambda i, d: _faulty(i.webcam_status) or _is_sentinel(i.webcam_status)),
+    ("Wi-Fi",             "Other",      "wifi",     lambda i, d: _faulty(i.wifi_status) or _is_sentinel(i.wifi_status)),
+    ("Web Cam",           "Other",      "webcam",   lambda i, d: _faulty(i.webcam_status) or _is_sentinel(i.webcam_status)),
     # ── Remaining IQC hardware fields (item 3d) — one Parts Consumption row per
     #    component captured on the IQC Entry form. Required when the field
     #    reports a fault / "No"; count-only fields (Ethernet ports) never
     #    auto-flag (mirrors the Adapter/Charger row). ────────────────────────
     ("HDMI Port",         "HDMI Port",  "hdmi",     lambda i, d: _is(i.port_hdmi, "No") or _faulty(i.port_hdmi)),
-    ("USB Port",          "USB Port",   "usb",      lambda i, d: _is(i.port_usb_working, "No") or _faulty(i.port_usb_working)),
+    ("USB Ports",         "USB Port",   "usb",      lambda i, d: _is(i.port_usb_working, "No") or _faulty(i.port_usb_working)),
     ("Audio Jack",        "Audio Jack", "audio",    lambda i, d: _is(i.port_audio_jack, "No") or _faulty(i.port_audio_jack)),
-    ("Ethernet Port",     "Ethernet Port", "ethernet", lambda i, d: False),
+    ("Ethernet Ports",    "Ethernet Port", "ethernet", lambda i, d: False),
     ("Charging Port",     "Charging Port", "charging", lambda i, d: _is(i.charging_port, "No") or _faulty(i.charging_port)),
     ("DVD Drive",         "DVD Drive",  "dvd",      lambda i, d: _is(i.dvd_drive, "No") or _faulty(i.dvd_drive)),
-    ("Fan / Cooling",     "Fan",        "fan",      lambda i, d: _is(i.fan_working, "No") or _faulty(i.fan_working)),
+    ("Fan Working",       "Fan",        "fan",      lambda i, d: _is(i.fan_working, "No") or _faulty(i.fan_working)),
     ("Motherboard",       "Motherboard", "motherboard", lambda i, d: _is(i.status, "No Display") or _is(i.power_on, "No")),
 ]
 

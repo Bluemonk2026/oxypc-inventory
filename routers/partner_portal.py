@@ -40,7 +40,7 @@ from services.partner_service import (
 )
 from utils.timezone import app_now
 from config import COOKIE_SECURE
-from limiter import limiter
+from limiter import limiter, ip_key_func
 
 router = APIRouter(prefix="/partner", tags=["trade-partner-portal"])
 
@@ -64,7 +64,7 @@ async def login_page(request: Request):
 
 
 @router.post("/login")
-@limiter.limit("5/minute")
+@limiter.limit("5/minute", key_func=ip_key_func)
 async def login(
     request: Request,
     phone: str = Form(...),

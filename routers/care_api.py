@@ -25,7 +25,7 @@ from services.care_service import (
     PROVISIONING_TOKEN_TTL_MINUTES,
 )
 from utils.timezone import app_now
-from limiter import limiter
+from limiter import limiter, ip_key_func
 
 router = APIRouter(prefix="/care/api/v1", tags=["care-agent-public"])
 
@@ -46,7 +46,7 @@ def _error(code: str, message: str, status_code: int = 400, retryable: bool = Fa
 
 
 @router.post("/pair")
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=ip_key_func)
 async def pair(
     request: Request,
     db: AsyncSession = Depends(get_db),

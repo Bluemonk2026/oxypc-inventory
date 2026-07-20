@@ -11,7 +11,7 @@ from database import get_db
 from models.user import User, LoginLog
 from auth.dependencies import verify_password, hash_password, create_access_token, get_current_user, verify_csrf
 from config import ACCESS_TOKEN_EXPIRE_MINUTES, COOKIE_SECURE
-from limiter import limiter
+from limiter import limiter, ip_key_func
 
 
 def _first_landing(role_value: str) -> str:
@@ -45,7 +45,7 @@ async def login_page(request: Request, error: str = None):
 
 
 @router.post("/login")
-@limiter.limit("5/minute")
+@limiter.limit("20/minute", key_func=ip_key_func)
 async def login(
     request: Request,
     username: str = Form(...),

@@ -8,7 +8,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, Form, Request, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, Integer
+from sqlalchemy import select, func, Integer, delete as sa_delete, text as sa_text
 from sqlalchemy.orm import selectinload
 from database import get_db
 from utils.csv_decode import decode_csv_bytes
@@ -426,27 +426,129 @@ async def bulk_delete_dealers(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_sales_mgr),
 ):
-    """Soft-delete (Trash) the selected dealers. Restorable via trashed_at.
-    Hidden from Dealer Management + Assign Dealer Leads once trashed."""
+    """Permanently delete the selected dealers and their call log / telecalling
+    history. Dealers holding financial records are archived instead and reported,
+    so the count shown is what actually happened rather than what was clicked."""
     ids = [i for i in (dealer_ids or []) if i]
     if not ids:
         return RedirectResponse(url="/dealers?error=No+dealers+selected", status_code=302)
-    dealers = (await db.execute(
-        select(Dealer).where(Dealer.id.in_(ids), Dealer.trashed_at.is_(None))
-    )).scalars().all()
+
+    dealers = (await db.execute(select(Dealer).where(Dealer.id.in_(ids)))).scalars().all()
+    if not dealers:
+        return RedirectResponse(url="/dealers?error=No+dealers+found", status_code=302)
+    found_ids = [str(d.id) for d in dealers]
+
+    deletable, blocked = await _partition_deletable(db, found_ids)
+
+    # Dealers we must keep are at least archived, so they leave the working list.
     now = app_now()
-    for dealer in dealers:
-        dealer.trashed_at = now
-        dealer.trashed_by = current_user.username
+    for d in dealers:
+        if str(d.id) in blocked and d.trashed_at is None:
+            d.trashed_at = now
+            d.trashed_by = current_user.username
+
     await audit(
-        db, user=current_user, action="DEALER_BULK_TRASHED",
-        table_name="dealers", record_id=f"bulk:{len(dealers)}",
-        new_value={"dealer_ids": [str(d.id) for d in dealers], "trashed_by": current_user.username},
+        db, user=current_user, action="DEALER_BULK_DELETED",
+        table_name="dealers", record_id=f"bulk:{len(deletable)}",
+        old_value={"deleted_dealers": [
+            {"id": str(d.id), "business_name": d.business_name, "phone": d.phone}
+            for d in dealers if str(d.id) in deletable
+        ][:500]},
+        new_value={"deleted": len(deletable), "retained_for_financials": blocked,
+                   "by": current_user.username},
         request=request,
     )
+    counts = await _hard_delete_dealers(db, deletable)
     await db.commit()
-    return RedirectResponse(
-        url=f"/dealers?success={len(dealers)}+dealer(s)+deleted", status_code=302)
+
+    import urllib.parse
+    calls = counts.get("dealer_calls", 0)
+    parts = [f"{counts.get('dealers', 0)} dealer(s) deleted permanently"]
+    if calls:
+        parts.append(f"{calls} call log(s) removed")
+    msg = urllib.parse.quote(" — ".join(parts))
+    url = f"/dealers?success={msg}"
+    if blocked:
+        url += "&warning=" + urllib.parse.quote(
+            f"{len(blocked)} dealer(s) kept: they hold financial records "
+            f"(orders/credit notes/quotations/receipts) that must be retained.")
+    return RedirectResponse(url=url, status_code=302)
+
+
+# ── Hard delete ──────────────────────────────────────────────────────────────
+# Delete used to only set trashed_at. The row stayed, kept its phone and business
+# name, and so kept blocking any re-upload of the same dealer — the user deleted
+# data they could no longer see and had no way to replace it.
+#
+# Tables carrying a dealer's operational history. These are removed with the
+# dealer; a call log for a dealer that no longer exists has no meaning, and the
+# FK is NOT NULL on most of them so the delete would fail otherwise.
+# Ordered children-first: FKs must be cleared before the parent row goes.
+_DEALER_CHILD_TABLES = [
+    "dealer_calls",
+    "dealer_assignments",
+    "telecalling_records",
+    "telecalling_assignments",
+    "whatsapp_messages",
+    "partner_bookings",
+    "partner_login_logs",
+    "partner_listing_views",
+    "lot_dealer_visibility",
+    "lot_booking_requests",
+]
+
+# Financial and statutory records. A dealer holding any of these is NOT deleted —
+# orders, credit notes, receipts and quotations are books of account, and Indian
+# retention rules (and this project's own 7-year transaction-log standard) require
+# keeping them. Such dealers are trashed instead and reported back, so the caller
+# learns why rather than silently believing the delete happened.
+_DEALER_FINANCIAL_TABLES = [
+    ("dealer_orders", "orders"),
+    ("dealer_credit_notes", "credit notes"),
+    ("dealer_quotations", "quotations"),
+    ("customer_receipts", "receipts"),
+]
+
+
+async def _partition_deletable(db: AsyncSession, ids: list[str]) -> tuple[list[str], dict]:
+    """Split dealer ids into (safe to hard-delete, {id: reason}) — one query per
+    financial table for the whole batch, not per dealer."""
+    blocked: dict = {}
+    for table, label in _DEALER_FINANCIAL_TABLES:
+        rows = (await db.execute(
+            sa_text(f"SELECT DISTINCT dealer_id FROM {table} WHERE dealer_id = ANY(:ids)"),
+            {"ids": ids},
+        )).scalars().all()
+        for did in rows:
+            blocked.setdefault(str(did), []).append(label)
+    deletable = [i for i in ids if str(i) not in blocked]
+    return deletable, {k: ", ".join(v) for k, v in blocked.items()}
+
+
+async def _hard_delete_dealers(db: AsyncSession, ids: list[str]) -> dict:
+    """Remove dealers and their operational history. Returns per-table counts.
+
+    Set-based: a handful of statements for the whole batch rather than one per
+    dealer. The database is in a different region from the app, so a per-row loop
+    here would take minutes on a large selection.
+    """
+    counts: dict = {}
+    if not ids:
+        return counts
+    for table in _DEALER_CHILD_TABLES:
+        try:
+            res = await db.execute(
+                sa_text(f"DELETE FROM {table} WHERE dealer_id = ANY(:ids)"), {"ids": ids}
+            )
+            if res.rowcount:
+                counts[table] = res.rowcount
+        except Exception:
+            # A table that doesn't exist in this deployment must not abort the
+            # whole delete — skip it and carry on with the rest.
+            continue
+    res = await db.execute(sa_text("DELETE FROM dealers WHERE id = ANY(:ids)"), {"ids": ids})
+    counts["dealers"] = res.rowcount
+    return counts
 
 
 @router.post("/{dealer_id}/delete")
@@ -457,26 +559,56 @@ async def delete_dealer(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_sales_mgr),
 ):
-    """Soft-delete (Trash) a single dealer — business rows are never hard-deleted
-    (orders/calls/credit-notes reference this record)."""
+    """Permanently delete a dealer and its call log / telecalling history.
+
+    A dealer carrying financial records (orders, credit notes, quotations,
+    receipts) is trashed instead of deleted — those are books of account and must
+    be retained. The response says which happened, so "deleted" never means
+    "still there, invisible"."""
     dealer = (await db.execute(
         select(Dealer).where(Dealer.id == dealer_id)
     )).scalar_one_or_none()
     if not dealer:
         return RedirectResponse(url="/dealers?error=Dealer+not+found", status_code=302)
-    if dealer.trashed_at is not None:
-        return RedirectResponse(url="/dealers?success=Dealer+already+deleted", status_code=302)
+
+    name = dealer.business_name or str(dealer.id)
+    deletable, blocked = await _partition_deletable(db, [str(dealer.id)])
+
+    if not deletable:
+        # Keep the row, but make sure it is trashed and say why it survived.
+        if dealer.trashed_at is None:
+            dealer.trashed_at = app_now()
+            dealer.trashed_by = current_user.username
+        reason = blocked.get(str(dealer.id), "financial records")
+        await audit(
+            db, user=current_user, action="DEALER_TRASHED_HAS_FINANCIALS",
+            table_name="dealers", record_id=str(dealer.id),
+            new_value={"business_name": name, "retained_because": reason},
+            request=request,
+        )
+        await db.commit()
+        import urllib.parse
+        msg = urllib.parse.quote(
+            f"{name} has {reason} and was archived instead of deleted — "
+            f"financial records must be retained.")
+        return RedirectResponse(url=f"/dealers?warning={msg}", status_code=302)
+
+    # Audit BEFORE the delete — afterwards there is no row left to describe.
     await audit(
-        db, user=current_user, action="DEALER_TRASHED",
+        db, user=current_user, action="DEALER_DELETED",
         table_name="dealers", record_id=str(dealer.id),
-        old_value={"trashed_at": None},
-        new_value={"trashed_at": "now", "trashed_by": current_user.username},
+        old_value={"business_name": name, "phone": dealer.phone,
+                   "dealer_code": dealer.dealer_code},
+        new_value={"deleted": True, "by": current_user.username},
         request=request,
     )
-    dealer.trashed_at = app_now()
-    dealer.trashed_by = current_user.username
+    counts = await _hard_delete_dealers(db, deletable)
     await db.commit()
-    return RedirectResponse(url="/dealers?success=Dealer+deleted", status_code=302)
+    calls = counts.get("dealer_calls", 0)
+    import urllib.parse
+    msg = urllib.parse.quote(
+        f"{name} deleted permanently" + (f" with {calls} call log(s)" if calls else ""))
+    return RedirectResponse(url=f"/dealers?success={msg}", status_code=302)
 
 
 @router.get("/followups-due", response_class=HTMLResponse)

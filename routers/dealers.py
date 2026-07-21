@@ -815,13 +815,24 @@ async def dealers_bulk_upload_submit(
     count_result = await db.execute(select(func.count(Dealer.id)))
     base_count = count_result.scalar() or 0
 
-    # Get existing phones to skip duplicates
-    phones_result = await db.execute(select(Dealer.phone).where(Dealer.phone.isnot(None)))
+    # Duplicate checks consider LIVE dealers only. Deleting a dealer here is a
+    # soft delete (trashed_at), and without this filter a trashed row kept
+    # blocking its own re-upload forever: the user deletes the bad data, tries to
+    # upload the corrected file, and every row is rejected as "already exists"
+    # against a dealer they can no longer see anywhere in the UI. The only escape
+    # was to destroy the rows outright, taking their call history with them.
+    phones_result = await db.execute(
+        select(Dealer.phone).where(Dealer.phone.isnot(None), Dealer.trashed_at.is_(None))
+    )
     existing_phones = {r for r in phones_result.scalars().all()}
 
     # Existing business names — matched case-insensitively so "ABC Traders" and
     # "abc traders" are treated as the same dealer, not two separate ones.
-    names_result = await db.execute(select(Dealer.business_name).where(Dealer.business_name.isnot(None)))
+    names_result = await db.execute(
+        select(Dealer.business_name).where(
+            Dealer.business_name.isnot(None), Dealer.trashed_at.is_(None)
+        )
+    )
     existing_names_lower = {r.strip().lower() for r in names_result.scalars().all()}
 
     added = []
@@ -981,12 +992,18 @@ async def dealer_calls_bulk_upload(
 
     by_phone: dict = {}
     by_name: dict = {}
+    # Live dealers only — attaching a call log to a trashed dealer would file it
+    # against a record nobody can see, so the call would look silently lost.
     if want_phones:
-        res = await db.execute(select(Dealer).where(Dealer.phone.in_(want_phones)))
+        res = await db.execute(select(Dealer).where(
+            Dealer.phone.in_(want_phones), Dealer.trashed_at.is_(None)))
         by_phone = {d.phone: d for d in res.scalars().all()}
     if want_names:
         res = await db.execute(
-            select(Dealer).where(func.lower(Dealer.business_name).in_(want_names))
+            select(Dealer).where(
+                func.lower(Dealer.business_name).in_(want_names),
+                Dealer.trashed_at.is_(None),
+            )
         )
         by_name = {(d.business_name or "").strip().lower(): d for d in res.scalars().all()}
 

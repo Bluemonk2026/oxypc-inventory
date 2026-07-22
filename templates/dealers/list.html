@@ -111,12 +111,13 @@
   </form>
 
   <div class="d-flex gap-2 ms-auto">
+    <a href="/dealers/followups-due?today_only=1" class="btn btn-sm btn-info text-dark">
+      <i class="bi bi-calendar-check me-1"></i>Today Follow-ups
+      <span class="badge bg-white text-info">{{ today_followup_count }}</span>
+    </a>
     <a href="/dealers/followups-due" class="btn btn-sm btn-warning">
       <i class="bi bi-bell me-1"></i>Follow-ups Due
       <span class="badge bg-white text-warning">{{ followup_count }}</span>
-    </a>
-    <a href="/dealers/overdue" class="btn btn-sm btn-danger">
-      <i class="bi bi-exclamation-triangle me-1"></i>Overdue Orders
     </a>
     <a href="/dealers/bulk-upload" class="btn btn-sm btn-outline-success">
       <i class="bi bi-cloud-upload me-1"></i>Bulk Upload
@@ -125,19 +126,15 @@
             data-bs-target="#callBulkUploadModal">
       <i class="bi bi-telephone-plus me-1"></i>Bulk Upload Call Records
     </button>
-    <button type="button" class="btn btn-sm btn-primary" onclick="openDealerAddModal()">
-      <i class="bi bi-plus-circle me-1"></i>Add Dealer
-    </button>
     {% if current_user.role.value in ['admin', 'sales_manager'] %}
     <button type="button" id="dealerBulkDeleteBtn" class="btn btn-sm btn-outline-danger" disabled
             onclick="submitDealerBulkDelete()">
       <i class="bi bi-trash me-1"></i>Delete Selected (<span id="dealerSelCount">0</span>)
     </button>
     {% endif %}
-    <a href="/dealers/followups-due?today_only=1" class="btn btn-sm btn-info text-dark">
-      <i class="bi bi-calendar-check me-1"></i>Today Follow-ups
-      <span class="badge bg-white text-info">{{ today_followup_count }}</span>
-    </a>
+    <button type="button" class="btn btn-sm btn-primary" onclick="openDealerAddModal()">
+      <i class="bi bi-plus-circle me-1"></i>Add Dealer
+    </button>
   </div>
 </div>
 
@@ -330,8 +327,16 @@
                   <i class="bi bi-file-earmark-text"></i>
                 </button>
                 {% if current_user.role.value in ['admin', 'sales_manager'] %}
+                {# The dealer name goes in a data attribute, never inside a JS
+                   string literal in the attribute itself: a name like
+                   "GNAANI'S COMPUTER WORLD" renders as GNAANI&#39;S, the browser
+                   decodes it to a bare apostrophe before parsing the handler as
+                   JS, the handler then fails to compile — and a handler that
+                   fails to compile is never installed, so the form submitted
+                   with NO confirmation prompt at all. #}
                 <form action="/dealers/{{ d.id }}/delete" method="post" class="d-inline"
-                      onsubmit="return confirm('Permanently delete {{ d.business_name|e }}? The dealer and its call logs will be removed from the database. This cannot be undone. Dealers holding orders, credit notes, quotations or receipts are archived instead, so those financial records are kept.')">
+                      data-dealer-name="{{ d.business_name }}"
+                      onsubmit="return confirmDealerDelete(this)">
                   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                   <button type="submit" class="btn btn-outline-danger" title="Delete">
                     <i class="bi bi-trash"></i>
@@ -629,6 +634,17 @@ document.addEventListener('change', function(e) {
     dealerSyncSelCount();
   }
 });
+// Row-level Delete confirmation. The name is read from the form's data
+// attribute rather than being baked into the inline handler, so apostrophes in
+// dealer names cannot break the handler and silently drop the prompt.
+function confirmDealerDelete(form) {
+  var name = form.getAttribute('data-dealer-name') || 'this dealer';
+  return confirm('Permanently delete ' + name + '?\n\n'
+    + 'The dealer and its call logs will be removed from the database. '
+    + 'This cannot be undone.\n\n'
+    + 'Dealers holding orders, credit notes, quotations or receipts are '
+    + 'archived instead, so those financial records are kept.');
+}
 function submitDealerBulkDelete() {
   var ids = Array.prototype.map.call(
     document.querySelectorAll('.dealerChk:checked'), function(c) { return c.value; });

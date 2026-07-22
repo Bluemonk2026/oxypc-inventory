@@ -73,3 +73,29 @@ Thumbs.db
 downloads/*
 !downloads/Diagnose_Device_Agent.exe
 .gstack/
+
+# ── Throwaway diagnostic / verification scratch (repo root only) ─────────────
+# One-off scripts written while debugging: DB probes, end-to-end checks, extracted
+# inline JS for syntax checking, prod read-only inspectors. They are deliberately
+# kept on disk rather than deleted, but they are not part of the app.
+#
+# Every pattern is anchored with a leading "/" so it matches the repo ROOT only.
+# An unanchored "_*.py" would also match models/__init__.py and every other
+# package marker, silently un-tracking a new package and breaking the import.
+# Subdirectory partials like templates/crm/_assign_leads_rows.html are likewise
+# untouched. Already-tracked files are unaffected by gitignore either way.
+/_chk_*.py
+/_e2e_*.py
+/_fix_*.py
+/_prod_*.py
+/_qa_*.py
+/_repro_*.py
+/_smoke_tmp*.py
+/_verify_*.py
+/_test_bucket*.py
+/_test_call*.py
+/_js*.js
+/_ready_rendered.html
+/_server.log
+/check_admin_tmp.py
+/err.txt

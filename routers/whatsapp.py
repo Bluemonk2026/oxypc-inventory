@@ -22,7 +22,7 @@ import csv as csv_module
 import io as io_module
 from templates_config import templates
 from datetime import datetime
-from utils.timezone import app_now
+from utils.timezone import app_now, app_from_timestamp
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -444,7 +444,7 @@ async def incoming_group_message(
         sender_name    = data.get("sender_name", ""),
         sender_phone   = data.get("sender_phone", ""),
         status         = "received",
-        sent_at        = datetime.utcfromtimestamp(ts) if ts else app_now(),
+        sent_at        = app_from_timestamp(ts) if ts else app_now(),
     )
     db.add(msg)
     await db.commit()
@@ -508,7 +508,7 @@ async def _do_sync_messages(group_ids: list, limit: int, username: str):
                     sender_name    = (m.get("sender_name", "") or "")[:200],
                     sender_phone   = (m.get("sender_phone", "") or "")[:30],
                     status         = "sent" if m.get("from_me") else "received",
-                    sent_at        = datetime.utcfromtimestamp(ts) if ts else app_now(),
+                    sent_at        = app_from_timestamp(ts) if ts else app_now(),
                 )
                 db.add(msg)
                 total_saved += 1

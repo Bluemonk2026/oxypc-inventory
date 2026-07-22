@@ -574,7 +574,9 @@ async def iqc_create_lot_from_selection(
     try:
         purchase_dt = _dtnow.strptime(purchase_date, "%Y-%m-%d")
     except ValueError:
-        purchase_dt = _dtnow.utcnow()
+        # Fall back to "now" in the app timezone, not UTC. utcnow() here filed a
+        # lot entered before 05:30 IST under the PREVIOUS day's purchase date.
+        purchase_dt = app_now()
     grn_dt = None
     if grn_date:
         try:

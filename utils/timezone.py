@@ -60,6 +60,18 @@ def app_today() -> date:
     return app_now().date()
 
 
+def app_from_timestamp(ts: float) -> datetime:
+    """Convert a POSIX timestamp (e.g. os.stat().st_mtime) to a naive datetime
+    in the configured app timezone.
+
+    Use this instead of datetime.utcfromtimestamp() whenever the result will be
+    compared against app_now() or shown to a user. Mixing the two silently adds
+    the UTC offset to every result -- on IST that made a backup taken seconds
+    ago report as "5.5h ago" on the Database Backup panel.
+    """
+    return datetime.fromtimestamp(ts, pytz.utc).astimezone(_app_tz).replace(tzinfo=None)
+
+
 # ── Jinja2 / display helpers ───────────────────────────────────────────────────
 
 def format_dt(dt: datetime | None, fmt: str = "%d-%m-%Y %H:%M") -> str:

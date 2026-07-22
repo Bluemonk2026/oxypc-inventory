@@ -4,7 +4,7 @@ import re
 import subprocess
 import sys
 from datetime import datetime
-from utils.timezone import app_now
+from utils.timezone import app_now, app_from_timestamp, get_app_timezone_name
 from decimal import Decimal
 from pathlib import Path
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
@@ -463,7 +463,9 @@ async def backup_status(current_user: User = Depends(require_admin)):
         return JSONResponse({"status": "no_backups", "last_backup": None})
 
     latest = backups[0]
-    mtime   = datetime.utcfromtimestamp(latest.stat().st_mtime)
+    # app_from_timestamp, not utcfromtimestamp: app_now() is app-local, so a UTC
+    # mtime made every backup look older by the UTC offset (5.5h on IST).
+    mtime   = app_from_timestamp(latest.stat().st_mtime)
     age_h   = round((app_now() - mtime).total_seconds() / 3600, 1)
     size_mb = round(latest.stat().st_size / (1024 * 1024), 2)
 
@@ -473,7 +475,7 @@ async def backup_status(current_user: User = Depends(require_admin)):
             "filename":  latest.name,
             "size_mb":   size_mb,
             "age_hours": age_h,
-            "taken_at":  mtime.strftime("%Y-%m-%d %H:%M UTC"),
+            "taken_at":  mtime.strftime("%Y-%m-%d %H:%M ") + get_app_timezone_name(),
         },
         "total_backups": len(backups),
     })
@@ -507,12 +509,12 @@ async def backup_list(current_user: User = Depends(require_admin)):
     )
     backups = []
     for f in files:
-        mtime = datetime.utcfromtimestamp(f.stat().st_mtime)
+        mtime = app_from_timestamp(f.stat().st_mtime)
         backups.append({
             "filename":  f.name,
             "size_mb":   round(f.stat().st_size / (1024 * 1024), 2),
             "age_hours": round((app_now() - mtime).total_seconds() / 3600, 1),
-            "taken_at":  mtime.strftime("%Y-%m-%d %H:%M UTC"),
+            "taken_at":  mtime.strftime("%Y-%m-%d %H:%M ") + get_app_timezone_name(),
         })
     return JSONResponse({"backups": backups})
 

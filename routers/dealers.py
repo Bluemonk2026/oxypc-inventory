@@ -14,12 +14,17 @@ from database import get_db
 from utils.csv_decode import decode_csv_bytes
 from utils.call_outcomes import (
     OUTCOME_LABELS, normalize_outcome as _norm_outcome, tally as _tally_outcomes,
+    interested_total as _interested_total,
 )
 from models.dealers import Dealer, DealerCall, DealerAssignment, DealerOrder, DealerCreditNote
 from models.user import User, UserRole
 from models.master import MasterData
 from utils.master_data import master_values
-from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
+from auth.dependencies import (
+    get_current_user, require_roles, verify_csrf, require_module_perm,
+    _matrix_grants_path,
+)
+from utils.attendance_groups import is_group_manager, managed_usernames
 from models.crm import CustomerReceipt
 from models.dealer_quotation import DealerQuotation
 from routers.company_settings import get_company_settings
@@ -65,6 +70,42 @@ SALES_ROLES = (UserRole.admin, UserRole.sales, UserRole.sales_manager, UserRole.
 # FastAPI dependency — use in route signatures instead of manual role checks
 require_sales = require_roles(*SALES_ROLES)
 require_sales_mgr = require_roles(UserRole.admin, UserRole.sales_manager)
+
+
+async def _can_manage_dealers(db: AsyncSession, user: User, path: str = "") -> bool:
+    """Whether this user may act on other people's dealer records — the Bulk
+    Delete control and the Assigned-To filter.
+
+    Admin and Sales Manager qualify by role. A user set as manager of an
+    Attendance Group (Application Settings -> Attendance Config) also qualifies:
+    that is the only place the app records who supervises whom, so it is what
+    "manager" means here too.
+
+    The last two clauses mirror require_roles() so this gate does not quietly
+    revoke access that dependency already grants — custom roles pass any
+    non-admin-only gate, and an explicit Module Permission grant wins.
+    """
+    role_val = getattr(user.role, "value", None) or str(user.role)
+    if role_val in ("admin", "sales_manager"):
+        return True
+    if await is_group_manager(db, user.username):
+        return True
+    if role_val not in {r.value for r in UserRole}:
+        return True
+    return bool(path) and _matrix_grants_path(role_val, path)
+
+
+async def require_dealer_manager(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Route gate matching _can_manage_dealers, so the Bulk Delete button and
+    the endpoint behind it can never disagree about who is allowed."""
+    if await _can_manage_dealers(db, current_user, request.url.path):
+        return current_user
+    from fastapi import HTTPException
+    raise HTTPException(status_code=403, detail="Access denied")
 OUTSTANDING_STATUSES = ("pending", "confirmed", "delivered")
 PER_PAGE = 25
 
@@ -242,8 +283,14 @@ async def list_dealers(
     active_result = await db.execute(select(func.count()).select_from(active_q.subquery()))
     active_count = active_result.scalar() or 0
 
-    # Subquery of filtered dealer IDs — shared by followup_count, outstanding, outcome_stats
-    filtered_ids_subq = select(Dealer.id).select_from(base_query.subquery())
+    # Subquery of filtered dealer IDs — shared by followup_count, outstanding, outcome_stats.
+    # Select the id OFF THE SUBQUERY, not off Dealer. `select(Dealer.id)
+    # .select_from(base_query.subquery())` compiles to
+    # "FROM (…filtered…) AS anon_1, dealers" — an implicit cross join whose
+    # result is every dealer id in the table, so the cards silently ignored the
+    # page's filters and the trashed-dealer exclusion.
+    _filtered_dealers = base_query.subquery()
+    filtered_ids_subq = select(_filtered_dealers.c.id)
 
     today = app_now().date()
 
@@ -331,6 +378,11 @@ async def list_dealers(
     # Fold spelling variants together — the imported rows say "not connected"
     # where the in-app form says "no_answer", and both must hit the same card.
     outcome_stats: dict = _tally_outcomes((row.call_outcome, row.cnt) for row in outcome_rows)
+    # Card view of the same tally: Interested absorbs Detail Sent. Kept as a
+    # separate dict so outcome_stats stays a faithful per-outcome breakdown for
+    # anything else that reads it.
+    card_stats = dict(outcome_stats)
+    card_stats["interested"] = _interested_total(outcome_stats)
 
     # ── Follow-up counts — scoped to the logged-in user's own dealers unless
     # admin/Sourcing Sales (see the count across all dealers, ignoring assignment) ───
@@ -366,16 +418,33 @@ async def list_dealers(
     today_followup_count = int(today_fu_result.scalar() or 0)
     # ──────────────────────────────────────────────────────────────────────────
 
-    # Sales users list for admin/Sourcing Sales user-filter dropdown
-    sales_users: list = []
+    # Who may act on other people's dealer records — drives both the Bulk Delete
+    # control and the Assigned-To filter, and matches require_dealer_manager so
+    # the button and its endpoint agree.
+    can_manage_dealers = await _can_manage_dealers(db, current_user, request.url.path)
+
+    # Assigned-To filter dropdown. Admin and Sourcing Sales see every sales
+    # executive. An Attendance Group manager additionally sees their own group
+    # members — added by union rather than as an else-branch, because a manager
+    # often already holds a sales role and would otherwise get the generic list
+    # with their own team missing from it (group members are frequently not
+    # sales-role users at all).
+    role_user_ids: list = []
     if current_user.role in (UserRole.admin, UserRole.sales):
-        su_result = await db.execute(
-            select(User).where(
+        role_user_ids = (await db.execute(
+            select(User.username).where(
                 User.role.in_([UserRole.sales, UserRole.sales_manager, UserRole.telecaller]),
                 User.status == True,
-            ).order_by(User.full_name)
-        )
-        sales_users = su_result.scalars().all()
+            )
+        )).scalars().all()
+    member_names = await managed_usernames(db, current_user.username)
+    wanted = set(role_user_ids) | set(member_names)
+    sales_users: list = []
+    if wanted:
+        sales_users = (await db.execute(
+            select(User).where(User.username.in_(wanted), User.status == True)
+            .order_by(User.full_name)
+        )).scalars().all()
 
     # Outstanding total — scoped to filtered dealers
     out_total_result = await db.execute(
@@ -411,8 +480,9 @@ async def list_dealers(
         "today_followup_count": today_followup_count,
         "outstanding": f"{outstanding:,}",
         "recent_call_map": recent_call_map,
-        "outcome_stats": outcome_stats,
+        "outcome_stats": card_stats,
         "outcome_labels": OUTCOME_LABELS,
+        "can_manage_dealers": can_manage_dealers,
         "sales_users": sales_users,
         "assignee_name_map": assignee_name_map,
         "per_page": PER_PAGE,
@@ -432,7 +502,7 @@ async def bulk_delete_dealers(
     dealer_ids: list[str] = Form(default=[]),
     _csrf: None = Depends(verify_csrf),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_sales_mgr),
+    current_user: User = Depends(require_dealer_manager),
 ):
     """Permanently delete the selected dealers and their call log / telecalling
     history. Dealers holding financial records are archived instead and reported,
@@ -565,7 +635,7 @@ async def delete_dealer(
     dealer_id: str,
     _csrf: None = Depends(verify_csrf),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_sales_mgr),
+    current_user: User = Depends(require_dealer_manager),
 ):
     """Permanently delete a dealer and its call log / telecalling history.
 
@@ -2314,6 +2384,8 @@ async def dealer_ledger(
     request: Request,
     dealer_id: str,
     db: AsyncSession = Depends(get_db),
+    # Stays Admin / Sales Manager: the ledger is a financial view, outside the
+    # dealer-record management that Attendance Group managers were granted.
     current_user: User = Depends(require_sales_mgr),
 ):
     dr = await db.execute(select(Dealer).where(Dealer.id == dealer_id))

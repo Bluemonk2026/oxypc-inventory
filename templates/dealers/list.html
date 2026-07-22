@@ -35,8 +35,11 @@
       </select>
     </div>
 
-    {# Admin sees full user dropdown; sales_manager sees Mine Only; sales/telecaller get no dropdown (auto-scoped) #}
-    {% if current_user.role.value == 'admin' %}
+    {# Admin and Sourcing Sales see every executive; an Attendance Group manager
+       sees just their own group members (sales_users is scoped to them in the
+       route); sales_manager gets Mine Only; everyone else is auto-scoped and
+       gets no dropdown at all. #}
+    {% if sales_users %}
     <div class="flt">
       <label class="form-label form-label-sm mb-1 text-muted small">Assigned To</label>
       <select name="assigned" class="form-select form-select-sm">
@@ -112,7 +115,7 @@
             data-bs-target="#callBulkUploadModal">
       <i class="bi bi-telephone-plus me-1"></i>Bulk Upload Call Records
     </button>
-    {% if current_user.role.value in ['admin', 'sales_manager'] %}
+    {% if can_manage_dealers %}
     <button type="button" id="dealerBulkDeleteBtn" class="btn btn-sm btn-outline-danger" disabled
             onclick="submitDealerBulkDelete()">
       <i class="bi bi-trash me-1"></i>Delete Selected (<span id="dealerSelCount">0</span>)
@@ -187,7 +190,7 @@
       <table class="table table-hover mb-0" id="dealersTable">
         <thead class="table-light">
           <tr class="text-nowrap">
-            {% if current_user.role.value in ['admin', 'sales_manager'] %}
+            {% if can_manage_dealers %}
             <th style="width:1%"><input type="checkbox" id="dealerCheckAll" class="form-check-input" title="Select all"></th>
             {% endif %}
             <th>ID</th>
@@ -257,7 +260,7 @@
             'assigned_to': d.assigned_to or '',
           } %}
           <tr>
-            {% if current_user.role.value in ['admin', 'sales_manager'] %}
+            {% if can_manage_dealers %}
             <td><input type="checkbox" class="form-check-input dealerChk" value="{{ d.id }}"></td>
             {% endif %}
             <td><code>{{ d.dealer_code }}</code></td>
@@ -316,7 +319,7 @@
                 <button type="button" class="btn btn-outline-info" title="Quotation" onclick='openQuotationModal({{ row_data | tojson }})'>
                   <i class="bi bi-file-earmark-text"></i>
                 </button>
-                {% if current_user.role.value in ['admin', 'sales_manager'] %}
+                {% if can_manage_dealers %}
                 {# The dealer name goes in a data attribute, never inside a JS
                    string literal in the attribute itself: a name like
                    "GNAANI'S COMPUTER WORLD" renders as GNAANI&#39;S, the browser
@@ -338,7 +341,7 @@
           </tr>
           {% else %}
           <tr>
-            <td colspan="{{ 21 if current_user.role.value in ['admin', 'sales_manager'] else 20 }}" class="text-center text-muted py-4">
+            <td colspan="{{ 21 if can_manage_dealers else 20 }}" class="text-center text-muted py-4">
               No dealers found. <a href="#" onclick="openDealerAddModal(); return false;">Add your first dealer</a>
             </td>
           </tr>
@@ -596,7 +599,7 @@ function openDealerAddModal(){
   new bootstrap.Modal(document.getElementById('dealerEditModal')).show();
 }
 
-{% set _has_chk = current_user.role.value in ['admin', 'sales_manager'] %}
+{% set _has_chk = can_manage_dealers %}
 if ($('#dealersTable tbody tr').length > 1 && $.fn.DataTable) {
   $('#dealersTable').DataTable({
     pageLength: 12,

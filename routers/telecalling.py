@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from database import get_db
 from utils.call_outcomes import (
     tally as _tally_outcomes,
+    interested_total as _interested_total,
     variants_for as _outcome_variants,
     normalized_column as _norm_outcome_col,
 )
@@ -137,7 +138,8 @@ async def index(
         # Total counts every row, including calls logged with no outcome yet —
         # tally() drops blanks, so summing its values would under-report.
         "total":          sum(int(r[1] or 0) for r in stat_rows),
-        "interested":     counts.get("interested", 0),
+        # Interested absorbs Detail Sent — see interested_total()
+        "interested":     _interested_total(counts),
         "callback":       counts.get("callback", 0),
         "not_interested": counts.get("not_interested", 0),
         "not_connected":  counts.get("not_connected", 0),

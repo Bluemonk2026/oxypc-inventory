@@ -55,6 +55,18 @@ def normalize_outcome(raw) -> str:
     return _ALIASES.get(key, key)
 
 
+def interested_total(counts: dict) -> int:
+    """The Interested card counts Interested + Detail Sent.
+
+    Sending details is treated as interest expressed — a dealer who asked for
+    the catalogue is a live lead, not a dead one. Defined here so Dealer
+    Management and Telecalling can never drift on what "Interested" means.
+    Dealer Management still shows Detail Sent as its own card as well, so that
+    slice is deliberately visible in both places.
+    """
+    return counts.get("interested", 0) + counts.get("details_sent", 0)
+
+
 def variants_for(canonical: str) -> list:
     """Every normalised spelling that folds onto `canonical`.
 

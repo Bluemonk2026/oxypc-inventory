@@ -331,11 +331,7 @@
                 </button>
                 {% if current_user.role.value in ['admin', 'sales_manager'] %}
                 <form action="/dealers/{{ d.id }}/delete" method="post" class="d-inline"
-                      onsubmit="return confirm('Permanently delete {{ d.business_name }}?
-
-The dealer and its call logs will be removed from the database. This cannot be undone.
-
-Dealers holding orders, credit notes, quotations or receipts are archived instead, so those financial records are kept.')">
+                      onsubmit="return confirm('Permanently delete {{ d.business_name|e }}? The dealer and its call logs will be removed from the database. This cannot be undone. Dealers holding orders, credit notes, quotations or receipts are archived instead, so those financial records are kept.')">
                   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                   <button type="submit" class="btn btn-outline-danger" title="Delete">
                     <i class="bi bi-trash"></i>
@@ -637,11 +633,11 @@ function submitDealerBulkDelete() {
   var ids = Array.prototype.map.call(
     document.querySelectorAll('.dealerChk:checked'), function(c) { return c.value; });
   if (!ids.length) return;
-  if (!confirm('Permanently delete ' + ids.length + ' selected dealer(s)?
-
-Each dealer and its call logs will be removed from the database. This cannot be undone.
-
-Dealers holding orders, credit notes, quotations or receipts are archived instead, so those financial records are kept.')) return;
+  if (!confirm('Permanently delete ' + ids.length + ' selected dealer(s)?\n\n'
+      + 'Each dealer and its call logs will be removed from the database. '
+      + 'This cannot be undone.\n\n'
+      + 'Dealers holding orders, credit notes, quotations or receipts are '
+      + 'archived instead, so those financial records are kept.')) return;
   var f = document.createElement('form');
   f.method = 'post';
   f.action = '/dealers/bulk-delete';

@@ -1179,7 +1179,38 @@ async def dealer_calls_bulk_upload(
         "followup_date":  "next_followup_date",
         "next_followup":  "next_followup_date",
         "assigned":       "assigned_to",   "sales_person": "assigned_to",
+        # Dealer-detail columns, so the Dealer Bulk Upload template can be fed
+        # to this endpoint unchanged.
+        "gst_number":     "gstin",         "gst":          "gstin",
+        "gst_no":         "gstin",
+        "contact":        "contact_person", "person_name": "contact_person",
+        "owner_name":     "contact_person",
+        "email_id":       "email",         "mail":         "email",
+        "whatsapp":       "whatsapp_number",
+        "pin":            "pincode",       "pin_code":     "pincode",
     }
+
+    # Dealer columns this importer will create/update, csv key -> Dealer attr.
+    # Only non-blank values are applied, so a sparse sheet never blanks out
+    # detail that is already on record.
+    _DEALER_COLS = {
+        "business_name": "business_name", "contact_person": "contact_person",
+        "phone": "phone", "email": "email", "city": "city",
+        "state": "state", "pincode": "pincode", "address": "address",
+        "gstin": "gstin", "dealer_type": "dealer_type",
+        "whatsapp_number": "whatsapp_number", "assigned_to": "assigned_to",
+    }
+
+    # A row is a CALL only if it carries at least one of these. A row with just
+    # dealer detail creates/updates the dealer and logs no call — otherwise
+    # importing a dealer list would manufacture a blank call per dealer and
+    # inflate every count on the Telecalling dashboard.
+    _CALL_COLS = (
+        "call_date", "call_type", "call_mode", "duration_mins", "call_outcome",
+        "items_discussed", "quote_given", "next_followup_date", "notes",
+        "calling_remark", "category", "product_model", "configuration",
+        "qty", "asking_price", "deal_status",
+    )
 
     reader = csv.DictReader(io.StringIO(text))
     raw_fields = reader.fieldnames or []
@@ -1235,7 +1266,7 @@ async def dealer_calls_bulk_upload(
     valid_modes = {"phone", "whatsapp", "in_person"}
 
     inserted, errors = 0, []
-    created_dealers, new_seq = 0, 1
+    created_dealers, updated_dealers, new_seq = 0, 0, 1
     new_code_base = ((await db.execute(select(func.count(Dealer.id)))).scalar() or 0) + 1
 
     for i, row in enumerate(rows, start=2):  # row 1 = header
@@ -1263,6 +1294,11 @@ async def dealer_calls_bulk_upload(
                     added_by=current_user.username,
                     source="Call Records Bulk Upload",
                 )
+                # Any other dealer detail the row carries (city, email, GSTIN …)
+                for col, attr in _DEALER_COLS.items():
+                    val = (row.get(col, "") or "").strip()
+                    if val:
+                        setattr(dealer, attr, val)
                 new_seq += 1
                 db.add(dealer)
                 # flush so dealer.id exists for the DealerCall FK below, and so the
@@ -1274,6 +1310,24 @@ async def dealer_calls_bulk_upload(
                 if name:
                     by_name[name.lower()] = dealer
                 created_dealers += 1
+            else:
+                # Existing dealer: fill in / refresh whatever detail the row
+                # carries. Blank cells are ignored so a call-only sheet never
+                # wipes an address or email that is already on record.
+                changed = False
+                for col, attr in _DEALER_COLS.items():
+                    val = (row.get(col, "") or "").strip()
+                    if val and (getattr(dealer, attr, None) or "") != val:
+                        setattr(dealer, attr, val)
+                        changed = True
+                if changed:
+                    updated_dealers += 1
+
+            # No call columns filled in -> this row is dealer detail only.
+            # Logging an empty call here would put a blank row in the dealer's
+            # history and inflate Total Calls on the Telecalling dashboard.
+            if not any((row.get(c, "") or "").strip() for c in _CALL_COLS):
+                continue
 
             call_type = (row.get("call_type", "").strip().lower() or "outbound")
             if call_type not in valid_types:
@@ -1317,13 +1371,17 @@ async def dealer_calls_bulk_upload(
     await audit(db, action="DEALER_CALL_BULK_UPLOAD", user=current_user,
                 table_name="dealer_calls", record_id="bulk",
                 new_value={"inserted": inserted, "created_dealers": created_dealers,
+                           "updated_dealers": updated_dealers,
                            "skipped": len(errors), "rows": len(rows)})
     await db.commit()
 
     return templates.TemplateResponse("bulk_upload/result.html", {
         "request": request, "current_user": current_user,
-        "upload_type": (f"Dealer Call Records — {created_dealers} new dealer(s) created"
-                        if created_dealers else "Dealer Call Records"),
+        "upload_type": " · ".join(
+            ["Dealer Call Records"]
+            + ([f"{created_dealers} dealer(s) created"] if created_dealers else [])
+            + ([f"{updated_dealers} dealer(s) updated"] if updated_dealers else [])
+            + [f"{inserted} call(s) logged"]),
         "inserted": inserted, "errors": errors,
         "back_url": "/dealers",
     })

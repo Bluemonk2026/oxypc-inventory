@@ -23,6 +23,10 @@
         <input type="text" id="tcSearch" class="form-control form-control-sm" style="min-width:200px"
                placeholder="Search Tag Number…">
         {% if _appr %}
+        <button type="button" class="btn btn-sm btn-outline-primary text-nowrap"
+                data-bs-toggle="modal" data-bs-target="#tcUploadTagsModal">
+          <i class="bi bi-upload me-1"></i>Upload Tags
+        </button>
         <button type="button" id="tcApproveSelBtn" class="btn btn-sm btn-success text-nowrap" disabled>
           <i class="bi bi-check-all me-1"></i>Approve Selected (<span id="tcSelCount">0</span>)
         </button>
@@ -163,6 +167,37 @@
   </div>
 </div>
 
+{% if _appr %}
+<!-- Upload Tags: file of tag numbers -> ticks the matching pending request rows.
+     Selection only; the user still presses Approve Selected. -->
+<div class="modal fade" id="tcUploadTagsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-upload me-2"></i>Upload Tags</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label fw-semibold">Tag Numbers File</label>
+        <input type="file" id="tcTagFile" class="form-control" accept=".csv,.txt">
+        <div class="form-text small">
+          One column with header <code>tag_number</code> (or <code>barcode</code>), one tag per row.
+          Tags with a pending request get ticked — nothing is approved until you press
+          <strong>Approve Selected</strong>.
+        </div>
+        <div id="tcTagStatus" class="small mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="tcTagSelectBtn" class="btn btn-primary">
+          <i class="bi bi-check2-square me-1"></i>Select Tags
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}
 {% block scripts %}
 <script>
@@ -210,6 +245,7 @@ function wireBulkApprove(dt, tableId, chkCls, selectAllId, btnId, countId, formI
     document.getElementById(formId).submit();
   });
   refresh();
+  return refresh;   // Upload Tags ticks boxes directly and must re-sync the count
 }
 
 $(document).ready(function(){
@@ -235,10 +271,79 @@ $(document).ready(function(){
     lotDt = $lr.DataTable({ pageLength: 12, ordering:false, dom:'rtip' });
   }
 
-  wireBulkApprove(tcDt, 'tcRequestsTable', 'tcChk', 'tcSelectAll',
+  var tcRefresh = wireBulkApprove(tcDt, 'tcRequestsTable', 'tcChk', 'tcSelectAll',
                   'tcApproveSelBtn', 'tcSelCount', 'tcBulkForm', 'tcBulkIds');
   wireBulkApprove(lotDt, 'lotRequestsTable', 'lotChk', 'lotSelectAll',
                   'lotApproveSelBtn', 'lotSelCount', 'lotBulkForm', 'lotBulkIds');
+
+  // ── Upload Tags: file of tag numbers -> tick matching pending rows ──
+  var tagBtn = document.getElementById('tcTagSelectBtn');
+  if (tagBtn) tagBtn.addEventListener('click', async function(){
+    var fileInput = document.getElementById('tcTagFile');
+    var status = document.getElementById('tcTagStatus');
+    if (!fileInput.files.length) {
+      status.innerHTML = '<span class="text-danger">Choose a file first.</span>';
+      return;
+    }
+    this.disabled = true;
+    status.innerHTML = '<span class="text-muted">Reading…</span>';
+    var fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    fd.append('csrf_token', (document.cookie.match('(?:^|;)\\s*csrf_token=([^;]*)') || ['',''])[1]);
+    try {
+      var r = await fetch('/inventory-requests/upload-tags', {method:'POST', body: fd});
+      var d = await r.json();
+      if (d.error) { status.innerHTML = '<span class="text-danger">' + d.error + '</span>'; return; }
+
+      // Map every pending checkbox by its row's tag number. dt.$ is used so
+      // rows DataTables has paged out of the DOM are still reachable.
+      var boxes = tcDt ? tcDt.$('.tcChk').toArray()
+                       : Array.prototype.slice.call(document.querySelectorAll('#tcRequestsTable .tcChk'));
+      var byTag = {};
+      boxes.forEach(function(c){
+        var tr = c.closest('tr');
+        var tag = tr && tr.getAttribute('data-barcode');
+        if (tag) (byTag[tag] = byTag[tag] || []).push(c);
+      });
+
+      var ticked = 0, unselectable = [];
+      (d.found || []).forEach(function(tag){
+        var list = byTag[(tag || '').toLowerCase()];
+        if (list && list.length) { list.forEach(function(c){ c.checked = true; ticked++; }); }
+        else unselectable.push(tag);
+      });
+      if (tcRefresh) tcRefresh();
+
+      var parts = [ticked + ' row(s) selected'];
+      if (unselectable.length)          parts.push(unselectable.length + ' not on this page');
+      if ((d.no_pending || []).length)  parts.push(d.no_pending.length + ' already approved/rejected');
+      if ((d.not_requested || []).length) parts.push(d.not_requested.length + ' with no request raised');
+      if ((d.not_found || []).length)   parts.push(d.not_found.length + ' not found');
+
+      function list(label, tags){
+        if (!tags || !tags.length) return '';
+        return '<div class="mt-1"><span class="fw-semibold">' + label + ':</span> '
+             + '<span class="font-monospace">' + tags.join(', ') + '</span></div>';
+      }
+      var detail = list('Not selectable', unselectable)
+                 + list('Already approved/rejected', d.no_pending)
+                 + list('No request raised', d.not_requested)
+                 + list('Not found', d.not_found)
+                 + list('Row errors', d.errors);
+
+      bootstrap.Modal.getInstance(document.getElementById('tcUploadTagsModal')).hide();
+      var box = document.createElement('div');
+      box.className = 'alert alert-info alert-dismissible fade show small mt-3';
+      box.innerHTML = '<strong>' + parts.join(', ') + '</strong>' + detail
+        + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+      document.getElementById('tcRequestsTable').closest('.card').after(box);
+      status.innerHTML = '';
+    } catch(e) {
+      status.innerHTML = '<span class="text-danger">Upload failed.</span>';
+    } finally {
+      this.disabled = false;
+    }
+  });
 });
 </script>
 {% endblock %}

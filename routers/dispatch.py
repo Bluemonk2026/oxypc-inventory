@@ -5,10 +5,13 @@ Ready to Dispatch (#20) + telecaller dispatch requests (#21).
  - Sales Manager approves it on the Ready to Dispatch page.
  - Approval enables the Sell button back on Ready to Sale.
 """
+import csv
+import io
 import uuid
 from utils.timezone import app_now
-from fastapi import APIRouter, Depends, Form, Request, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from utils.csv_decode import decode_csv_bytes
+from fastapi import APIRouter, Depends, Form, Request, HTTPException, UploadFile, File
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -122,6 +125,79 @@ async def inventory_requests(request: Request, db: AsyncSession = Depends(get_db
     return templates.TemplateResponse("dispatch/inventory_requests.html", {
         "request": request, "current_user": current_user, **ctx,
     })
+
+
+@router.post("/inventory-requests/upload-tags")
+async def upload_request_tags(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(approve_allowed),
+):
+    """Upload Tags on Inventory Requests — reads a single-column file of tag
+    numbers and reports which ones have a PENDING telecaller request, so the
+    page can tick those rows for bulk approve.
+
+    Read-only: approves nothing. The caller still has to press Approve
+    Selected, so an upload can never approve anything on its own.
+
+    Tags are decoded with decode_csv_bytes because these files come out of
+    Excel and are frequently cp1252, not UTF-8.
+    """
+    content = await file.read()
+    reader = csv.DictReader(io.StringIO(decode_csv_bytes(content)))
+
+    # Read by header name so extra columns can't shift the one we want.
+    field_map = {(f or "").strip().lower(): f for f in (reader.fieldnames or [])}
+    key = field_map.get("tag_number") or field_map.get("barcode")
+    if not key:
+        return JSONResponse(
+            {"error": "File must have a 'tag_number' (or 'barcode') column header"},
+            status_code=400,
+        )
+
+    tags, errors, seen = [], [], set()
+    for i, row in enumerate(reader, start=2):
+        tag = (row.get(key) or "").strip()
+        if not tag:
+            errors.append(f"Row {i}: tag_number is empty")
+            continue
+        if tag in seen:
+            continue
+        seen.add(tag)
+        tags.append(tag)
+
+    empty = {"found": [], "no_pending": [], "not_requested": [],
+             "not_found": [], "errors": errors}
+    if not tags:
+        return JSONResponse(empty)
+
+    # Two set-based queries, never one per tag — the database is a
+    # transcontinental round trip away.
+    req_rows = (await db.execute(
+        select(TelecallerDispatchRequest.barcode, TelecallerDispatchRequest.status)
+        .where(TelecallerDispatchRequest.barcode.in_(tags),
+               TelecallerDispatchRequest.source != "lot")
+    )).all()
+    statuses: dict = {}
+    for barcode, status in req_rows:
+        statuses.setdefault(barcode, set()).add(status)
+
+    known_devices = set((await db.execute(
+        select(Device.barcode).where(Device.barcode.in_(tags))
+    )).scalars().all())
+
+    found, no_pending, not_requested, not_found = [], [], [], []
+    for tag in tags:
+        if tag in statuses:
+            (found if "requested" in statuses[tag] else no_pending).append(tag)
+        elif tag in known_devices:
+            not_requested.append(tag)
+        else:
+            not_found.append(tag)
+
+    return JSONResponse({"found": found, "no_pending": no_pending,
+                         "not_requested": not_requested,
+                         "not_found": not_found, "errors": errors})
 
 
 @router.get("/dispatch", response_class=HTMLResponse)

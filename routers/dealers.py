@@ -1204,9 +1204,16 @@ async def dealer_calls_bulk_upload(
             if call_mode not in valid_modes:
                 call_mode = "phone"
 
+            # called_by is the rep the row names, NOT whoever ran the upload.
+            # The Telecalling Dashboard scopes Recent Calls and the agent KPI
+            # rollup by called_by, so crediting the uploader would hide every
+            # imported call from the rep who actually made it and pile the whole
+            # file onto the admin account. Fall back to the uploader only when
+            # the row names nobody.
+            row_agent = (row.get("assigned_to", "") or "").strip()
             db.add(DealerCall(
                 dealer_id=dealer.id,
-                called_by=current_user.username,
+                called_by=row_agent or current_user.username,
                 call_date=_to_date(row.get("call_date", "").strip()) or app_now(),
                 call_type=call_type,
                 call_mode=call_mode,

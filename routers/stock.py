@@ -158,30 +158,9 @@ async def list_lots(
     )
     lots = lots_result.scalars().all()
     total = len(lots)
-    lot_ids = [lot.id for lot in lots]
 
-    # Batch-fetch device counts and sold counts — two queries instead of 2N
-    dev_counts: dict = {}
-    sold_counts: dict = {}
-    if lot_ids:
-        dev_rows = await db.execute(
-            select(Device.lot_id, func.count(Device.id))
-            .where(Device.lot_id.in_(lot_ids), Device.is_active == True)
-            .group_by(Device.lot_id)
-        )
-        dev_counts = dict(dev_rows.fetchall())
-
-        sold_rows = await db.execute(
-            select(Device.lot_id, func.count(Device.id))
-            .where(Device.lot_id.in_(lot_ids), Device.current_stage == DeviceStage.sold)
-            .group_by(Device.lot_id)
-        )
-        sold_counts = dict(sold_rows.fetchall())
-
-    lot_stats = [
-        {"lot": lot, "devices": dev_counts.get(lot.id, 0), "sold": sold_counts.get(lot.id, 0)}
-        for lot in lots
-    ]
+    from utils.lot_helpers import build_lot_stats
+    lot_stats = await build_lot_stats(db, lots)
     return templates.TemplateResponse("lots/list.html", {
         "request": request, "lot_stats": lot_stats, "current_user": current_user,
         "total": total,

@@ -77,20 +77,79 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
     return user
 
 
+# Path segments whose router serves pages that no nav URL prefixes — e.g. the
+# Sales router answers /sales/new but its only nav entry is /sales/ready, so
+# prefix matching alone would miss it. Each entry lists exactly which matrix
+# modules cover that segment.
+#
+# "admin" is deliberately absent. /admin/audit-log, /admin/sidebar-config and
+# /admin/landing-pages are matrix modules, but /admin/master (User Management
+# and the Permission Matrix itself) is not — a segment-wide alias there would
+# let anyone granted the audit log grant themselves everything else.
+_SEGMENT_MODULE_ALIASES = {
+    "sales":      ("sales",),
+    "cosmetic":   ("cosmetic", "cosmetic_finalqc"),
+    "crm":        ("crm_dashboard", "crm_contacts", "crm_sourcing", "crm_sales_opp",
+                   "crm_price_matrix", "crm_purchase_orders", "crm_analytics",
+                   "crm_assign_leads"),
+    "reports":    ("reports", "report_sales", "report_stage", "report_bizpl",
+                   "report_aging", "report_overdue", "report_receivables"),
+    "locations":  ("locations", "location_gaps", "location_audit", "location_master"),
+    "accounts":   ("finance", "finance_supplier", "finance_customer"),
+    "repair":     ("repair_l1", "repair_l2", "repair_l3"),
+    "spare-parts": ("spare_parts", "spare_parts_purchase", "parts_consumption"),
+}
+
+
+def _matrix_grants_path(role_name: str, path: str) -> bool:
+    """Whether the admin-configured Module Permission matrix explicitly enables
+    the module that `path` belongs to, for `role_name`.
+
+    The matrix is the single place an admin grants access to a module, and the
+    left nav already honours it. Without this check the two disagree: a role
+    could have a module ticked ON (so the nav item renders) and still be turned
+    away with 403 by the built-in allow-list baked into each router. This closes
+    that gap.
+
+    Two ways a path is matched, in order:
+      1. Longest nav-URL prefix — /iqc/new -> "iqc", /grn/post-iqc -> "grn_post_iqc".
+      2. _SEGMENT_MODULE_ALIASES, for routers whose pages no nav URL prefixes.
+    Only EXPLICIT grants count (see has_explicit_perm), so a role with no matrix
+    row configured gains nothing here.
+    """
+    from models.role_permissions import has_explicit_perm
+    from templates_config import _resolve_module_key
+
+    module_key = _resolve_module_key(path)
+    if module_key and has_explicit_perm(role_name, module_key):
+        return True
+
+    seg = path.strip("/").split("/", 1)[0]
+    return any(has_explicit_perm(role_name, m)
+               for m in _SEGMENT_MODULE_ALIASES.get(seg, ()))
+
+
 def require_roles(*roles: UserRole):
-    async def checker(current_user: User = Depends(get_current_user)):
+    async def checker(request: Request, current_user: User = Depends(get_current_user)):
         role = current_user.role
         if role == UserRole.admin or role in roles:
             return current_user
+        role_val = getattr(role, "value", None) or str(role)
+        builtin = {r.value for r in UserRole}
         # Custom (admin-created) roles are NOT part of the UserRole enum; they are
         # governed by the Module Permission matrix (left-nav visibility + per-action
         # require_module_perm), not these built-in role allow-lists. Let a custom
         # role through any NON-admin-only gate so a module enabled for it in the
         # matrix actually works. Admin-only gates — require_roles(UserRole.admin)
-        # alone — still block custom roles.
-        role_val = getattr(role, "value", None) or str(role)
-        builtin = {r.value for r in UserRole}
+        # alone — still block custom roles unless the matrix grants them below.
         if role_val not in builtin and set(roles) != {UserRole.admin}:
+            return current_user
+        # Built-in roles reach here whenever the router's hard-coded allow-list
+        # omits them. Defer to the matrix: an explicit grant wins, including on
+        # admin-only gates, since several such modules (Stage Control, Landing
+        # Pages, System Audit Log …) are documented as "admin-only by default;
+        # grantable via matrix".
+        if _matrix_grants_path(role_val, request.url.path):
             return current_user
         raise HTTPException(status_code=403, detail="Access denied")
     return checker

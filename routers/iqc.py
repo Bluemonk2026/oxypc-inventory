@@ -522,6 +522,13 @@ async def iqc_list(
     total = len(devices)
     lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
     lots = lots_result.scalars().all()
+    # Product Lots table — same rows and counts as Lot Management, so the two
+    # pages can never disagree about how many devices a lot has registered.
+    from utils.lot_helpers import build_lot_stats
+    product_lots = await db.execute(
+        select(Lot).where(Lot.is_trashed.isnot(True)).order_by(Lot.created_at.desc())
+    )
+    lot_stats = await build_lot_stats(db, product_lots.scalars().all())
     # Model Based Summary — same builder used on Overall Inventory, scoped to
     # this page's currently-filtered device set (reuses base_filters as-is).
     model_summary = await _build_model_summary(db, base_filters)
@@ -533,6 +540,7 @@ async def iqc_list(
         "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
         "stage_labels": STAGE_LABELS,
         "model_summary": model_summary,
+        "lot_stats": lot_stats,
     })
 
 
@@ -800,7 +808,7 @@ async def iqc_export_csv(
 
 @router.get("/new", response_class=HTMLResponse)
 async def iqc_new_form(request: Request, db: AsyncSession = Depends(get_db),
-                       current_user: User = Depends(allowed),
+                       current_user: User = Depends(get_current_user),
                        lot_id: str = Query(default=""), grn_number: str = Query(default="")):
     lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
     lots = lots_result.scalars().all()
@@ -929,8 +937,11 @@ async def iqc_create(
     fan_sound_dba: str = Form(""),
     fan_working: str = Form(""),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(allowed),
-    _perm: User = Depends(require_module_perm("iqc", "add")),
+    # IQC entry is open to every signed-in user: any role that physically
+    # receives a device must be able to register it, and gating this behind the
+    # built-in allow-list plus the matrix's "add" bit was locking out roles
+    # (trc_manager among them) that do this work day to day.
+    current_user: User = Depends(get_current_user),
 ):
     existing = await db.execute(select(Device).where(Device.barcode == barcode))
     if existing.scalar_one_or_none():

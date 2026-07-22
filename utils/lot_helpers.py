@@ -1,9 +1,40 @@
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils.timezone import app_now
 from models.lot import Lot
 
 UNASSIGNED_LOT_NUMBER = "UNASSIGNED"
+
+
+async def build_lot_stats(db: AsyncSession, lots: list) -> list:
+    """Attach registered-device and sold counts to each Lot.
+
+    Two grouped queries regardless of how many lots are passed — never one per
+    lot. The app server and the database sit on opposite sides of the Pacific,
+    so a per-row query loop here would cost a round trip per lot.
+
+    Returns [{"lot": Lot, "devices": int, "sold": int}, …] in the order given.
+    """
+    from models.device import Device, DeviceStage
+
+    lot_ids = [lot.id for lot in lots]
+    dev_counts: dict = {}
+    sold_counts: dict = {}
+    if lot_ids:
+        dev_counts = dict((await db.execute(
+            select(Device.lot_id, func.count(Device.id))
+            .where(Device.lot_id.in_(lot_ids), Device.is_active == True)
+            .group_by(Device.lot_id)
+        )).fetchall())
+        sold_counts = dict((await db.execute(
+            select(Device.lot_id, func.count(Device.id))
+            .where(Device.lot_id.in_(lot_ids), Device.current_stage == DeviceStage.sold)
+            .group_by(Device.lot_id)
+        )).fetchall())
+    return [
+        {"lot": lot, "devices": dev_counts.get(lot.id, 0), "sold": sold_counts.get(lot.id, 0)}
+        for lot in lots
+    ]
 
 
 async def get_or_create_unassigned_lot(db: AsyncSession) -> Lot:

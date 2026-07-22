@@ -178,3 +178,21 @@ def has_perm(role_name: str, module: str, action: str = "enable") -> bool:
     if not mod_perms:
         return True   # module not in matrix → allow
     return bool(mod_perms.get("enable", True))
+
+
+def has_explicit_perm(role_name: str, module: str) -> bool:
+    """True only when the matrix holds an explicit row ENABLING `module` for
+    `role_name`.
+
+    Deliberately stricter than has_perm(): an absent row means "not granted"
+    here, not "allowed by default". This is used to WIDEN access past the
+    built-in role allow-lists in require_roles(), so treating a missing row as a
+    grant would hand every role every page and delete RBAC entirely.
+    """
+    if role_name == "admin":
+        return True
+    role_perms = _PERM_CACHE.get(role_name)
+    if not role_perms:
+        return False
+    mod_perms = role_perms.get(module)
+    return bool(mod_perms and mod_perms.get("enable"))

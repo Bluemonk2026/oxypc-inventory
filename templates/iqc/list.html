@@ -184,6 +184,82 @@
   </div>
 </div>
 
+<!-- Product Lots — the Lot Management table, surfaced here so a lot can be
+     created or imported without leaving IQC. Same rows, same counts. -->
+<div class="card border-0 shadow-sm mt-3">
+  <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <strong class="small text-nowrap"><i class="bi bi-box-seam me-1"></i>Product Lots
+      <span class="text-muted fw-normal">({{ lot_stats|length }})</span>
+    </strong>
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="/bulk-upload/template/lots" class="btn btn-outline-secondary btn-sm text-nowrap"
+         title="Download a sample CSV with the exact column headers">
+        <i class="bi bi-file-earmark-arrow-down me-1"></i>Sample File
+      </a>
+      <a href="/bulk-upload?type=lots" class="btn btn-outline-success btn-sm text-nowrap">
+        <i class="bi bi-cloud-upload me-1"></i>Upload Lots
+      </a>
+      <a href="/lots/new" class="btn btn-primary btn-sm text-nowrap">
+        <i class="bi bi-plus-circle me-1"></i>Add Lot
+      </a>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="iqcProductLotsTable" class="table table-hover table-sm mb-0">
+        <thead class="table-dark">
+          <tr>
+            <th>Lot #</th>
+            <th>GRN #</th>
+            <th>Supplier</th>
+            <th>Purchase Date</th>
+            <th>Rcvd Date</th>
+            <th>Invoice No.</th>
+            {% if can_view_pricing(current_user) %}<th>Invoice Value</th>{% endif %}
+            <th>Qty</th>
+            <th>Registered</th>
+            <th>Sold</th>
+            {% if can_view_pricing(current_user) %}<th>Buying Price</th>{% endif %}
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for stat in lot_stats %}
+          {% set lot = stat.lot %}
+          <tr>
+            <td><a href="/lots/{{ lot.id }}" class="fw-semibold text-decoration-none font-monospace">{{ lot.lot_number }}</a></td>
+            <td class="font-monospace text-muted small">
+              {% if lot.grn_system_number %}{{ lot.grn_system_number }}
+              {% elif lot.grn_number_new %}{{ lot.grn_number_new }}
+              {% else %}<span class="text-warning">—</span>{% endif %}
+            </td>
+            <td class="small">{{ lot.supplier_name }}</td>
+            <td class="small">{{ lot.purchase_date.strftime('%d-%m-%Y') if lot.purchase_date else '—' }}</td>
+            <td class="small">{{ lot.grn_date.strftime('%d-%m-%Y') if lot.grn_date else '—' }}</td>
+            <td class="font-monospace small">{{ lot.invoice_no or '—' }}</td>
+            {% if can_view_pricing(current_user) %}
+            <td class="small">{% if lot.invoice_value %}₹{{ "{:,.0f}".format(lot.invoice_value) }}{% else %}—{% endif %}</td>
+            {% endif %}
+            <td class="text-center small">{{ lot.qty }}</td>
+            <td class="text-center"><span class="badge bg-primary">{{ stat.devices }}</span></td>
+            <td class="text-center"><span class="badge bg-success">{{ stat.sold }}</span></td>
+            {% if can_view_pricing(current_user) %}
+            <td class="fw-semibold text-danger small">₹{{ "{:,.0f}".format(lot.buying_price or 0) }}</td>
+            {% endif %}
+            <td class="text-nowrap">
+              <a href="/lots/{{ lot.id }}/edit" class="btn btn-sm btn-outline-secondary py-0">Edit</a>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not lot_stats %}
+          <tr><td colspan="12" class="text-center text-muted small py-3">No lots yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <!-- IQC Model Based Summary Customise modal -->
 <div class="modal fade" id="iqcModelCustomiseModal" tabindex="-1">
   <div class="modal-dialog">
@@ -416,6 +492,15 @@ $(document).ready(function(){
   });
   $('#iqcModelSummaryTable').on('change', '.iqcModelRowChk', updateModelSel);
   dtModel.on('draw', function(){ $('#iqcModelSelectAllChk').prop('checked', false); updateModelSel(); });
+
+  // Product Lots — client-side pagination + search, same as the tables above
+  $('#iqcProductLotsTable').DataTable({
+    pageLength: 12,
+    order: [],
+    columnDefs: [{ orderable: false, targets: -1 }],
+    dom: '<"d-flex justify-content-between align-items-center mb-2"lfp>t<"d-flex justify-content-between"ip>',
+    language: { search: '', searchPlaceholder: 'Search lots…' },
+  });
 });
 
 function openIqcModelCustomiseModal(){

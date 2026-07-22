@@ -3,17 +3,31 @@
 {% block page_title %}Dealer Management{% endblock %}
 {% block content %}
 
+{# Filter bar: fields flex to share the available width so the whole row —
+   including the Filter/Clear buttons — fits on one line. Fixed pixel widths
+   were what pushed it onto a second row. Wraps only below 1200px. #}
+<style>
+  #dealerFilterForm { flex-wrap: nowrap; }
+  #dealerFilterForm .flt { flex: 1 1 0; min-width: 0; }
+  #dealerFilterForm .flt-sm { flex: 0 1 92px; min-width: 0; }
+  #dealerFilterForm .flt label { white-space: nowrap; }
+  #dealerFilterForm .flt-btns { flex: 0 0 auto; }
+  @media (max-width: 1199.98px) {
+    #dealerFilterForm { flex-wrap: wrap; }
+    #dealerFilterForm .flt, #dealerFilterForm .flt-sm { flex: 0 0 auto; min-width: 130px; }
+  }
+</style>
 <div class="d-flex flex-wrap gap-2 align-items-start mb-3">
-  <form method="get" class="d-flex flex-wrap gap-2 align-items-end flex-grow-1">
-    <div>
+  <form method="get" id="dealerFilterForm" class="d-flex gap-2 align-items-end flex-grow-1">
+    <div class="flt" style="flex-grow:2">
       <label class="form-label form-label-sm mb-1 text-muted small">Search</label>
-      <input type="text" name="q" value="{{ q }}" placeholder="Company, location, address, mobile, email..."
-             class="form-control form-control-sm" style="width:240px">
+      <input type="text" name="q" value="{{ q }}" placeholder="Company, city, phone, email…"
+             class="form-control form-control-sm">
     </div>
 
-    <div>
+    <div class="flt">
       <label class="form-label form-label-sm mb-1 text-muted small">Status</label>
-      <select name="status" class="form-select form-select-sm" style="width:130px">
+      <select name="status" class="form-select form-select-sm">
         <option value="">All Status</option>
         <option value="active" {% if status=='active' %}selected{% endif %}>Active</option>
         <option value="inactive" {% if status=='inactive' %}selected{% endif %}>Inactive</option>
@@ -23,9 +37,9 @@
 
     {# Admin sees full user dropdown; sales_manager sees Mine Only; sales/telecaller get no dropdown (auto-scoped) #}
     {% if current_user.role.value == 'admin' %}
-    <div>
+    <div class="flt">
       <label class="form-label form-label-sm mb-1 text-muted small">Assigned To</label>
-      <select name="assigned" class="form-select form-select-sm" style="width:165px">
+      <select name="assigned" class="form-select form-select-sm">
         <option value="">All Executives</option>
         {% for u in sales_users %}
         <option value="{{ u.username }}" {% if assigned == u.username %}selected{% endif %}>
@@ -35,79 +49,51 @@
       </select>
     </div>
     {% elif current_user.role.value == 'sales_manager' %}
-    <div>
+    <div class="flt">
       <label class="form-label form-label-sm mb-1 text-muted small">Assigned To</label>
-      <select name="assigned" class="form-select form-select-sm" style="width:150px">
+      <select name="assigned" class="form-select form-select-sm">
         <option value="">All My Team</option>
         <option value="{{ current_user.username }}" {% if assigned==current_user.username %}selected{% endif %}>Mine Only</option>
       </select>
     </div>
     {% endif %}
 
-    <div>
+    <div class="flt">
       <label class="form-label form-label-sm mb-1 text-muted small">City</label>
       <input type="text" name="city" class="form-control form-control-sm"
-             placeholder="City" value="{{ city }}" style="width:120px">
+             placeholder="City" value="{{ city }}">
     </div>
 
-    <div>
-      <label class="form-label form-label-sm mb-1 text-muted small">Calling Date From</label>
+    <div class="flt">
+      <label class="form-label form-label-sm mb-1 text-muted small">Calling From</label>
       <input type="date" name="calling_date_from" class="form-control form-control-sm"
-             value="{{ calling_date_from }}" style="width:145px">
+             value="{{ calling_date_from }}">
     </div>
-    <div>
-      <label class="form-label form-label-sm mb-1 text-muted small">Calling Date To</label>
+    <div class="flt">
+      <label class="form-label form-label-sm mb-1 text-muted small">Calling To</label>
       <input type="date" name="calling_date_to" class="form-control form-control-sm"
-             value="{{ calling_date_to }}" style="width:145px">
+             value="{{ calling_date_to }}">
     </div>
 
-    <div>
-      <label class="form-label form-label-sm mb-1 text-muted small">Required Qty</label>
+    <div class="flt-sm">
+      <label class="form-label form-label-sm mb-1 text-muted small">Req Qty</label>
       <input type="number" name="filter_qty" min="0" value="{{ filter_qty }}"
-             class="form-control form-control-sm" style="width:110px">
+             class="form-control form-control-sm">
     </div>
-    <div>
-      <label class="form-label form-label-sm mb-1 text-muted small">Purchase Qty</label>
+    <div class="flt-sm">
+      <label class="form-label form-label-sm mb-1 text-muted small">Purch Qty</label>
       <input type="number" name="filter_purchase_qty" min="0" value="{{ filter_purchase_qty }}"
-             class="form-control form-control-sm" style="width:110px">
+             class="form-control form-control-sm">
     </div>
-    <div>
-      <label class="form-label form-label-sm mb-1 text-muted small">Selling Qty</label>
+    <div class="flt-sm">
+      <label class="form-label form-label-sm mb-1 text-muted small">Sell Qty</label>
       <input type="number" name="filter_sale_qty" min="0" value="{{ filter_sale_qty }}"
-             class="form-control form-control-sm" style="width:110px">
+             class="form-control form-control-sm">
     </div>
-    <div>
-      <label class="form-label form-label-sm mb-1 text-muted small">Whom to Sale</label>
-      <select name="filter_whom_to_sell" class="form-select form-select-sm" style="width:140px">
-        <option value="">All</option>
-        {% for val in whom_to_sell_options %}
-        <option value="{{ val }}" {% if filter_whom_to_sell==val %}selected{% endif %}>{{ val }}</option>
-        {% endfor %}
-      </select>
+    <div class="flt-btns d-flex gap-1">
+      <button class="btn btn-sm btn-outline-primary">Filter</button>
+      <a href="/dealers" class="btn btn-sm btn-outline-secondary">Clear</a>
     </div>
-    <div>
-      <label class="form-label form-label-sm mb-1 text-muted small">Imported / Indian</label>
-      <select name="filter_deals_in" class="form-select form-select-sm" style="width:140px">
-        <option value="">All</option>
-        {% for val in deals_in_options %}
-        <option value="{{ val }}" {% if filter_deals_in==val %}selected{% endif %}>{{ val }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <div>
-      <label class="form-label form-label-sm mb-1 text-muted small">Follow-up From</label>
-      <input type="date" name="followup_from" class="form-control form-control-sm"
-             value="{{ followup_from }}" style="width:145px">
-    </div>
-    <div>
-      <label class="form-label form-label-sm mb-1 text-muted small">Follow-up To</label>
-      <input type="date" name="followup_to" class="form-control form-control-sm"
-             value="{{ followup_to }}" style="width:145px">
-    </div>
-
-    <button class="btn btn-sm btn-outline-primary">Filter</button>
-    <a href="/dealers" class="btn btn-sm btn-outline-secondary">Clear</a>
   </form>
 
   <div class="d-flex gap-2 ms-auto">
@@ -160,7 +146,6 @@
         Follow-ups Due
         <i class="bi bi-info-circle ms-1" style="font-size:0.7rem"></i>
       </div>
-      <div class="text-muted" style="font-size:0.65rem">(latest status + overdue)</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
@@ -175,12 +160,12 @@
 <div class="row g-2 mb-4">
   {% set base_qs = '?' ~ request.query_string.decode() %}
   {% for outcome_key, label, color, icon in [
-    ('interested',     'Interested',        'success',   'bi-hand-thumbs-up-fill'),
-    ('not_interested', 'Not Interested',    'danger',    'bi-hand-thumbs-down-fill'),
-    ('callback',       'Callback Request',  'warning',   'bi-arrow-repeat'),
-    ('followup',       'Follow-Ups',        'info',      'bi-calendar-check-fill'),
-    ('no_answer',      'No Answer',         'secondary', 'bi-telephone-x-fill'),
-    ('order_placed',   'Order Placed',      'primary',   'bi-bag-check-fill')
+    ('interested',     'Interested',     'success',   'bi-hand-thumbs-up-fill'),
+    ('not_interested', 'Not Interested', 'danger',    'bi-hand-thumbs-down-fill'),
+    ('details_sent',   'Detail Sent',    'info',      'bi-send-fill'),
+    ('callback',       'Callback',       'warning',   'bi-arrow-repeat'),
+    ('not_connected',  'Not Connected',  'secondary', 'bi-telephone-x-fill'),
+    ('no_requirement', 'No Requirement', 'dark',      'bi-slash-circle')
   ] %}
   <div class="col-6 col-sm-4 col-lg-2">
     <div class="card border-0 shadow-sm text-center py-2 px-1 h-100"
@@ -228,13 +213,18 @@
           </tr>
         </thead>
         <tbody>
+          {# Keys are the canonical outcome keys from utils/call_outcomes.py —
+             the same ones the cards above count, so badge and card agree. #}
           {% set oc_colors = {
             'interested': 'success',
-            'order_placed': 'primary',
-            'callback': 'warning',
             'not_interested': 'danger',
-            'no_answer': 'secondary',
-            'do_not_call': 'dark',
+            'details_sent': 'info',
+            'callback': 'warning',
+            'not_connected': 'secondary',
+            'no_requirement': 'dark',
+            'language_barrier': 'dark',
+            'busy': 'secondary',
+            'order_placed': 'primary',
             'followup': 'info'
           } %}
           {% for d in dealers %}
@@ -274,7 +264,7 @@
             <td>
               {% if rc.get('outcome') %}
               <span class="badge bg-{{ oc_colors.get(rc.outcome, 'secondary') }} bg-opacity-75">
-                {{ rc.outcome | replace('_', ' ') | title }}
+                {{ outcome_labels.get(rc.outcome, rc.outcome | replace('_', ' ') | title) }}
               </span>
               {% else %}<span class="text-muted small">—</span>{% endif %}
             </td>

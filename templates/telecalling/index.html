@@ -6,12 +6,12 @@
 <!-- KPI Cards — counts match the Recent Calls table below -->
 <div class="row g-3 mb-1">
   {% set stats = [
-    ('Total Calls',        today_stats.get('total',0),          'primary',   'bi-telephone',         ''),
-    ('Interested',         today_stats.get('interested',0),     'success',   'bi-star-fill',          'outcome=interested'),
-    ('Callback Requested', today_stats.get('callback',0),       'warning',   'bi-arrow-repeat',       'outcome=callback'),
-    ('Not Interested',     today_stats.get('not_interested',0), 'danger',    'bi-x-circle',           'outcome=not_interested'),
-    ('No Answer',          today_stats.get('no_answer',0),      'secondary', 'bi-telephone-x',        'outcome=no_answer'),
-    ('Connected',          today_stats.get('connected',0),      'info',      'bi-telephone-fill',     ''),
+    ('Total Calls',    today_stats.get('total',0),          'primary',   'bi-telephone',      ''),
+    ('Interested',     today_stats.get('interested',0),     'success',   'bi-star-fill',      'outcome=interested'),
+    ('Callback',       today_stats.get('callback',0),       'warning',   'bi-arrow-repeat',   'outcome=callback'),
+    ('Not Interested', today_stats.get('not_interested',0), 'danger',    'bi-x-circle',       'outcome=not_interested'),
+    ('Not Connected',  today_stats.get('not_connected',0),  'secondary', 'bi-telephone-x',    'outcome=not_connected'),
+    ('Connected',      today_stats.get('connected',0),      'info',      'bi-telephone-fill', ''),
   ] %}
   {% for label, val, color, icon, filter_qs in stats %}
   <div class="col-6 col-md-2">

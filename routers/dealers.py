@@ -12,6 +12,9 @@ from sqlalchemy import select, func, Integer, delete as sa_delete, text as sa_te
 from sqlalchemy.orm import selectinload
 from database import get_db
 from utils.csv_decode import decode_csv_bytes
+from utils.call_outcomes import (
+    OUTCOME_LABELS, normalize_outcome as _norm_outcome, tally as _tally_outcomes,
+)
 from models.dealers import Dealer, DealerCall, DealerAssignment, DealerOrder, DealerCreditNote
 from models.user import User, UserRole
 from models.master import MasterData
@@ -298,7 +301,9 @@ async def list_dealers(
         recent_call_map = {
             str(r.dealer_id): {
                 "call_id": str(r.id),
-                "outcome": r.call_outcome,
+                # Canonical key so the Status badge and the outcome cards above
+                # it can never disagree about what the same call was.
+                "outcome": _norm_outcome(r.call_outcome),
                 "items_text": r.items_discussed or "",
                 "next_followup_date": r.next_followup_date,
                 "call_date": r.call_date,
@@ -323,7 +328,9 @@ async def list_dealers(
         .where(ranked_calls_inner.c.rn == 1)
         .group_by(ranked_calls_inner.c.call_outcome)
     )).all()
-    outcome_stats: dict = {(row.call_outcome or ""): row.cnt for row in outcome_rows}
+    # Fold spelling variants together — the imported rows say "not connected"
+    # where the in-app form says "no_answer", and both must hit the same card.
+    outcome_stats: dict = _tally_outcomes((row.call_outcome, row.cnt) for row in outcome_rows)
 
     # ── Follow-up counts — scoped to the logged-in user's own dealers unless
     # admin/Sourcing Sales (see the count across all dealers, ignoring assignment) ───
@@ -405,6 +412,7 @@ async def list_dealers(
         "outstanding": f"{outstanding:,}",
         "recent_call_map": recent_call_map,
         "outcome_stats": outcome_stats,
+        "outcome_labels": OUTCOME_LABELS,
         "sales_users": sales_users,
         "assignee_name_map": assignee_name_map,
         "per_page": PER_PAGE,

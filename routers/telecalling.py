@@ -9,6 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import selectinload
 from database import get_db
+from utils.call_outcomes import (
+    tally as _tally_outcomes,
+    variants_for as _outcome_variants,
+    normalized_column as _norm_outcome_col,
+)
 from models.telecalling import TelecallingRecord, TelecallingSession
 from models.dealers import Dealer, DealerCall
 from models.user import User, UserRole
@@ -74,7 +79,10 @@ async def index(
         recent_filters.append(DealerCall.called_by == current_user.username)
 
     if outcome:
-        recent_filters.append(DealerCall.call_outcome == outcome)
+        # Match every spelling that folds onto this outcome — an exact compare
+        # would return nothing for rows the bulk upload stored as "not connected".
+        recent_filters.append(
+            _norm_outcome_col(DealerCall.call_outcome).in_(_outcome_variants(outcome)))
 
     if followup_from:
         try:
@@ -105,14 +113,12 @@ async def index(
         dealer_filters.append(Dealer.city.ilike(f"%{city}%"))
 
     # ── KPI cards — aggregate from the SAME filtered dataset as the table ────
+    # Grouped by RAW outcome, then folded onto canonical keys in Python.
+    # Matching on exact strings here silently missed every bulk-uploaded call:
+    # the sheet says "not connected" / "call back", the in-app form writes
+    # "no_answer" / "callback", so these cards read ~0 against 1,051 real calls.
     stat_stmt = (
-        select(
-            func.count(DealerCall.id),                                                         # 0 total
-            func.count(sa_case((DealerCall.call_outcome == 'interested',        1))),          # 1 interested
-            func.count(sa_case((DealerCall.call_outcome == 'callback',          1))),          # 2 callback
-            func.count(sa_case((DealerCall.call_outcome == 'not_interested',    1))),          # 3 not_interested
-            func.count(sa_case((DealerCall.call_outcome == 'no_answer',         1))),          # 4 no_answer
-        )
+        select(DealerCall.call_outcome, func.count(DealerCall.id))
         .select_from(DealerCall)
         .join(Dealer, DealerCall.dealer_id == Dealer.id)
         # Calls belonging to a trashed dealer are hidden. Showing them left
@@ -124,18 +130,24 @@ async def index(
     if dealer_filters:
         stat_stmt = stat_stmt.where(*dealer_filters)
 
-    stat_row = (await db.execute(stat_stmt)).one()
-    _interested    = int(stat_row[1] or 0)
-    _callback      = int(stat_row[2] or 0)
-    _not_interested = int(stat_row[3] or 0)
+    stat_stmt = stat_stmt.group_by(DealerCall.call_outcome)
+    stat_rows = (await db.execute(stat_stmt)).all()
+    counts = _tally_outcomes((row[0], row[1]) for row in stat_rows)
     today_stats = {
-        "total":          int(stat_row[0] or 0),
-        "interested":     _interested,
-        "callback":       _callback,
-        "not_interested": _not_interested,
-        "no_answer":      int(stat_row[4] or 0),
-        # Connected = calls that were actually answered (interested + callback + not_interested)
-        "connected":      _interested + _callback + _not_interested,
+        # Total counts every row, including calls logged with no outcome yet —
+        # tally() drops blanks, so summing its values would under-report.
+        "total":          sum(int(r[1] or 0) for r in stat_rows),
+        "interested":     counts.get("interested", 0),
+        "callback":       counts.get("callback", 0),
+        "not_interested": counts.get("not_interested", 0),
+        "not_connected":  counts.get("not_connected", 0),
+        # Connected = the call was actually answered. Someone who sent details,
+        # hit a language barrier, said "no requirement" or asked for a callback
+        # all picked up the phone; Not Connected / Busy did not.
+        "connected":      (counts.get("details_sent", 0)
+                           + counts.get("language_barrier", 0)
+                           + counts.get("no_requirement", 0)
+                           + counts.get("callback", 0)),
     }
 
     # ── Recent calls table — same filters, all matching rows (client-side
@@ -221,7 +233,10 @@ async def export_calls_csv(
         recent_filters.append(DealerCall.called_by == current_user.username)
 
     if outcome:
-        recent_filters.append(DealerCall.call_outcome == outcome)
+        # Match every spelling that folds onto this outcome — an exact compare
+        # would return nothing for rows the bulk upload stored as "not connected".
+        recent_filters.append(
+            _norm_outcome_col(DealerCall.call_outcome).in_(_outcome_variants(outcome)))
 
     if followup_from:
         try:

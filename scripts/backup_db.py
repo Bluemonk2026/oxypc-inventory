@@ -88,7 +88,11 @@ def prune_old_backups():
 def run_backup() -> Path:
     """Run pg_dump, gzip the output, return the backup file path."""
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    # Local time, not UTC. The filename is how an operator picks a restore point
+    # under pressure, so it must match the wall clock they are reading it by.
+    # With utcnow() on an IST server the 23:00 nightly run was stamped 17:30 with
+    # the PREVIOUS day's date - inviting a restore to the wrong day.
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_path  = BACKUP_DIR / f"oxypc_{timestamp}.sql.gz"
 
     env = os.environ.copy()

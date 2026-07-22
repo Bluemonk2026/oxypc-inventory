@@ -41,6 +41,10 @@ async def index(
         select(DealerCall)
         .options(selectinload(DealerCall.dealer))
         .join(Dealer, DealerCall.dealer_id == Dealer.id)
+        # Calls belonging to a trashed dealer are hidden. Showing them left
+        # rows on this page that could not be reached or removed from Dealer
+        # Management, so deleting a dealer looked like it had done nothing.
+        .where(Dealer.trashed_at.is_(None))
         .where(
             func.date(DealerCall.next_followup_date) == today,
             DealerCall.call_outcome != 'not_interested',
@@ -111,6 +115,10 @@ async def index(
         )
         .select_from(DealerCall)
         .join(Dealer, DealerCall.dealer_id == Dealer.id)
+        # Calls belonging to a trashed dealer are hidden. Showing them left
+        # rows on this page that could not be reached or removed from Dealer
+        # Management, so deleting a dealer looked like it had done nothing.
+        .where(Dealer.trashed_at.is_(None))
         .where(*recent_filters)
     )
     if dealer_filters:
@@ -137,6 +145,10 @@ async def index(
         select(DealerCall)
         .options(selectinload(DealerCall.dealer))
         .join(Dealer, DealerCall.dealer_id == Dealer.id)
+        # Calls belonging to a trashed dealer are hidden. Showing them left
+        # rows on this page that could not be reached or removed from Dealer
+        # Management, so deleting a dealer looked like it had done nothing.
+        .where(Dealer.trashed_at.is_(None))
         .where(*recent_filters)
     )
     if dealer_filters:
@@ -244,6 +256,10 @@ async def export_calls_csv(
         select(DealerCall)
         .options(selectinload(DealerCall.dealer))
         .join(Dealer, DealerCall.dealer_id == Dealer.id)
+        # Calls belonging to a trashed dealer are hidden. Showing them left
+        # rows on this page that could not be reached or removed from Dealer
+        # Management, so deleting a dealer looked like it had done nothing.
+        .where(Dealer.trashed_at.is_(None))
         .where(*recent_filters)
     )
     if dealer_filters:

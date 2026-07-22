@@ -979,18 +979,15 @@ async def dealers_bulk_upload_submit(
         if not business_name:
             skipped.append({"row": i, "reason": "business_name is empty"})
             continue
-        if business_name.lower() in existing_names_lower:
-            skipped.append({"row": i, "business_name": business_name, "reason": f"Business name '{business_name}' already exists"})
-            continue
+        # Duplicate checks removed by request: the same business name or phone may
+        # legitimately appear many times (multiple branches, shared landlines,
+        # re-canvassing the same shop). Rejecting them silently dropped real rows
+        # and the operator could not tell which. Every row is now imported.
 
         # Phone cell may hold multiple numbers (comma/slash/semicolon/pipe-separated,
         # or just a long run of digits) — accepted and stored as-is, no format rejection.
         phone_raw = row.get("phone", "").strip()
         phone = phone_raw or None
-        if phone:
-            if phone in existing_phones:
-                skipped.append({"row": i, "business_name": business_name, "reason": f"Phone {phone} already exists"})
-                continue
 
         dealer_type = row.get("dealer_type", "retail").strip().lower() or "retail"
         if dealer_type not in valid_types:
@@ -1160,6 +1157,9 @@ async def dealer_calls_bulk_upload(
     valid_modes = {"phone", "whatsapp", "in_person"}
 
     inserted, errors = 0, []
+    created_dealers, new_seq = 0, 1
+    new_code_base = ((await db.execute(select(func.count(Dealer.id)))).scalar() or 0) + 1
+
     for i, row in enumerate(rows, start=2):  # row 1 = header
         try:
             phone = row.get("dealer_phone", "").strip()
@@ -1168,10 +1168,34 @@ async def dealer_calls_bulk_upload(
             if dealer is None and name:
                 dealer = by_name.get(name.lower())
             if dealer is None:
-                errors.append(
-                    f"Row {i}: no dealer found for phone '{phone or '-'}' / business_name '{name or '-'}'"
+                # Unknown dealer: create it from this row rather than rejecting the
+                # call. A telecaller's sheet IS the source of new leads — refusing
+                # rows for dealers that don't exist yet meant the operator had to
+                # import the same list twice, once per uploader, to get any of it in.
+                if not (phone or name):
+                    errors.append(f"Row {i}: needs a dealer_phone or a business_name")
+                    continue
+                dealer = Dealer(
+                    dealer_code=f"DLR-{new_code_base + new_seq:04d}",
+                    business_name=name or (phone or "Unknown"),
+                    phone=phone or None,
+                    dealer_type="retail",
+                    assigned_to=(row.get("assigned_to", "").strip() or None),
+                    created_by=current_user.username,
+                    added_by=current_user.username,
+                    source="Call Records Bulk Upload",
                 )
-                continue
+                new_seq += 1
+                db.add(dealer)
+                # flush so dealer.id exists for the DealerCall FK below, and so the
+                # next row referencing the same phone/name reuses this one instead
+                # of creating a second copy within the same file.
+                await db.flush()
+                if phone:
+                    by_phone[phone] = dealer
+                if name:
+                    by_name[name.lower()] = dealer
+                created_dealers += 1
 
             call_type = (row.get("call_type", "").strip().lower() or "outbound")
             if call_type not in valid_types:
@@ -1207,12 +1231,14 @@ async def dealer_calls_bulk_upload(
 
     await audit(db, action="DEALER_CALL_BULK_UPLOAD", user=current_user,
                 table_name="dealer_calls", record_id="bulk",
-                new_value={"inserted": inserted, "skipped": len(errors), "rows": len(rows)})
+                new_value={"inserted": inserted, "created_dealers": created_dealers,
+                           "skipped": len(errors), "rows": len(rows)})
     await db.commit()
 
     return templates.TemplateResponse("bulk_upload/result.html", {
         "request": request, "current_user": current_user,
-        "upload_type": "Dealer Call Records",
+        "upload_type": (f"Dealer Call Records — {created_dealers} new dealer(s) created"
+                        if created_dealers else "Dealer Call Records"),
         "inserted": inserted, "errors": errors,
         "back_url": "/dealers",
     })

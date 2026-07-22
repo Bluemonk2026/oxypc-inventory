@@ -1,0 +1,23 @@
+# Poll schedule for oxypc-autodeploy.service — copy to /etc/systemd/system/
+#
+# Every 2 minutes. A poll with no new commits is a single small `git fetch`,
+# so the cost is negligible and the worst-case lag between `git push` and the
+# change being live on this box is about 2 minutes — comparable to Railway's
+# own build-and-deploy time, so both environments land at roughly the same moment.
+#
+# Deliberately a timer and not a webhook: this server has a private address
+# that GitHub cannot reach. Polling is an outbound connection, so it needs no
+# inbound firewall rule and exposes nothing.
+
+[Unit]
+Description=Poll origin/main every 2 minutes and deploy changes
+
+[Timer]
+# First check shortly after boot, so a reboot picks up anything missed while off.
+OnBootSec=90s
+OnUnitActiveSec=2min
+AccuracySec=15s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,30 @@
+# OxyPC auto-deploy — copy to /etc/systemd/system/
+#
+#   sudo cp deploy/oxypc-autodeploy.service /etc/systemd/system/
+#   sudo cp deploy/oxypc-autodeploy.timer   /etc/systemd/system/
+#   sudo cp deploy/oxypc-autodeploy.sh      /usr/local/bin/oxypc-autodeploy
+#   sudo chmod 755 /usr/local/bin/oxypc-autodeploy
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now oxypc-autodeploy.timer
+#
+# Watch  : journalctl -u oxypc-autodeploy -f
+# Pause  : sudo systemctl stop oxypc-autodeploy.timer     (e.g. during a cutover)
+# Resume : sudo systemctl start oxypc-autodeploy.timer
+# Now    : sudo systemctl start oxypc-autodeploy.service
+#
+# Runs as root because it restarts oxypc.service and chowns files to www-data.
+# It only ever FETCHES from GitHub using a read-only deploy key, so a
+# compromise of this box cannot push anything back to the repository.
+
+[Unit]
+Description=OxyPC Inventory auto-deploy from origin/main
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/oxypc
+ExecStart=/usr/local/bin/oxypc-autodeploy
+# A deploy that hangs must not block the next poll forever.
+TimeoutStartSec=600

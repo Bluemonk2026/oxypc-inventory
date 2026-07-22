@@ -1,0 +1,31 @@
+# OxyPC nightly database backup — copy to /etc/systemd/system/
+#
+#   sudo cp deploy/oxypc-backup.service /etc/systemd/system/
+#   sudo cp deploy/oxypc-backup.timer   /etc/systemd/system/
+#   sudo cp deploy/oxypc-backup.sh      /usr/local/bin/oxypc-backup
+#   sudo chmod 755 /usr/local/bin/oxypc-backup
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now oxypc-backup.timer
+#
+# Check it:  systemctl list-timers oxypc-backup.timer
+# Run now :  systemctl start oxypc-backup.service
+# History :  journalctl -u oxypc-backup
+#
+# Type=oneshot, so `systemctl is-active` reports "inactive" after a SUCCESSFUL
+# run — that is normal and not a fault. Use `systemctl show -p Result` or the
+# journal to judge success.
+
+[Unit]
+Description=OxyPC Inventory nightly database backup
+After=postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/oxypc
+ExecStart=/usr/local/bin/oxypc-backup
+# Files must stay group-readable so the admin Database Backup panel
+# (/admin/backup-list, /admin/backup-download) can list and serve them.
+UMask=0027

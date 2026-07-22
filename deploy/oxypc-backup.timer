@@ -1,0 +1,23 @@
+# Nightly schedule for oxypc-backup.service — copy to /etc/systemd/system/
+#
+# A systemd timer rather than cron, for two reasons that matter operationally:
+#   - every run is recorded in the journal (journalctl -u oxypc-backup), so
+#     "did last night's backup actually run?" has an answer
+#   - Persistent=true means a run missed because the server was powered off
+#     fires as soon as it is back, instead of silently skipping the night
+#
+# OnCalendar is interpreted in the SERVER's timezone. This box is Asia/Kolkata,
+# so 23:00 here is 23:00 IST. Check with: timedatectl
+
+[Unit]
+Description=Run OxyPC database backup nightly at 23:00 IST
+
+[Timer]
+OnCalendar=*-*-* 23:00:00
+Persistent=true
+# Small jitter so the dump does not start at the exact same instant as any
+# other 23:00 job on the network.
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

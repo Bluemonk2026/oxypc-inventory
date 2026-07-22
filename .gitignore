@@ -36,6 +36,13 @@ uploads/*
 # ─── Trade Partner payment proofs (financial docs — never public, never in git) ───
 private_uploads/
 
+# ─── Generated stress-test reports (runtime output, not source) ─────
+# Written by the stress-test module at run time. Without this they show as
+# untracked on every server, and `git clean -fd` on a deploy box would delete
+# them alongside anything else unignored sitting in the tree.
+static/stress_reports/*
+!static/stress_reports/.gitkeep
+
 # ─── Database backups & dumps ───────────────────────────────────────
 backups/
 *.dump

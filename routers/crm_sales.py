@@ -81,9 +81,34 @@ async def list_opportunities(
         for c in cr.scalars().all():
             contacts_map[str(c.id)] = c
 
+    # ── Lot behind each Buyer Deal that came from a won bid ─────────────────
+    # The opportunity has no lot FK — Mark Won only puts the lot number in the
+    # title — so resolve it through the winning bid that created it.
+    from models.partner import PartnerBid
+    from models.lot import Lot
+
+    opp_lots = {}
+    opp_ids = [o.id for o in opps]
+    if opp_ids:
+        won_bids = (await db.execute(
+            select(PartnerBid).where(
+                PartnerBid.opportunity_id.in_(opp_ids),
+                PartnerBid.lot_id.isnot(None),
+            )
+        )).scalars().all()
+        if won_bids:
+            lots_map = {l.id: l for l in (await db.execute(select(Lot).where(
+                Lot.id.in_({b.lot_id for b in won_bids})))).scalars().all()}
+            for b in won_bids:
+                lot = lots_map.get(b.lot_id)
+                if lot:
+                    opp_lots[str(b.opportunity_id)] = {
+                        "lot_id": str(lot.id), "lot_number": lot.lot_number,
+                    }
+
     return templates.TemplateResponse("crm/sales/list.html", {
         "request": request, "current_user": current_user,
-        "opps": opps, "contacts_map": contacts_map,
+        "opps": opps, "contacts_map": contacts_map, "opp_lots": opp_lots,
         "pipeline_value": pipeline_value, "overdue_count": overdue_count,
         "q": q, "stage": stage, "buyer_type": buyer_type,
         "priority": priority, "assigned": assigned,

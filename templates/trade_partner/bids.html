@@ -10,13 +10,13 @@
 <div class="alert alert-danger py-2"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
 {% endif %}
 
-{% macro bid_table(rows, table_id, show_actions) %}
+{% macro bid_table(rows, table_id, mode) %}
+{# mode: 'active' -> Mark Won action | 'won' -> who/when | 'lost' -> why #}
 <div class="table-responsive">
   <table class="table table-sm table-hover align-middle mb-0" id="{{ table_id }}">
     <thead class="table-light">
       <tr>
         <th>Bid Amount</th>
-        <th>Dealer Name</th>
         <th>Bid ID</th>
         <th>Lot Number</th>
         <th>Account Name</th>
@@ -24,21 +24,41 @@
         <th>Account Category</th>
         <th>Manager Name</th>
         <th>Download</th>
-        <th>{{ 'Actions' if show_actions else 'Won' }}</th>
+        <th>{{ 'Actions' if mode == 'active' else ('Won' if mode == 'won' else 'Lost') }}</th>
       </tr>
     </thead>
     <tbody>
       {% for r in rows %}
       <tr>
-        <td class="fw-bold text-success text-nowrap">
-          ₹{{ "{:,.0f}".format(r.bid.bid_amount) }}
+        <td class="text-nowrap">
+          <span class="fw-bold text-success">₹{{ "{:,.0f}".format(r.bid.bid_amount) }}</span>
           {% if r.bid.bid_type == 'custom' %}
           <span class="badge bg-info-subtle text-info-emphasis border ms-1">custom</span>
           {% endif %}
+          {# Uplift over the base this bid opened against. base_amount is
+             snapshotted on the bid, so it stays truthful after a reprice. #}
+          {% if r.base_amount %}
+          <div class="small text-muted" style="font-size:.72rem">
+            Base ₹{{ "{:,.0f}".format(r.base_amount) }}
+            {% if r.profit is not none %}
+            <span class="{{ 'text-success' if r.profit >= 0 else 'text-danger' }} fw-semibold">
+              {{ '+' if r.profit >= 0 else '−' }}₹{{ "{:,.0f}".format(r.profit | abs) }}
+              ({{ '+' if r.profit >= 0 else '−' }}{{ "{:.1f}".format(r.profit_pct | abs) }}%)
+            </span>
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="small text-muted fst-italic" style="font-size:.72rem">No base set</div>
+          {% endif %}
         </td>
-        <td>{{ r.dealer_name }}</td>
         <td class="font-monospace small">{{ r.bid.bid_number }}</td>
-        <td class="font-monospace small">{{ r.lot_number }}</td>
+        <td class="font-monospace small">
+          {% if r.lot_id %}
+          <a href="/lots/{{ r.lot_id }}" class="text-decoration-none">{{ r.lot_number }}</a>
+          {% else %}
+          {{ r.lot_number }}
+          {% endif %}
+        </td>
         <td>{{ r.account_name }}</td>
         <td>{{ r.account_contact }}</td>
         <td>{{ r.account_category | replace('_',' ') | title }}</td>
@@ -60,7 +80,7 @@
           </button>
         </td>
         <td class="text-nowrap">
-          {% if show_actions %}
+          {% if mode == 'active' %}
           {# Confirm inline: Mark Won also marks every other live bid on the
              same listing lost, which is not obvious from the button alone. #}
           <form method="post" action="/trade-partner/bids/{{ r.bid.id }}/mark-won"
@@ -70,16 +90,20 @@
               <i class="bi bi-trophy me-1"></i>Mark Won
             </button>
           </form>
-          {% else %}
+          {% elif mode == 'won' %}
           <div class="small text-muted">
             {{ r.bid.won_by or '—' }}<br>
             {% if r.bid.won_at %}{{ r.bid.won_at.strftime('%d %b %Y %H:%M') }}{% endif %}
           </div>
+          {% else %}
+          {# A bid goes lost only as the losing side of a Mark Won, so the
+             useful fact is that the lot went elsewhere, not a timestamp. #}
+          <span class="badge bg-danger-subtle text-danger-emphasis border">Outbid</span>
           {% endif %}
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="10" class="text-center text-muted py-3">No bids here yet.</td></tr>
+      <tr><td colspan="9" class="text-center text-muted py-3">No bids here yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -92,7 +116,7 @@
     <span class="badge bg-primary">{{ captured | length }}</span>
   </div>
   <div class="card-body p-0">
-    {{ bid_table(captured, 'capturedTable', true) }}
+    {{ bid_table(captured, 'capturedTable', 'active') }}
   </div>
   <div class="card-footer bg-white border-0 small text-muted">
     Sorted by highest bid amount. Includes custom-price requests, which are not
@@ -106,10 +130,24 @@
     <span class="badge bg-success">{{ won | length }}</span>
   </div>
   <div class="card-body p-0">
-    {{ bid_table(won, 'wonTable', false) }}
+    {{ bid_table(won, 'wonTable', 'won') }}
   </div>
   <div class="card-footer bg-white border-0 small text-muted">
     Each of these created a Buyer Deal under Sales Opportunities.
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
+    <span class="fw-semibold"><i class="bi bi-x-circle me-2 text-danger"></i>Marked Lost</span>
+    <span class="badge bg-danger">{{ lost | length }}</span>
+  </div>
+  <div class="card-body p-0">
+    {{ bid_table(lost, 'lostTable', 'lost') }}
+  </div>
+  <div class="card-footer bg-white border-0 small text-muted">
+    Runner-up bids on lots already awarded — the prices to fall back on if a
+    won deal does not complete. Highest first.
   </div>
 </div>
 
@@ -157,7 +195,7 @@ document.getElementById('uploadDocModal').addEventListener('show.bs.modal', func
 $(document).ready(function(){
   // order:[] keeps the server's sort (amount DESC) as the initial view - the
   // whole point of the page is that the best offer is row one.
-  ['#capturedTable', '#wonTable'].forEach(function(sel){
+  ['#capturedTable', '#wonTable', '#lostTable'].forEach(function(sel){
     if ($(sel + ' tbody tr').length && !$(sel + ' tbody td[colspan]').length) {
       $(sel).DataTable({ order: [], pageLength: 25, lengthChange: false });
     }

@@ -857,6 +857,74 @@ async def my_bookings(
     })
 
 
+@router.get("/bids", response_class=HTMLResponse)
+async def my_bids_analysis(
+    request: Request,
+    dealer: Dealer = Depends(get_current_partner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bids Analysis — this dealer's own settled bids, won and lost.
+
+    Live bids are deliberately absent: the catalog already shows those inline
+    with a leading/outbid badge, and duplicating them here would give a dealer
+    two places to read the same number and no way to tell which is fresher.
+
+    Strictly scoped to dealer.id. A dealer must never see another dealer's
+    bid history — that is the competing side of the same auction.
+    """
+    bids = (await db.execute(
+        select(PartnerBid).where(
+            PartnerBid.dealer_id == dealer.id,
+            PartnerBid.status.in_(("won", "lost")),
+        ).order_by(PartnerBid.bid_amount.desc())
+    )).scalars().all()
+
+    lot_ids = {b.lot_id for b in bids if b.lot_id}
+    lots = {}
+    if lot_ids:
+        lots = {l.id: l for l in (await db.execute(
+            select(Lot).where(Lot.id.in_(lot_ids)))).scalars().all()}
+    listing_ids = {b.listing_id for b in bids if b.listing_id}
+    listings = {}
+    if listing_ids:
+        listings = {l.id: l for l in (await db.execute(
+            select(PartnerListing).where(
+                PartnerListing.id.in_(listing_ids)))).scalars().all()}
+
+    def _row(b):
+        lot = lots.get(b.lot_id) if b.lot_id else None
+        listing = listings.get(b.listing_id) if b.listing_id else None
+        base = Decimal(str(b.base_amount)) if b.base_amount else None
+        diff = pct = None
+        if base and base > 0:
+            diff = Decimal(str(b.bid_amount)) - base
+            pct = (diff / base * 100).quantize(Decimal("0.1"))
+        return {
+            "bid": b,
+            # No lot link: /lots/<id> is a staff route. Dealers get the number
+            # for reference only.
+            "target": (lot.lot_number if lot
+                       else (listing.title if listing else "—")),
+            "base_amount": base, "diff": diff, "diff_pct": pct,
+        }
+
+    won = [_row(b) for b in bids if b.status == "won"]
+    lost = [_row(b) for b in bids if b.status == "lost"]
+    settled = len(won) + len(lost)
+    stats = {
+        "won": len(won), "lost": len(lost), "settled": settled,
+        "win_rate": round(len(won) / settled * 100) if settled else None,
+        "won_value": sum((Decimal(str(r["bid"].bid_amount)) for r in won),
+                         Decimal("0")),
+    }
+
+    return templates.TemplateResponse("partner/bids.html", {
+        "request": request, "dealer": dealer,
+        "won": won, "lost": lost, "stats": stats,
+        "partner_csrf": request.cookies.get(PARTNER_CSRF_COOKIE, ""),
+    })
+
+
 @router.get("/bookings/{booking_id}", response_class=HTMLResponse)
 async def booking_detail(
     request: Request,

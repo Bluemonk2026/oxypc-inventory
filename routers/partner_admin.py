@@ -777,12 +777,45 @@ async def bookings_queue(
                     or (b.dealer and ql in (b.dealer.business_name or "").lower())
                     or (b.listing and ql in (b.listing.title or "").lower())]
 
+    # ── Lot bookings from the catalog ───────────────────────────────────────
+    # Booking a Lot raises a LotBookingRequest, not a PartnerBooking (the latter
+    # is priced against PartnerListing fields a Lot does not have). They were
+    # therefore invisible on this queue — a dealer could book a lot and nobody
+    # would ever see it. Listed separately because the two carry different
+    # fields, not merged into a shape that fits neither.
+    lot_bookings = []
+    lot_reqs = (await db.execute(
+        select(LotBookingRequest)
+        .where(LotBookingRequest.status != "withdrawn")
+        .order_by(LotBookingRequest.created_at.desc()).limit(500)
+    )).scalars().all()
+    if lot_reqs:
+        lb_lots = {l.id: l for l in (await db.execute(select(Lot).where(
+            Lot.id.in_({r.lot_id for r in lot_reqs})))).scalars().all()}
+        lb_dealers = {d.id: d for d in (await db.execute(select(Dealer).where(
+            Dealer.id.in_({r.dealer_id for r in lot_reqs})))).scalars().all()}
+        for r in lot_reqs:
+            lot = lb_lots.get(r.lot_id)
+            dealer = lb_dealers.get(r.dealer_id)
+            if q:
+                hay = f"{lot.lot_number if lot else ''} {dealer.business_name if dealer else ''}".lower()
+                if q.lower() not in hay:
+                    continue
+            lot_bookings.append({
+                "req": r,
+                "lot_id": str(r.lot_id),
+                "lot_number": lot.lot_number if lot else "—",
+                "dealer_name": dealer.business_name if dealer else "—",
+                "dealer_phone": (dealer.portal_phone or dealer.phone) if dealer else None,
+            })
+
     scores = await compute_dealer_scores(db, [b.dealer_id for b in bookings])
     settings = await get_settings(db)
     base_url = str(request.base_url).rstrip("/")
     return templates.TemplateResponse("trade_partner/bookings.html", {
         "request": request, "current_user": current_user,
-        "bookings": bookings, "scores": scores, "settings": settings,
+        "bookings": bookings, "lot_bookings": lot_bookings,
+        "scores": scores, "settings": settings,
         "base_url": base_url, "f_status": status, "q": q, "now_ts": app_now(),
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
@@ -1327,9 +1360,24 @@ async def _bid_rows(db: AsyncSession, bids):
         contact = contacts.get(dealer.crm_contact_id) if dealer and dealer.crm_contact_id else None
         lot = (lots.get(b.lot_id) if b.lot_id
                else (lots.get(listing.lot_id) if listing and listing.lot_id else None))
+        # Uplift over the base the bid opened against. base_amount is snapshotted
+        # onto the bid row when it is placed, so this stays correct even after
+        # the lot is later repriced — recomputing it from the lot would silently
+        # restate the profit on every historical bid.
+        base = Decimal(str(b.base_amount)) if b.base_amount else None
+        profit = pct = None
+        if base and base > 0:
+            profit = Decimal(str(b.bid_amount)) - base
+            pct = (profit / base * 100).quantize(Decimal("0.1"))
         rows.append({
             "bid": b,
             "dealer_name": dealer.business_name if dealer else "-",
+            # Carried so the page can link the lot; the listing fallback has no
+            # lot behind it, so the template renders plain text in that case.
+            "lot_id": str(lot.id) if lot else None,
+            "base_amount": base,
+            "profit": profit,
+            "profit_pct": pct,
             "lot_number": (lot.lot_number if lot
                            else (listing.listing_code if listing else "-")),
             "listing_title": (listing.title if listing
@@ -1355,10 +1403,14 @@ async def bids_created(
     current_user: User = Depends(require_module_perm("trade_partner")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Two tables: bids still in play, and the ones already Marked Won.
+    """Three tables: bids still in play, those Marked Won, and those lost.
 
     Captured bids sort by amount DESC - the operator's question on this page is
     always "what is the best offer on the table", so the answer is row one.
+
+    Lost bids are the losing side of a Mark Won and are worth keeping visible:
+    they are the runner-up prices on lots already awarded, which is what you
+    reach for when a won deal falls through.
     """
     captured = (await db.execute(
         select(PartnerBid).where(PartnerBid.status == "active")
@@ -1368,11 +1420,18 @@ async def bids_created(
         select(PartnerBid).where(PartnerBid.status == "won")
         .order_by(PartnerBid.won_at.desc())
     )).scalars().all()
+    # No won_at on a loser, so order by amount — same "best offer first" reading
+    # as the Captured table.
+    lost = (await db.execute(
+        select(PartnerBid).where(PartnerBid.status == "lost")
+        .order_by(PartnerBid.bid_amount.desc())
+    )).scalars().all()
 
     return templates.TemplateResponse("trade_partner/bids.html", {
         "request": request, "current_user": current_user,
         "captured": await _bid_rows(db, captured),
         "won": await _bid_rows(db, won),
+        "lost": await _bid_rows(db, lost),
         "doc_types": BID_DOC_TYPES,
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),

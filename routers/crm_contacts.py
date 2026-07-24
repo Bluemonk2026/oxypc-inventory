@@ -892,6 +892,50 @@ async def contact_profile(
     )
     sales_opps = opps_r.scalars().all()
 
+    # ── Trade Partner bids for this Account ─────────────────────────────────
+    # Portal logins hang off Dealer rows, which link back here via
+    # crm_contact_id. One Account can have several dealer logins, so collect
+    # them all before querying bids.
+    from models.dealers import Dealer
+    from models.partner import PartnerBid
+    from models.lot import Lot
+
+    dealer_ids = [d for (d,) in (await db.execute(
+        select(Dealer.id).where(Dealer.crm_contact_id == contact.id)
+    )).all()]
+
+    lost_bids, won_bid_lots = [], {}
+    if dealer_ids:
+        bids = (await db.execute(
+            select(PartnerBid).where(
+                PartnerBid.dealer_id.in_(dealer_ids),
+                PartnerBid.status.in_(("lost", "won")),
+            ).order_by(PartnerBid.bid_amount.desc())
+        )).scalars().all()
+
+        lot_ids = {b.lot_id for b in bids if b.lot_id}
+        lots = {}
+        if lot_ids:
+            lots = {l.id: l for l in (await db.execute(
+                select(Lot).where(Lot.id.in_(lot_ids)))).scalars().all()}
+
+        for b in bids:
+            lot = lots.get(b.lot_id) if b.lot_id else None
+            if b.status == "lost":
+                base = b.base_amount
+                lost_bids.append({
+                    "bid": b,
+                    "lot_id": str(lot.id) if lot else None,
+                    "lot_number": lot.lot_number if lot else "—",
+                    "shortfall": (b.bid_amount - base) if base else None,
+                })
+            elif b.opportunity_id and lot:
+                # Lets the Sales Opportunities table link the lot a won bid
+                # produced — the opportunity itself has no lot FK, only a title.
+                won_bid_lots[str(b.opportunity_id)] = {
+                    "lot_id": str(lot.id), "lot_number": lot.lot_number,
+                }
+
     # Purchase Deals — POs where this contact is the supplier (eager-load .contact
     # so the shared partial can show the supplier name without an async lazy load).
     pos_r = await db.execute(
@@ -937,6 +981,7 @@ async def contact_profile(
         "request": request, "current_user": current_user,
         "contact": contact, "activities": activities,
         "sourcing_deals": sourcing_deals, "sales_opps": sales_opps,
+        "lost_bids": lost_bids, "won_bid_lots": won_bid_lots,
         "purchase_orders": purchase_orders,
         "source_map": source_map, "buyer_map": buyer_map,
         "scorecard": scorecard,

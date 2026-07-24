@@ -26,6 +26,53 @@
   'balance_pending':'primary', 'ready_for_dispatch':'success', 'dispatched':'dark',
   'rejected':'danger', 'expired':'secondary', 'cancelled':'secondary'} %}
 
+{# ── Lot bookings from the catalog ──────────────────────────────────────────
+   A dealer booking a Lot raises a LotBookingRequest, which carries no token or
+   payment schedule — so it gets its own table rather than being forced into the
+   listing-booking columns below, where most cells would be blank. #}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
+    <span class="fw-semibold"><i class="bi bi-box-seam me-2 text-primary"></i>Lot Bookings (from Catalog)</span>
+    <span class="badge bg-primary">{{ lot_bookings | length }}</span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr><th class="ps-3">Lot Number</th><th>Dealer</th><th>Contact</th>
+              <th>Qty Requested</th><th>Status</th><th>Requested On</th></tr>
+        </thead>
+        <tbody>
+          {% for b in lot_bookings %}
+          <tr>
+            <td class="ps-3 font-monospace small">
+              <a href="/lots/{{ b.lot_id }}" class="text-decoration-none">{{ b.lot_number }}</a>
+            </td>
+            <td>{{ b.dealer_name }}</td>
+            <td class="small text-muted">{{ b.dealer_phone or '—' }}</td>
+            <td><span class="badge bg-info text-dark">{{ b.req.qty_requested }}</span></td>
+            <td>
+              <span class="badge bg-{{ 'success' if b.req.status == 'approved' else 'warning' }}">
+                {{ b.req.status | replace('_',' ') | title }}
+              </span>
+            </td>
+            <td class="small text-muted">
+              {{ b.req.created_at.strftime('%d %b %Y %H:%M') if b.req.created_at else '—' }}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-muted py-3">
+            No lot bookings yet. These appear when a dealer taps Book on a lot in the catalog.
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="fw-semibold mb-2"><i class="bi bi-bookmark-check me-2 text-secondary"></i>Listing Bookings</div>
+
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
     <div class="table-responsive">

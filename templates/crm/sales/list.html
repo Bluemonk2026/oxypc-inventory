@@ -62,6 +62,7 @@
           <tr>
             <th>Opp #</th>
             <th>Title</th>
+            <th>Lot Number</th>
             <th>Buyer Type</th>
             <th>Stage</th>
             <th>Qty Req.</th>
@@ -89,6 +90,13 @@
               </a>
               {% set contact = contacts_map.get(o.contact_id|string) %}
               {% if contact %}<div class="small text-muted">{{ contact.company_name }}</div>{% endif %}
+            </td>
+            <td class="font-monospace small">
+              {# Only Buyer Deals created by Mark Won have a lot behind them. #}
+              {% set ol = opp_lots.get(o.id|string) %}
+              {% if ol %}
+              <a href="/lots/{{ ol.lot_id }}" class="text-decoration-none">{{ ol.lot_number }}</a>
+              {% else %}<span class="text-muted">—</span>{% endif %}
             </td>
             <td>
               {% if o.buyer_type %}
@@ -124,7 +132,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="11" class="text-center text-muted py-4">No opportunities found. <a href="/crm/sales/new">Create your first opportunity</a></td></tr>
+          <tr><td colspan="12" class="text-center text-muted py-4">No opportunities found. <a href="/crm/sales/new">Create your first opportunity</a></td></tr>
           {% endfor %}
         </tbody>
       </table>

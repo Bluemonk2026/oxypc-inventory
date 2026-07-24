@@ -5,7 +5,12 @@
 
 <div class="row justify-content-center">
 <div class="col-xl-11">
-<form method="post" action="{{ '/crm/quotes/'+quote.id|string+'/edit' if quote else '/crm/quotes/new' }}" id="quoteForm">
+{# autocomplete=off + data-no-autosave: line items are derived from the lot, so
+   neither the browser's saved form values nor a stale local draft may write
+   into them. Without this, an empty row gets filled with whatever was last
+   typed on that workstation and silently lands on a customer quote. #}
+<form method="post" action="{{ '/crm/quotes/'+quote.id|string+'/edit' if quote else '/crm/quotes/new' }}"
+      id="quoteForm" autocomplete="off" data-no-autosave>
 {% if opp_id %}<input type="hidden" name="opp_id" value="{{ opp_id }}">{% endif %}
 
 <!-- Header Details -->
@@ -54,9 +59,29 @@
 <!-- Line Items -->
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
-    <span class="fw-semibold"><i class="bi bi-list-ul me-2 text-primary"></i>Line Items</span>
+    <span class="fw-semibold">
+      <i class="bi bi-list-ul me-2 text-primary"></i>Line Items
+      {% if source_lot and prefill_items %}
+      <span class="badge bg-light text-dark border ms-2 fw-normal">
+        from Lot <span class="font-monospace">{{ source_lot.lot_number }}</span>
+      </span>
+      {% endif %}
+    </span>
     <button type="button" class="btn btn-sm btn-outline-primary" onclick="addRow()"><i class="bi bi-plus-circle me-1"></i>Add Line</button>
   </div>
+  {% if from_opp and not prefill_items %}
+  {# No lot on the deal (or the lot holds no stock) — deliberately no rows.
+     A blank row here is what gets silently autofilled with unrelated data. #}
+  <div class="alert alert-warning border-0 rounded-0 mb-0 py-2 small">
+    <i class="bi bi-info-circle me-1"></i>
+    {% if source_lot %}
+    Lot <span class="font-monospace">{{ source_lot.lot_number }}</span> has no stock to quote from.
+    {% else %}
+    This Buyer Deal has no Lot Number, so nothing was auto-filled.
+    {% endif %}
+    Use <strong>Add Line</strong> to enter items by hand.
+  </div>
+  {% endif %}
   <div class="card-body p-0">
     <div class="table-responsive">
       <table class="table table-bordered mb-0" id="lineItemsTable">
@@ -77,7 +102,7 @@
           {% for item in quote.items %}
           <tr>
             <td class="text-center text-muted row-num">{{ loop.index }}</td>
-            <td><input type="text" name="device_type[]" class="form-control form-control-sm" value="{{ item.device_type or '' }}"></td>
+            <td><input type="text" name="device_type[]" autocomplete="off" class="form-control form-control-sm" value="{{ item.device_type or '' }}"></td>
             <td>
               <select name="grade[]" class="form-select form-select-sm">
                 <option value="">—</option>
@@ -101,12 +126,14 @@
           </tr>
           {% endfor %}
           {% else %}
-          {# One row per model in the Lot behind this Buyer Deal, or a single
-             blank row when the quote is being written from scratch. #}
-          {% for p in prefill_items or [{}] %}
+          {# One row per model in the Lot behind this Buyer Deal. Opened from a
+             deal with no lot, we render NO rows rather than a blank one — see
+             the notice above. A quote started from scratch still gets one row
+             to type into. #}
+          {% for p in prefill_items or ([] if from_opp else [{}]) %}
           <tr>
             <td class="text-center text-muted row-num">{{ loop.index }}</td>
-            <td><input type="text" name="device_type[]" class="form-control form-control-sm"
+            <td><input type="text" name="device_type[]" autocomplete="off" class="form-control form-control-sm"
                        value="{{ p.get('model') or '' }}" placeholder="e.g. HP EliteBook 840 G5"></td>
             <td>
               <select name="grade[]" class="form-select form-select-sm">
@@ -157,7 +184,7 @@
 <template id="rowTemplate">
   <tr>
     <td class="text-center text-muted row-num"></td>
-    <td><input type="text" name="device_type[]" class="form-control form-control-sm" placeholder="e.g. HP EliteBook 840 G5"></td>
+    <td><input type="text" name="device_type[]" autocomplete="off" class="form-control form-control-sm" placeholder="e.g. HP EliteBook 840 G5"></td>
     <td>
       <select name="grade[]" class="form-select form-select-sm">
         <option value="">—</option>
@@ -221,6 +248,18 @@ function reNumberRows() {
     if (num) num.textContent = i + 1;
   });
 }
+
+// A deal with no lot now opens with zero rows, so guard the empty submit
+// rather than silently creating a quote with nothing on it.
+document.getElementById('quoteForm').addEventListener('submit', function (e) {
+  var named = Array.prototype.filter.call(
+    document.querySelectorAll('#lineItemsBody input[name="device_type[]"]'),
+    function (el) { return el.value.trim() !== ''; });
+  if (!named.length) {
+    e.preventDefault();
+    alert('Add at least one line item before saving this quote.');
+  }
+});
 
 // Initial grand total on page load (for edit mode)
 updateGrandTotal();

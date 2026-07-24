@@ -94,15 +94,19 @@ async def new_quote_form(
     # Opened via "Create Quote" on a Buyer Deal. The opportunity has no lot FK —
     # it was created by Marking Won a partner bid, so the bid is what carries
     # the lot. Fill the buyer and one line per model in that lot.
-    prefill_items, preselect = [], contact_id
-    if opp_id and opp_id.strip():
+    prefill_items, preselect, source_lot = [], contact_id, None
+    from_opp = bool(opp_id and opp_id.strip())
+    if from_opp:
         opp = (await db.execute(
             select(CRMSalesOpportunity).where(CRMSalesOpportunity.id == opp_id)
         )).scalar_one_or_none()
         if opp:
             if not preselect and opp.contact_id:
                 preselect = str(opp.contact_id)
-            prefill_items = await _lot_prefill_for_opp(db, opp)
+            from services.opportunity_lot import lot_for_opportunity
+            source_lot = await lot_for_opportunity(db, opp.id)
+            if source_lot:
+                prefill_items = await _lot_prefill_for_opp(db, opp)
 
     today = date.today()
     valid_until = today + timedelta(days=15)
@@ -110,7 +114,11 @@ async def new_quote_form(
         "request": request, "current_user": current_user,
         "quote": None, "contacts": contacts,
         "preselect": preselect, "opp_id": opp_id,
-        "prefill_items": prefill_items,
+        # from_opp + source_lot let the form say WHERE its lines came from, and
+        # render no rows at all when a deal has no lot — a lone blank row there
+        # is what browser autofill latches onto and fills with unrelated data.
+        "prefill_items": prefill_items, "from_opp": from_opp,
+        "source_lot": source_lot,
         "material_types": MATERIAL_TYPES, "grades": GRADES,
         "today": today.isoformat(), "valid_until": valid_until.isoformat(),
     })
@@ -138,16 +146,23 @@ async def _lot_prefill_for_opp(db: AsyncSession, opp) -> list[dict]:
         .group_by(Device.model, Device.grade, Device.sub_category)
         .order_by(func.count(Device.id).desc())
     )).all()
+    # Devices with no model recorded would otherwise each become their own
+    # nameless line — a junk row on a customer-facing quote. Drop them BEFORE
+    # pricing, so the divisor below counts only what is actually being quoted.
+    rows = [r for r in rows if (r.model or "").strip()]
     if not rows:
         return []
 
     # Per-unit price comes from the lot's Target Selling Price spread over the
-    # units in it — deliberately NOT device_price, which is a buying cost and
-    # would quote the customer at cost if the operator didn't notice.
-    total_qty = sum(r.qty for r in rows)
+    # units being quoted — deliberately NOT device_price, which is a buying cost
+    # and would quote the customer at cost if the operator didn't notice.
+    # Dividing by the quoted quantity (not the whole lot) is what makes the line
+    # totals add up to the Target Selling Price; counting unquotable stock in
+    # the divisor would silently under-price every line.
+    quoted_qty = sum(r.qty for r in rows)
     unit = None
-    if lot.selling_price and total_qty:
-        unit = round(float(lot.selling_price) / total_qty, 2)
+    if lot.selling_price and quoted_qty:
+        unit = round(float(lot.selling_price) / quoted_qty, 2)
 
     # po_category is a Master Data list; only preselect when the device's
     # sub_category is actually one of its options, else leave it for the user.
@@ -157,7 +172,7 @@ async def _lot_prefill_for_opp(db: AsyncSession, opp) -> list[dict]:
         categories = set()
 
     return [{
-        "model": r.model or "",
+        "model": r.model,
         "grade": getattr(r.grade, "value", r.grade) or "",
         "po_category": r.sub_category if r.sub_category in categories else "",
         "quantity": r.qty,

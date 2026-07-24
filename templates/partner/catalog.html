@@ -21,16 +21,44 @@
   <div class="table-responsive">
     <table class="table table-sm table-hover mb-0 small align-middle">
       <thead class="table-light">
-        <tr><th class="ps-2">Lot Number</th><th>Purchase Date</th><th>Available Qty</th><th>Price</th><th style="width:150px">Action</th></tr>
+        <tr><th class="ps-2">Lot Number</th><th>Purchase Date</th><th>Available Qty</th>
+            <th>Price</th><th>Highest Bid</th><th style="width:210px">Action</th></tr>
       </thead>
       <tbody>
         {% for l in visible_lots %}
+        {% set b = lot_bids.get(l.id) %}
         <tr>
-          <td class="ps-2 font-monospace">{{ l.lot_number }}</td>
+          <td class="ps-2">
+            {# Clicking the lot opens its model-wise stock breakdown. #}
+            <a href="#" class="font-monospace text-decoration-none lot-stock-link"
+               data-lot-id="{{ l.id }}" data-lot-number="{{ l.lot_number }}">
+              {{ l.lot_number }} <i class="bi bi-box-arrow-up-right small"></i>
+            </a>
+          </td>
           <td class="text-muted">{{ l.purchase_date.strftime('%d-%m-%Y') if l.purchase_date else '—' }}</td>
           <td><span class="badge bg-info text-dark">{{ l.available_quantity }}</span></td>
-          <td>{% if l.price is not none %}&#8377;{{ '%.2f'|format(l.price) }}{% else %}—{% endif %}</td>
           <td>
+            {% if l.price is not none %}
+              <span class="fw-semibold">&#8377;{{ '%.2f'|format(l.price) }}</span>
+            {% else %}
+              {# Distinct from a real zero: an unpriced lot is not a free one. #}
+              <span class="text-muted fst-italic">Not set</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if b and b.highest %}
+              <span class="fw-semibold">&#8377;{{ "{:,.0f}".format(b.highest) }}</span>
+              {% if b.leading %}<span class="badge bg-success ms-1">You</span>{% endif %}
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td>
+            <button type="button" class="btn btn-sm btn-primary py-0 px-2 lot-bid-btn"
+                    data-lot-id="{{ l.id }}" data-lot-number="{{ l.lot_number }}"
+                    data-min="{{ b.min_next if b and b.min_next else '' }}"
+                    data-highest="{{ b.highest if b and b.highest else '' }}"
+                    data-base="{{ l.price if l.price is not none else '' }}">
+              <i class="bi bi-hammer me-1"></i>Bid
+            </button>
             {% if l.booking %}
             <form method="post" action="/partner/lots/{{ l.id }}/withdraw" class="d-inline">
               <input type="hidden" name="csrf_token" value="{{ partner_csrf }}">
@@ -43,6 +71,11 @@
               <input type="hidden" name="qty" value="1">
               <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2">Book</button>
             </form>
+            {% endif %}
+            {% if b and b.mine %}
+            <div class="small {{ 'text-success' if b.leading else 'text-muted' }} mt-1">
+              Your bid &#8377;{{ "{:,.0f}".format(b.mine.bid_amount) }}{{ ' — leading' if b.leading else ' — outbid' }}
+            </div>
             {% endif %}
           </td>
         </tr>
@@ -167,4 +200,185 @@
   {% endfor %}
 </div>
 
+<!-- Available Stock — model-wise breakdown of a lot -->
+<div class="modal fade" id="lotStockModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title"><i class="bi bi-boxes me-2"></i>Available Stock —
+          <span class="font-monospace" id="lsLotNumber"></span></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div id="lsLoading" class="text-center text-muted py-4 small">Loading…</div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0 small align-middle d-none" id="lsTable">
+            <thead class="table-light">
+              <tr>
+                <th class="ps-2">Model Name</th><th>Quantity</th><th>CPU</th>
+                <th>Generation</th><th>RAM</th><th>Storage</th><th>Grade</th>
+              </tr>
+            </thead>
+            <tbody id="lsBody"></tbody>
+            <tfoot class="table-light">
+              <tr><th class="ps-2">Total</th><th id="lsTotal"></th>
+                  <th colspan="5"></th></tr>
+            </tfoot>
+          </table>
+        </div>
+        <div id="lsEmpty" class="text-center text-muted py-4 small d-none">
+          No stock recorded against this lot.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Place a bid on a lot -->
+<div class="modal fade" id="lotBidModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title"><i class="bi bi-hammer me-2"></i>Bid on
+          <span class="font-monospace" id="lbLotNumber"></span></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex justify-content-between small mb-1">
+          <span class="text-muted">Lot price</span>
+          <span class="fw-semibold" id="lbBase">—</span>
+        </div>
+        <div class="d-flex justify-content-between small mb-3">
+          <span class="text-muted">Highest bid</span>
+          <span class="fw-semibold" id="lbHighest">—</span>
+        </div>
+
+        <form method="post" id="lbBidForm" class="row g-2 mb-3">
+          <input type="hidden" name="csrf_token" value="{{ partner_csrf }}">
+          <div class="col-5">
+            <input type="number" name="amount" step="1" min="1" id="lbAmount"
+                   class="form-control form-control-sm" required>
+          </div>
+          <div class="col-7">
+            <button class="btn btn-sm btn-primary w-100">
+              <i class="bi bi-hammer me-1"></i>Place Bid
+            </button>
+          </div>
+          <div class="col-12"><small class="text-muted" id="lbHint"></small></div>
+        </form>
+
+        <details>
+          <summary class="small text-primary" style="cursor:pointer">Offer your own price instead</summary>
+          <form method="post" id="lbCustomForm" class="row g-2 mt-2">
+            <input type="hidden" name="csrf_token" value="{{ partner_csrf }}">
+            <div class="col-5">
+              <input type="number" name="amount" step="1" min="1"
+                     class="form-control form-control-sm" placeholder="Your price" required>
+            </div>
+            <div class="col-7">
+              <button class="btn btn-sm btn-outline-primary w-100">Send Request</button>
+            </div>
+            <div class="col-12">
+              <input type="text" name="notes" class="form-control form-control-sm"
+                     placeholder="Optional — why this price">
+              <small class="text-muted">Not held to the 10% step. Goes to the OxyPC team to review.</small>
+            </div>
+          </form>
+        </details>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var inr = function (n) {
+    return '₹' + Number(n).toLocaleString('en-IN', {maximumFractionDigits: 0});
+  };
+  var esc = function (s) {
+    var d = document.createElement('div');
+    d.textContent = s === null || s === undefined ? '' : s;
+    return d.innerHTML;
+  };
+
+  // ── Available Stock modal ────────────────────────────────────────────────
+  var stockModal = new bootstrap.Modal(document.getElementById('lotStockModal'));
+  var lsTable = document.getElementById('lsTable');
+  var lsEmpty = document.getElementById('lsEmpty');
+  var lsLoad  = document.getElementById('lsLoading');
+
+  document.querySelectorAll('.lot-stock-link').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      e.preventDefault();
+      document.getElementById('lsLotNumber').textContent = a.dataset.lotNumber;
+      // Reset to the loading state every open, otherwise the previous lot's
+      // rows sit there looking like this lot's stock while the fetch runs.
+      lsTable.classList.add('d-none');
+      lsEmpty.classList.add('d-none');
+      lsLoad.classList.remove('d-none');
+      document.getElementById('lsBody').innerHTML = '';
+      stockModal.show();
+
+      fetch('/partner/lots/' + a.dataset.lotId + '/models', {
+        credentials: 'same-origin'
+      }).then(function (r) {
+        if (!r.ok) throw new Error('lookup failed');
+        return r.json();
+      }).then(function (d) {
+        lsLoad.classList.add('d-none');
+        if (!d.models || !d.models.length) { lsEmpty.classList.remove('d-none'); return; }
+        document.getElementById('lsBody').innerHTML = d.models.map(function (m) {
+          return '<tr><td class="ps-2">' + esc(m.model) + '</td>' +
+                 '<td><span class="badge bg-info text-dark">' + esc(m.qty) + '</span></td>' +
+                 '<td>' + esc(m.cpu) + '</td><td>' + esc(m.generation) + '</td>' +
+                 '<td>' + esc(m.ram) + '</td><td>' + esc(m.storage) + '</td>' +
+                 '<td>' + esc(m.grade) + '</td></tr>';
+        }).join('');
+        document.getElementById('lsTotal').textContent = d.total;
+        lsTable.classList.remove('d-none');
+      }).catch(function () {
+        lsLoad.classList.add('d-none');
+        lsEmpty.textContent = 'Could not load stock for this lot.';
+        lsEmpty.classList.remove('d-none');
+      });
+    });
+  });
+
+  // ── Bid modal ────────────────────────────────────────────────────────────
+  var bidModal = new bootstrap.Modal(document.getElementById('lotBidModal'));
+
+  document.querySelectorAll('.lot-bid-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var id      = btn.dataset.lotId;
+      var min     = btn.dataset.min;
+      var highest = btn.dataset.highest;
+      var base    = btn.dataset.base;
+
+      document.getElementById('lbLotNumber').textContent = btn.dataset.lotNumber;
+      document.getElementById('lbBase').textContent    = base ? inr(base) : 'Not set';
+      document.getElementById('lbHighest').textContent = highest ? inr(highest) : '—';
+
+      document.getElementById('lbBidForm').action    = '/partner/lots/' + id + '/bid';
+      document.getElementById('lbCustomForm').action = '/partner/lots/' + id + '/custom-price';
+
+      var amt = document.getElementById('lbAmount');
+      if (min) {
+        amt.min = min; amt.value = min;
+        document.getElementById('lbHint').textContent =
+          'Minimum next bid is ' + inr(min) + ' — 10% above ' +
+          (highest ? 'the current highest bid.' : 'the lot price.');
+      } else {
+        // No lot price and no bids yet: nothing to compute a floor from, so any
+        // positive amount opens. Said plainly rather than showing a fake floor.
+        amt.min = 1; amt.value = '';
+        document.getElementById('lbHint').textContent =
+          'This lot has no price set, so there is no reserve — name your opening offer.';
+      }
+      bidModal.show();
+    });
+  });
+})();
+</script>
 {% endblock %}

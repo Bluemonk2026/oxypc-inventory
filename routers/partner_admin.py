@@ -11,6 +11,7 @@ import string
 import uuid as uuid_mod
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
+from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -1143,14 +1144,21 @@ async def manage_lots(
         )).all()
         avail_map = {str(lid): cnt for lid, cnt in avail_rows}
 
+    # Who each lot is visible to, by name — not just how many. With bulk assign
+    # the operator needs to see what a lot already carries before adding to it,
+    # otherwise "3 dealer(s)" is a number they have to go and look up elsewhere.
     vis_map: dict = {}
+    vis_names: dict = {}
     if lot_ids:
         vis_rows = (await db.execute(
-            select(LotDealerVisibility.lot_id, func.count(LotDealerVisibility.id))
+            select(LotDealerVisibility.lot_id, Dealer.business_name)
+            .join(Dealer, Dealer.id == LotDealerVisibility.dealer_id)
             .where(LotDealerVisibility.lot_id.in_(lot_ids))
-            .group_by(LotDealerVisibility.lot_id)
+            .order_by(Dealer.business_name)
         )).all()
-        vis_map = {str(lid): cnt for lid, cnt in vis_rows}
+        for lid, name in vis_rows:
+            vis_names.setdefault(str(lid), []).append(name)
+        vis_map = {k: len(v) for k, v in vis_names.items()}
 
     dealers = (await db.execute(
         select(Dealer).where(Dealer.portal_enabled == True).order_by(Dealer.business_name)  # noqa: E712
@@ -1159,42 +1167,103 @@ async def manage_lots(
     return templates.TemplateResponse("trade_partner/manage_lots.html", {
         "request": request, "current_user": current_user,
         "lots": lots, "avail_map": avail_map, "vis_map": vis_map,
-        "dealers": dealers,
+        "vis_names": vis_names, "dealers": dealers,
         "success": request.query_params.get("success"),
+        "error": request.query_params.get("error"),
     })
+
+
+async def _grant_lot_visibility(db: AsyncSession, lot_ids: list[str],
+                                dealer_ids: list[str], current_user: User,
+                                request: Request) -> RedirectResponse:
+    """Grant every (lot x dealer) pair, skipping ones that already exist.
+
+    The single-lot route and the bulk route both come through here so there is
+    one implementation of what "assign visibility" means — two copies would be
+    two places for the already-assigned rule to drift.
+    """
+    lot_ids = [x for x in (lot_ids or []) if x and x.strip()]
+    dealer_ids = [x for x in (dealer_ids or []) if x and x.strip()]
+    if not lot_ids or not dealer_ids:
+        return RedirectResponse(
+            url="/trade-partner/manage-lots?error=Select+at+least+one+lot+and+one+dealer",
+            status_code=302)
+
+    lots = (await db.execute(select(Lot).where(Lot.id.in_(lot_ids)))).scalars().all()
+    dealers = (await db.execute(
+        select(Dealer).where(Dealer.id.in_(dealer_ids)))).scalars().all()
+    if not lots or not dealers:
+        return RedirectResponse(
+            url="/trade-partner/manage-lots?error=Lot+or+dealer+not+found",
+            status_code=302)
+
+    # One query for every pair already granted, rather than a lookup per pair —
+    # 20 lots x 10 dealers would otherwise be 200 round trips to a remote DB.
+    existing = {
+        (str(l), str(d)) for l, d in (await db.execute(
+            select(LotDealerVisibility.lot_id, LotDealerVisibility.dealer_id)
+            .where(LotDealerVisibility.lot_id.in_([l.id for l in lots]),
+                   LotDealerVisibility.dealer_id.in_([d.id for d in dealers]))
+        )).all()
+    }
+
+    created, skipped = 0, 0
+    for lot in lots:
+        for dealer in dealers:
+            if (str(lot.id), str(dealer.id)) in existing:
+                skipped += 1
+                continue
+            db.add(LotDealerVisibility(lot_id=lot.id, dealer_id=dealer.id,
+                                       assigned_by=current_user.username))
+            created += 1
+
+    if created:
+        # One audit row for the action, not one per pair: a 20x10 assign would
+        # otherwise bury 200 near-identical entries in the audit log and make
+        # the thing it is supposed to make reviewable unreadable.
+        await audit(db, action="LOT_VISIBILITY_ASSIGNED", user=current_user,
+                    table_name="lot_dealer_visibility",
+                    record_id=str(lots[0].id) if len(lots) == 1 else "bulk",
+                    new_value={"lots": [l.lot_number for l in lots],
+                               "dealers": [d.business_name for d in dealers],
+                               "granted": created, "already_had": skipped},
+                    request=request)
+        await db.commit()
+
+    msg = f"{created} visibility grant(s) added"
+    if skipped:
+        msg += f", {skipped} already assigned"
+    return RedirectResponse(
+        url=f"/trade-partner/manage-lots?success={quote_plus(msg)}", status_code=302)
+
+
+@router.post("/manage-lots/assign-visibility")
+async def assign_lot_visibility_bulk(
+    request: Request,
+    lot_ids: list[str] = Form(default=[]),
+    dealer_ids: list[str] = Form(default=[]),
+    _csrf=Depends(verify_csrf),
+    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Assign any number of lots to any number of dealers in one submit."""
+    return await _grant_lot_visibility(db, lot_ids, dealer_ids, current_user, request)
 
 
 @router.post("/manage-lots/{lot_id}/assign-visibility")
 async def assign_lot_visibility(
     lot_id: str,
     request: Request,
-    dealer_id: str = Form(...),
+    dealer_id: str = Form(default=""),
+    dealer_ids: list[str] = Form(default=[]),
     _csrf=Depends(verify_csrf),
     current_user: User = Depends(require_module_perm("trade_partner", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
-    lot = (await db.execute(select(Lot).where(Lot.id == lot_id))).scalar_one_or_none()
-    if not lot:
-        raise HTTPException(404, "Lot not found")
-    dealer = (await db.execute(select(Dealer).where(Dealer.id == dealer_id))).scalar_one_or_none()
-    if not dealer:
-        raise HTTPException(404, "Dealer not found")
-
-    existing = (await db.execute(
-        select(LotDealerVisibility).where(
-            LotDealerVisibility.lot_id == lot.id, LotDealerVisibility.dealer_id == dealer.id,
-        )
-    )).scalar_one_or_none()
-    if not existing:
-        db.add(LotDealerVisibility(lot_id=lot.id, dealer_id=dealer.id, assigned_by=current_user.username))
-        await audit(db, action="LOT_VISIBILITY_ASSIGNED", user=current_user,
-                    table_name="lot_dealer_visibility", record_id=str(lot.id),
-                    new_value={"lot_number": lot.lot_number, "dealer": dealer.business_name},
-                    request=request)
-        await db.commit()
-    return RedirectResponse(
-        url=f"/trade-partner/manage-lots?success=Lot+{lot.lot_number}+visible+to+{dealer.business_name}",
-        status_code=302)
+    """Single-lot assign. Still accepts the original single `dealer_id` field so
+    anything posting the old shape keeps working."""
+    wanted = list(dealer_ids) + ([dealer_id] if dealer_id else [])
+    return await _grant_lot_visibility(db, [lot_id], wanted, current_user, request)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1224,11 +1293,18 @@ async def _bid_rows(db: AsyncSession, bids):
         contacts = {c.id: c for c in (await db.execute(
             select(CRMContact).where(CRMContact.id.in_(contact_ids)))).scalars().all()}
 
-    listing_ids = {b.listing_id for b in bids}
-    listings = {l.id: l for l in (await db.execute(
-        select(PartnerListing).where(PartnerListing.id.in_(listing_ids)))).scalars().all()}
+    # A bid targets either a listing or a lot directly (catalog "Lots Available
+    # to You"). Nones must be filtered out — `in_({None})` matches nothing but
+    # still ships a pointless query, and mixing them in hides the real ids.
+    listing_ids = {b.listing_id for b in bids if b.listing_id}
+    listings = {}
+    if listing_ids:
+        listings = {l.id: l for l in (await db.execute(
+            select(PartnerListing).where(PartnerListing.id.in_(listing_ids)))).scalars().all()}
 
-    lot_ids = {l.lot_id for l in listings.values() if l.lot_id}
+    # Lots reached two ways: straight off the bid, or via the listing behind it.
+    lot_ids = {b.lot_id for b in bids if b.lot_id}
+    lot_ids |= {l.lot_id for l in listings.values() if l.lot_id}
     lots = {}
     if lot_ids:
         lots = {l.id: l for l in (await db.execute(
@@ -1247,15 +1323,17 @@ async def _bid_rows(db: AsyncSession, bids):
     rows = []
     for b in bids:
         dealer = dealers.get(b.dealer_id)
-        listing = listings.get(b.listing_id)
+        listing = listings.get(b.listing_id) if b.listing_id else None
         contact = contacts.get(dealer.crm_contact_id) if dealer and dealer.crm_contact_id else None
-        lot = lots.get(listing.lot_id) if listing and listing.lot_id else None
+        lot = (lots.get(b.lot_id) if b.lot_id
+               else (lots.get(listing.lot_id) if listing and listing.lot_id else None))
         rows.append({
             "bid": b,
             "dealer_name": dealer.business_name if dealer else "-",
             "lot_number": (lot.lot_number if lot
                            else (listing.listing_code if listing else "-")),
-            "listing_title": listing.title if listing else "-",
+            "listing_title": (listing.title if listing
+                              else (f"Lot {lot.lot_number}" if lot else "-")),
             # Account columns come from the CRM Account behind the dealer. A
             # dealer created directly in Dealer Management has none, so these
             # read as a dash rather than silently borrowing the dealer's name.
@@ -1330,9 +1408,22 @@ async def mark_bid_won(
 
     dealer = (await db.execute(
         select(Dealer).where(Dealer.id == bid.dealer_id))).scalar_one_or_none()
-    listing = (await db.execute(
-        select(PartnerListing).where(PartnerListing.id == bid.listing_id)
-    )).scalar_one_or_none()
+    listing = None
+    if bid.listing_id:
+        listing = (await db.execute(
+            select(PartnerListing).where(PartnerListing.id == bid.listing_id)
+        )).scalar_one_or_none()
+    lot = None
+    if bid.lot_id:
+        lot = (await db.execute(
+            select(Lot).where(Lot.id == bid.lot_id))).scalar_one_or_none()
+
+    # The bid names either a listing or a lot; the Buyer Deal has to describe
+    # whichever it actually was, not assume a listing exists.
+    what = (listing.title if listing
+            else (f"Lot {lot.lot_number}" if lot else "Lot"))
+    source_ref = (listing.listing_code if listing
+                  else (lot.lot_number if lot else "-"))
 
     n = ((await db.execute(select(func.count(CRMSalesOpportunity.id)))).scalar() or 0) + 1
     opp = CRMSalesOpportunity(
@@ -1340,17 +1431,18 @@ async def mark_bid_won(
         # Links to the CRM Account behind the dealer when there is one, so the
         # Buyer Deal lands on that account's profile rather than floating free.
         contact_id=dealer.crm_contact_id if dealer else None,
-        title=f"{listing.title if listing else 'Lot'} - won by "
+        title=f"{what} - won by "
               f"{dealer.business_name if dealer else 'dealer'} ({bid.bid_number})",
         buyer_type="dealer",
-        required_qty=listing.qty_available if listing else None,
+        required_qty=(listing.qty_available if listing
+                      else (lot.qty if lot else None)),
         grade_required=listing.grade_summary if listing else None,
         stage="won",
         estimated_value=bid.bid_amount,
         assigned_to=dealer.sales_owner_username if dealer else None,
         notes=(f"Created from Trade Partner bid {bid.bid_number} "
-               f"({bid.bid_type} price) on listing "
-               f"{listing.listing_code if listing else '-'}."),
+               f"({bid.bid_type} price) on "
+               f"{'listing' if listing else 'lot'} {source_ref}."),
         created_by=current_user.username,
     )
     db.add(opp)
@@ -1361,9 +1453,14 @@ async def mark_bid_won(
     bid.won_at = app_now()
     bid.opportunity_id = opp.id
 
+    # Losers are the other live bids on the SAME target — matched on whichever
+    # of the two columns this bid actually uses. Matching on listing_id alone
+    # would, for a lot bid, compare NULL == NULL and mark nothing lost.
+    same_target = (PartnerBid.lot_id == bid.lot_id if bid.lot_id
+                   else PartnerBid.listing_id == bid.listing_id)
     await db.execute(
         update(PartnerBid)
-        .where(PartnerBid.listing_id == bid.listing_id,
+        .where(same_target,
                PartnerBid.id != bid.id,
                PartnerBid.status == "active")
         .values(status="lost")

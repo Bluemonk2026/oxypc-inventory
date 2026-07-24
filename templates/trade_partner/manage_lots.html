@@ -1,34 +1,64 @@
 {% extends "base.html" %}
 {% block title %}Manage Lots — Trade Partner{% endblock %}
 {% block page_title %}Manage Lots{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/vendor/tom-select/css/tom-select.bootstrap5.min.css">
+{% endblock %}
 {% block content %}
 
 {% if success %}
 <div class="alert alert-success py-2"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>
 {% endif %}
+{% if error %}
+<div class="alert alert-danger py-2"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
+{% endif %}
 
 <div class="card border-0 shadow-sm">
-  <div class="card-header bg-transparent fw-semibold">
-    <i class="bi bi-box-seam me-2"></i>Lot Management — Trade Partner Visibility
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span class="fw-semibold">
+      <i class="bi bi-box-seam me-2"></i>Lot Management — Trade Partner Visibility
+    </span>
+    <div class="d-flex align-items-center gap-2">
+      <span class="small text-muted" id="selCount">0 selected</span>
+      <button type="button" class="btn btn-sm btn-primary" id="bulkAssignBtn" disabled>
+        <i class="bi bi-eye me-1"></i>Assign Visibility to Selected
+      </button>
+    </div>
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
       <table class="table table-hover mb-0 small align-middle">
         <thead class="table-dark">
           <tr>
-            <th class="ps-3">Lot Number</th><th>Purchase Date</th><th>Available Quantity</th>
-            {% if can_view_pricing(current_user) %}<th>Price</th>{% endif %}<th>Visible to</th><th style="width:150px">Action</th>
+            <th style="width:38px" class="ps-3">
+              <input type="checkbox" class="form-check-input" id="selAll" title="Select all lots">
+            </th>
+            <th>Lot Number</th><th>Purchase Date</th><th>Available Quantity</th>
+            {% if can_view_pricing(current_user) %}<th>Price</th>{% endif %}
+            <th>Visible to</th><th style="width:150px">Action</th>
           </tr>
         </thead>
         <tbody>
           {% for lot in lots %}
           {% set lid = lot.id | string %}
           <tr>
-            <td class="ps-3"><a href="/lots/{{ lot.id }}" class="font-monospace text-decoration-none">{{ lot.lot_number }}</a></td>
+            <td class="ps-3">
+              <input type="checkbox" class="form-check-input lot-check"
+                     value="{{ lot.id }}" data-lot-number="{{ lot.lot_number }}">
+            </td>
+            <td><a href="/lots/{{ lot.id }}" class="font-monospace text-decoration-none">{{ lot.lot_number }}</a></td>
             <td class="text-muted small">{{ lot.purchase_date.strftime('%d-%m-%Y') if lot.purchase_date else '—' }}</td>
             <td><span class="badge bg-info text-dark">{{ avail_map.get(lid, 0) }}</span></td>
             {% if can_view_pricing(current_user) %}<td>&#8377;{{ '%.2f'|format(lot.buying_price or 0) }}</td>{% endif %}
-            <td><span class="badge bg-{{ 'success' if vis_map.get(lid, 0) else 'secondary' }}">{{ vis_map.get(lid, 0) }} dealer(s)</span></td>
+            <td>
+              {# Names in the tooltip: with bulk assign the operator needs to see
+                 what a lot already carries, not just a count to go and look up. #}
+              <span class="badge bg-{{ 'success' if vis_map.get(lid, 0) else 'secondary' }}"
+                    {% if vis_names.get(lid) %}data-bs-toggle="tooltip"
+                    title="{{ vis_names.get(lid) | join(', ') }}"{% endif %}>
+                {{ vis_map.get(lid, 0) }} dealer(s)
+              </span>
+            </td>
             <td>
               <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 assign-vis-btn"
                       data-lot-id="{{ lot.id }}" data-lot-number="{{ lot.lot_number }}">
@@ -37,7 +67,8 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="6" class="text-center text-muted py-4">No lots found.</td></tr>
+          <tr><td colspan="{{ 7 if can_view_pricing(current_user) else 6 }}"
+                  class="text-center text-muted py-4">No lots found.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -45,27 +76,40 @@
   </div>
 </div>
 
-<!-- Assign Visibility modal -->
+<!-- Assign Visibility modal — serves both the row button and the bulk button -->
 <div class="modal fade" id="assignVisModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-sm">
-    <form method="post" id="assignVisForm" class="modal-content">
+  <div class="modal-dialog">
+    <form method="post" id="assignVisForm" action="/trade-partner/manage-lots/assign-visibility"
+          class="modal-content">
       <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-      <div class="modal-header">
-        <h6 class="modal-title fw-semibold"><i class="bi bi-eye me-2"></i>Assign Visibility — <span id="avLotNumber"></span></h6>
+      <div class="modal-header py-2">
+        <h6 class="modal-title fw-semibold"><i class="bi bi-eye me-2"></i>Assign Visibility</h6>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <label class="form-label small">Select Dealer</label>
-        <select name="dealer_id" class="form-select form-select-sm" required>
-          <option value="">— Select —</option>
-          {% for d in dealers %}
-          <option value="{{ d.id }}">{{ d.business_name }}</option>
-          {% endfor %}
-        </select>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold mb-1">Lots</label>
+          <div id="avLotList" class="border rounded p-2 bg-light small"
+               style="max-height:120px; overflow-y:auto"></div>
+          <div id="avLotInputs"></div>
+        </div>
+        <div>
+          <label class="form-label small fw-semibold mb-1">Dealers</label>
+          <select id="avDealers" name="dealer_ids" class="form-select form-select-sm"
+                  multiple required>
+            {% for d in dealers %}
+            <option value="{{ d.id }}">{{ d.business_name }}{% if d.city %} — {{ d.city }}{% endif %}</option>
+            {% endfor %}
+          </select>
+          <small class="text-muted">
+            Search and select one or more dealers. Every selected lot becomes
+            visible to every selected dealer; pairs that already exist are skipped.
+          </small>
+        </div>
       </div>
-      <div class="modal-footer">
+      <div class="modal-footer py-2">
         <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="submit" class="btn btn-sm btn-primary">Assign</button>
+        <button type="submit" class="btn btn-sm btn-primary" id="avSubmit">Assign</button>
       </div>
     </form>
   </div>
@@ -73,13 +117,102 @@
 
 {% endblock %}
 {% block scripts %}
+<script src="/static/vendor/tom-select/js/tom-select.complete.min.js"></script>
 <script>
-document.querySelectorAll('.assign-vis-btn').forEach(function (btn) {
-  btn.addEventListener('click', function () {
-    document.getElementById('avLotNumber').textContent = btn.dataset.lotNumber;
-    document.getElementById('assignVisForm').action = '/trade-partner/manage-lots/' + btn.dataset.lotId + '/assign-visibility';
-    new bootstrap.Modal(document.getElementById('assignVisModal')).show();
+(function () {
+  var checks    = Array.prototype.slice.call(document.querySelectorAll('.lot-check'));
+  var selAll    = document.getElementById('selAll');
+  var selCount  = document.getElementById('selCount');
+  var bulkBtn   = document.getElementById('bulkAssignBtn');
+  var modalEl   = document.getElementById('assignVisModal');
+  var lotList   = document.getElementById('avLotList');
+  var lotInputs = document.getElementById('avLotInputs');
+  var dealerTs  = null;
+
+  function selected() {
+    return checks.filter(function (c) { return c.checked; });
+  }
+
+  function syncBar() {
+    var n = selected().length;
+    selCount.textContent = n + ' selected';
+    bulkBtn.disabled = n === 0;
+    if (selAll) {
+      selAll.checked = n > 0 && n === checks.length;
+      // Distinct from both states so "some selected" cannot be mistaken for none.
+      selAll.indeterminate = n > 0 && n < checks.length;
+    }
+  }
+
+  checks.forEach(function (c) { c.addEventListener('change', syncBar); });
+  if (selAll) {
+    selAll.addEventListener('change', function () {
+      checks.forEach(function (c) { c.checked = selAll.checked; });
+      syncBar();
+    });
+  }
+
+  // Bootstrap tooltips on the "Visible to" badges are opt-in.
+  Array.prototype.forEach.call(
+    document.querySelectorAll('[data-bs-toggle="tooltip"]'),
+    function (el) { new bootstrap.Tooltip(el); });
+
+  function openModal(lots) {
+    // lots: [{id, number}]. Rendered as a read-only list plus hidden inputs, so
+    // the operator can see exactly what they are about to change and the form
+    // still posts a plain repeated field.
+    lotList.innerHTML = lots.map(function (l) {
+      return '<span class="badge bg-secondary me-1 mb-1">' + l.number + '</span>';
+    }).join('');
+    lotInputs.innerHTML = lots.map(function (l) {
+      return '<input type="hidden" name="lot_ids" value="' + l.id + '">';
+    }).join('');
+    new bootstrap.Modal(modalEl).show();
+  }
+
+  bulkBtn.addEventListener('click', function () {
+    openModal(selected().map(function (c) {
+      return { id: c.value, number: c.dataset.lotNumber };
+    }));
   });
-});
+
+  document.querySelectorAll('.assign-vis-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      // Row button posts through the same bulk endpoint with a single lot, so
+      // there is one code path rather than two that can drift apart.
+      openModal([{ id: btn.dataset.lotId, number: btn.dataset.lotNumber }]);
+    });
+  });
+
+  // Built on first open: inside a hidden .modal every measurement reads zero and
+  // Tom Select renders collapsed.
+  modalEl.addEventListener('shown.bs.modal', function () {
+    if (!dealerTs) {
+      dealerTs = new TomSelect('#avDealers', {
+        maxOptions: null,
+        plugins: ['remove_button'],
+        placeholder: '— Search dealers —',
+      });
+    }
+  });
+
+  // Clear the dealer picker between opens; leaving the last selection in place
+  // makes it far too easy to grant a second lot to dealers you never re-chose.
+  modalEl.addEventListener('hidden.bs.modal', function () {
+    if (dealerTs) dealerTs.clear();
+  });
+
+  document.getElementById('assignVisForm').addEventListener('submit', function (e) {
+    if (!lotInputs.querySelector('input') ||
+        !(dealerTs ? dealerTs.items.length : 0)) {
+      e.preventDefault();
+      alert('Pick at least one lot and one dealer.');
+      return;
+    }
+    document.getElementById('avSubmit').disabled = true;  // no double-submit
+  });
+
+  syncBar();
+})();
 </script>
 {% endblock %}

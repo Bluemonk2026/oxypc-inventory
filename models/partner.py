@@ -257,8 +257,15 @@ class PartnerBid(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     bid_number = Column(String(30), unique=True, nullable=False, index=True)  # BID-0001
+    # A bid targets EITHER a published listing or a Lot the dealer can see on
+    # the catalog. Both are "a thing a dealer names a price against", they share
+    # the increment rule, the Bids page and Mark Won — so they share one table
+    # rather than forking the whole subsystem. Exactly one of these is set;
+    # bid_target below is the single place that decides which.
     listing_id = Column(UUID(as_uuid=True), ForeignKey("partner_listings.id"),
-                        nullable=False, index=True)
+                        nullable=True, index=True)
+    lot_id = Column(UUID(as_uuid=True), ForeignKey("lots.id"),
+                    nullable=True, index=True)
     dealer_id = Column(UUID(as_uuid=True), ForeignKey("dealers.id"),
                        nullable=False, index=True)
     bid_amount = Column(Numeric(14, 2), nullable=False)
@@ -280,8 +287,14 @@ class PartnerBid(Base):
     updated_at = Column(DateTime, default=app_now, onupdate=app_now)
 
     listing = relationship("PartnerListing", lazy="select")
+    lot = relationship("Lot", lazy="select")
     dealer = relationship("Dealer", lazy="select")
     documents = relationship("PartnerBidDocument", back_populates="bid", lazy="select")
+
+    @property
+    def bid_target(self) -> str:
+        """'listing' or 'lot' — which of the two this bid is against."""
+        return "lot" if self.lot_id else "listing"
 
 
 class PartnerBidDocument(Base):

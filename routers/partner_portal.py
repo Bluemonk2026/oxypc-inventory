@@ -8,10 +8,11 @@ sessions cannot open these routes.
 import os
 import secrets
 import time
+import uuid as uuid_mod
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Form, Request, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
 
@@ -261,6 +262,9 @@ async def catalog(
         "partner_csrf": request.cookies.get(PARTNER_CSRF_COOKIE, ""),
         "visible_lots": visible_lots,
         "bids": await _bid_state(db, listings, dealer.id),
+        "lot_bids": await _lot_bid_state(db, visible_lots, dealer.id),
+        "success": request.query_params.get("success"),
+        "error": request.query_params.get("error"),
     })
 
 
@@ -342,6 +346,57 @@ async def _bid_state(db: AsyncSession, listings, dealer_id):
             "mine": mine.get(key),
             "leading": bool(top is not None and mine.get(key) is not None
                             and mine[key].bid_amount == top),
+        }
+    return out
+
+
+async def _lot_bid_state(db: AsyncSession, lots, dealer_id):
+    """Same shape as _bid_state, for Lots rather than Listings.
+
+    Base price is lot.selling_price — the dealer-facing figure. lot.buying_price
+    is what OxyPC paid and is never exposed here; showing it would hand every
+    dealer the margin on every lot. A lot with no selling_price set has no
+    reserve, which the caller surfaces rather than silently treating as zero.
+    """
+    # The catalog builds visible_lots as dicts with a stringified id; the bid
+    # queries compare against a UUID column, so coerce rather than lean on the
+    # driver to cast (asyncpg will not).
+    def _uid(v):
+        return v if isinstance(v, uuid_mod.UUID) else uuid_mod.UUID(str(v))
+
+    ids = [_uid(l["id"] if isinstance(l, dict) else l.id) for l in lots]
+    if not ids:
+        return {}
+
+    highest = dict((str(lid), amt) for lid, amt in (await db.execute(
+        select(PartnerBid.lot_id, func.max(PartnerBid.bid_amount))
+        .where(PartnerBid.lot_id.in_(ids), PartnerBid.status == "active")
+        .group_by(PartnerBid.lot_id)
+    )).all())
+
+    mine = {}
+    for b in (await db.execute(
+        select(PartnerBid).where(
+            PartnerBid.lot_id.in_(ids), PartnerBid.dealer_id == dealer_id,
+            PartnerBid.status.in_(("active", "won")),
+        ).order_by(PartnerBid.bid_amount.desc())
+    )).scalars().all():
+        mine.setdefault(str(b.lot_id), b)
+
+    out = {}
+    for l in lots:
+        lid = str(l["id"] if isinstance(l, dict) else l.id)
+        base = l["price"] if isinstance(l, dict) else l.selling_price
+        top = highest.get(lid)
+        out[lid] = {
+            "highest": top,
+            "base": base,
+            # No reserve when neither a base price nor a standing bid exists —
+            # any positive amount is then a valid opening bid.
+            "min_next": (min_next_bid(base or 0, top) if (base or top) else None),
+            "mine": mine.get(lid),
+            "leading": bool(top is not None and mine.get(lid) is not None
+                            and mine[lid].bid_amount == top),
         }
     return out
 
@@ -468,6 +523,168 @@ async def request_custom_price(
     await audit(db, action="PARTNER_CUSTOM_PRICE_REQUESTED",
                 table_name="partner_bids", record_id=str(bid.id),
                 new_value={"listing": listing.listing_code, "amount": str(amt),
+                           "dealer": dealer.business_name},
+                notes=f"dealer:{dealer.business_name}", request=request)
+    await db.commit()
+    return RedirectResponse(url=f"{back}?success=Custom+price+request+sent",
+                            status_code=302)
+
+
+async def _visible_lot_or_none(db: AsyncSession, lot_id: str, dealer_id):
+    """The Lot, but only if this dealer has been granted visibility on it.
+
+    Every lot route re-checks this. A dealer who learns another lot's id must
+    not be able to bid on stock that was never offered to them.
+    """
+    visible = (await db.execute(select(LotDealerVisibility).where(
+        LotDealerVisibility.lot_id == lot_id,
+        LotDealerVisibility.dealer_id == dealer_id,
+    ))).scalar_one_or_none()
+    if not visible:
+        return None
+    return (await db.execute(select(Lot).where(Lot.id == lot_id))).scalar_one_or_none()
+
+
+@router.get("/lots/{lot_id}/models")
+async def lot_model_summary(
+    lot_id: str,
+    dealer: Dealer = Depends(get_current_partner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Model-wise breakdown of a lot's stock, for the catalog's Available Stock
+    modal. Specs only — no tag numbers, no costs, no internal stage."""
+    lot = await _visible_lot_or_none(db, lot_id, dealer.id)
+    if not lot:
+        return JSONResponse({"error": "Lot not available to you"}, status_code=404)
+
+    rows = (await db.execute(
+        select(
+            Device.model, Device.cpu, Device.generation,
+            Device.ram_gb, Device.storage_gb, Device.storage_type, Device.grade,
+            func.count(Device.id).label("qty"),
+        )
+        .where(Device.lot_id == lot.id, Device.is_active == True)  # noqa: E712
+        .group_by(Device.model, Device.cpu, Device.generation, Device.ram_gb,
+                  Device.storage_gb, Device.storage_type, Device.grade)
+        .order_by(func.count(Device.id).desc())
+    )).all()
+
+    def _grade(g):
+        # grade is an enum on Device; .value where present, else the raw string.
+        return getattr(g, "value", g) if g else "—"
+
+    models = [{
+        "model": r.model or "—",
+        "qty": r.qty,
+        "cpu": r.cpu or "—",
+        "generation": r.generation or "—",
+        "ram": f"{r.ram_gb}GB" if r.ram_gb else "—",
+        "storage": (f"{r.storage_gb}GB {r.storage_type or ''}".strip()
+                    if r.storage_gb else "—"),
+        "grade": _grade(r.grade),
+    } for r in rows]
+
+    return JSONResponse({
+        "lot_number": lot.lot_number,
+        "total": sum(m["qty"] for m in models),
+        "models": models,
+    })
+
+
+@router.post("/lots/{lot_id}/bid")
+async def place_lot_bid(
+    request: Request,
+    lot_id: str,
+    amount: str = Form(...),
+    _csrf=Depends(verify_partner_csrf),
+    dealer: Dealer = Depends(get_current_partner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Auction bid against a visible Lot. Same 10% rule as listing bids."""
+    back = "/partner/catalog"
+
+    # Lock the lot row for the duration, exactly as the listing path does: two
+    # dealers submitting together would otherwise both read the same highest
+    # bid and both be recorded valid at the same amount.
+    lot = (await db.execute(
+        select(Lot).where(Lot.id == lot_id).with_for_update()
+    )).scalar_one_or_none()
+    if not lot or not await _visible_lot_or_none(db, lot_id, dealer.id):
+        await db.rollback()
+        return RedirectResponse(url=f"{back}?error=Lot+not+available+to+you",
+                                status_code=302)
+
+    amt = _parse_amount(amount)
+    if amt is None:
+        await db.rollback()
+        return RedirectResponse(url=f"{back}?error=Enter+a+valid+bid+amount",
+                                status_code=302)
+
+    top = (await db.execute(
+        select(func.max(PartnerBid.bid_amount)).where(
+            PartnerBid.lot_id == lot.id, PartnerBid.status == "active")
+    )).scalar()
+    base = lot.selling_price
+    if base or top:
+        floor = min_next_bid(base or 0, top)
+        if amt < floor:
+            await db.rollback()
+            return RedirectResponse(
+                url=f"{back}?error=Minimum+next+bid+is+Rs+{floor:.0f}",
+                status_code=302)
+
+    bid = PartnerBid(
+        bid_number=await _next_bid_number(db),
+        lot_id=lot.id, dealer_id=dealer.id,
+        bid_amount=amt, bid_type="increment",
+        previous_amount=top, base_amount=base,
+        status="active",
+    )
+    db.add(bid)
+    await audit(db, action="PARTNER_BID_PLACED", table_name="partner_bids",
+                record_id=str(bid.id),
+                new_value={"lot": lot.lot_number, "amount": str(amt),
+                           "previous": str(top) if top is not None else None,
+                           "dealer": dealer.business_name},
+                notes=f"dealer:{dealer.business_name}", request=request)
+    await db.commit()
+    return RedirectResponse(url=f"{back}?success=Bid+placed+on+{lot.lot_number}",
+                            status_code=302)
+
+
+@router.post("/lots/{lot_id}/custom-price")
+async def request_lot_custom_price(
+    request: Request,
+    lot_id: str,
+    amount: str = Form(...),
+    notes: str = Form(""),
+    _csrf=Depends(verify_partner_csrf),
+    dealer: Dealer = Depends(get_current_partner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Dealer names their own figure for a Lot — not held to the 10% ladder."""
+    back = "/partner/catalog"
+    lot = await _visible_lot_or_none(db, lot_id, dealer.id)
+    if not lot:
+        return RedirectResponse(url=f"{back}?error=Lot+not+available+to+you",
+                                status_code=302)
+
+    amt = _parse_amount(amount)
+    if amt is None:
+        return RedirectResponse(url=f"{back}?error=Enter+a+valid+amount",
+                                status_code=302)
+
+    bid = PartnerBid(
+        bid_number=await _next_bid_number(db),
+        lot_id=lot.id, dealer_id=dealer.id,
+        bid_amount=amt, bid_type="custom",
+        base_amount=lot.selling_price, status="active",
+        notes=notes.strip() or None,
+    )
+    db.add(bid)
+    await audit(db, action="PARTNER_CUSTOM_PRICE_REQUESTED",
+                table_name="partner_bids", record_id=str(bid.id),
+                new_value={"lot": lot.lot_number, "amount": str(amt),
                            "dealer": dealer.business_name},
                 notes=f"dealer:{dealer.business_name}", request=request)
     await db.commit()

@@ -2,13 +2,14 @@
 from datetime import datetime, date, timedelta
 from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from templates_config import templates
 from database import get_db
 from auth.dependencies import get_current_user, verify_csrf
+from services.po_pdf import build_po_pdf
 from models.user import User, UserRole
 from models.crm import (
     CRMContact, CRMQuote, CRMQuoteItem, CRMSalesOpportunity,
@@ -88,15 +89,102 @@ async def new_quote_form(
         .order_by(CRMContact.company_name)
     )
     contacts = contacts_r.scalars().all()
+
+    # ── Prefill from the Buyer Deal's lot ────────────────────────────────────
+    # Opened via "Create Quote" on a Buyer Deal. The opportunity has no lot FK —
+    # it was created by Marking Won a partner bid, so the bid is what carries
+    # the lot. Fill the buyer and one line per model in that lot.
+    prefill_items, preselect = [], contact_id
+    if opp_id and opp_id.strip():
+        opp = (await db.execute(
+            select(CRMSalesOpportunity).where(CRMSalesOpportunity.id == opp_id)
+        )).scalar_one_or_none()
+        if opp:
+            if not preselect and opp.contact_id:
+                preselect = str(opp.contact_id)
+            prefill_items = await _lot_prefill_for_opp(db, opp)
+
     today = date.today()
     valid_until = today + timedelta(days=15)
     return templates.TemplateResponse("crm/quotes/form.html", {
         "request": request, "current_user": current_user,
         "quote": None, "contacts": contacts,
-        "preselect": contact_id, "opp_id": opp_id,
+        "preselect": preselect, "opp_id": opp_id,
+        "prefill_items": prefill_items,
         "material_types": MATERIAL_TYPES, "grades": GRADES,
         "today": today.isoformat(), "valid_until": valid_until.isoformat(),
     })
+
+
+async def _lot_prefill_for_opp(db: AsyncSession, opp) -> list[dict]:
+    """One quote line per distinct model+grade in the lot this deal came from.
+
+    Returns [] when the opportunity was created by hand rather than from a won
+    bid — there is no lot to read in that case, and the form falls back to a
+    single blank row.
+    """
+    from models.partner import PartnerBid
+    from models.device import Device
+    from models.lot import Lot
+    from utils.master_data import master_options
+
+    bid = (await db.execute(
+        select(PartnerBid)
+        .where(PartnerBid.opportunity_id == opp.id, PartnerBid.lot_id.isnot(None))
+        .order_by(PartnerBid.bid_amount.desc())
+    )).scalars().first()
+    if not bid:
+        return []
+
+    lot = (await db.execute(select(Lot).where(Lot.id == bid.lot_id))).scalar_one_or_none()
+    if not lot:
+        return []
+
+    rows = (await db.execute(
+        select(Device.model, Device.grade, Device.sub_category,
+               Device.cpu, Device.generation, Device.ram_gb,
+               Device.storage_gb, Device.storage_type,
+               func.count(Device.id).label("qty"))
+        .where(Device.lot_id == lot.id, Device.is_active == True)  # noqa: E712
+        .group_by(Device.model, Device.grade, Device.sub_category, Device.cpu,
+                  Device.generation, Device.ram_gb, Device.storage_gb,
+                  Device.storage_type)
+        .order_by(func.count(Device.id).desc())
+    )).all()
+    if not rows:
+        return []
+
+    # Per-unit price comes from the lot's Target Selling Price spread over the
+    # units in it — deliberately NOT device_price, which is a buying cost and
+    # would quote the customer at cost if the operator didn't notice.
+    total_qty = sum(r.qty for r in rows)
+    unit = None
+    if lot.selling_price and total_qty:
+        unit = round(float(lot.selling_price) / total_qty, 2)
+
+    # po_category is a Master Data list; only preselect when the device's
+    # sub_category is actually one of its options, else leave it for the user.
+    try:
+        categories = set(master_options("po_category") or [])
+    except Exception:
+        categories = set()
+
+    out = []
+    for r in rows:
+        specs = " ".join(filter(None, [
+            r.cpu or "", r.generation or "",
+            f"{r.ram_gb}GB RAM" if r.ram_gb else "",
+            f"{r.storage_gb}GB {r.storage_type or ''}".strip() if r.storage_gb else "",
+        ])).strip()
+        out.append({
+            "model": r.model or "",
+            "grade": getattr(r.grade, "value", r.grade) or "",
+            "po_category": r.sub_category if r.sub_category in categories else "",
+            "quantity": r.qty,
+            "unit_price": unit if unit else "",
+            "specs_note": specs,
+        })
+    return out
 
 
 @router.post("/new")
@@ -110,7 +198,6 @@ async def create_quote(
     special_conditions: str = Form(default=None),
     # line items sent as repeating fields
     device_type:        list = Form(default=[]),
-    material_type:      list = Form(default=[]),
     grade:              list = Form(default=[]),
     po_category:        list = Form(default=[]),
     quantity:           list = Form(default=[]),
@@ -150,8 +237,9 @@ async def create_quote(
         item = CRMQuoteItem(
             quote_id=quote.id,
             line_number=i + 1,
+            # Column header is "Model Name" on the form — the column keeps its
+            # original name so existing quotes and the print view still read.
             device_type=dt.strip(),
-            material_type=material_type[i] if i < len(material_type) else None,
             grade=grade[i] if i < len(grade) else None,
             po_category=(po_category[i].strip() or None) if i < len(po_category) and po_category[i] else None,
             quantity=qty,
@@ -249,6 +337,117 @@ async def quote_print(
         "request": request, "current_user": current_user,
         "quote": quote, "items": items, "contact": contact,
         "material_map": dict(MATERIAL_TYPES),
+    })
+
+
+# ── DOCUMENT GENERATION ───────────────────────────────────────────────────────
+
+class _QuoteLine:
+    """Adapter so quote items can feed the shared PO/Quote PDF layout, which
+    reads .item_name / .description / .quantity / .total_price."""
+
+    def __init__(self, item):
+        self.item_name   = item.device_type or ""
+        bits = [b for b in (item.grade, item.po_category, item.specs_note) if b]
+        self.description = " · ".join(bits)
+        self.quantity    = item.quantity
+        self.unit_price  = item.unit_price
+        self.total_price = item.total_price
+
+
+async def _quote_pdf(db: AsyncSession, quote, *, sections, term_ids=None):
+    """Build the quote PDF. term_ids maps 'payment'/'delivery'/'disclaimer' to a
+    single chosen TermsCondition id; absent or blank means include every active
+    policy of that type (which is what the plain Download link does)."""
+    import io
+    from models.terms import TermsCondition
+    from routers.settings import get_company_settings
+    from routers.terms_conditions import get_active_terms
+
+    items = (await db.execute(
+        select(CRMQuoteItem).where(CRMQuoteItem.quote_id == quote.id)
+        .order_by(CRMQuoteItem.sort_order)
+    )).scalars().all()
+
+    contact = None
+    if quote.contact_id:
+        contact = (await db.execute(
+            select(CRMContact).where(CRMContact.id == quote.contact_id)
+        )).scalar_one_or_none()
+
+    async def _terms(kind, enabled):
+        if not enabled:
+            return []
+        chosen = (term_ids or {}).get(kind)
+        if chosen:
+            row = (await db.execute(
+                select(TermsCondition).where(TermsCondition.id == chosen)
+            )).scalar_one_or_none()
+            return [row] if row else []
+        return await get_active_terms(db, kind)
+
+    company = await get_company_settings(db)
+    pdf_bytes = build_po_pdf(
+        po_number=quote.quote_number,
+        po_date=quote.quote_date.strftime("%d %b %Y") if quote.quote_date else "",
+        company=company, contact=contact,
+        line_items=[_QuoteLine(i) for i in items],
+        payment_terms=await _terms("payment",    sections.get("payment")),
+        delivery_terms=await _terms("delivery",  sections.get("delivery")),
+        disclaimers=await _terms("disclaimer",   sections.get("conditions")),
+        sections=sections, total_amount=float(quote.total_amount or 0),
+        doc_title="QUOTATION", account_label="Account Details (Buyer)",
+    )
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes), media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{quote.quote_number}.pdf"'},
+    )
+
+
+@router.post("/{quote_id}/generate")
+async def generate_quote_doc(
+    request: Request,
+    quote_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate + download the quote document with the sections and the
+    specific Terms & Conditions entries picked in the modal."""
+    quote = (await db.execute(select(CRMQuote).where(CRMQuote.id == quote_id))).scalar_one_or_none()
+    if not quote:
+        return RedirectResponse(url="/crm/quotes?error=Quote+not+found", status_code=302)
+
+    form = await request.form()
+    term_ids = {
+        "payment":    (form.get("payment_term_id")    or "").strip(),
+        "delivery":   (form.get("delivery_term_id")   or "").strip(),
+        "disclaimer": (form.get("disclaimer_term_id") or "").strip(),
+    }
+    sections = {
+        "account":    bool(form.get("include_account")),
+        "company":    bool(form.get("include_company")),
+        "items":      bool(form.get("include_items")),
+        # A terms block is included when the operator picked a policy for it.
+        "payment":    bool(term_ids["payment"]),
+        "delivery":   bool(term_ids["delivery"]),
+        "conditions": bool(term_ids["disclaimer"]),
+    }
+    return await _quote_pdf(db, quote, sections=sections, term_ids=term_ids)
+
+
+@router.get("/{quote_id}/download")
+async def download_quote_doc(
+    quote_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Re-download a quote with every section and all active terms."""
+    quote = (await db.execute(select(CRMQuote).where(CRMQuote.id == quote_id))).scalar_one_or_none()
+    if not quote:
+        return RedirectResponse(url="/crm/quotes?error=Quote+not+found", status_code=302)
+    return await _quote_pdf(db, quote, sections={
+        "account": True, "company": True, "items": True,
+        "payment": True, "delivery": True, "conditions": True,
     })
 
 

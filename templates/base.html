@@ -252,6 +252,15 @@
         <i class="bi bi-table me-2"></i> {{ sidebar_label('crm_price_matrix', 'Price Matrix') }}
       </a></li>
       {% endif %}
+      {# Quotes sits immediately before PO Records: a quote is the sales-side
+         artifact that precedes the purchase paperwork, so the nav reads in
+         deal order. Gated on crm_sales_opp rather than a new matrix key —
+         quotes hang off Buyer Deals and share their access. #}
+      {% if has_perm(role,'crm_sales_opp','enable') %}
+      <li><a href="/crm/quotes" class="nav-link {% if request.url.path.startswith('/crm/quotes') %}active{% endif %}">
+        <i class="bi bi-file-earmark-ruled me-2"></i> {{ sidebar_label('crm_quotes', 'Quotes') }}
+      </a></li>
+      {% endif %}
       {% if has_perm(role,'crm_purchase_orders','enable') %}
       <li><a href="/crm/purchase-orders" class="nav-link {% if request.url.path.startswith('/crm/purchase-orders') %}active{% endif %}">
         <i class="bi bi-file-earmark-text me-2"></i> {{ sidebar_label('crm_purchase_orders', 'Purchase Orders') }}

@@ -22,8 +22,12 @@ def _rs(x) -> str:
 
 def build_po_pdf(*, po_number, po_date, company, contact, line_items,
                  payment_terms, delivery_terms, disclaimers, sections,
-                 total_amount=0, offer_total=None):
+                 total_amount=0, offer_total=None,
+                 doc_title="PURCHASE ORDER", account_label="Account Details (Supplier)"):
     """Return PO PDF bytes.
+
+    doc_title / account_label are overridable so the same layout serves the
+    Quote document, where the counterparty is the buyer, not a supplier.
 
     company:  dict (name/address/gstin/state/state_code/phone/email)
     contact:  CRMContact or None (the supplier / account)
@@ -45,7 +49,7 @@ def build_po_pdf(*, po_number, po_date, company, contact, line_items,
     pdf.set_font("Helvetica", "B", 16)
     pdf.set_text_color(255, 255, 255)
     pdf.set_y(7)
-    pdf.cell(0, 8, "PURCHASE ORDER", align="C")
+    pdf.cell(0, 8, _s(doc_title), align="C")
     pdf.ln(8)
     pdf.set_x(LM)
     pdf.set_font("Helvetica", "", 9)
@@ -90,7 +94,7 @@ def build_po_pdf(*, po_number, po_date, company, contact, line_items,
 
     # ── Account / supplier details ────────────────────────────────────────────
     if sections.get("account") and contact is not None:
-        section_title("Account Details (Supplier)")
+        section_title(account_label)
         kv("Name", getattr(contact, "company_name", "") or "")
         if getattr(contact, "contact_person", None):
             kv("Contact Person", contact.contact_person)

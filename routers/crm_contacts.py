@@ -946,6 +946,52 @@ async def contact_profile(
     )
     purchase_orders = pos_r.scalars().all()
 
+    # ── Quotes Generated ─────────────────────────────────────────────────────
+    # Every quote raised for this Account, summarised by its line items. The
+    # Opportunity number comes from the Buyer Deal that points at the quote —
+    # a quote written straight from the Account has none, so it shows "—".
+    from models.crm import CRMQuote, CRMQuoteItem
+    from models.terms import TermsCondition
+
+    quote_rows = []
+    quotes = (await db.execute(
+        select(CRMQuote).where(CRMQuote.contact_id == contact.id)
+        .order_by(CRMQuote.created_at.desc())
+    )).scalars().all()
+    if quotes:
+        qids = [q.id for q in quotes]
+        opp_by_quote = {
+            str(o.quote_id): o for o in (await db.execute(
+                select(CRMSalesOpportunity).where(CRMSalesOpportunity.quote_id.in_(qids))
+            )).scalars().all()
+        }
+        items_by_quote = {}
+        for it in (await db.execute(
+            select(CRMQuoteItem).where(CRMQuoteItem.quote_id.in_(qids))
+        )).scalars().all():
+            items_by_quote.setdefault(str(it.quote_id), []).append(it)
+
+        for q in quotes:
+            its = items_by_quote.get(str(q.id), [])
+            opp = opp_by_quote.get(str(q.id))
+            quote_rows.append({
+                "quote": q,
+                "opp_number": opp.opp_number if opp else None,
+                "opp_id": str(opp.id) if opp else None,
+                "total_models": len(its),
+                "total_qty": sum(int(i.quantity or 0) for i in its),
+                "total_price": float(q.total_amount or 0),
+            })
+
+    # Terms dropdowns for the Generate modal — titles only, by bucket.
+    all_terms = (await db.execute(
+        select(TermsCondition).where(TermsCondition.is_active == True)  # noqa: E712
+        .order_by(TermsCondition.display_order, TermsCondition.created_at)
+    )).scalars().all()
+    terms_by_type = {"payment": [], "delivery": [], "disclaimer": []}
+    for t in all_terms:
+        terms_by_type.setdefault(t.term_type, []).append(t)
+
     source_map = dict(SOURCE_TYPES)
     buyer_map  = dict(BUYER_TYPES)
 
@@ -983,6 +1029,7 @@ async def contact_profile(
         "sourcing_deals": sourcing_deals, "sales_opps": sales_opps,
         "lost_bids": lost_bids, "won_bid_lots": won_bid_lots,
         "purchase_orders": purchase_orders,
+        "quote_rows": quote_rows, "terms_by_type": terms_by_type,
         "source_map": source_map, "buyer_map": buyer_map,
         "scorecard": scorecard,
     })

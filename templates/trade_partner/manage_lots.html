@@ -34,7 +34,7 @@
               <input type="checkbox" class="form-check-input" id="selAll" title="Select all lots">
             </th>
             <th>Lot Number</th><th>Purchase Date</th><th>Available Quantity</th>
-            {% if can_view_pricing(current_user) %}<th>Price</th>{% endif %}
+            {% if can_view_pricing(current_user) %}<th>Base Price</th><th>Target Selling Price</th>{% endif %}
             <th>Visible to</th><th style="width:150px">Action</th>
           </tr>
         </thead>
@@ -49,7 +49,16 @@
             <td><a href="/lots/{{ lot.id }}" class="font-monospace text-decoration-none">{{ lot.lot_number }}</a></td>
             <td class="text-muted small">{{ lot.purchase_date.strftime('%d-%m-%Y') if lot.purchase_date else '—' }}</td>
             <td><span class="badge bg-info text-dark">{{ avail_map.get(lid, 0) }}</span></td>
-            {% if can_view_pricing(current_user) %}<td>&#8377;{{ '%.2f'|format(lot.buying_price or 0) }}</td>{% endif %}
+            {% if can_view_pricing(current_user) %}
+            {# Base Price is what the partner catalog quotes and what bidding
+               starts from. Target is internal and stays out of the portal. #}
+            <td>&#8377;{{ '%.2f'|format(lot.buying_price or 0) }}</td>
+            <td>
+              {% if lot.selling_price is not none %}
+                &#8377;{{ '%.2f'|format(lot.selling_price) }}
+              {% else %}<span class="text-muted fst-italic">Not set</span>{% endif %}
+            </td>
+            {% endif %}
             <td>
               {# Names in the tooltip: with bulk assign the operator needs to see
                  what a lot already carries, not just a count to go and look up. #}
@@ -67,7 +76,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="{{ 7 if can_view_pricing(current_user) else 6 }}"
+          <tr><td colspan="{{ 8 if can_view_pricing(current_user) else 6 }}"
                   class="text-center text-muted py-4">No lots found.</td></tr>
           {% endfor %}
         </tbody>

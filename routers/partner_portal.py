@@ -220,9 +220,13 @@ async def catalog(
     settings = await get_settings(db)
 
     # ── Requests for Lot visibility (item 28) — direct Lot Management rows
-    # this dealer has been granted visibility on. Dealer-safe fields only:
-    # never expose lot.buying_price/supplier_name — "Price" here is the
-    # dealer-facing selling_price, same boundary rule as the rest of this file.
+    # this dealer has been granted visibility on.
+    #
+    # "Price" here is lot.buying_price, surfaced in the admin UI as Base Price:
+    # the operator-set floor that catalog bidding starts from. This is a
+    # deliberate, instructed exception to the no-cost-to-dealers rule at the top
+    # of this file — the base IS the offer. lot.selling_price (Target Selling
+    # Price) stays internal, as do supplier_name and every other cost field.
     vis_rows = (await db.execute(
         select(Lot).join(LotDealerVisibility, LotDealerVisibility.lot_id == Lot.id)
         .where(LotDealerVisibility.dealer_id == dealer.id)
@@ -251,12 +255,48 @@ async def catalog(
                 "id": lid, "lot_number": lot.lot_number,
                 "purchase_date": lot.purchase_date,
                 "available_quantity": avail_map.get(lid, 0),
-                "price": float(lot.selling_price) if lot.selling_price is not None else None,
+                # buying_price is NOT NULL and defaults to 0, so "unset" arrives
+                # as 0 rather than None. Map it to None: the template then shows
+                # "Not set" instead of "₹0.00" (which reads as free), and it
+                # matches the bid floor, where 0 is likewise treated as no reserve.
+                "price": float(lot.buying_price) if lot.buying_price else None,
                 "booking": booking_by_lot.get(lid),
             })
 
+    # ── Available Stock, rendered inline (this used to be a per-lot modal) ───
+    # Model-wise breakdown across every lot this dealer can see. Lot No is part
+    # of the grouping key now that rows from different lots share one table:
+    # without it, two lots holding the same model+spec would collapse into a
+    # single row and the dealer could not tell which lot to bid on.
+    lot_stock = []
+    if vis_rows:
+        lot_no = {l.id: l.lot_number for l in vis_rows}
+        srows = (await db.execute(
+            select(Device.lot_id, Device.model, Device.cpu, Device.generation,
+                   Device.ram_gb, Device.storage_gb, Device.storage_type,
+                   Device.grade, func.count(Device.id).label("qty"))
+            .where(Device.lot_id.in_(lot_ids), Device.is_active == True)  # noqa: E712
+            .group_by(Device.lot_id, Device.model, Device.cpu, Device.generation,
+                      Device.ram_gb, Device.storage_gb, Device.storage_type,
+                      Device.grade)
+            .order_by(func.count(Device.id).desc())
+        )).all()
+        lot_stock = [{
+            "model": r.model or "—",
+            "lot_id": str(r.lot_id),
+            "lot_number": lot_no.get(r.lot_id, "—"),
+            "qty": r.qty,
+            "cpu": r.cpu or "—",
+            "generation": r.generation or "—",
+            "ram": f"{r.ram_gb}GB" if r.ram_gb else "—",
+            "storage": (f"{r.storage_gb}GB {r.storage_type or ''}".strip()
+                        if r.storage_gb else "—"),
+            "grade": getattr(r.grade, "value", r.grade) or "—",
+        } for r in srows]
+
     return templates.TemplateResponse("partner/catalog.html", {
         "request": request, "dealer": dealer, "listings": listings,
+        "lot_stock": lot_stock,
         "ageing": ageing, "incentive_text": settings.get("incentive_text") or "",
         "f_type": listing_type, "f_brand": brand, "f_grade": grade, "f_sort": sort,
         "partner_csrf": request.cookies.get(PARTNER_CSRF_COOKIE, ""),
@@ -353,10 +393,10 @@ async def _bid_state(db: AsyncSession, listings, dealer_id):
 async def _lot_bid_state(db: AsyncSession, lots, dealer_id):
     """Same shape as _bid_state, for Lots rather than Listings.
 
-    Base price is lot.selling_price — the dealer-facing figure. lot.buying_price
-    is what OxyPC paid and is never exposed here; showing it would hand every
-    dealer the margin on every lot. A lot with no selling_price set has no
-    reserve, which the caller surfaces rather than silently treating as zero.
+    Base price is lot.buying_price — the "Base Price" column in Lot Management.
+    lot.selling_price is the internal Target Selling Price and is never the
+    bidding floor. A lot with no base price set has no reserve, which the caller
+    surfaces rather than silently treating as zero.
     """
     # The catalog builds visible_lots as dicts with a stringified id; the bid
     # queries compare against a UUID column, so coerce rather than lean on the
@@ -386,7 +426,7 @@ async def _lot_bid_state(db: AsyncSession, lots, dealer_id):
     out = {}
     for l in lots:
         lid = str(l["id"] if isinstance(l, dict) else l.id)
-        base = l["price"] if isinstance(l, dict) else l.selling_price
+        base = l["price"] if isinstance(l, dict) else l.buying_price
         top = highest.get(lid)
         out[lid] = {
             "highest": top,
@@ -624,7 +664,7 @@ async def place_lot_bid(
         select(func.max(PartnerBid.bid_amount)).where(
             PartnerBid.lot_id == lot.id, PartnerBid.status == "active")
     )).scalar()
-    base = lot.selling_price
+    base = lot.buying_price
     if base or top:
         floor = min_next_bid(base or 0, top)
         if amt < floor:
@@ -678,7 +718,7 @@ async def request_lot_custom_price(
         bid_number=await _next_bid_number(db),
         lot_id=lot.id, dealer_id=dealer.id,
         bid_amount=amt, bid_type="custom",
-        base_amount=lot.selling_price, status="active",
+        base_amount=lot.buying_price, status="active",
         notes=notes.strip() or None,
     )
     db.add(bid)

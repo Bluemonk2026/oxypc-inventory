@@ -120,16 +120,30 @@
             <h6 class="fw-bold text-primary mb-3"><i class="bi bi-currency-rupee me-2"></i>Financial & GST</h6>
             <div class="row g-3">
               <div class="col-md-4">
-                <label class="form-label fw-semibold">Total Buying Price (₹)</label>
+                {# Renamed from "Total Buying Price". Same column — this figure is
+                   still the lot's cost basis for Lot P&L and COGS — but it is now
+                   also the dealer-facing base that catalog bidding starts from. #}
+                <label class="form-label fw-semibold">Total Base Selling Price (₹)</label>
                 <div class="input-group">
                   <span class="input-group-text">₹</span>
                   <input type="number" name="buying_price" class="form-control"
                          placeholder="0.00 (default 0)" min="0" step="0.01"
                          value="{{ lot.buying_price if lot else (prefill.price if prefill else '') }}">
                 </div>
+                <div class="form-text">Shown to dealers as Base Price — bids start here.</div>
               </div>
               <div class="col-md-4">
-                <label class="form-label fw-semibold">Invoice Value (₹)</label>
+                <label class="form-label fw-semibold">Target Selling Price (₹)</label>
+                <div class="input-group">
+                  <span class="input-group-text">₹</span>
+                  <input type="number" name="selling_price" class="form-control"
+                         placeholder="What we aim to realise" min="0" step="0.01"
+                         value="{{ lot.selling_price or '' if lot else '' }}">
+                </div>
+                <div class="form-text">Internal target — never shown in the partner portal.</div>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">Invoice Price (₹)</label>
                 <div class="input-group">
                   <span class="input-group-text">₹</span>
                   <input type="number" name="invoice_value" class="form-control"
@@ -137,7 +151,10 @@
                          value="{{ lot.invoice_value or '' if lot else '' }}">
                 </div>
               </div>
-              <div class="col-md-4">
+            </div>
+
+            <div class="row g-3 mt-0">
+              <div class="col-md-3">
                 <label class="form-label fw-semibold">Taxable Amount (₹)</label>
                 <div class="input-group">
                   <span class="input-group-text">₹</span>
@@ -146,7 +163,7 @@
                          value="{{ lot.taxable_amount or '' if lot else '' }}">
                 </div>
               </div>
-              <div class="col-md-4">
+              <div class="col-md-3">
                 <label class="form-label fw-semibold">SGST (₹)</label>
                 <div class="input-group">
                   <span class="input-group-text">₹</span>
@@ -155,7 +172,7 @@
                          value="{{ lot.sgst or '' if lot else '' }}">
                 </div>
               </div>
-              <div class="col-md-4">
+              <div class="col-md-3">
                 <label class="form-label fw-semibold">CGST (₹)</label>
                 <div class="input-group">
                   <span class="input-group-text">₹</span>
@@ -164,7 +181,7 @@
                          value="{{ lot.cgst or '' if lot else '' }}">
                 </div>
               </div>
-              <div class="col-md-4">
+              <div class="col-md-3">
                 <label class="form-label fw-semibold">IGST (₹)</label>
                 <div class="input-group">
                   <span class="input-group-text">₹</span>

@@ -118,15 +118,65 @@
   </div>
 </form>
 
-<div class="d-flex justify-content-between align-items-center mb-2">
+{# ── Available Stock ───────────────────────────────────────────────────────
+   Model-wise breakdown of every lot visible to this dealer, rendered inline
+   (it used to be a per-lot modal). Lot No is a real column here because rows
+   from different lots sit in the same table. #}
+<div class="d-flex justify-content-between align-items-center mb-2" id="availableStock">
   <h6 class="fw-bold mb-0">Available Stock</h6>
+  <div class="d-flex align-items-center gap-2">
+    <span class="badge bg-secondary d-none" id="stockLotChip"></span>
+    <span class="badge bg-primary">{{ lot_stock | sum(attribute='qty') }} units</span>
+  </div>
+</div>
+
+{% if lot_stock %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 small align-middle" id="stockTable">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-2">Model Name</th><th>Lot No</th><th>Quantity</th>
+          <th>CPU</th><th>Generation</th><th>RAM</th><th>Storage</th><th>Grade</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in lot_stock %}
+        <tr data-lot-id="{{ s.lot_id }}">
+          <td class="ps-2 fw-semibold">{{ s.model }}</td>
+          <td class="font-monospace text-muted">{{ s.lot_number }}</td>
+          <td><span class="badge bg-info text-dark">{{ s.qty }}</span></td>
+          <td>{{ s.cpu }}</td>
+          <td>{{ s.generation }}</td>
+          <td>{{ s.ram }}</td>
+          <td>{{ s.storage }}</td>
+          <td>{{ s.grade }}</td>
+        </tr>
+        {% endfor %}
+        <tr class="d-none" id="stockNoMatch">
+          <td colspan="8" class="text-center text-muted py-4">No stock in this lot.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="text-center text-muted py-5">
+  <i class="bi bi-box-seam fs-1 d-block mb-2"></i>
+  No lot stock available to you yet.<br>
+  <small>Check back soon — new lots are added daily.</small>
+</div>
+{% endif %}
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h6 class="fw-bold mb-0">Published Listings</h6>
   <span class="badge bg-primary">{{ listings | length }}</span>
 </div>
 
 {% if not listings %}
 <div class="text-center text-muted py-5">
-  <i class="bi bi-box-seam fs-1 d-block mb-2"></i>
-  No stock matching your filters.<br>
+  <i class="bi bi-tags fs-1 d-block mb-2"></i>
+  No listings matching your filters.<br>
   <small>Check back soon — new lots are added daily.</small>
 </div>
 {% endif %}
@@ -200,39 +250,6 @@
   {% endfor %}
 </div>
 
-<!-- Available Stock — model-wise breakdown of a lot -->
-<div class="modal fade" id="lotStockModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header py-2">
-        <h6 class="modal-title"><i class="bi bi-boxes me-2"></i>Available Stock —
-          <span class="font-monospace" id="lsLotNumber"></span></h6>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body p-0">
-        <div id="lsLoading" class="text-center text-muted py-4 small">Loading…</div>
-        <div class="table-responsive">
-          <table class="table table-sm table-hover mb-0 small align-middle d-none" id="lsTable">
-            <thead class="table-light">
-              <tr>
-                <th class="ps-2">Model Name</th><th>Quantity</th><th>CPU</th>
-                <th>Generation</th><th>RAM</th><th>Storage</th><th>Grade</th>
-              </tr>
-            </thead>
-            <tbody id="lsBody"></tbody>
-            <tfoot class="table-light">
-              <tr><th class="ps-2">Total</th><th id="lsTotal"></th>
-                  <th colspan="5"></th></tr>
-            </tfoot>
-          </table>
-        </div>
-        <div id="lsEmpty" class="text-center text-muted py-4 small d-none">
-          No stock recorded against this lot.
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
 
 <!-- Place a bid on a lot -->
 <div class="modal fade" id="lotBidModal" tabindex="-1" aria-hidden="true">
@@ -303,46 +320,42 @@
     return d.innerHTML;
   };
 
-  // ── Available Stock modal ────────────────────────────────────────────────
-  var stockModal = new bootstrap.Modal(document.getElementById('lotStockModal'));
-  var lsTable = document.getElementById('lsTable');
-  var lsEmpty = document.getElementById('lsEmpty');
-  var lsLoad  = document.getElementById('lsLoading');
+  // ── Available Stock: clicking a lot narrows the inline table ─────────────
+  // The stock table is rendered server-side with every visible lot in it, so
+  // a lot click is a filter, not a fetch. Clicking the same lot again clears
+  // it — otherwise the only way back to the full list is a page reload.
+  var stockRows = Array.prototype.slice.call(
+    document.querySelectorAll('#stockTable tbody tr[data-lot-id]'));
+  var stockChip = document.getElementById('stockLotChip');
+  var stockNone = document.getElementById('stockNoMatch');
+  var activeLot = null;
+
+  function applyStockFilter() {
+    var shown = 0;
+    stockRows.forEach(function (tr) {
+      var hit = !activeLot || tr.dataset.lotId === activeLot;
+      tr.classList.toggle('d-none', !hit);
+      if (hit) shown++;
+    });
+    if (stockNone) stockNone.classList.toggle('d-none', shown > 0);
+  }
 
   document.querySelectorAll('.lot-stock-link').forEach(function (a) {
     a.addEventListener('click', function (e) {
       e.preventDefault();
-      document.getElementById('lsLotNumber').textContent = a.dataset.lotNumber;
-      // Reset to the loading state every open, otherwise the previous lot's
-      // rows sit there looking like this lot's stock while the fetch runs.
-      lsTable.classList.add('d-none');
-      lsEmpty.classList.add('d-none');
-      lsLoad.classList.remove('d-none');
-      document.getElementById('lsBody').innerHTML = '';
-      stockModal.show();
-
-      fetch('/partner/lots/' + a.dataset.lotId + '/models', {
-        credentials: 'same-origin'
-      }).then(function (r) {
-        if (!r.ok) throw new Error('lookup failed');
-        return r.json();
-      }).then(function (d) {
-        lsLoad.classList.add('d-none');
-        if (!d.models || !d.models.length) { lsEmpty.classList.remove('d-none'); return; }
-        document.getElementById('lsBody').innerHTML = d.models.map(function (m) {
-          return '<tr><td class="ps-2">' + esc(m.model) + '</td>' +
-                 '<td><span class="badge bg-info text-dark">' + esc(m.qty) + '</span></td>' +
-                 '<td>' + esc(m.cpu) + '</td><td>' + esc(m.generation) + '</td>' +
-                 '<td>' + esc(m.ram) + '</td><td>' + esc(m.storage) + '</td>' +
-                 '<td>' + esc(m.grade) + '</td></tr>';
-        }).join('');
-        document.getElementById('lsTotal').textContent = d.total;
-        lsTable.classList.remove('d-none');
-      }).catch(function () {
-        lsLoad.classList.add('d-none');
-        lsEmpty.textContent = 'Could not load stock for this lot.';
-        lsEmpty.classList.remove('d-none');
-      });
+      if (activeLot === a.dataset.lotId) {
+        activeLot = null;
+        if (stockChip) stockChip.classList.add('d-none');
+      } else {
+        activeLot = a.dataset.lotId;
+        if (stockChip) {
+          stockChip.textContent = 'Lot ' + a.dataset.lotNumber + ' — click again to clear';
+          stockChip.classList.remove('d-none');
+        }
+      }
+      applyStockFilter();
+      var anchor = document.getElementById('availableStock');
+      if (anchor) anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   });
 

@@ -382,6 +382,9 @@ async def create_lot(
     lot_number: str = Form(...),
     supplier_name: str = Form(...),
     buying_price: str = Form(default=""),
+    # "Target Selling Price" on the lot form. Internal only — the partner
+    # catalog never reads it; it quotes buying_price as the Base Price.
+    selling_price: str = Form(""),
     qty: str = Form(default=""),
     purchase_date: str = Form(...),
     grn_system_number: str = Form(""),
@@ -426,6 +429,7 @@ async def create_lot(
         invoice_date=_parse_date(invoice_date),
         invoice_no=invoice_no or None,
         invoice_value=_parse_decimal(invoice_value),
+        selling_price=_parse_decimal(selling_price),
         taxable_amount=_parse_decimal(taxable_amount),
         sgst=_parse_decimal(sgst),
         cgst=_parse_decimal(cgst),
@@ -493,6 +497,9 @@ async def edit_lot(
     lot_number: str = Form(...),
     supplier_name: str = Form(...),
     buying_price: str = Form(default=""),
+    # "Target Selling Price" on the lot form. Internal only — the partner
+    # catalog never reads it; it quotes buying_price as the Base Price.
+    selling_price: str = Form(""),
     qty: str = Form(default=""),
     purchase_date: str = Form(...),
     grn_system_number: str = Form(""),
@@ -528,6 +535,7 @@ async def edit_lot(
     lot.invoice_date = _parse_date(invoice_date)
     lot.invoice_no = invoice_no or None
     lot.invoice_value = _parse_decimal(invoice_value)
+    lot.selling_price = _parse_decimal(selling_price)
     lot.taxable_amount = _parse_decimal(taxable_amount)
     lot.sgst = _parse_decimal(sgst)
     lot.cgst = _parse_decimal(cgst)

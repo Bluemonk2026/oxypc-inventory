@@ -40,6 +40,7 @@ from services.partner_service import (
     photos_list, SETTING_DEFAULTS,
 )
 from auth.partner_auth import normalize_phone
+from utils.dealer_code import next_dealer_code
 from utils.timezone import app_now
 from config import UPLOADS_DIR
 
@@ -117,9 +118,11 @@ async def _dealer_for_account(db: AsyncSession, contact: CRMContact,
         if d:
             return d, False
 
-    seq = ((await db.execute(select(func.count(Dealer.id)))).scalar() or 0) + 1
     dealer = Dealer(
-        dealer_code=f"DLR-{seq:04d}",
+        # From MAX(code), not count(*): production has 915 dealers numbered up
+        # to 0916, so count(*)+1 returned an existing code and the UNIQUE index
+        # on dealer_code made this whole request a 500. See utils/dealer_code.
+        dealer_code=await next_dealer_code(db),
         business_name=name or (phone or "Unknown Account"),
         contact_person=contact.contact_person,
         phone=phone or None,

@@ -12,6 +12,7 @@ from sqlalchemy import select, func, Integer, delete as sa_delete, text as sa_te
 from sqlalchemy.orm import selectinload
 from database import get_db
 from utils.csv_decode import decode_csv_bytes
+from utils.dealer_code import next_dealer_code, dealer_code_allocator
 from utils.call_outcomes import (
     OUTCOME_LABELS, normalize_outcome as _norm_outcome, tally as _tally_outcomes,
     interested_total as _interested_total,
@@ -1021,9 +1022,11 @@ async def dealers_bulk_upload_submit(
         )
 
     # ── Import rows ────────────────────────────────────────────────────────────
-    # Get current dealer count for code generation
-    count_result = await db.execute(select(func.count(Dealer.id)))
-    base_count = count_result.scalar() or 0
+    # Codes come from MAX(existing code), not count(*). See utils/dealer_code:
+    # two code formats share one sequence, so the numbering runs ahead of the row
+    # count and count(*)+1 eventually returns a code that already exists — a
+    # UNIQUE violation that fails the whole import.
+    alloc_code = await dealer_code_allocator(db)
 
     # Duplicate checks consider LIVE dealers only. Deleting a dealer here is a
     # soft delete (trashed_at), and without this filter a trashed row kept
@@ -1071,7 +1074,7 @@ async def dealers_bulk_upload_submit(
         if dealer_type not in valid_types:
             dealer_type = "retail"
 
-        dealer_code = f"DLR-{base_count + seq + 1:04d}"
+        dealer_code = alloc_code()
         seq += 1
 
         try:
@@ -1274,8 +1277,9 @@ async def dealer_calls_bulk_upload(
     valid_modes = {"phone", "whatsapp", "in_person"}
 
     inserted, errors = 0, []
-    created_dealers, updated_dealers, new_seq = 0, 0, 1
-    new_code_base = ((await db.execute(select(func.count(Dealer.id)))).scalar() or 0) + 1
+    created_dealers, updated_dealers = 0, 0
+    # MAX-based, not count(*)-based — see utils/dealer_code.
+    alloc_code = await dealer_code_allocator(db)
 
     for i, row in enumerate(rows, start=2):  # row 1 = header
         try:
@@ -1293,7 +1297,7 @@ async def dealer_calls_bulk_upload(
                     errors.append(f"Row {i}: needs a dealer_phone or a business_name")
                     continue
                 dealer = Dealer(
-                    dealer_code=f"DLR-{new_code_base + new_seq:04d}",
+                    dealer_code=alloc_code(),
                     business_name=name or (phone or "Unknown"),
                     phone=phone or None,
                     dealer_type="retail",
@@ -1307,7 +1311,6 @@ async def dealer_calls_bulk_upload(
                     val = (row.get(col, "") or "").strip()
                     if val:
                         setattr(dealer, attr, val)
-                new_seq += 1
                 db.add(dealer)
                 # flush so dealer.id exists for the DealerCall FK below, and so the
                 # next row referencing the same phone/name reuses this one instead
@@ -1439,9 +1442,10 @@ async def create_dealer(
     _perm: User = Depends(require_module_perm("dealers", "add")),
 ):
     # Auto-generate dealer code
-    count_result = await db.execute(select(func.count(Dealer.id)))
-    count = count_result.scalar() or 0
-    dealer_code = f"DLR{count+1:04d}"
+    # Keeps this path's un-hyphenated DLR#### format, but numbers it from
+    # MAX(code) instead of count(*). dealer_code is printed on paperwork, so the
+    # shape must not change - only the collision-prone arithmetic behind it.
+    dealer_code = await next_dealer_code(db, prefix="DLR")
 
     dealer = Dealer(
         dealer_code=dealer_code,
@@ -1948,9 +1952,10 @@ async def quick_new_dealer(
     """Add Dealer modal on Dealer Management: creates a new Dealer using the
     same field set as the Edit Dealer modal, plus an initial DealerCall row
     if any call-log-sourced fields were filled in."""
-    count_result = await db.execute(select(func.count(Dealer.id)))
-    count = count_result.scalar() or 0
-    dealer_code = f"DLR{count+1:04d}"
+    # Keeps this path's un-hyphenated DLR#### format, but numbers it from
+    # MAX(code) instead of count(*). dealer_code is printed on paperwork, so the
+    # shape must not change - only the collision-prone arithmetic behind it.
+    dealer_code = await next_dealer_code(db, prefix="DLR")
 
     dealer = Dealer(
         dealer_code=dealer_code,

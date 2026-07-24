@@ -241,6 +241,19 @@ async def opp_detail(
     from services.opportunity_lot import lot_for_opportunity
     lot = await lot_for_opportunity(db, opp.id)
 
+    # Quotes Generated — every quote raised against this deal. Keyed off the
+    # opportunity, plus this deal's own quote_id, so a quote linked before the
+    # opportunity_id was recorded still shows up.
+    from routers.crm_quotes import quote_summary_rows, active_terms_by_type
+    deal_quotes = (await db.execute(
+        select(CRMQuote)
+        .join(CRMSalesOpportunity, CRMSalesOpportunity.quote_id == CRMQuote.id)
+        .where(CRMSalesOpportunity.id == opp.id)
+        .order_by(CRMQuote.created_at.desc())
+    )).scalars().all()
+    quote_rows = await quote_summary_rows(db, deal_quotes)
+    terms_by_type = await active_terms_by_type(db)
+
     acts_r = await db.execute(
         select(CRMActivity)
         .where(CRMActivity.deal_id == opp.id, CRMActivity.deal_type == "sales")
@@ -257,6 +270,7 @@ async def opp_detail(
         "request": request, "current_user": current_user,
         "opp": opp, "contact": contact, "quote": quote, "activities": activities,
         "lot": lot,
+        "quote_rows": quote_rows, "terms_by_type": terms_by_type,
         "next_fu": next_fu,
         "sales_stages": SALES_STAGES, "stage_list": stage_list, "current_idx": current_idx,
         "buyer_map": dict(BUYER_TYPES), "material_map": dict(MATERIAL_TYPES),

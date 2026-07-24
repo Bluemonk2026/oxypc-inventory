@@ -1,12 +1,16 @@
 """CRM Quotes router — quote builder with line items and print view."""
+import os
 from datetime import datetime, date, timedelta
 from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse, HTMLResponse, RedirectResponse, StreamingResponse,
+)
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from templates_config import templates
+from config import UPLOADS_DIR
 from database import get_db
 from auth.dependencies import get_current_user, verify_csrf
 from services.po_pdf import build_po_pdf
@@ -80,6 +84,9 @@ async def new_quote_form(
     request: Request,
     contact_id: str = Query(default=""),
     opp_id: str = Query(default=""),
+    # "Quote for Direct Deal" — the operator is writing the lines themselves,
+    # so suppress lot autofill even when the deal has a lot behind it.
+    direct: str = Query(default=""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -95,18 +102,22 @@ async def new_quote_form(
     # it was created by Marking Won a partner bid, so the bid is what carries
     # the lot. Fill the buyer and one line per model in that lot.
     prefill_items, preselect, source_lot = [], contact_id, None
-    from_opp = bool(opp_id and opp_id.strip())
-    if from_opp:
+    is_direct = direct.strip() not in ("", "0", "false")
+    # A direct-deal quote behaves like one written from scratch: one blank row,
+    # no lot, no "nothing was auto-filled" notice.
+    from_opp = bool(opp_id and opp_id.strip()) and not is_direct
+    if opp_id and opp_id.strip():
         opp = (await db.execute(
             select(CRMSalesOpportunity).where(CRMSalesOpportunity.id == opp_id)
         )).scalar_one_or_none()
         if opp:
             if not preselect and opp.contact_id:
                 preselect = str(opp.contact_id)
-            from services.opportunity_lot import lot_for_opportunity
-            source_lot = await lot_for_opportunity(db, opp.id)
-            if source_lot:
-                prefill_items = await _lot_prefill_for_opp(db, opp)
+            if not is_direct:
+                from services.opportunity_lot import lot_for_opportunity
+                source_lot = await lot_for_opportunity(db, opp.id)
+                if source_lot:
+                    prefill_items = await _lot_prefill_for_opp(db, opp)
 
     today = date.today()
     valid_until = today + timedelta(days=15)
@@ -131,13 +142,72 @@ async def _lot_prefill_for_opp(db: AsyncSession, opp) -> list[dict]:
     bid — there is no lot to read in that case, and the form falls back to a
     single blank row.
     """
-    from models.device import Device
-    from utils.master_data import master_options
     from services.opportunity_lot import lot_for_opportunity
 
     lot = await lot_for_opportunity(db, opp.id)
     if not lot:
         return []
+    return await lot_quote_lines(db, lot)
+
+
+async def quote_summary_rows(db: AsyncSession, quotes: list) -> list[dict]:
+    """Summarise quotes for the "Quotes Generated" table.
+
+    Shared by the Account and Buyer Deal pages so both show the same columns
+    computed the same way.
+    """
+    if not quotes:
+        return []
+    qids = [q.id for q in quotes]
+    opp_by_quote = {
+        str(o.quote_id): o for o in (await db.execute(
+            select(CRMSalesOpportunity).where(CRMSalesOpportunity.quote_id.in_(qids))
+        )).scalars().all()
+    }
+    items_by_quote: dict = {}
+    for it in (await db.execute(
+        select(CRMQuoteItem).where(CRMQuoteItem.quote_id.in_(qids))
+    )).scalars().all():
+        items_by_quote.setdefault(str(it.quote_id), []).append(it)
+
+    rows = []
+    for q in quotes:
+        its = items_by_quote.get(str(q.id), [])
+        opp = opp_by_quote.get(str(q.id))
+        rows.append({
+            "quote": q,
+            "opp_number": opp.opp_number if opp else None,
+            "opp_id": str(opp.id) if opp else None,
+            "total_models": len(its),
+            "total_qty": sum(int(i.quantity or 0) for i in its),
+            "total_price": float(q.total_amount or 0),
+            "has_pdf": quote_pdf_exists(q.quote_number),
+        })
+    return rows
+
+
+async def active_terms_by_type(db: AsyncSession) -> dict:
+    """Active Terms & Conditions bucketed by type, for the Generate modal."""
+    from models.terms import TermsCondition
+
+    out = {"payment": [], "delivery": [], "disclaimer": []}
+    for t in (await db.execute(
+        select(TermsCondition).where(TermsCondition.is_active == True)  # noqa: E712
+        .order_by(TermsCondition.display_order, TermsCondition.created_at)
+    )).scalars().all():
+        out.setdefault(t.term_type, []).append(t)
+    return out
+
+
+async def lot_quote_lines(db: AsyncSession, lot) -> list[dict]:
+    """The model summary of a lot, shaped as quote line items.
+
+    Single source for both the Create Quote form's prefill and the one-click
+    "Quote for Bid Won" path, so the two can never disagree about what a lot
+    contains or what it should be priced at.
+    """
+    from models.device import Device
+    from utils.master_data import master_options
 
     rows = (await db.execute(
         select(Device.model, Device.grade, Device.sub_category,
@@ -254,6 +324,82 @@ async def create_quote(
 
     await db.commit()
     return RedirectResponse(url=f"/crm/quotes/{quote.id}?success=Quote+created", status_code=302)
+
+
+# ── QUOTE FOR BID WON (one click, straight from the lot) ─────────────────────
+
+@router.post("/from-lot")
+async def create_quote_from_lot(
+    request: Request,
+    lot_id: str = Form(...),
+    contact_id: str = Form(default=""),
+    opp_id: str = Form(default=""),
+    return_to: str = Form(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Build a quote from a won lot without going through the form.
+
+    Same line-item derivation the Create Quote page uses, so a bid-won quote and
+    a hand-built one from the same lot come out identical.
+    """
+    from models.lot import Lot
+
+    lot = (await db.execute(select(Lot).where(Lot.id == lot_id))).scalar_one_or_none()
+    if not lot:
+        return RedirectResponse(url=f"{return_to or '/crm/quotes'}?error=Lot+not+found",
+                                status_code=302)
+
+    lines = await lot_quote_lines(db, lot)
+    if not lines:
+        return RedirectResponse(
+            url=f"{return_to or '/crm/quotes'}?error=Lot+{lot.lot_number}+has+no+stock+to+quote",
+            status_code=302)
+
+    # An opportunity supplies the buyer when the caller did not name one.
+    opp = None
+    if opp_id.strip():
+        opp = (await db.execute(select(CRMSalesOpportunity)
+                                .where(CRMSalesOpportunity.id == opp_id))).scalar_one_or_none()
+    if not contact_id.strip() and opp and opp.contact_id:
+        contact_id = str(opp.contact_id)
+
+    quote = CRMQuote(
+        quote_number=await _next_quote_number(db),
+        contact_id=contact_id or None,
+        quote_date=date.today(),
+        valid_until=date.today() + timedelta(days=15),
+        status="draft",
+        created_by=current_user.username,
+    )
+    db.add(quote)
+    await db.flush()
+
+    grand_total = 0.0
+    for i, ln in enumerate(lines):
+        qty  = int(ln["quantity"] or 1)
+        uprc = float(ln["unit_price"] or 0)
+        tot  = round(qty * uprc, 2)
+        grand_total += tot
+        db.add(CRMQuoteItem(
+            quote_id=quote.id, line_number=i + 1,
+            device_type=ln["model"], grade=ln["grade"] or None,
+            po_category=ln["po_category"] or None,
+            quantity=qty, unit_price=uprc, total_price=tot, sort_order=i,
+        ))
+    quote.total_amount = round(grand_total, 2)
+
+    if opp:
+        opp.quote_id = quote.id
+        if opp.stage in ("lead", "contacted", "requirement", "availability"):
+            opp.stage = "quoted"
+
+    await db.commit()
+    dest = return_to or f"/crm/quotes/{quote.id}"
+    sep = "&" if "?" in dest else "?"
+    return RedirectResponse(
+        url=f"{dest}{sep}success=Quote+{quote.quote_number}+created+from+Lot+{lot.lot_number}",
+        status_code=302)
 
 
 # ── DETAIL / PRINT PREVIEW ────────────────────────────────────────────────────
@@ -378,7 +524,7 @@ async def _quote_pdf(db: AsyncSession, quote, *, sections, term_ids=None):
         return await get_active_terms(db, kind)
 
     company = await get_company_settings(db)
-    pdf_bytes = build_po_pdf(
+    pdf_bytes: bytes = build_po_pdf(
         po_number=quote.quote_number,
         po_date=quote.quote_date.strftime("%d %b %Y") if quote.quote_date else "",
         company=company, contact=contact,
@@ -389,6 +535,18 @@ async def _quote_pdf(db: AsyncSession, quote, *, sections, term_ids=None):
         sections=sections, total_amount=float(quote.total_amount or 0),
         doc_title="QUOTATION", account_label="Account Details (Buyer)",
     )
+
+    # Keep the generated document so the Download column serves this exact file
+    # later. A failure to persist must not cost the user their download, so the
+    # response goes out regardless.
+    try:
+        path = quote_pdf_path(quote.quote_number)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(pdf_bytes)
+    except OSError:
+        pass
+
     return StreamingResponse(
         io.BytesIO(pdf_bytes), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{quote.quote_number}.pdf"'},
@@ -426,20 +584,42 @@ async def generate_quote_doc(
     return await _quote_pdf(db, quote, sections=sections, term_ids=term_ids)
 
 
+def quote_pdf_path(quote_number: str) -> str:
+    """Where a generated quote document is kept on disk."""
+    return os.path.join(UPLOADS_DIR, "quotes", f"{quote_number}.pdf")
+
+
+def quote_pdf_exists(quote_number: str) -> bool:
+    """Whether Generate has actually produced a document for this quote.
+
+    Download links off this: the column shows an attachment only when one was
+    generated, rather than silently re-rendering a document nobody has seen.
+    """
+    try:
+        return os.path.isfile(quote_pdf_path(quote_number))
+    except OSError:
+        return False
+
+
 @router.get("/{quote_id}/download")
 async def download_quote_doc(
     quote_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Re-download a quote with every section and all active terms."""
+    """Serve the document produced by Generate — the stored attachment, not a
+    fresh render, so what is downloaded is what was generated."""
     quote = (await db.execute(select(CRMQuote).where(CRMQuote.id == quote_id))).scalar_one_or_none()
     if not quote:
         return RedirectResponse(url="/crm/quotes?error=Quote+not+found", status_code=302)
-    return await _quote_pdf(db, quote, sections={
-        "account": True, "company": True, "items": True,
-        "payment": True, "delivery": True, "conditions": True,
-    })
+
+    path = quote_pdf_path(quote.quote_number)
+    if not os.path.isfile(path):
+        return RedirectResponse(
+            url=f"/crm/quotes/{quote_id}?error=No+document+generated+yet+-+use+Generate+first",
+            status_code=302)
+    return FileResponse(path, media_type="application/pdf",
+                        filename=f"{quote.quote_number}.pdf")
 
 
 # ── STATUS UPDATE ─────────────────────────────────────────────────────────────

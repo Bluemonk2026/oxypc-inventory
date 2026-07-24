@@ -239,121 +239,15 @@
     </div>
     {% endif %}
 
-    <!-- Quotes Generated — quotes raised for this Account, with the document
-         generator. Sits before Purchase Order: the quote precedes the PO. -->
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
-        <span class="fw-semibold"><i class="bi bi-file-earmark-ruled me-1 text-primary"></i>Quotes Generated ({{ quote_rows|length }})</span>
-        <a href="/crm/quotes/new?contact_id={{ contact.id }}" class="btn btn-sm btn-outline-primary">
-          <i class="bi bi-plus-lg me-1"></i>New Quote
-        </a>
-      </div>
-      <div class="card-body p-0">
-        {% if quote_rows %}
-        <div class="table-responsive">
-          <table class="table table-sm table-hover mb-0">
-            <thead class="table-light">
-              <tr>
-                <th>Opportunity ID</th>
-                <th class="text-end">Total Models</th>
-                <th class="text-end">Total Quantity</th>
-                <th class="text-end">Total Price</th>
-                <th class="text-center">Download</th>
-                <th class="text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for r in quote_rows %}
-              <tr>
-                <td class="small">
-                  {% if r.opp_id %}
-                  <a href="/crm/sales/{{ r.opp_id }}" class="text-decoration-none fw-semibold">{{ r.opp_number }}</a>
-                  {% else %}<span class="text-muted">—</span>{% endif %}
-                  <div class="text-muted font-monospace" style="font-size:.72rem">{{ r.quote.quote_number }}</div>
-                </td>
-                <td class="small text-end">{{ r.total_models }}</td>
-                <td class="small text-end">{{ r.total_qty }}</td>
-                <td class="small text-end">₹{{ "{:,.0f}".format(r.total_price) }}</td>
-                <td class="text-center">
-                  <a href="/crm/quotes/{{ r.quote.id }}/download" class="btn btn-sm btn-outline-secondary py-0 px-2"
-                     title="Download the generated quote">
-                    <i class="bi bi-download"></i>
-                  </a>
-                </td>
-                <td class="text-center">
-                  <button type="button" class="btn btn-sm btn-success py-0 px-2 generate-quote-btn"
-                          data-quote-id="{{ r.quote.id }}" data-quote-number="{{ r.quote.quote_number }}">
-                    <i class="bi bi-gear me-1"></i>Generate
-                  </button>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        {% else %}
-        <div class="p-3 text-muted small">No quotes generated for this account yet.</div>
-        {% endif %}
-      </div>
-    </div>
-
-    <!-- Generate Quote modal -->
-    <div class="modal fade" id="generateQuoteModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog">
-        <form method="post" id="generateQuoteForm" class="modal-content">
-          <div class="modal-header py-2">
-            <h6 class="modal-title">Generate Quote <span class="text-muted small" id="gqNumber"></span></h6>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <div class="text-muted small mb-2">Pick the sections to include, then download the document.</div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" name="include_account" id="gqAccount" checked><label class="form-check-label" for="gqAccount">Account details</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" name="include_company" id="gqCompany" checked><label class="form-check-label" for="gqCompany">Company details</label></div>
-            <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="include_items" id="gqItems" checked><label class="form-check-label" for="gqItems">Buyer Deal Line Items</label></div>
-
-            {# Titles come from the Terms &amp; Condition page; leaving one blank
-               omits that block from the document entirely. #}
-            <label class="form-label small fw-semibold mb-1">Payment Terms</label>
-            <select name="payment_term_id" class="form-select form-select-sm mb-2">
-              <option value="">— None —</option>
-              {% for t in terms_by_type.get('payment', []) %}
-              <option value="{{ t.id }}">{{ t.title }}</option>
-              {% endfor %}
-            </select>
-
-            <label class="form-label small fw-semibold mb-1">Delivery Terms</label>
-            <select name="delivery_term_id" class="form-select form-select-sm mb-2">
-              <option value="">— None —</option>
-              {% for t in terms_by_type.get('delivery', []) %}
-              <option value="{{ t.id }}">{{ t.title }}</option>
-              {% endfor %}
-            </select>
-
-            <label class="form-label small fw-semibold mb-1">Disclaimer</label>
-            <select name="disclaimer_term_id" class="form-select form-select-sm">
-              <option value="">— None —</option>
-              {% for t in terms_by_type.get('disclaimer', []) %}
-              <option value="{{ t.id }}">{{ t.title }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="modal-footer py-2">
-            <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-            <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-download me-1"></i>Generate &amp; Download</button>
-          </div>
-        </form>
-      </div>
-    </div>
-    <script>
-    document.querySelectorAll('.generate-quote-btn').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        document.getElementById('generateQuoteForm').action =
-          '/crm/quotes/' + btn.getAttribute('data-quote-id') + '/generate';
-        document.getElementById('gqNumber').textContent = btn.getAttribute('data-quote-number');
-        new bootstrap.Modal(document.getElementById('generateQuoteModal')).show();
-      });
-    });
-    </script>
+    <!-- Quotes Generated + the New Quote / Generate flow (shared with the
+         Buyer Deal page so both stay identical). Sits before Purchase Order:
+         the quote precedes the PO. -->
+    {% set nq_direct_url = '/crm/quotes/new?contact_id=' ~ contact.id ~ '&direct=1' %}
+    {% set nq_contact_id = contact.id %}
+    {% set nq_opp_id = '' %}
+    {% set nq_return_to = '/crm/contacts/' ~ contact.id %}
+    {% set nq_won_lots = won_lots %}
+    {% include "crm/_quotes_generated.html" %}
 
     <!-- Purchase Order section (POs where this contact is the supplier) + Add -->
     {% set po_section_title = 'Purchase Order' %}

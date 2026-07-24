@@ -123,32 +123,19 @@ async def _lot_prefill_for_opp(db: AsyncSession, opp) -> list[dict]:
     bid — there is no lot to read in that case, and the form falls back to a
     single blank row.
     """
-    from models.partner import PartnerBid
     from models.device import Device
-    from models.lot import Lot
     from utils.master_data import master_options
+    from services.opportunity_lot import lot_for_opportunity
 
-    bid = (await db.execute(
-        select(PartnerBid)
-        .where(PartnerBid.opportunity_id == opp.id, PartnerBid.lot_id.isnot(None))
-        .order_by(PartnerBid.bid_amount.desc())
-    )).scalars().first()
-    if not bid:
-        return []
-
-    lot = (await db.execute(select(Lot).where(Lot.id == bid.lot_id))).scalar_one_or_none()
+    lot = await lot_for_opportunity(db, opp.id)
     if not lot:
         return []
 
     rows = (await db.execute(
         select(Device.model, Device.grade, Device.sub_category,
-               Device.cpu, Device.generation, Device.ram_gb,
-               Device.storage_gb, Device.storage_type,
                func.count(Device.id).label("qty"))
         .where(Device.lot_id == lot.id, Device.is_active == True)  # noqa: E712
-        .group_by(Device.model, Device.grade, Device.sub_category, Device.cpu,
-                  Device.generation, Device.ram_gb, Device.storage_gb,
-                  Device.storage_type)
+        .group_by(Device.model, Device.grade, Device.sub_category)
         .order_by(func.count(Device.id).desc())
     )).all()
     if not rows:
@@ -169,22 +156,13 @@ async def _lot_prefill_for_opp(db: AsyncSession, opp) -> list[dict]:
     except Exception:
         categories = set()
 
-    out = []
-    for r in rows:
-        specs = " ".join(filter(None, [
-            r.cpu or "", r.generation or "",
-            f"{r.ram_gb}GB RAM" if r.ram_gb else "",
-            f"{r.storage_gb}GB {r.storage_type or ''}".strip() if r.storage_gb else "",
-        ])).strip()
-        out.append({
-            "model": r.model or "",
-            "grade": getattr(r.grade, "value", r.grade) or "",
-            "po_category": r.sub_category if r.sub_category in categories else "",
-            "quantity": r.qty,
-            "unit_price": unit if unit else "",
-            "specs_note": specs,
-        })
-    return out
+    return [{
+        "model": r.model or "",
+        "grade": getattr(r.grade, "value", r.grade) or "",
+        "po_category": r.sub_category if r.sub_category in categories else "",
+        "quantity": r.qty,
+        "unit_price": unit if unit else "",
+    } for r in rows]
 
 
 @router.post("/new")
@@ -202,7 +180,6 @@ async def create_quote(
     po_category:        list = Form(default=[]),
     quantity:           list = Form(default=[]),
     unit_price:         list = Form(default=[]),
-    specs_note:         list = Form(default=[]),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -245,7 +222,6 @@ async def create_quote(
             quantity=qty,
             unit_price=uprc,
             total_price=tot,
-            specs_note=specs_note[i] if i < len(specs_note) and specs_note[i].strip() else None,
             sort_order=i,
         )
         db.add(item)

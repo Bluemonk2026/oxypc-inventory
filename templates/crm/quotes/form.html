@@ -69,7 +69,6 @@
             <th style="width:80px">Qty</th>
             <th style="width:120px">Unit Price (₹)</th>
             <th style="width:130px">Total (₹)</th>
-            <th style="min-width:140px">Specs / Note</th>
             <th style="width:50px"></th>
           </tr>
         </thead>
@@ -98,7 +97,6 @@
             <td><input type="number" name="quantity[]" class="form-control form-control-sm line-qty" min="1" value="{{ item.quantity or 1 }}" oninput="calcRow(this)"></td>
             <td><input type="number" name="unit_price[]" class="form-control form-control-sm line-price" step="0.01" min="0" value="{{ item.unit_price or '' }}" oninput="calcRow(this)"></td>
             <td><input type="number" name="total_price[]" class="form-control form-control-sm line-total bg-light" step="0.01" readonly value="{{ item.total_price or '' }}"></td>
-            <td><input type="text" name="specs_note[]" class="form-control form-control-sm" value="{{ item.specs_note or '' }}"></td>
             <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)"><i class="bi bi-trash"></i></button></td>
           </tr>
           {% endfor %}
@@ -131,8 +129,6 @@
             <td><input type="number" name="unit_price[]" class="form-control form-control-sm line-price" step="0.01" min="0"
                        value="{{ p.get('unit_price') or '' }}" placeholder="0.00" oninput="calcRow(this)"></td>
             <td><input type="number" name="total_price[]" class="form-control form-control-sm line-total bg-light" step="0.01" readonly placeholder="0.00"></td>
-            <td><input type="text" name="specs_note[]" class="form-control form-control-sm"
-                       value="{{ p.get('specs_note') or '' }}" placeholder="Optional specs"></td>
             <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)"><i class="bi bi-trash"></i></button></td>
           </tr>
           {% endfor %}
@@ -181,7 +177,6 @@
     <td><input type="number" name="quantity[]" class="form-control form-control-sm line-qty" min="1" value="1" oninput="calcRow(this)"></td>
     <td><input type="number" name="unit_price[]" class="form-control form-control-sm line-price" step="0.01" min="0" placeholder="0.00" oninput="calcRow(this)"></td>
     <td><input type="number" name="total_price[]" class="form-control form-control-sm line-total bg-light" step="0.01" readonly placeholder="0.00"></td>
-    <td><input type="text" name="specs_note[]" class="form-control form-control-sm" placeholder="Optional specs"></td>
     <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)"><i class="bi bi-trash"></i></button></td>
   </tr>
 </template>

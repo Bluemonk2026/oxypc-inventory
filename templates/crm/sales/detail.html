@@ -29,6 +29,14 @@
           <code>{{ opp.opp_number }}</code>
         </div>
         <div class="mb-2">
+          <div class="small text-muted">Lot Number</div>
+          {# Present only when this deal came from a won bid — a hand-created
+             opportunity has no lot, and Create Quote then starts blank. #}
+          {% if lot %}
+          <a href="/lots/{{ lot.id }}" class="text-decoration-none fw-semibold font-monospace">{{ lot.lot_number }}</a>
+          {% else %}<div class="text-muted">—</div>{% endif %}
+        </div>
+        <div class="mb-2">
           <div class="small text-muted">Title</div>
           <div class="fw-semibold">{{ opp.title }}</div>
         </div>

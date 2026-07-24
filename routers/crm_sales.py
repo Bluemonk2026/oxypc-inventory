@@ -236,6 +236,11 @@ async def opp_detail(
         qr = await db.execute(select(CRMQuote).where(CRMQuote.id == opp.quote_id))
         quote = qr.scalar_one_or_none()
 
+    # The lot this deal came from — the same one Create Quote reads its line
+    # items out of, so the page shows the source the quote will use.
+    from services.opportunity_lot import lot_for_opportunity
+    lot = await lot_for_opportunity(db, opp.id)
+
     acts_r = await db.execute(
         select(CRMActivity)
         .where(CRMActivity.deal_id == opp.id, CRMActivity.deal_type == "sales")
@@ -251,6 +256,7 @@ async def opp_detail(
     return templates.TemplateResponse("crm/sales/detail.html", {
         "request": request, "current_user": current_user,
         "opp": opp, "contact": contact, "quote": quote, "activities": activities,
+        "lot": lot,
         "next_fu": next_fu,
         "sales_stages": SALES_STAGES, "stage_list": stage_list, "current_idx": current_idx,
         "buyer_map": dict(BUYER_TYPES), "material_map": dict(MATERIAL_TYPES),

@@ -116,10 +116,25 @@ async def login(
 
 
 @router.post("/logout")
-async def logout(request: Request, _csrf=Depends(verify_csrf), db: AsyncSession = Depends(get_db)):
-    response = RedirectResponse(url="/auth/login", status_code=302)
-    response.delete_cookie("access_token")
-    response.delete_cookie("csrf_token")
+async def logout(request: Request, db: AsyncSession = Depends(get_db)):
+    """Always log the user out.
+
+    Deliberately NOT behind verify_csrf. When the CSRF cookie was missing or
+    stale the dependency bounced the request before this body ran, so the
+    session cookie was never cleared — the user landed on the login page still
+    authenticated, looking logged out while they were not. A logout that can
+    fail is worse than the risk it guards against, and the auth cookies are
+    SameSite=strict, so a cross-site POST cannot carry them here anyway.
+
+    303 See Other, not 302/307: the browser must switch to GET for the login
+    page. A method-preserving redirect turns this into POST /auth/login, which
+    rejects it and redirects again — the ERR_TOO_MANY_REDIRECTS loop.
+    """
+    response = RedirectResponse(url="/auth/login", status_code=303)
+    # session_expires was previously left behind: a stale expiry cookie makes
+    # the session watcher on the next page think the session already died.
+    for name in ("access_token", "csrf_token", "session_expires"):
+        response.delete_cookie(name, path="/")
     return response
 
 

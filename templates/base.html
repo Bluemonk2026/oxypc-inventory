@@ -983,6 +983,11 @@ $.extend(true, $.fn.dataTable.defaults, {
   // prevents an inactive page from surfacing a stale-form error instead of a
   // clean re-login prompt.
   function recheckExpiry() {
+    // While the "Reconnecting to server…" overlay is up the backend is
+    // unreachable, so an expiry bounce would throw the user at a login page
+    // that cannot load either — and lose their work on the way. Wait.
+    var ov = document.getElementById('reconnectOverlay');
+    if (ov && !ov.classList.contains('d-none')) return;
     var epoch = parseInt(getCookieVal('session_expires') || '0', 10);
     if (epoch && (Math.floor(Date.now() / 1000) >= epoch)) {
       window.location.href = '/auth/login';
@@ -1151,7 +1156,12 @@ $.extend(true, $.fn.dataTable.defaults, {
   function onUp() {
     if (down) {
       down = false;
-      window.location.reload();
+      // Just dismiss the overlay. Deliberately NO reload/redirect: a reload
+      // here discards whatever the user had typed — the blip is usually a few
+      // seconds of a restart, and losing a half-filled IQC or GRN form to it
+      // is far worse than the stale page it was meant to refresh. The user
+      // continues where they were and reloads themselves if they want to.
+      overlay.classList.add('d-none');
     }
   }
 

@@ -303,9 +303,15 @@ def _render_error(request: Request, code: int, message: str = None, detail: str 
 
 
 # Exception handlers
+# 303 See Other, NOT RedirectResponse's 307 default. 307 preserves the request
+# method, so a failed CSRF check on POST /auth/logout re-sent the request as
+# POST /auth/login — which fails the same check and redirects again, forever
+# (ERR_TOO_MANY_REDIRECTS on the login page). 303 forces the browser to GET the
+# login page, which is the only sane destination for an auth bounce anyway.
 @app.exception_handler(302)
 async def redirect_handler(request: Request, exc):
-    resp = RedirectResponse(url=exc.headers.get("Location", "/auth/login"))
+    resp = RedirectResponse(url=exc.headers.get("Location", "/auth/login"),
+                            status_code=303)
     resp.headers["Cache-Control"] = "no-store"  # never let a browser cache an auth redirect
     return resp
 
@@ -325,7 +331,10 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     """Catch-all for any HTTPException status not handled above (400/401/405/409/…)."""
     code = exc.status_code or 500
     if code in (301, 302, 307, 308):
-        resp = RedirectResponse(url=(exc.headers or {}).get("Location", "/auth/login"))
+        # 303 for the same reason as the handler above: a method-preserving
+        # redirect on a POST can bounce between two routes that both reject it.
+        resp = RedirectResponse(url=(exc.headers or {}).get("Location", "/auth/login"),
+                                status_code=303)
         resp.headers["Cache-Control"] = "no-store"
         return resp
     # A gateway-class failure on the login page means the backend behind us is

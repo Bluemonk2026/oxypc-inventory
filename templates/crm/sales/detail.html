@@ -259,7 +259,6 @@
     {% set nq_opp_id = opp.id %}
     {% set nq_return_to = '/crm/sales/' ~ opp.id %}
     {% set nq_lot_id = lot.id if lot else '' %}
-    {% set show_opp_column = false %}
     {% include "crm/_quotes_generated.html" %}
 
     <!-- Activity Timeline -->

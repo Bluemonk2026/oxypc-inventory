@@ -142,12 +142,17 @@ async def _lot_prefill_for_opp(db: AsyncSession, opp) -> list[dict]:
     bid — there is no lot to read in that case, and the form falls back to a
     single blank row.
     """
-    from services.opportunity_lot import lot_for_opportunity
+    from services.opportunity_lot import (
+        lot_for_opportunity, winning_bid_for_opportunity,
+    )
 
     lot = await lot_for_opportunity(db, opp.id)
     if not lot:
         return []
-    return await lot_quote_lines(db, lot)
+    # Price at the bid that won this deal, not the lot's internal target.
+    bid = await winning_bid_for_opportunity(db, opp.id)
+    return await lot_quote_lines(
+        db, lot, amount=float(bid.bid_amount) if bid and bid.bid_amount else None)
 
 
 async def quote_summary_rows(db: AsyncSession, quotes: list) -> list[dict]:
@@ -181,7 +186,7 @@ async def quote_summary_rows(db: AsyncSession, quotes: list) -> list[dict]:
             "total_models": len(its),
             "total_qty": sum(int(i.quantity or 0) for i in its),
             "total_price": float(q.total_amount or 0),
-            "has_pdf": quote_pdf_exists(q.quote_number),
+            "has_pdf": quote_pdf_exists(q.id),
         })
     return rows
 
@@ -199,12 +204,17 @@ async def active_terms_by_type(db: AsyncSession) -> dict:
     return out
 
 
-async def lot_quote_lines(db: AsyncSession, lot) -> list[dict]:
+async def lot_quote_lines(db: AsyncSession, lot, amount=None) -> list[dict]:
     """The model summary of a lot, shaped as quote line items.
 
     Single source for both the Create Quote form's prefill and the one-click
     "Quote for Bid Won" path, so the two can never disagree about what a lot
     contains or what it should be priced at.
+
+    `amount` is the total the lines must add up to. For a bid-won quote that is
+    the winning bid — the price the dealer actually agreed to. It falls back to
+    the lot's Target Selling Price only when no bid amount is known, since a
+    target is an internal aspiration, not an agreed figure.
     """
     from models.device import Device
     from utils.master_data import master_options
@@ -223,16 +233,15 @@ async def lot_quote_lines(db: AsyncSession, lot) -> list[dict]:
     if not rows:
         return []
 
-    # Per-unit price comes from the lot's Target Selling Price spread over the
-    # units being quoted — deliberately NOT device_price, which is a buying cost
-    # and would quote the customer at cost if the operator didn't notice.
-    # Dividing by the quoted quantity (not the whole lot) is what makes the line
-    # totals add up to the Target Selling Price; counting unquotable stock in
-    # the divisor would silently under-price every line.
+    # Per-unit price spreads the agreed total over the units being quoted —
+    # deliberately NOT device_price, which is a buying cost and would quote the
+    # customer at cost if the operator didn't notice. Dividing by the quoted
+    # quantity (not the whole lot) is what makes the line totals add back up to
+    # that total; counting unquotable stock would silently under-price.
+    total = amount if amount else (
+        float(lot.selling_price) if lot.selling_price else None)
     quoted_qty = sum(r.qty for r in rows)
-    unit = None
-    if lot.selling_price and quoted_qty:
-        unit = round(float(lot.selling_price) / quoted_qty, 2)
+    unit = round(float(total) / quoted_qty, 2) if total and quoted_qty else None
 
     # po_category is a Master Data list; only preselect when the device's
     # sub_category is actually one of its options, else leave it for the user.
@@ -350,7 +359,11 @@ async def create_quote_from_lot(
         return RedirectResponse(url=f"{return_to or '/crm/quotes'}?error=Lot+not+found",
                                 status_code=302)
 
-    lines = await lot_quote_lines(db, lot)
+    # Price at the winning bid for this lot — the figure the dealer agreed to.
+    from services.opportunity_lot import won_bid_for_lot
+    bid = await won_bid_for_lot(db, lot.id, contact_id or None)
+    lines = await lot_quote_lines(
+        db, lot, amount=float(bid.bid_amount) if bid and bid.bid_amount else None)
     if not lines:
         return RedirectResponse(
             url=f"{return_to or '/crm/quotes'}?error=Lot+{lot.lot_number}+has+no+stock+to+quote",
@@ -540,7 +553,7 @@ async def _quote_pdf(db: AsyncSession, quote, *, sections, term_ids=None):
     # later. A failure to persist must not cost the user their download, so the
     # response goes out regardless.
     try:
-        path = quote_pdf_path(quote.quote_number)
+        path = quote_pdf_path(quote.id)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as fh:
             fh.write(pdf_bytes)
@@ -584,19 +597,24 @@ async def generate_quote_doc(
     return await _quote_pdf(db, quote, sections=sections, term_ids=term_ids)
 
 
-def quote_pdf_path(quote_number: str) -> str:
-    """Where a generated quote document is kept on disk."""
-    return os.path.join(UPLOADS_DIR, "quotes", f"{quote_number}.pdf")
+def quote_pdf_path(quote_id) -> str:
+    """Where a generated quote document is kept on disk.
+
+    Keyed by the quote's id, not its number: quote numbers come from a count
+    and are reused after a deletion, so a new quote would otherwise inherit the
+    deleted one's document and offer it as its own.
+    """
+    return os.path.join(UPLOADS_DIR, "quotes", f"{quote_id}.pdf")
 
 
-def quote_pdf_exists(quote_number: str) -> bool:
+def quote_pdf_exists(quote_id) -> bool:
     """Whether Generate has actually produced a document for this quote.
 
     Download links off this: the column shows an attachment only when one was
     generated, rather than silently re-rendering a document nobody has seen.
     """
     try:
-        return os.path.isfile(quote_pdf_path(quote_number))
+        return os.path.isfile(quote_pdf_path(quote_id))
     except OSError:
         return False
 
@@ -613,7 +631,7 @@ async def download_quote_doc(
     if not quote:
         return RedirectResponse(url="/crm/quotes?error=Quote+not+found", status_code=302)
 
-    path = quote_pdf_path(quote.quote_number)
+    path = quote_pdf_path(quote.id)
     if not os.path.isfile(path):
         return RedirectResponse(
             url=f"/crm/quotes/{quote_id}?error=No+document+generated+yet+-+use+Generate+first",

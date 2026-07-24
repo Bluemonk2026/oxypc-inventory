@@ -18,14 +18,44 @@ async def lot_for_opportunity(db: AsyncSession, opp_id):
     from models.partner import PartnerBid
     from models.lot import Lot
 
-    bid = (await db.execute(
+    bid = await winning_bid_for_opportunity(db, opp_id)
+    if not bid:
+        return None
+    return (await db.execute(select(Lot).where(Lot.id == bid.lot_id))).scalar_one_or_none()
+
+
+async def winning_bid_for_opportunity(db: AsyncSession, opp_id):
+    """The bid that produced this opportunity, or None.
+
+    Carries the price the dealer actually agreed to — which is what a bid-won
+    quote must be priced at, not the lot's internal Target Selling Price.
+    """
+    from models.partner import PartnerBid
+
+    return (await db.execute(
         select(PartnerBid)
         .where(PartnerBid.opportunity_id == opp_id, PartnerBid.lot_id.isnot(None))
         .order_by(PartnerBid.bid_amount.desc())
     )).scalars().first()
-    if not bid:
-        return None
-    return (await db.execute(select(Lot).where(Lot.id == bid.lot_id))).scalar_one_or_none()
+
+
+async def won_bid_for_lot(db: AsyncSession, lot_id, contact_id=None):
+    """The winning bid on a lot, optionally restricted to one Account's dealers.
+
+    Only status 'won' counts: a losing bid names a price nobody agreed to.
+    """
+    from models.dealers import Dealer
+    from models.partner import PartnerBid
+
+    q = select(PartnerBid).where(
+        PartnerBid.lot_id == lot_id, PartnerBid.status == "won")
+    if contact_id:
+        dealer_ids = [d for (d,) in (await db.execute(
+            select(Dealer.id).where(Dealer.crm_contact_id == contact_id)
+        )).all()]
+        if dealer_ids:
+            q = q.where(PartnerBid.dealer_id.in_(dealer_ids))
+    return (await db.execute(q.order_by(PartnerBid.bid_amount.desc()))).scalars().first()
 
 
 async def lots_won_by_contact(db: AsyncSession, contact_id) -> list[dict]:

@@ -1110,8 +1110,16 @@ async def dealers_bulk_upload_submit(
 
 
 @router.get("/calls/bulk-upload-template")
-async def dealer_calls_bulk_upload_template():
-    """Return a sample CSV template for dealer call-record bulk upload."""
+async def dealer_calls_bulk_upload_template(
+    current_user: User = Depends(require_sales),
+):
+    """Return a sample CSV template for dealer call-record bulk upload.
+
+    Guarded with the same require_sales as the upload endpoint it feeds. The
+    payload is only fictional sample rows, but an unauthenticated endpoint on a
+    public host still advertises the module's existence and its exact field
+    names, and there is no reason for it to answer anyone who cannot use it.
+    """
     header = (
         "dealer_phone,business_name,call_date,call_type,call_mode,duration_mins,call_outcome,"
         "items_discussed,quote_given,next_followup_date,notes,calling_remark,category,"

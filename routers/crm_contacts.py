@@ -519,8 +519,14 @@ async def export_contacts_csv(
 # swallowed and "/crm/contacts/calls" would be looked up as a contact id.
 
 @router.get("/calls/bulk-upload-template")
-async def account_calls_bulk_upload_template():
+async def account_calls_bulk_upload_template(
+    current_user: User = Depends(get_current_user),
+):
     """Sample CSV for the Accounts bulk upload.
+
+    Auth-guarded to match the upload endpoint it feeds. The rows are fictional,
+    but a public endpoint still hands out the module's exact field names to
+    anyone who asks, and only signed-in staff have any use for it.
 
     Row 1 is a full account + a call. Row 2 is account detail only (no call
     columns) — that is the supported way to import or update accounts without

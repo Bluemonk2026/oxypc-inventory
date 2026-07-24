@@ -12,6 +12,7 @@ from sqlalchemy import (
     Index, text,
 )
 from sqlalchemy.dialects.postgresql import UUID
+from decimal import Decimal, ROUND_CEILING
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -210,3 +211,93 @@ class LotBookingRequest(Base):
     status = Column(String(20), nullable=False, default="requested", index=True)  # requested | approved | withdrawn
     created_at = Column(DateTime, default=app_now)
     updated_at = Column(DateTime, default=app_now, onupdate=app_now)
+
+
+# ── Bidding ───────────────────────────────────────────────────────────────
+#
+# An auction layer over the existing catalog. Kept as ONE table with a
+# bid_type discriminator rather than separate "captured" and "custom" tables:
+# both are a dealer naming a price against a listing, they sort against each
+# other on the same Bids page, and either can be the one that is Marked Won.
+# Splitting them would mean two Mark-Won paths and two ways to be the highest.
+
+BID_TYPES = ["increment", "custom"]
+BID_STATUSES = ["active", "won", "lost", "withdrawn"]
+
+# Each bid must clear the previous one (or the listing's base price when there
+# is none) by this much. Held here rather than inline so the rule has one home.
+BID_INCREMENT_PCT = Decimal("0.10")
+
+
+def min_next_bid(base_price, highest_bid=None) -> Decimal:
+    """Lowest amount the next bid may be.
+
+    "10% on the base price or the last bid" — so the reference is the standing
+    highest bid once there is one, and the listing's base price before that.
+
+    Rounded UP to the whole rupee: the raw product routinely lands on a
+    fraction, and showing a dealer "minimum 12100.000000001" then rejecting
+    12100 is indefensible. Rounding up rather than to-nearest keeps the
+    displayed minimum always actually acceptable to the server.
+    """
+    ref = Decimal(str(highest_bid if highest_bid is not None else base_price or 0))
+    return (ref * (Decimal("1") + BID_INCREMENT_PCT)).quantize(
+        Decimal("1"), rounding=ROUND_CEILING)
+
+
+class PartnerBid(Base):
+    """A dealer's bid against a listing — auction increment or custom offer."""
+    __tablename__ = "partner_bids"
+    __table_args__ = (
+        # The Bids page sorts by amount within a listing, and the partner side
+        # reads "highest active bid for this listing" on every catalog render.
+        Index("ix_partner_bids_listing_amount", "listing_id", "bid_amount"),
+        Index("ix_partner_bids_status_created", "status", "created_at"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    bid_number = Column(String(30), unique=True, nullable=False, index=True)  # BID-0001
+    listing_id = Column(UUID(as_uuid=True), ForeignKey("partner_listings.id"),
+                        nullable=False, index=True)
+    dealer_id = Column(UUID(as_uuid=True), ForeignKey("dealers.id"),
+                       nullable=False, index=True)
+    bid_amount = Column(Numeric(14, 2), nullable=False)
+    bid_type = Column(String(20), nullable=False, default="increment")
+    # What the bid had to beat, and the listing price at the time. Snapshotted
+    # because the listing can be repriced afterwards, and without these a bid
+    # cannot be audited against the rule that was actually in force.
+    previous_amount = Column(Numeric(14, 2), nullable=True)
+    base_amount = Column(Numeric(14, 2), nullable=True)
+    status = Column(String(20), nullable=False, default="active", index=True)
+    notes = Column(Text, nullable=True)          # dealer's note on a custom price
+    won_by = Column(String(50), nullable=True)   # staff username who marked it won
+    won_at = Column(DateTime, nullable=True)
+    # The Buyer Deal (CRMSalesOpportunity) created by Mark Won. Plain UUID, not
+    # an FK: crm_sales_opportunities lives in the CRM bounded context and a
+    # hard cross-context FK is exactly what the schema rules warn against.
+    opportunity_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    created_at = Column(DateTime, default=app_now)
+    updated_at = Column(DateTime, default=app_now, onupdate=app_now)
+
+    listing = relationship("PartnerListing", lazy="select")
+    dealer = relationship("Dealer", lazy="select")
+    documents = relationship("PartnerBidDocument", back_populates="bid", lazy="select")
+
+
+class PartnerBidDocument(Base):
+    """Quote / PO / Invoice attached to a bid, for the Bids page download column."""
+    __tablename__ = "partner_bid_documents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    bid_id = Column(UUID(as_uuid=True), ForeignKey("partner_bids.id"),
+                    nullable=False, index=True)
+    doc_type = Column(String(20), nullable=False)   # quote | po | invoice
+    filename = Column(String(300), nullable=False)  # stored under uploads/partner/bids/
+    original_name = Column(String(300), nullable=True)
+    uploaded_by = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=app_now)
+
+    bid = relationship("PartnerBid", back_populates="documents")
+
+
+BID_DOC_TYPES = ["quote", "po", "invoice"]

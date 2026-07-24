@@ -103,6 +103,7 @@
   {% set type_labels = {'finished_goods': 'Finished Goods', 'bulk_lot': 'Bulk Lot',
                         'functional_ok': 'Functional OK', 'as_is': 'As-Is'} %}
   {% set a = ageing.get(l.id|string) %}
+  {% set b = bids.get(l.id|string) %}
   <div class="col-12">
     <a href="/partner/listings/{{ l.id }}" class="text-decoration-none text-dark">
       <div class="card listing-card">
@@ -123,11 +124,45 @@
               <div class="fw-bold text-primary">₹{{ "{:,.0f}".format(l.dealer_price) }}</div>
               <small class="text-muted">per unit</small>
               <div class="small text-success fw-semibold mt-1">Token ₹{{ "{:,.0f}".format(l.token_amount) }}/unit</div>
+              {% if b and b.highest %}
+              <div class="small mt-1">
+                <span class="text-muted">Highest bid</span>
+                <span class="fw-semibold">₹{{ "{:,.0f}".format(b.highest) }}</span>
+              </div>
+              {% endif %}
             </div>
           </div>
         </div>
       </div>
     </a>
+    {# Bid controls sit OUTSIDE the card's <a>: a form nested inside an anchor
+       has the anchor swallow the click, so the buttons would navigate to the
+       listing instead of submitting. #}
+    <div class="card border-top-0 rounded-top-0">
+      <div class="card-body py-2">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          {% if b and b.mine %}
+          <span class="badge {{ 'bg-success' if b.leading else 'bg-secondary' }}">
+            Your bid ₹{{ "{:,.0f}".format(b.mine.bid_amount) }}{{ ' — leading' if b.leading else ' — outbid' }}
+          </span>
+          {% endif %}
+          <form method="post" action="/partner/listings/{{ l.id }}/bid"
+                class="d-flex align-items-center gap-2 flex-grow-1">
+            <input type="hidden" name="csrf_token" value="{{ partner_csrf }}">
+            <span class="small text-muted text-nowrap">Min ₹{{ "{:,.0f}".format(b.min_next) }}</span>
+            <input type="number" name="amount" step="1" min="{{ b.min_next }}"
+                   value="{{ b.min_next }}" class="form-control form-control-sm"
+                   style="max-width:150px" required>
+            <button class="btn btn-sm btn-primary text-nowrap">
+              <i class="bi bi-hammer me-1"></i>Place Bid
+            </button>
+          </form>
+          <a href="/partner/listings/{{ l.id }}" class="btn btn-sm btn-outline-secondary text-nowrap">
+            Custom price
+          </a>
+        </div>
+      </div>
+    </div>
   </div>
   {% endfor %}
 </div>

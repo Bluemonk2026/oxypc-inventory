@@ -47,7 +47,13 @@
     {% endif %}
   </form>
   <div class="d-flex gap-2">
-    <a href="/crm/contacts/upload" class="btn btn-sm btn-outline-primary"><i class="bi bi-cloud-upload me-1"></i>Bulk Upload CSV</a>
+    {# The old accounts-only uploader is kept reachable but no longer the
+       primary button: the new one accepts its columns unchanged AND handles
+       call records, so it supersedes it. #}
+    <a href="/crm/contacts/upload" class="btn btn-sm btn-outline-secondary"><i class="bi bi-cloud-upload me-1"></i>Bulk Upload CSV</a>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#accountBulkUploadModal">
+      <i class="bi bi-telephone-plus me-1"></i>Bulk Upload Accounts &amp; Calls
+    </button>
     {% if current_user.role.value == 'admin' %}
     <a href="/crm/contacts/export-csv?q={{ q }}&contact_type={{ contact_type }}&source_type={{ source_type }}&buyer_type={{ buyer_type }}&contacted={{ contacted }}&created_by_filter={{ created_by_filter }}"
        class="btn btn-sm btn-outline-success">
@@ -309,6 +315,44 @@
         </table>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Bulk Upload Accounts & Calls modal -->
+<div class="modal fade" id="accountBulkUploadModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" action="/crm/contacts/calls/bulk-upload" enctype="multipart/form-data" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+      <div class="modal-header py-2">
+        <h5 class="modal-title"><i class="bi bi-telephone-plus me-2"></i>Bulk Upload Accounts &amp; Calls</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-2">
+          Columns are matched by header name (case-insensitive), so column order
+          does not matter. Each row is matched to an existing account by
+          <code>phone</code> or <code>company_name</code>; anything unmatched is
+          created. Rows that fail are skipped and listed — one bad row never
+          aborts the file.
+        </p>
+        <ul class="small text-muted mb-2 ps-3">
+          <li>Row with account columns <em>and</em> call columns → account created/updated, call logged</li>
+          <li>Row with account columns only → account created/updated, <strong>no</strong> call logged</li>
+        </ul>
+        <p class="small text-muted mb-2">
+          This accepts the plain Bulk Upload CSV columns unchanged, so it also
+          covers straightforward account-only imports.
+        </p>
+        <a href="/crm/contacts/calls/bulk-upload-template" class="btn btn-sm btn-outline-secondary mb-3">
+          <i class="bi bi-download me-1"></i>Download Sample CSV
+        </a>
+        <input type="file" name="file" accept=".csv" class="form-control" required>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-cloud-upload me-1"></i>Upload</button>
+      </div>
+    </form>
   </div>
 </div>
 

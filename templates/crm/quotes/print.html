@@ -213,30 +213,32 @@
       <th>Description / Device Type</th>
       <th>Material</th>
       <th class="center">Grade</th>
+      <th class="center">PO Category</th>
       <th class="center" style="width:60px">Qty</th>
       <th class="right" style="width:110px">Unit Price</th>
       <th class="right" style="width:120px">Total</th>
     </tr>
   </thead>
   <tbody>
-    {% for item in quote.items %}
+    {% for item in items %}
     <tr>
       <td class="num">{{ loop.index }}</td>
       <td>{{ item.device_type or '—' }}{% if item.specs_note %}<br><span style="font-size:9pt;color:#666">{{ item.specs_note }}</span>{% endif %}</td>
       <td>{{ item.material_type | replace('_',' ') | title if item.material_type else '—' }}</td>
       <td class="center">{{ item.grade or '—' }}</td>
+      <td class="center">{{ item.po_category or '—' }}</td>
       <td class="center">{{ item.quantity }}</td>
       <td class="right">₹{{ "{:,.0f}".format(item.unit_price) }}</td>
       <td class="right">₹{{ "{:,.0f}".format(item.total_price) }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="7" style="text-align:center;color:#888;padding:20px">No items</td></tr>
+    <tr><td colspan="8" style="text-align:center;color:#888;padding:20px">No items</td></tr>
     {% endfor %}
   </tbody>
   {% if quote.grand_total %}
   <tfoot>
     <tr class="total-row">
-      <td colspan="5" class="right">Grand Total</td>
+      <td colspan="6" class="right">Grand Total</td>
       <td></td>
       <td class="right grand">₹{{ "{:,.0f}".format(quote.grand_total) }}</td>
     </tr>

@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Trade Partner Accounts — OxyPC{% endblock %}
 {% block page_title %}Trade Partner Accounts{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/vendor/tom-select/css/tom-select.bootstrap5.min.css">
+{% endblock %}
 {% block content %}
 
 {% if success %}
@@ -10,13 +13,39 @@
 <div class="alert alert-danger py-2"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
 {% endif %}
 
-{% if temp_password %}
+{% if provisioned %}
 <div class="alert alert-warning">
-  <i class="bi bi-key me-2"></i>Temporary password for <strong>{{ temp_for }}</strong>:
-  <code class="fs-5 user-select-all">{{ temp_password }}</code>
-  <div class="small text-muted mt-1">Share it on WhatsApp with the login link
+  <div class="fw-semibold mb-2"><i class="bi bi-key me-2"></i>Temporary passwords — shown once only</div>
+  <div class="table-responsive">
+    <table class="table table-sm mb-2 bg-white">
+      <thead class="table-light">
+        <tr><th>Account</th><th>Dealer Code</th><th>Login Mobile</th><th>Temporary Password</th></tr>
+      </thead>
+      <tbody>
+        {% for p in provisioned %}
+        <tr>
+          <td>{{ p.name }}{% if p.dealer_created %}
+            <span class="badge bg-info-subtle text-info-emphasis border ms-1">new dealer</span>{% endif %}</td>
+          <td class="font-monospace small">{{ p.dealer_code }}</td>
+          <td class="font-monospace">{{ p.phone }}</td>
+          <td><code class="fs-6 user-select-all">{{ p.password }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="small text-muted">Share each with the login link
     <code>{{ request.url.scheme }}://{{ request.url.netloc }}/partner/login</code>.
-    It is shown only once — the dealer should be asked to keep it safe.</div>
+    Copy them now — reloading this page will not show them again.</div>
+</div>
+{% endif %}
+
+{% if failed %}
+<div class="alert alert-danger py-2">
+  <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle me-2"></i>Not enabled</div>
+  <ul class="mb-0 small">
+    {% for f in failed %}<li><strong>{{ f.name }}</strong> — {{ f.reason }}</li>{% endfor %}
+  </ul>
 </div>
 {% endif %}
 
@@ -163,18 +192,25 @@
         </div>
         <div class="modal-body">
           <div class="mb-2">
-            <label class="form-label small fw-semibold mb-1">Dealer (from dealer master)</label>
-            <select name="dealer_id" class="form-select form-select-sm" required>
-              <option value="">— Select dealer —</option>
-              {% for c in candidates %}
-              <option value="{{ c.id }}">{{ c.business_name }} ({{ c.dealer_code }}){% if c.phone %} — {{ c.phone }}{% endif %}{% if c.city %} — {{ c.city }}{% endif %}</option>
+            <label class="form-label small fw-semibold mb-1">Accounts</label>
+            <select id="accountPicker" name="contact_ids" class="form-select form-select-sm"
+                    multiple required>
+              {% for a in accounts %}
+              <option value="{{ a.id }}">{{ a.company_name }}{% if a.contact_code %} ({{ a.contact_code }}){% endif %}{% if a.phone %} — {{ a.phone }}{% endif %}{% if a.city %} — {{ a.city }}{% endif %}</option>
               {% endfor %}
             </select>
-            <small class="text-muted">Dealer must exist in Dealer Management first.</small>
+            <small class="text-muted">
+              Search and select one or more Accounts. Each gets its own portal
+              login, using the mobile number on the Account.
+            </small>
           </div>
-          <div class="mb-2">
+          <div class="mb-2" id="phoneOverrideWrap">
             <label class="form-label small fw-semibold mb-1">Login Mobile (10 digits)</label>
-            <input type="tel" name="portal_phone" class="form-control form-control-sm" inputmode="numeric" required>
+            <input type="tel" name="portal_phone" class="form-control form-control-sm" inputmode="numeric">
+            <small class="text-muted" id="phoneOverrideHelp">
+              Optional — overrides the Account's own mobile. Only applies when a
+              single Account is selected.
+            </small>
           </div>
           <div class="mb-2">
             <label class="form-label small fw-semibold mb-1">Partner Type</label>
@@ -194,10 +230,14 @@
           </div>
           <div>
             <label class="form-label small fw-semibold mb-1">Sales Owner</label>
-            <select name="sales_owner_username" class="form-select form-select-sm">
+            {# Value stays the username (it is what sales_owner_username stores and
+               what My Desk filters on); only the label changes to the person's
+               name. Falls back to username when full_name is blank, so a user
+               with no name set is still selectable rather than an empty row. #}
+            <select id="salesOwnerPicker" name="sales_owner_username" class="form-select form-select-sm">
               <option value="">— Unassigned —</option>
               {% for u in sales_users %}
-              <option value="{{ u.username }}">{{ u.username }}{% if u.full_name %} ({{ u.full_name }}){% endif %}</option>
+              <option value="{{ u.username }}">{{ u.full_name or u.username }}</option>
               {% endfor %}
             </select>
           </div>
@@ -211,4 +251,55 @@
   </div>
 </div>
 
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/tom-select/js/tom-select.complete.min.js"></script>
+<script>
+(function(){
+  var picker = document.getElementById('accountPicker');
+  if (!picker) return;
+
+  // Built lazily on modal open. Tom Select measures the input to size the
+  // dropdown, and inside a hidden .modal every measurement reads zero — the
+  // control renders collapsed and unusable until the field is reflowed.
+  var ts = null, ownerTs = null;
+  var modal = document.getElementById('enableModal');
+  var wrap  = document.getElementById('phoneOverrideWrap');
+  var help  = document.getElementById('phoneOverrideHelp');
+
+  function syncPhoneField(){
+    var n = ts ? ts.items.length : 0;
+    var input = wrap.querySelector('input[name="portal_phone"]');
+    if (n > 1) {
+      // Server ignores the override for multi-select; disabling it (rather than
+      // leaving a box that silently does nothing) is the honest signal.
+      input.value = '';
+      input.disabled = true;
+      help.textContent = n + ' accounts selected — each will use its own mobile number.';
+    } else {
+      input.disabled = false;
+      help.textContent = "Optional — overrides the Account's own mobile. Only applies when a single Account is selected.";
+    }
+  }
+
+  modal.addEventListener('shown.bs.modal', function(){
+    if (!ts) {
+      ts = new TomSelect(picker, {
+        maxOptions: null,          // Accounts list is not artificially truncated
+        plugins: ['remove_button'],
+        placeholder: '— Search accounts —',
+        onChange: syncPhoneField,
+      });
+    }
+    if (!ownerTs) {
+      ownerTs = new TomSelect(document.getElementById('salesOwnerPicker'), {
+        maxOptions: null,
+        allowEmptyOption: true,
+        placeholder: '— Search sales owner —',
+      });
+    }
+    syncPhoneField();
+  });
+})();
+</script>
 {% endblock %}

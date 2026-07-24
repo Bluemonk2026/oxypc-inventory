@@ -281,6 +281,11 @@ class CRMQuoteItem(Base):
     device_type   = Column(String(100), nullable=False)   # "Laptop HP EliteBook 840 G5"
     material_type = Column(String(30),  nullable=True)
     grade         = Column(String(10),  nullable=True)    # A/B/C/D/AsIs
+    # Same master list the PO line items draw on — master_options('po_category').
+    # Free-text width (not an enum) because the list is operator-editable from
+    # Master Data; constraining it in the DB would break the moment someone
+    # adds a category there.
+    po_category   = Column(String(100), nullable=True)
     quantity      = Column(Integer,     nullable=False, default=1)
     unit_price    = Column(Numeric(10, 2), nullable=False)
     total_price   = Column(Numeric(14, 2), nullable=False)

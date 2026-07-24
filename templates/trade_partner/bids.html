@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Bids Created — OxyPC{% endblock %}
+{% block page_title %}Bids Created{% endblock %}
+{% block content %}
+
+{% if success %}
+<div class="alert alert-success py-2"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
+{% endif %}
+
+{% macro bid_table(rows, table_id, show_actions) %}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle mb-0" id="{{ table_id }}">
+    <thead class="table-light">
+      <tr>
+        <th>Bid Amount</th>
+        <th>Dealer Name</th>
+        <th>Bid ID</th>
+        <th>Lot Number</th>
+        <th>Account Name</th>
+        <th>Account Contact</th>
+        <th>Account Category</th>
+        <th>Manager Name</th>
+        <th>Download</th>
+        <th>{{ 'Actions' if show_actions else 'Won' }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="fw-bold text-success text-nowrap">
+          ₹{{ "{:,.0f}".format(r.bid.bid_amount) }}
+          {% if r.bid.bid_type == 'custom' %}
+          <span class="badge bg-info-subtle text-info-emphasis border ms-1">custom</span>
+          {% endif %}
+        </td>
+        <td>{{ r.dealer_name }}</td>
+        <td class="font-monospace small">{{ r.bid.bid_number }}</td>
+        <td class="font-monospace small">{{ r.lot_number }}</td>
+        <td>{{ r.account_name }}</td>
+        <td>{{ r.account_contact }}</td>
+        <td>{{ r.account_category | replace('_',' ') | title }}</td>
+        <td>{{ r.manager_name }}</td>
+        <td class="text-nowrap">
+          {% for d in r.documents %}
+          <a href="/trade-partner/bids/document/{{ d.id }}"
+             class="btn btn-sm btn-outline-secondary py-0 px-1 mb-1"
+             title="{{ d.original_name or d.filename }}">
+            <i class="bi bi-download"></i> {{ d.doc_type | upper }}
+          </a>
+          {% else %}
+          <span class="text-muted small">—</span>
+          {% endfor %}
+          <button type="button" class="btn btn-sm btn-outline-primary py-0 px-1 mb-1"
+                  data-bs-toggle="modal" data-bs-target="#uploadDocModal"
+                  data-bid-id="{{ r.bid.id }}" data-bid-number="{{ r.bid.bid_number }}">
+            <i class="bi bi-paperclip"></i>
+          </button>
+        </td>
+        <td class="text-nowrap">
+          {% if show_actions %}
+          {# Confirm inline: Mark Won also marks every other live bid on the
+             same listing lost, which is not obvious from the button alone. #}
+          <form method="post" action="/trade-partner/bids/{{ r.bid.id }}/mark-won"
+                onsubmit="return confirm('Mark {{ r.bid.bid_number }} as won?\n\nThis creates a Buyer Deal and marks all other live bids on the same lot as lost.');">
+            <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+            <button class="btn btn-sm btn-success py-0 px-2">
+              <i class="bi bi-trophy me-1"></i>Mark Won
+            </button>
+          </form>
+          {% else %}
+          <div class="small text-muted">
+            {{ r.bid.won_by or '—' }}<br>
+            {% if r.bid.won_at %}{{ r.bid.won_at.strftime('%d %b %Y %H:%M') }}{% endif %}
+          </div>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="10" class="text-center text-muted py-3">No bids here yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
+    <span class="fw-semibold"><i class="bi bi-hammer me-2 text-primary"></i>Bids Captured</span>
+    <span class="badge bg-primary">{{ captured | length }}</span>
+  </div>
+  <div class="card-body p-0">
+    {{ bid_table(captured, 'capturedTable', true) }}
+  </div>
+  <div class="card-footer bg-white border-0 small text-muted">
+    Sorted by highest bid amount. Includes custom-price requests, which are not
+    held to the 10% step.
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
+    <span class="fw-semibold"><i class="bi bi-trophy me-2 text-success"></i>Marked Won</span>
+    <span class="badge bg-success">{{ won | length }}</span>
+  </div>
+  <div class="card-body p-0">
+    {{ bid_table(won, 'wonTable', false) }}
+  </div>
+  <div class="card-footer bg-white border-0 small text-muted">
+    Each of these created a Buyer Deal under Sales Opportunities.
+  </div>
+</div>
+
+<!-- Attach document modal -->
+<div class="modal fade" id="uploadDocModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="uploadDocForm" enctype="multipart/form-data" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+      <div class="modal-header py-2">
+        <h5 class="modal-title"><i class="bi bi-paperclip me-2"></i>Attach Document to <span id="docBidNumber"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2">
+          <label class="form-label small fw-semibold mb-1">Document Type</label>
+          <select name="doc_type" class="form-select form-select-sm" required>
+            {% for t in doc_types %}
+            <option value="{{ t }}">{{ t | upper }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <input type="file" name="file" class="form-control" required>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary">Upload</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('uploadDocModal').addEventListener('show.bs.modal', function(ev){
+  // One modal shared by every row: point its action at whichever bid was clicked.
+  var btn = ev.relatedTarget;
+  if (!btn) return;
+  document.getElementById('uploadDocForm').action =
+    '/trade-partner/bids/' + btn.getAttribute('data-bid-id') + '/upload';
+  document.getElementById('docBidNumber').textContent =
+    btn.getAttribute('data-bid-number');
+});
+
+$(document).ready(function(){
+  // order:[] keeps the server's sort (amount DESC) as the initial view - the
+  // whole point of the page is that the best offer is row one.
+  ['#capturedTable', '#wonTable'].forEach(function(sel){
+    if ($(sel + ' tbody tr').length && !$(sel + ' tbody td[colspan]').length) {
+      $(sel).DataTable({ order: [], pageLength: 25, lengthChange: false });
+    }
+  });
+});
+</script>
+{% endblock %}

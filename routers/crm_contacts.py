@@ -12,6 +12,9 @@ from sqlalchemy.orm import selectinload
 
 from templates_config import templates
 from database import get_db
+from utils.csv_decode import decode_csv_bytes
+from utils.timezone import app_now
+from services.audit_engine import audit
 from auth.dependencies import get_current_user, verify_csrf, require_module_perm
 from models.user import User, UserRole
 from models.crm import (
@@ -507,6 +510,275 @@ async def export_contacts_csv(
         media_type="text/csv; charset=utf-8-sig",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── ACCOUNTS BULK UPLOAD (accounts + call records in one sheet) ───────────────
+#
+# Registered ABOVE the "/{contact_id}" route on purpose: that path parameter
+# matches any single segment, so a template route declared after it would be
+# swallowed and "/crm/contacts/calls" would be looked up as a contact id.
+
+@router.get("/calls/bulk-upload-template")
+async def account_calls_bulk_upload_template():
+    """Sample CSV for the Accounts bulk upload.
+
+    Row 1 is a full account + a call. Row 2 is account detail only (no call
+    columns) — that is the supported way to import or update accounts without
+    manufacturing a call record for each one.
+    """
+    header = (
+        "company_name,contact_person,phone,whatsapp,email,gstin,address,city,state,pincode,"
+        "contact_type,source_type,buyer_type,assigned_to,"
+        "call_date,call_type,call_mode,call_outcome,summary,items_discussed,"
+        "next_followup_date,notes\n"
+    )
+    sample = (
+        "Example Traders,Ravi Kumar,9876543210,9876543210,ravi@example.com,"
+        "07AABCU9603R1ZM,12 Nehru Place,New Delhi,Delhi,110019,"
+        "buyer,trader,dealer,sales_user,"
+        "2026-07-15,outbound,phone,interested,Discussed i5 8th gen stock,"
+        "i5 8th Gen laptops,2026-07-22,Wants 20 units\n"
+        "ABC Electronics,Sunita Rao,9812345678,,sunita@abc.com,,,Mumbai,Maharashtra,,"
+        "buyer,,retail,,,,,,,,,\n"
+    )
+    return StreamingResponse(
+        iter([(header + sample).encode("utf-8-sig")]),
+        media_type="text/csv; charset=utf-8-sig",
+        headers={"Content-Disposition":
+                 "attachment; filename=accounts_bulk_upload_template.csv"},
+    )
+
+
+@router.post("/calls/bulk-upload", response_class=HTMLResponse)
+async def account_calls_bulk_upload(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """One uploader covering all five cases the operator asked for:
+
+      1. update an existing Account and log a call
+      2. update an existing Account with no call columns filled
+      3. create a new Account and log a call
+      4. create a new Account with no call columns filled
+      5. plain account sheets, so the separate Bulk Upload CSV button is
+         redundant — its column names are accepted here unchanged
+
+    Mirrors the dealer call-records uploader (routers/dealers.py) deliberately:
+    same header aliasing, same "one bad row never aborts the file" contract,
+    same set-based lookup instead of a query per row.
+    """
+    form = await request.form()
+    upload = form.get("file")
+    if not upload or not hasattr(upload, "read"):
+        return RedirectResponse(url="/crm/contacts?error=No+file+uploaded",
+                                status_code=302)
+
+    text_content = decode_csv_bytes(await upload.read())
+    text_content = text_content.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    def _norm(s) -> str:
+        if not s or not isinstance(s, str):
+            return ""
+        return s.lower().strip().replace(" ", "_").replace("-", "_")
+
+    # Accepts the headers of the existing Bulk Upload CSV template as well as
+    # the natural spellings a telecaller's own sheet uses.
+    _ALIASES = {
+        "account":        "company_name", "account_name":  "company_name",
+        "company":        "company_name", "business_name": "company_name",
+        "firm_name":      "company_name", "dealer_name":   "company_name",
+        "contact":        "contact_person", "person_name": "contact_person",
+        "owner_name":     "contact_person", "contact_name": "contact_person",
+        "mobile":         "phone",        "mobile_number": "phone",
+        "phone_number":   "phone",        "contact_no":    "phone",
+        "whatsapp_number": "whatsapp",
+        "email_id":       "email",        "mail":          "email",
+        "gst":            "gstin",        "gst_no":        "gstin",
+        "gst_number":     "gstin",
+        "pin":            "pincode",      "pin_code":      "pincode",
+        "type":           "contact_type",
+        "assigned":       "assigned_to",  "sales_person":  "assigned_to",
+        "date":           "call_date",    "called_on":     "call_date",
+        "mode":           "call_mode",
+        "outcome":        "call_outcome",
+        "remark":         "notes",        "remarks":       "notes",
+        "discussion":     "summary",      "call_summary":  "summary",
+        "followup_date":  "next_followup_date",
+        "next_followup":  "next_followup_date",
+    }
+
+    # csv key -> CRMContact attribute. Only non-blank values are applied, so a
+    # sparse sheet never blanks out detail already on the account.
+    _ACCOUNT_COLS = {
+        "company_name": "company_name", "contact_person": "contact_person",
+        "phone": "phone", "whatsapp": "whatsapp", "email": "email",
+        "gstin": "gstin", "pan": "pan", "address": "address",
+        "city": "city", "state": "state", "pincode": "pincode",
+        "contact_type": "contact_type", "source_type": "source_type",
+        "buyer_type": "buyer_type", "assigned_to": "assigned_to",
+        "notes": "notes",
+    }
+
+    # A row is a CALL only if it carries one of these. Without this test, a
+    # plain account list would manufacture one blank activity per account and
+    # inflate every call count on the CRM dashboard.
+    _CALL_COLS = (
+        "call_date", "call_type", "call_mode", "call_outcome", "summary",
+        "items_discussed", "next_followup_date",
+    )
+
+    reader = csv.DictReader(io.StringIO(text_content))
+    raw_fields = reader.fieldnames or []
+    reader.fieldnames = [_ALIASES.get(_norm(h), _norm(h)) for h in raw_fields]
+    rows = [
+        {k: (str(v).strip() if v is not None else "") for k, v in r.items() if k}
+        for r in reader
+    ]
+    if not rows:
+        return RedirectResponse(url="/crm/contacts?error=No+rows+found+in+file",
+                                status_code=302)
+
+    # Two set-based lookups rather than one query per row.
+    want_phones = {r.get("phone", "") for r in rows if r.get("phone", "")}
+    want_names = {r.get("company_name", "").lower()
+                  for r in rows if r.get("company_name", "")}
+
+    by_phone: dict = {}
+    by_name: dict = {}
+    if want_phones:
+        res = await db.execute(select(CRMContact).where(
+            CRMContact.phone.in_(want_phones), CRMContact.is_trashed == False))  # noqa: E712
+        by_phone = {c.phone: c for c in res.scalars().all()}
+    if want_names:
+        res = await db.execute(select(CRMContact).where(
+            func.lower(CRMContact.company_name).in_(want_names),
+            CRMContact.is_trashed == False))  # noqa: E712
+        by_name = {(c.company_name or "").strip().lower(): c
+                   for c in res.scalars().all()}
+
+    def _to_date(val: str):
+        if not val:
+            return None
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y"):
+            try:
+                return datetime.strptime(val, fmt)
+            except ValueError:
+                continue
+        raise ValueError(f"unrecognised date '{val}'")
+
+    valid_dirs = {"outbound", "inbound"}
+    valid_modes = {"call", "whatsapp", "visit", "email", "meeting", "note"}
+
+    logged, errors = 0, []
+    created_accounts, updated_accounts = 0, 0
+    code_base = ((await db.execute(select(func.count(CRMContact.id)))).scalar() or 0) + 1
+    new_seq = 0
+
+    for i, row in enumerate(rows, start=2):   # row 1 = header
+        try:
+            phone = row.get("phone", "")
+            name = row.get("company_name", "")
+
+            contact = by_phone.get(phone) if phone else None
+            if contact is None and name:
+                contact = by_name.get(name.lower())
+
+            if contact is None:
+                if not (phone or name):
+                    errors.append(f"Row {i}: needs a company_name or a phone")
+                    continue
+                new_seq += 1
+                contact = CRMContact(
+                    contact_code=f"CRM{code_base + new_seq - 1:04d}",
+                    company_name=name or phone,
+                    contact_type=(row.get("contact_type", "") or "buyer"),
+                    status="active",
+                    created_by=current_user.username,
+                )
+                for col, attr in _ACCOUNT_COLS.items():
+                    val = row.get(col, "")
+                    if val:
+                        setattr(contact, attr, val)
+                db.add(contact)
+                # flush so contact.id exists for the CRMActivity FK, and so a
+                # later row for the same account reuses this one rather than
+                # creating a second copy from within the same file.
+                await db.flush()
+                if phone:
+                    by_phone[phone] = contact
+                if name:
+                    by_name[name.lower()] = contact
+                created_accounts += 1
+            else:
+                changed = False
+                for col, attr in _ACCOUNT_COLS.items():
+                    val = row.get(col, "")
+                    if val and (getattr(contact, attr, None) or "") != val:
+                        setattr(contact, attr, val)
+                        changed = True
+                if changed:
+                    updated_accounts += 1
+
+            if not any(row.get(c, "") for c in _CALL_COLS):
+                continue   # account-detail-only row: cases 2 and 4
+
+            direction = (row.get("call_type", "").lower() or "outbound")
+            if direction not in valid_dirs:
+                direction = "outbound"
+            mode = (row.get("call_mode", "").lower() or "call")
+            if mode == "phone":          # dealer sheets spell it this way
+                mode = "call"
+            if mode == "in_person":
+                mode = "visit"
+            if mode not in valid_modes:
+                mode = "call"
+
+            # summary is NOT NULL on crm_activities. Fall back through the
+            # columns most likely to carry the gist before giving up, so a row
+            # that plainly is a call is never rejected over a blank cell.
+            summary = (row.get("summary", "") or row.get("items_discussed", "")
+                       or row.get("notes", "")
+                       or f"{mode} on {row.get('call_date', '') or 'unspecified date'}")
+
+            # performed_by is the rep the row names, not whoever ran the upload
+            # — crediting the uploader would pile the whole file onto one
+            # account and hide each call from the rep who actually made it.
+            row_agent = row.get("assigned_to", "")
+            db.add(CRMActivity(
+                contact_id=contact.id,
+                activity_type=mode,
+                direction=direction,
+                summary=summary,
+                outcome=row.get("call_outcome", "").lower() or None,
+                performed_by=row_agent or current_user.username,
+                activity_date=_to_date(row.get("call_date", "")) or app_now(),
+                next_followup=_to_date(row.get("next_followup_date", "")),
+                followup_assigned_to=row_agent or None,
+            ))
+            logged += 1
+        except Exception as exc:
+            errors.append(f"Row {i}: {exc}")
+
+    await audit(db, action="CRM_ACCOUNT_BULK_UPLOAD", user=current_user,
+                table_name="crm_contacts", record_id="bulk",
+                new_value={"created_accounts": created_accounts,
+                           "updated_accounts": updated_accounts,
+                           "calls_logged": logged,
+                           "skipped": len(errors), "rows": len(rows)})
+    await db.commit()
+
+    return templates.TemplateResponse("bulk_upload/result.html", {
+        "request": request, "current_user": current_user,
+        "upload_type": " · ".join(
+            ["Accounts"]
+            + ([f"{created_accounts} account(s) created"] if created_accounts else [])
+            + ([f"{updated_accounts} account(s) updated"] if updated_accounts else [])
+            + ([f"{logged} call(s) logged"] if logged else [])),
+        "inserted": created_accounts + updated_accounts + logged,
+        "errors": errors,
+        "back_url": "/crm/contacts",
+    })
 
 
 # ── NEW ───────────────────────────────────────────────────────────────────────

@@ -115,7 +115,15 @@ CANONICAL_STAGE_NAMES = {name for name, _, _ in CANONICAL_STAGES}
 def _sql_type(col) -> str:
     """Convert SQLAlchemy column type to a safe ADD COLUMN SQL type string."""
     import sqlalchemy as sa
+    from sqlalchemy.dialects.postgresql import UUID as PG_UUID
     t = col.type
+    # UUID first. Falling through to the TEXT default below produced a text
+    # column holding uuid-shaped strings, so every `Model.fk_id == some_uuid`
+    # comparison had to cast and any real FK constraint was impossible. That is
+    # the drift migrate_fix_prod_uuid_drift.py had to repair in production;
+    # emitting the right type here stops it recurring on the next UUID column.
+    if isinstance(t, PG_UUID) or getattr(t, "__visit_name__", "") == "uuid":
+        return "UUID"
     # Text must be tested before String: sa.Text subclasses sa.String, so the String
     # branch would otherwise claim every Text column and, finding no .length, cap it
     # at VARCHAR(255) — silently truncating long free-text on insert.
@@ -134,7 +142,7 @@ def _sql_type(col) -> str:
         return "TIMESTAMP"
     if isinstance(t, sa.Date):
         return "DATE"
-    # UUID, Enum, and everything else — use TEXT as safe default
+    # Enum and everything else — use TEXT as safe default
     return "TEXT"
 
 

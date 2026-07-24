@@ -24,7 +24,9 @@ from models.user import User
 from models.partner import (
     PartnerListing, PartnerLoginLog, PartnerListingView, PartnerBooking,
     PartnerPaymentProof, LotDealerVisibility, LotBookingRequest,
+    PartnerBid, min_next_bid,
 )
+from decimal import Decimal, InvalidOperation
 from models.lot import Lot
 from models.device import Device
 from auth.dependencies import verify_password
@@ -258,6 +260,7 @@ async def catalog(
         "f_type": listing_type, "f_brand": brand, "f_grade": grade, "f_sort": sort,
         "partner_csrf": request.cookies.get(PARTNER_CSRF_COOKIE, ""),
         "visible_lots": visible_lots,
+        "bids": await _bid_state(db, listings, dealer.id),
     })
 
 
@@ -295,8 +298,181 @@ async def listing_detail(
         "ageing": ageing_bucket(listing.stock_intake_date or listing.created_at),
         "share_text": share_text, "owner_wa": owner_wa, "ask_text": ask_text,
         "error": request.query_params.get("error"),
+        "success": request.query_params.get("success"),
         "partner_csrf": request.cookies.get(PARTNER_CSRF_COOKIE, ""),
+        "bid": (await _bid_state(db, [listing], dealer.id)).get(str(listing.id)),
     })
+
+
+# ── Bidding ──────────────────────────────────────────────────────────────────
+
+async def _bid_state(db: AsyncSession, listings, dealer_id):
+    """Per-listing bid summary for the dealer-facing pages.
+
+    Exposes the standing highest AMOUNT but never which dealer placed it —
+    knowing a rival's exact position is competitive intelligence, and the file's
+    rule is dealer-safe fields only. The dealer's own bid is returned in full.
+    """
+    ids = [l.id for l in listings]
+    if not ids:
+        return {}
+
+    highest = dict((str(lid), amt) for lid, amt in (await db.execute(
+        select(PartnerBid.listing_id, func.max(PartnerBid.bid_amount))
+        .where(PartnerBid.listing_id.in_(ids), PartnerBid.status == "active")
+        .group_by(PartnerBid.listing_id)
+    )).all())
+
+    mine = {}
+    for b in (await db.execute(
+        select(PartnerBid).where(
+            PartnerBid.listing_id.in_(ids), PartnerBid.dealer_id == dealer_id,
+            PartnerBid.status.in_(("active", "won")),
+        ).order_by(PartnerBid.bid_amount.desc())
+    )).scalars().all():
+        mine.setdefault(str(b.listing_id), b)
+
+    out = {}
+    for l in listings:
+        key = str(l.id)
+        top = highest.get(key)
+        out[key] = {
+            "highest": top,
+            "min_next": min_next_bid(l.dealer_price, top),
+            "mine": mine.get(key),
+            "leading": bool(top is not None and mine.get(key) is not None
+                            and mine[key].bid_amount == top),
+        }
+    return out
+
+
+def _parse_amount(raw):
+    try:
+        amt = Decimal(str(raw).replace(",", "").strip())
+    except (InvalidOperation, AttributeError, ValueError):
+        return None
+    return amt if amt > 0 else None
+
+
+async def _next_bid_number(db: AsyncSession) -> str:
+    n = ((await db.execute(select(func.count(PartnerBid.id)))).scalar() or 0) + 1
+    return f"BID-{n:04d}"
+
+
+@router.post("/listings/{listing_id}/bid")
+async def place_bid(
+    request: Request,
+    listing_id: str,
+    amount: str = Form(...),
+    _csrf=Depends(verify_partner_csrf),
+    dealer: Dealer = Depends(get_current_partner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Auction bid. Must clear the standing highest (or the base price) by 10%.
+
+    The minimum is re-derived here from a row-locked read rather than trusting
+    the figure the page rendered: between page load and submit another dealer
+    may have bid, and a client-side-only check would let the second submitter
+    win at a stale, lower price.
+    """
+    back = f"/partner/listings/{listing_id}"
+
+    # Lock the listing row for the duration. Two dealers submitting at the same
+    # instant would otherwise both read the same highest bid, both pass the
+    # check, and both be recorded as valid at the same amount.
+    listing = (await db.execute(
+        select(PartnerListing).where(PartnerListing.id == listing_id)
+        .with_for_update()
+    )).scalar_one_or_none()
+
+    seg = dealer.price_segment or "new_dealer"
+    if (not listing or not listing.is_active or listing.status != "published"
+            or listing.visible_to_segment not in ("all", seg)):
+        await db.rollback()
+        return RedirectResponse(url="/partner/catalog?error=Listing+not+available",
+                                status_code=302)
+
+    amt = _parse_amount(amount)
+    if amt is None:
+        await db.rollback()
+        return RedirectResponse(url=f"{back}?error=Enter+a+valid+bid+amount",
+                                status_code=302)
+
+    top = (await db.execute(
+        select(func.max(PartnerBid.bid_amount)).where(
+            PartnerBid.listing_id == listing.id, PartnerBid.status == "active")
+    )).scalar()
+    floor = min_next_bid(listing.dealer_price, top)
+    if amt < floor:
+        await db.rollback()
+        return RedirectResponse(
+            url=f"{back}?error=Minimum+next+bid+is+Rs+{floor:.0f}", status_code=302)
+
+    bid = PartnerBid(
+        bid_number=await _next_bid_number(db),
+        listing_id=listing.id, dealer_id=dealer.id,
+        bid_amount=amt, bid_type="increment",
+        previous_amount=top, base_amount=listing.dealer_price,
+        status="active",
+    )
+    db.add(bid)
+    await audit(db, action="PARTNER_BID_PLACED", table_name="partner_bids",
+                record_id=str(bid.id),
+                new_value={"listing": listing.listing_code, "amount": str(amt),
+                           "previous": str(top) if top is not None else None,
+                           "dealer": dealer.business_name},
+                notes=f"dealer:{dealer.business_name}", request=request)
+    await db.commit()
+    return RedirectResponse(url=f"{back}?success=Bid+placed", status_code=302)
+
+
+@router.post("/listings/{listing_id}/custom-price")
+async def request_custom_price(
+    request: Request,
+    listing_id: str,
+    amount: str = Form(...),
+    notes: str = Form(""),
+    _csrf=Depends(verify_partner_csrf),
+    dealer: Dealer = Depends(get_current_partner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Dealer names their own figure outside the auction ladder.
+
+    Deliberately NOT held to the 10% floor — the whole point is to let a dealer
+    say what the lot is worth to them when the ladder has run past it. It lands
+    on the same Bids page flagged as custom, for staff to accept or ignore.
+    """
+    back = f"/partner/listings/{listing_id}"
+    listing = (await db.execute(
+        select(PartnerListing).where(PartnerListing.id == listing_id)
+    )).scalar_one_or_none()
+    seg = dealer.price_segment or "new_dealer"
+    if (not listing or not listing.is_active or listing.status != "published"
+            or listing.visible_to_segment not in ("all", seg)):
+        return RedirectResponse(url="/partner/catalog?error=Listing+not+available",
+                                status_code=302)
+
+    amt = _parse_amount(amount)
+    if amt is None:
+        return RedirectResponse(url=f"{back}?error=Enter+a+valid+amount",
+                                status_code=302)
+
+    bid = PartnerBid(
+        bid_number=await _next_bid_number(db),
+        listing_id=listing.id, dealer_id=dealer.id,
+        bid_amount=amt, bid_type="custom",
+        base_amount=listing.dealer_price, status="active",
+        notes=notes.strip() or None,
+    )
+    db.add(bid)
+    await audit(db, action="PARTNER_CUSTOM_PRICE_REQUESTED",
+                table_name="partner_bids", record_id=str(bid.id),
+                new_value={"listing": listing.listing_code, "amount": str(amt),
+                           "dealer": dealer.business_name},
+                notes=f"dealer:{dealer.business_name}", request=request)
+    await db.commit()
+    return RedirectResponse(url=f"{back}?success=Custom+price+request+sent",
+                            status_code=302)
 
 
 @router.post("/lots/{lot_id}/book")

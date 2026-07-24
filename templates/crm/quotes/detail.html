@@ -30,7 +30,10 @@
         <div class="small text-muted mb-1">Quote Date</div>
         <div class="fw-semibold mb-2">{{ quote.quote_date.strftime('%d %b %Y') if quote.quote_date else '—' }}</div>
         <div class="small text-muted mb-1">Valid Until</div>
-        <div class="fw-semibold {% if quote.valid_until and quote.valid_until < now.date() and quote.status not in ['accepted','rejected'] %}text-danger{% endif %}">
+        {# Use the route's is_expired, not a re-derived `now.date()` comparison:
+           quote_detail never passed `now`, so this line raised UndefinedError and
+           500'd the whole page for any quote that had a Valid Until date. #}
+        <div class="fw-semibold {% if is_expired %}text-danger{% endif %}">
           {{ quote.valid_until.strftime('%d %b %Y') if quote.valid_until else '—' }}
         </div>
         {% if quote.payment_terms %}
@@ -53,44 +56,46 @@
             <th>Device Type</th>
             <th>Material</th>
             <th>Grade</th>
+            <th>PO Category</th>
             <th class="text-center">Qty</th>
             {% if can_view_pricing(current_user) %}
             <th class="text-end">Unit Price</th>
             <th class="text-end">Total</th>
             {% endif %}
-            {% if quote.items | selectattr('specs_note') | list %}
+            {% if items | selectattr('specs_note') | list %}
             <th>Specs / Notes</th>
             {% endif %}
           </tr>
         </thead>
         <tbody>
-          {% for item in quote.items %}
+          {% for item in items %}
           {% set grade_colors = {'A':'success','B':'info','C':'warning','D':'secondary','Scrap':'danger','As-Is':'secondary','Mix':'primary'} %}
           <tr>
             <td class="text-muted">{{ loop.index }}</td>
             <td>{{ item.device_type or '—' }}</td>
             <td>{{ item.material_type | replace('_',' ') | title if item.material_type else '—' }}</td>
             <td>{% if item.grade %}<span class="badge bg-{{ grade_colors.get(item.grade,'secondary') }}">{{ item.grade }}</span>{% else %}—{% endif %}</td>
+            <td>{{ item.po_category or '—' }}</td>
             <td class="text-center">{{ item.quantity }}</td>
             {% if can_view_pricing(current_user) %}
             <td class="text-end">₹{{ "{:,.0f}".format(item.unit_price) }}</td>
             <td class="text-end fw-semibold">₹{{ "{:,.0f}".format(item.total_price) }}</td>
             {% endif %}
-            {% if quote.items | selectattr('specs_note') | list %}
+            {% if items | selectattr('specs_note') | list %}
             <td class="small text-muted">{{ item.specs_note or '' }}</td>
             {% endif %}
           </tr>
           {% else %}
-          <tr><td colspan="7" class="text-center text-muted py-3">No line items.</td></tr>
+          <tr><td colspan="8" class="text-center text-muted py-3">No line items.</td></tr>
           {% endfor %}
         </tbody>
         {% if quote.total_amount and can_view_pricing(current_user) %}
         <tfoot>
           <tr class="table-light">
-            <td colspan="5" class="text-end fw-bold">Grand Total</td>
+            <td colspan="6" class="text-end fw-bold">Grand Total</td>
             <td></td>
             <td class="text-end fw-bold fs-5 text-success">₹{{ "{:,.0f}".format(quote.total_amount) }}</td>
-            {% if quote.items | selectattr('specs_note') | list %}<td></td>{% endif %}
+            {% if items | selectattr('specs_note') | list %}<td></td>{% endif %}
           </tr>
         </tfoot>
         {% endif %}
@@ -180,7 +185,7 @@ Date: {{ quote.quote_date.strftime('%d %b %Y') if quote.quote_date else '' }}
 Valid Until: {{ quote.valid_until.strftime('%d %b %Y') if quote.valid_until else 'On Request' }}
 
 Items:
-{% for item in quote.items %}{{ loop.index }}. {{ item.device_type }}{% if item.grade %} (Grade {{ item.grade }}){% endif %} — Qty: {{ item.quantity }} x Rs.{{ "{:,.0f}".format(item.unit_price) }} = Rs.{{ "{:,.0f}".format(item.total_price) }}
+{% for item in items %}{{ loop.index }}. {{ item.device_type }}{% if item.grade %} (Grade {{ item.grade }}){% endif %} — Qty: {{ item.quantity }} x Rs.{{ "{:,.0f}".format(item.unit_price) }} = Rs.{{ "{:,.0f}".format(item.total_price) }}
 {% endfor %}
 Total: Rs.{{ "{:,.0f}".format(quote.total_amount) }}
 {% if quote.payment_terms %}

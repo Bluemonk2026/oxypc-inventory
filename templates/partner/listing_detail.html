@@ -4,6 +4,9 @@
 
 <a href="/partner/catalog" class="small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>Back to catalog</a>
 
+{% if success %}
+<div class="alert alert-success py-2 small mt-2"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>
+{% endif %}
 {% if error %}
 <div class="alert alert-danger py-2 small mt-2"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
 {% endif %}
@@ -67,6 +70,67 @@
 </div>
 
 {% if listing.status == 'published' and listing.qty_available > 0 %}
+<div class="card listing-card mb-3">
+  <div class="card-body">
+    <h6 class="fw-bold mb-2"><i class="bi bi-hammer me-1"></i>Bidding</h6>
+    <div class="d-flex justify-content-between small mb-2">
+      <span class="text-muted">Base price</span>
+      <span class="fw-semibold">₹{{ "{:,.0f}".format(listing.dealer_price) }}</span>
+    </div>
+    <div class="d-flex justify-content-between small mb-2">
+      <span class="text-muted">Highest bid</span>
+      <span class="fw-semibold">
+        {% if bid and bid.highest %}₹{{ "{:,.0f}".format(bid.highest) }}{% else %}—{% endif %}
+      </span>
+    </div>
+    {% if bid and bid.mine %}
+    <div class="alert {{ 'alert-success' if bid.leading else 'alert-secondary' }} py-2 small mb-2">
+      Your bid: <strong>₹{{ "{:,.0f}".format(bid.mine.bid_amount) }}</strong>
+      {% if bid.mine.bid_type == 'custom' %}<span class="badge bg-info-subtle text-info-emphasis border ms-1">custom price</span>
+      {% elif bid.leading %}— you are leading{% else %}— you have been outbid{% endif %}
+    </div>
+    {% endif %}
+
+    <form method="post" action="/partner/listings/{{ listing.id }}/bid" class="row g-2 mb-3">
+      <input type="hidden" name="csrf_token" value="{{ partner_csrf }}">
+      <div class="col-5">
+        <input type="number" name="amount" step="1" min="{{ bid.min_next }}"
+               value="{{ bid.min_next }}" class="form-control" required>
+      </div>
+      <div class="col-7">
+        <button class="btn btn-primary w-100"><i class="bi bi-hammer me-1"></i>Place Bid</button>
+      </div>
+      <div class="col-12">
+        <small class="text-muted">
+          Minimum next bid is ₹{{ "{:,.0f}".format(bid.min_next) }} — 10% above
+          {% if bid.highest %}the current highest bid{% else %}the base price{% endif %}.
+        </small>
+      </div>
+    </form>
+
+    <details>
+      <summary class="small text-primary" style="cursor:pointer">Offer your own price instead</summary>
+      <form method="post" action="/partner/listings/{{ listing.id }}/custom-price" class="row g-2 mt-2">
+        <input type="hidden" name="csrf_token" value="{{ partner_csrf }}">
+        <div class="col-5">
+          <input type="number" name="amount" step="1" min="1" class="form-control"
+                 placeholder="Your price" required>
+        </div>
+        <div class="col-7">
+          <button class="btn btn-outline-primary w-100">Send Request</button>
+        </div>
+        <div class="col-12">
+          <input type="text" name="notes" class="form-control form-control-sm"
+                 placeholder="Optional — why this price">
+          <small class="text-muted">
+            Not held to the 10% step. Goes to the OxyPC team to review.
+          </small>
+        </div>
+      </form>
+    </details>
+  </div>
+</div>
+
 <div class="card listing-card mb-3">
   <div class="card-body">
     <h6 class="fw-bold mb-2"><i class="bi bi-bookmark-check me-1"></i>Book with Token</h6>

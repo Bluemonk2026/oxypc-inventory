@@ -20,6 +20,7 @@ from sqlalchemy import select, update, func
 from database import get_db
 from templates_config import templates
 from models.dealers import Dealer
+from models.crm import CRMContact
 from models.user import User, UserRole
 from models.lot import Lot
 from models.device import Device, DeviceStage
@@ -27,7 +28,9 @@ from models.partner import (
     PartnerLoginLog, PartnerListing, PartnerListingDevice, PartnerFloorConfig,
     PartnerBooking, PRICE_SEGMENTS, LISTING_TYPES,
     LotDealerVisibility, LotBookingRequest,
+    PartnerBid, PartnerBidDocument, BID_DOC_TYPES,
 )
+from models.crm import CRMSalesOpportunity
 from auth.dependencies import (
     get_current_user, verify_csrf, hash_password, require_module_perm,
 )
@@ -58,6 +61,86 @@ async def _sales_users(db: AsyncSession):
     return r.all()
 
 
+async def _account_candidates(db: AsyncSession):
+    """Accounts (CRM Contact Leads) offered in the Enable Portal Access picker.
+
+    Deliberately NOT filtered down to accounts that have no portal login yet.
+    Working out whether an account already has one means resolving it through
+    the dealer bridge (link, then phone, then name), and a near-miss there would
+    silently hide a real account from the operator with no way to tell why.
+    Instead every live account is listed and provisioning skips the ones that
+    already have access, reporting each by name.
+    """
+    r = await db.execute(
+        select(CRMContact)
+        .where(CRMContact.status == "active", CRMContact.is_trashed == False)  # noqa: E712
+        .order_by(CRMContact.company_name)
+    )
+    return r.scalars().all()
+
+
+async def _dealer_for_account(db: AsyncSession, contact: CRMContact,
+                              username: str) -> tuple[Dealer, bool]:
+    """Resolve the Dealer row that backs a CRM Account, creating it if needed.
+
+    Returns (dealer, created). Match order is most-trustworthy first:
+      1. an explicit crm_contact_id link from a previous provisioning
+      2. normalised phone — the portal login *is* a phone, so a collision here
+         would break login for whichever dealer lost the race
+      3. business name, case-insensitively
+
+    Only live (untrashed) dealers are considered: binding a portal login to a
+    trashed dealer would give the partner an account nobody can see or service.
+    """
+    if contact.id:
+        d = (await db.execute(select(Dealer).where(
+            Dealer.crm_contact_id == contact.id,
+            Dealer.trashed_at.is_(None),
+        ))).scalars().first()
+        if d:
+            return d, False
+
+    phone = normalize_phone(contact.phone or "")
+    if phone:
+        d = (await db.execute(select(Dealer).where(
+            Dealer.phone == phone, Dealer.trashed_at.is_(None),
+        ))).scalars().first()
+        if d:
+            return d, False
+
+    name = (contact.company_name or "").strip()
+    if name:
+        d = (await db.execute(select(Dealer).where(
+            func.lower(Dealer.business_name) == name.lower(),
+            Dealer.trashed_at.is_(None),
+        ))).scalars().first()
+        if d:
+            return d, False
+
+    seq = ((await db.execute(select(func.count(Dealer.id)))).scalar() or 0) + 1
+    dealer = Dealer(
+        dealer_code=f"DLR-{seq:04d}",
+        business_name=name or (phone or "Unknown Account"),
+        contact_person=contact.contact_person,
+        phone=phone or None,
+        whatsapp_number=normalize_phone(contact.whatsapp or "") or None,
+        email=contact.email,
+        address=contact.address,
+        city=contact.city,
+        state=contact.state,
+        pincode=contact.pincode,
+        gstin=contact.gstin,
+        dealer_type="retail",
+        assigned_to=contact.assigned_to,
+        created_by=username,
+        added_by=username,
+        source="Trade Partner: provisioned from CRM Account",
+    )
+    db.add(dealer)
+    await db.flush()   # need dealer.id before the caller writes portal fields
+    return dealer, True
+
+
 @router.get("/partners", response_class=HTMLResponse)
 async def partners_list(
     request: Request,
@@ -79,23 +162,13 @@ async def partners_list(
     from services.partner_service import compute_dealer_scores
     scores = await compute_dealer_scores(db, [p.id for p in partners])
 
-    # Dealer dropdown — mapped 1:1 to the Dealer Management list (same Dealer
-    # table, no status filter — matches Dealer Management's default view),
-    # minus dealers already portal-enabled (re-enabling an existing portal
-    # login doesn't apply here). No row cap — Dealer Management itself is
-    # not artificially capped, so this dropdown shouldn't silently truncate.
-    cand_q = select(Dealer).where(
-        Dealer.portal_enabled == False,  # noqa: E712
-    ).order_by(Dealer.business_name)
-    candidates = (await db.execute(cand_q)).scalars().all()
-
     return templates.TemplateResponse("trade_partner/partners.html", {
         "request": request, "current_user": current_user,
-        "partners": partners, "candidates": candidates, "q": q, "scores": scores,
+        "partners": partners, "accounts": await _account_candidates(db),
+        "q": q, "scores": scores,
         "sales_users": await _sales_users(db),
         "partner_types": PARTNER_TYPES, "price_segments": PRICE_SEGMENTS,
-        "temp_password": request.query_params.get("temp_password"),
-        "temp_for": request.query_params.get("temp_for"),
+        "provisioned": None, "failed": None,
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
     })
@@ -104,8 +177,8 @@ async def partners_list(
 @router.post("/partners/enable")
 async def enable_partner(
     request: Request,
-    dealer_id: str = Form(...),
-    portal_phone: str = Form(...),
+    contact_ids: list[str] = Form(default=[]),
+    portal_phone: str = Form(""),
     partner_type: str = Form("dealer"),
     price_segment: str = Form("new_dealer"),
     sales_owner_username: str = Form(""),
@@ -113,48 +186,127 @@ async def enable_partner(
     current_user: User = Depends(require_module_perm("trade_partner", "add")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Enable portal access for an existing dealer — issues a temp password."""
-    dealer = (await db.execute(select(Dealer).where(Dealer.id == dealer_id))).scalar_one_or_none()
-    if not dealer:
-        raise HTTPException(status_code=404, detail="Dealer not found")
+    """Enable portal access for one or more CRM Accounts — one login each.
 
-    norm = normalize_phone(portal_phone)
-    if len(norm) != 10:
-        return RedirectResponse(
-            url="/trade-partner/partners?error=Enter+a+valid+10-digit+mobile+number",
-            status_code=302)
-    dup = (await db.execute(
-        select(Dealer).where(Dealer.portal_phone == norm, Dealer.id != dealer.id)
-    )).scalar_one_or_none()
-    if dup:
-        return RedirectResponse(
-            url="/trade-partner/partners?error=That+phone+is+already+a+portal+login",
-            status_code=302)
+    Each selected Account is resolved (or bridged) to its Dealer row, because
+    every portal foreign key in the system points at dealers.id. See
+    _dealer_for_account for the matching order.
+
+    Login phone: with a single Account selected the operator may type an
+    override; with several, each Account's own phone is used, since there is no
+    sane way to hand-enter N numbers in one modal. Accounts without a usable
+    10-digit number are skipped and named in the result, never silently dropped.
+
+    One bad Account does not abort the batch — the others are still provisioned.
+
+    Renders the page directly rather than redirecting: temp passwords must be
+    shown once, and the previous redirect put the password in the query string,
+    where it landed in browser history, the access log and any proxy in between.
+    """
     if partner_type not in PARTNER_TYPES:
         partner_type = "dealer"
     if price_segment not in PRICE_SEGMENTS:
         price_segment = "new_dealer"
+    owner = sales_owner_username.strip() or None
 
-    temp_password = _gen_temp_password()
-    dealer.portal_enabled = True
-    dealer.portal_phone = norm
-    dealer.portal_password_hash = hash_password(temp_password)
-    dealer.partner_type = partner_type
-    dealer.price_segment = price_segment
-    dealer.sales_owner_username = sales_owner_username.strip() or None
-    dealer.portal_password_version = (dealer.portal_password_version or 1) + 1
+    ids = [c for c in (contact_ids or []) if c and c.strip()]
+    if not ids:
+        return RedirectResponse(
+            url="/trade-partner/partners?error=Select+at+least+one+account",
+            status_code=302)
 
-    await audit(db, action="PARTNER_PORTAL_ENABLED", user=current_user,
-                table_name="dealers", record_id=str(dealer.id),
-                new_value={"portal_phone": norm, "partner_type": partner_type,
-                           "price_segment": price_segment,
-                           "sales_owner": dealer.sales_owner_username},
-                request=request)
-    await db.commit()
-    return RedirectResponse(
-        url=f"/trade-partner/partners?temp_password={temp_password}"
-            f"&temp_for={dealer.business_name}&success=Portal+access+enabled",
-        status_code=302)
+    contacts = (await db.execute(
+        select(CRMContact).where(CRMContact.id.in_(ids))
+    )).scalars().all()
+    by_id = {str(c.id): c for c in contacts}
+
+    override = normalize_phone(portal_phone) if len(ids) == 1 else ""
+    provisioned, failed = [], []
+
+    # Phones claimed earlier in THIS batch: two accounts sharing a number would
+    # both pass the DB check (neither is committed yet) and then collide on the
+    # unique index, failing the whole request.
+    claimed: set[str] = set()
+
+    for cid in ids:
+        contact = by_id.get(cid)
+        if contact is None:
+            failed.append({"name": cid, "reason": "Account not found"})
+            continue
+        label = contact.company_name or contact.contact_code
+
+        norm = override or normalize_phone(contact.phone or "")
+        if len(norm) != 10:
+            failed.append({"name": label, "reason":
+                           "No valid 10-digit mobile on the account"})
+            continue
+        if norm in claimed:
+            failed.append({"name": label, "reason":
+                           "Another account in this batch uses the same mobile"})
+            continue
+
+        dealer, created = await _dealer_for_account(db, contact, current_user.username)
+        if dealer.portal_enabled:
+            failed.append({"name": label, "reason":
+                           f"Already has portal access ({dealer.portal_phone})"})
+            continue
+        dup = (await db.execute(select(Dealer).where(
+            Dealer.portal_phone == norm, Dealer.id != dealer.id
+        ))).scalars().first()
+        if dup:
+            failed.append({"name": label, "reason":
+                           f"{norm} is already the login for {dup.business_name}"})
+            continue
+
+        temp_password = _gen_temp_password()
+        dealer.crm_contact_id = contact.id
+        dealer.portal_enabled = True
+        dealer.portal_phone = norm
+        dealer.portal_password_hash = hash_password(temp_password)
+        dealer.partner_type = partner_type
+        dealer.price_segment = price_segment
+        dealer.sales_owner_username = owner
+        dealer.portal_password_version = (dealer.portal_password_version or 1) + 1
+        claimed.add(norm)
+
+        await audit(db, action="PARTNER_PORTAL_ENABLED", user=current_user,
+                    table_name="dealers", record_id=str(dealer.id),
+                    new_value={"portal_phone": norm, "partner_type": partner_type,
+                               "price_segment": price_segment,
+                               "sales_owner": owner,
+                               "crm_contact_id": str(contact.id),
+                               "dealer_created": created},
+                    request=request)
+        provisioned.append({
+            "name": label, "dealer_code": dealer.dealer_code,
+            "phone": norm, "password": temp_password,
+            "dealer_created": created,
+        })
+
+    if provisioned:
+        await db.commit()
+    else:
+        # Nothing to keep, and _dealer_for_account may have flushed new Dealer
+        # rows for accounts that then failed validation. Rolling back stops
+        # those half-built dealers from being left behind with no portal login.
+        await db.rollback()
+
+    query = select(Dealer).where(Dealer.portal_enabled == True)  # noqa: E712
+    partners = (await db.execute(query.order_by(Dealer.business_name))).scalars().all()
+    from services.partner_service import compute_dealer_scores
+    scores = await compute_dealer_scores(db, [p.id for p in partners])
+
+    return templates.TemplateResponse("trade_partner/partners.html", {
+        "request": request, "current_user": current_user,
+        "partners": partners, "accounts": await _account_candidates(db),
+        "q": "", "scores": scores,
+        "sales_users": await _sales_users(db),
+        "partner_types": PARTNER_TYPES, "price_segments": PRICE_SEGMENTS,
+        "provisioned": provisioned, "failed": failed,
+        "success": (f"Portal access enabled for {len(provisioned)} account(s)"
+                    if provisioned else None),
+        "error": (None if provisioned else "No portal access was enabled"),
+    })
 
 
 @router.post("/partners/{dealer_id}/update")
@@ -1040,3 +1192,250 @@ async def assign_lot_visibility(
     return RedirectResponse(
         url=f"/trade-partner/manage-lots?success=Lot+{lot.lot_number}+visible+to+{dealer.business_name}",
         status_code=302)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Bids Created — captured bids + Mark Won  (sidebar: after Listings Manager)
+# ═══════════════════════════════════════════════════════════════════════════
+
+BIDS_DIR = os.path.join(UPLOADS_DIR, "partner", "bids")
+
+
+async def _bid_rows(db: AsyncSession, bids):
+    """Decorate bids with the account/lot/manager columns the page shows.
+
+    Everything is fetched set-based. Doing it per row meant six extra queries
+    per bid, and this table is sorted by amount across every listing, so it is
+    exactly the page most likely to be long.
+    """
+    if not bids:
+        return []
+
+    dealer_ids = {b.dealer_id for b in bids}
+    dealers = {d.id: d for d in (await db.execute(
+        select(Dealer).where(Dealer.id.in_(dealer_ids)))).scalars().all()}
+
+    contact_ids = {d.crm_contact_id for d in dealers.values() if d.crm_contact_id}
+    contacts = {}
+    if contact_ids:
+        contacts = {c.id: c for c in (await db.execute(
+            select(CRMContact).where(CRMContact.id.in_(contact_ids)))).scalars().all()}
+
+    listing_ids = {b.listing_id for b in bids}
+    listings = {l.id: l for l in (await db.execute(
+        select(PartnerListing).where(PartnerListing.id.in_(listing_ids)))).scalars().all()}
+
+    lot_ids = {l.lot_id for l in listings.values() if l.lot_id}
+    lots = {}
+    if lot_ids:
+        lots = {l.id: l for l in (await db.execute(
+            select(Lot).where(Lot.id.in_(lot_ids)))).scalars().all()}
+
+    owners = {u: (fn or u) for u, fn in (await db.execute(
+        select(User.username, User.full_name))).all()}
+
+    bid_ids = [b.id for b in bids]
+    docs: dict = {}
+    for d in (await db.execute(
+        select(PartnerBidDocument).where(PartnerBidDocument.bid_id.in_(bid_ids))
+    )).scalars().all():
+        docs.setdefault(str(d.bid_id), []).append(d)
+
+    rows = []
+    for b in bids:
+        dealer = dealers.get(b.dealer_id)
+        listing = listings.get(b.listing_id)
+        contact = contacts.get(dealer.crm_contact_id) if dealer and dealer.crm_contact_id else None
+        lot = lots.get(listing.lot_id) if listing and listing.lot_id else None
+        rows.append({
+            "bid": b,
+            "dealer_name": dealer.business_name if dealer else "-",
+            "lot_number": (lot.lot_number if lot
+                           else (listing.listing_code if listing else "-")),
+            "listing_title": listing.title if listing else "-",
+            # Account columns come from the CRM Account behind the dealer. A
+            # dealer created directly in Dealer Management has none, so these
+            # read as a dash rather than silently borrowing the dealer's name.
+            "account_name": contact.company_name if contact else "-",
+            "account_contact": (contact.contact_person or contact.phone or "-")
+                               if contact else "-",
+            "account_category": ((contact.buyer_type or contact.source_type
+                                  or contact.contact_type) if contact else None) or "-",
+            "manager_name": owners.get(dealer.sales_owner_username, "-")
+                            if dealer and dealer.sales_owner_username else "-",
+            "documents": docs.get(str(b.id), []),
+        })
+    return rows
+
+
+@router.get("/bids", response_class=HTMLResponse)
+async def bids_created(
+    request: Request,
+    current_user: User = Depends(require_module_perm("trade_partner")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Two tables: bids still in play, and the ones already Marked Won.
+
+    Captured bids sort by amount DESC - the operator's question on this page is
+    always "what is the best offer on the table", so the answer is row one.
+    """
+    captured = (await db.execute(
+        select(PartnerBid).where(PartnerBid.status == "active")
+        .order_by(PartnerBid.bid_amount.desc())
+    )).scalars().all()
+    won = (await db.execute(
+        select(PartnerBid).where(PartnerBid.status == "won")
+        .order_by(PartnerBid.won_at.desc())
+    )).scalars().all()
+
+    return templates.TemplateResponse("trade_partner/bids.html", {
+        "request": request, "current_user": current_user,
+        "captured": await _bid_rows(db, captured),
+        "won": await _bid_rows(db, won),
+        "doc_types": BID_DOC_TYPES,
+        "success": request.query_params.get("success"),
+        "error": request.query_params.get("error"),
+    })
+
+
+@router.post("/bids/{bid_id}/mark-won")
+async def mark_bid_won(
+    request: Request,
+    bid_id: str,
+    _csrf=Depends(verify_csrf),
+    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Award the lot to this bid and open a Buyer Deal for it.
+
+    Marking one bid won marks every other active bid on the SAME listing lost.
+    Leaving them active would keep a sold lot showing live bids on the partner
+    side and let a second bid be marked won against stock already committed.
+    """
+    bid = (await db.execute(
+        select(PartnerBid).where(PartnerBid.id == bid_id).with_for_update()
+    )).scalar_one_or_none()
+    if not bid:
+        raise HTTPException(status_code=404, detail="Bid not found")
+    if bid.status == "won":
+        return RedirectResponse(
+            url="/trade-partner/bids?error=That+bid+is+already+marked+won",
+            status_code=302)
+    if bid.status != "active":
+        return RedirectResponse(
+            url=f"/trade-partner/bids?error=Bid+is+{bid.status}", status_code=302)
+
+    dealer = (await db.execute(
+        select(Dealer).where(Dealer.id == bid.dealer_id))).scalar_one_or_none()
+    listing = (await db.execute(
+        select(PartnerListing).where(PartnerListing.id == bid.listing_id)
+    )).scalar_one_or_none()
+
+    n = ((await db.execute(select(func.count(CRMSalesOpportunity.id)))).scalar() or 0) + 1
+    opp = CRMSalesOpportunity(
+        opp_number=f"OPP-{app_now().year}-{n:04d}",
+        # Links to the CRM Account behind the dealer when there is one, so the
+        # Buyer Deal lands on that account's profile rather than floating free.
+        contact_id=dealer.crm_contact_id if dealer else None,
+        title=f"{listing.title if listing else 'Lot'} - won by "
+              f"{dealer.business_name if dealer else 'dealer'} ({bid.bid_number})",
+        buyer_type="dealer",
+        required_qty=listing.qty_available if listing else None,
+        grade_required=listing.grade_summary if listing else None,
+        stage="won",
+        estimated_value=bid.bid_amount,
+        assigned_to=dealer.sales_owner_username if dealer else None,
+        notes=(f"Created from Trade Partner bid {bid.bid_number} "
+               f"({bid.bid_type} price) on listing "
+               f"{listing.listing_code if listing else '-'}."),
+        created_by=current_user.username,
+    )
+    db.add(opp)
+    await db.flush()
+
+    bid.status = "won"
+    bid.won_by = current_user.username
+    bid.won_at = app_now()
+    bid.opportunity_id = opp.id
+
+    await db.execute(
+        update(PartnerBid)
+        .where(PartnerBid.listing_id == bid.listing_id,
+               PartnerBid.id != bid.id,
+               PartnerBid.status == "active")
+        .values(status="lost")
+    )
+
+    await audit(db, action="PARTNER_BID_MARKED_WON", user=current_user,
+                table_name="partner_bids", record_id=str(bid.id),
+                new_value={"bid_number": bid.bid_number,
+                           "amount": str(bid.bid_amount),
+                           "dealer": dealer.business_name if dealer else None,
+                           "opportunity": opp.opp_number},
+                request=request)
+    await db.commit()
+    return RedirectResponse(
+        url=f"/trade-partner/bids?success=Buyer+Deal+{opp.opp_number}+created",
+        status_code=302)
+
+
+@router.post("/bids/{bid_id}/upload")
+async def upload_bid_document(
+    request: Request,
+    bid_id: str,
+    doc_type: str = Form(...),
+    file: UploadFile = File(...),
+    _csrf=Depends(verify_csrf),
+    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Attach a Quote / PO / Invoice to a bid for the download column."""
+    if doc_type not in BID_DOC_TYPES:
+        return RedirectResponse(url="/trade-partner/bids?error=Unknown+document+type",
+                                status_code=302)
+    bid = (await db.execute(
+        select(PartnerBid).where(PartnerBid.id == bid_id))).scalar_one_or_none()
+    if not bid:
+        raise HTTPException(status_code=404, detail="Bid not found")
+
+    os.makedirs(BIDS_DIR, exist_ok=True)
+    # Stored under a generated name: the uploaded filename is attacker-supplied
+    # and would otherwise let a path like ../../config.ini escape the directory,
+    # or one upload silently overwrite another's.
+    ext = os.path.splitext(file.filename or "")[1][:10]
+    stored = f"{bid.bid_number}_{doc_type}_{uuid_mod.uuid4().hex[:8]}{ext}"
+    with open(os.path.join(BIDS_DIR, stored), "wb") as fh:
+        fh.write(await file.read())
+
+    db.add(PartnerBidDocument(
+        bid_id=bid.id, doc_type=doc_type, filename=stored,
+        original_name=file.filename, uploaded_by=current_user.username,
+    ))
+    await audit(db, action="PARTNER_BID_DOC_UPLOADED", user=current_user,
+                table_name="partner_bid_documents", record_id=str(bid.id),
+                new_value={"bid": bid.bid_number, "type": doc_type,
+                           "file": file.filename},
+                request=request)
+    await db.commit()
+    return RedirectResponse(url="/trade-partner/bids?success=Document+attached",
+                            status_code=302)
+
+
+@router.get("/bids/document/{doc_id}")
+async def download_bid_document(
+    doc_id: str,
+    current_user: User = Depends(require_module_perm("trade_partner")),
+    db: AsyncSession = Depends(get_db),
+):
+    from fastapi.responses import FileResponse
+    doc = (await db.execute(
+        select(PartnerBidDocument).where(PartnerBidDocument.id == doc_id)
+    )).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    # basename() again on read: even though upload generates the name, a row
+    # edited by any other path must not be able to walk out of BIDS_DIR.
+    path = os.path.join(BIDS_DIR, os.path.basename(doc.filename))
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="File missing on disk")
+    return FileResponse(path, filename=doc.original_name or doc.filename)

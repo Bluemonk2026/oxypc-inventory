@@ -66,6 +66,7 @@
             <th style="min-width:130px">Device Type</th>
             <th style="min-width:130px">Material</th>
             <th style="min-width:100px">Grade</th>
+            <th style="min-width:150px">PO Category</th>
             <th style="width:80px">Qty</th>
             <th style="width:120px">Unit Price (₹)</th>
             <th style="width:130px">Total (₹)</th>
@@ -95,6 +96,14 @@
                 {% endfor %}
               </select>
             </td>
+            <td>
+              <select name="po_category[]" class="form-select form-select-sm">
+                <option value="">—</option>
+                {% for cat in master_options('po_category') %}
+                <option value="{{ cat }}" {% if item.po_category==cat %}selected{% endif %}>{{ cat }}</option>
+                {% endfor %}
+              </select>
+            </td>
             <td><input type="number" name="quantity[]" class="form-control form-control-sm line-qty" min="1" value="{{ item.quantity or 1 }}" oninput="calcRow(this)"></td>
             <td><input type="number" name="unit_price[]" class="form-control form-control-sm line-price" step="0.01" min="0" value="{{ item.unit_price or '' }}" oninput="calcRow(this)"></td>
             <td><input type="number" name="total_price[]" class="form-control form-control-sm line-total bg-light" step="0.01" readonly value="{{ item.total_price or '' }}"></td>
@@ -120,6 +129,14 @@
                 <option value="">—</option>
                 {% for g in grades %}
                 <option value="{{ g }}">{{ g }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td>
+              <select name="po_category[]" class="form-select form-select-sm">
+                <option value="">—</option>
+                {% for cat in master_options('po_category') %}
+                <option value="{{ cat }}">{{ cat }}</option>
                 {% endfor %}
               </select>
             </td>
@@ -168,6 +185,14 @@
         <option value="">—</option>
         {% for g in grades %}
         <option value="{{ g }}">{{ g }}</option>
+        {% endfor %}
+      </select>
+    </td>
+    <td>
+      <select name="po_category[]" class="form-select form-select-sm">
+        <option value="">—</option>
+        {% for cat in master_options('po_category') %}
+        <option value="{{ cat }}">{{ cat }}</option>
         {% endfor %}
       </select>
     </td>

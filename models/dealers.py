@@ -46,6 +46,17 @@ class Dealer(Base):
     trashed_at = Column(DateTime, nullable=True)
     trashed_by = Column(String(50), nullable=True)
 
+    # ── Link back to the CRM Account (Contact Leads) this dealer represents ──
+    # Portal logins are provisioned by picking an Account, but every portal FK
+    # in the system (bookings, listings, bids) points at dealers.id. Rather than
+    # repoint that whole graph, provisioning resolves-or-creates the Dealer for
+    # the chosen Account and records the link here. It is what lets the Bids
+    # page show account name / contact / category next to a dealer's bid.
+    # Nullable: dealers created before this existed, or added directly in Dealer
+    # Management, legitimately have no Account behind them.
+    crm_contact_id = Column(UUID(as_uuid=True), ForeignKey("crm_contacts.id"),
+                            nullable=True, index=True)
+
     # ── Trade Partner portal (dealer-facing B2B web) ──────────────────────
     portal_enabled = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     portal_password_hash = Column(String(200), nullable=True)   # bcrypt; login id = portal_phone

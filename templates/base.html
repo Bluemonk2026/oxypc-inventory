@@ -692,15 +692,15 @@
 
     <!-- Global processing bar — shown during page load, form submits, and any
          in-flight fetch() call (see the wrapped window.fetch near the closing
-         </body>). A 60px segment slides across on loop for as long as any of
+         </body>). A 60%-wide segment slides across on loop for as long as any of
          those are active; never a fixed-duration animation. -->
     <div id="topProgressBar"><div class="bar"></div></div>
     <style>
       #topProgressBar { display:none; height:4px; width:100%; overflow:hidden; position:relative; background:transparent; }
       #topProgressBar.active { display:block; }
-      #topProgressBar .bar { position:absolute; top:0; left:-60px; height:100%; width:60px; background:#006930; animation: topProgressSlide 1.1s linear infinite; }
+      #topProgressBar .bar { position:absolute; top:0; left:-60%; height:100%; width:60%; background:#006930; animation: topProgressSlide 1.1s linear infinite; }
       @keyframes topProgressSlide {
-        0%   { left:-60px; }
+        0%   { left:-60%; }
         100% { left:100%; }
       }
     </style>
@@ -1214,7 +1214,7 @@ $.extend(true, $.fn.dataTable.defaults, {
 })();
 </script>
 <script>
-/* Global processing bar — a 60px segment sliding continuously across the
+/* Global processing bar — a 60%-wide segment sliding continuously across the
    4px bar placed right under the topbar. Shown for as long as any of these
    real in-flight operations are running (not a fixed-duration animation):
    - initial page load, until the window "load" event fires
@@ -1242,8 +1242,19 @@ $.extend(true, $.fn.dataTable.defaults, {
     if (e.target && e.target.tagName === 'FORM') show();
   }, true);
 
+  // Background polling (connection watchdog every 4s, notification bell
+  // every 30s) also goes through fetch() — excluded here since it isn't
+  // "data processing" from the user's point of view and would otherwise
+  // make the bar flash on a timer instead of reflecting real activity.
+  var EXCLUDED_PATHS = ['/health', '/notifications/'];
+  function isExcluded(input) {
+    var url = typeof input === 'string' ? input : (input && input.url) || '';
+    return EXCLUDED_PATHS.some(function (p) { return url.indexOf(p) !== -1; });
+  }
+
   var origFetch = window.fetch;
-  window.fetch = function () {
+  window.fetch = function (input) {
+    if (isExcluded(input)) return origFetch.apply(this, arguments);
     show();
     return origFetch.apply(this, arguments).finally(hide);
   };

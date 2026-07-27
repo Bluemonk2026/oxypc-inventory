@@ -26,6 +26,7 @@ from models.stock_validation import StockValidation
 from models.part_request import PartRequest
 from models.spare_parts import SparePart
 from models.location import StorageLocation, ZoneType, ZONE_LABELS, UnitType, UNIT_TYPE_LABELS
+from models.work_order import WorkOrder
 
 router = APIRouter(tags=["stock"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager,
@@ -1122,19 +1123,27 @@ async def trc_production_list(
         .order_by(Device.updated_at.desc())
     )).all()
 
-    # ── "Scrap Products from Repair Line" (Batch 8 item 26) ──────────────────
-    scrap_devices = (await db.execute(
-        select(Device, Lot.lot_number)
-        .join(Lot, Device.lot_id == Lot.id)
-        .where(Device.current_stage == DeviceStage.scrapped, Device.is_active == True)
-        .order_by(Device.updated_at.desc())
-    )).all()
+    # Assigned engineer's actual name (not just their department/role badge,
+    # which the "Assigned User" column already showed) for the Repair Line
+    # table's "Assigned User Name" column.
+    repair_line_ids = [d.id for d, _ in repair_line_devices]
+    assigned_name_map = {}
+    if repair_line_ids:
+        wo_rows = (await db.execute(
+            select(WorkOrder.device_id, WorkOrder.assigned_name)
+            .where(WorkOrder.device_id.in_(repair_line_ids), WorkOrder.status != "completed")
+            .order_by(WorkOrder.device_id, WorkOrder.assigned_at.desc())
+        )).all()
+        for did, name in wo_rows:
+            key = str(did)
+            if key not in assigned_name_map and name:
+                assigned_name_map[key] = name
 
     return templates.TemplateResponse("lots/trc_production.html", {
         "request": request, "devices": devices, "current_user": current_user,
         "assigned_dept_map": assigned_dept_map, "departments": STOCK_DEPARTMENTS,
         "cost_parts_map": cost_parts_map, "location_map": location_map,
-        "repair_line_devices": repair_line_devices, "scrap_devices": scrap_devices,
+        "repair_line_devices": repair_line_devices, "assigned_name_map": assigned_name_map,
         "total": total,
     })
 

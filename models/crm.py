@@ -135,6 +135,11 @@ class CRMContact(Base):
     director2_id_number     = Column(String(50),  nullable=True)
     director2_doc_path      = Column(String(255), nullable=True)
 
+    # ── KYC verification (Account Detail "Verify KYC" action) ───────────────
+    kyc_verified    = Column(Boolean,  nullable=False, default=False, server_default="false")
+    kyc_verified_by = Column(String(50), nullable=True)
+    kyc_verified_at = Column(DateTime, nullable=True)
+
     sourcing_deals   = relationship("CRMSourcingDeal",    back_populates="contact", lazy="select")
     sales_opps       = relationship("CRMSalesOpportunity", back_populates="contact", lazy="select")
     activities       = relationship("CRMActivity",         back_populates="contact", lazy="select")

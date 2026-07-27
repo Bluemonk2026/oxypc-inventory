@@ -105,6 +105,7 @@
             <th>City</th>
             <th>Recent Contact Date</th>
             <th>Status</th>
+            <th>KYC</th>
             <th>Notes</th>
             <th>Actions</th>
           </tr>
@@ -202,6 +203,14 @@
               <span class="text-muted">—</span>
               {% endif %}
             </td>
+            {# 9b. KYC — based on the Verify KYC action taken on Account Detail #}
+            <td>
+              {% if c.kyc_verified %}
+              <span class="badge bg-success" title="Verified by {{ c.kyc_verified_by or '—' }}{% if c.kyc_verified_at %} on {{ c.kyc_verified_at.strftime('%d-%m-%Y') }}{% endif %}">Verified</span>
+              {% else %}
+              <span class="badge bg-warning text-dark">Not Verified</span>
+              {% endif %}
+            </td>
             {# 10. Notes #}
             <td style="max-width:160px">
               {% if c.notes %}
@@ -230,7 +239,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="10" class="text-center text-muted py-4">No contacts found. <a href="/crm/contacts/new">Add your first contact</a></td></tr>
+          <tr><td colspan="11" class="text-center text-muted py-4">No contacts found. <a href="/crm/contacts/new">Add your first contact</a></td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -366,7 +375,7 @@ $(document).ready(function(){
     $('#contactsTable').DataTable({
       pageLength: 12,
       order: [[2, 'asc']],  // default sort by Company
-      columnDefs: [{ orderable: false, targets: [3, 9] }]  // Contacts + Actions not sortable
+      columnDefs: [{ orderable: false, targets: [3, 10] }]  // Contacts + Actions not sortable
     });
   }
 });

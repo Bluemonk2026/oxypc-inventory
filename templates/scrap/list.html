@@ -10,7 +10,7 @@
     <div class="table-responsive">
       <table id="scrapTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark"><tr>
-          <th>Tag Number</th><th>Brand</th><th>Model</th><th>Grade</th>
+          <th>Scrapped Tag Numbers</th><th>Brand</th><th>Model</th><th>Grade</th>
           <th>Received User</th><th>Amount</th><th>Updated On</th><th>Notes</th>
           <th>Received</th><th>Action</th>
         </tr></thead>
@@ -54,6 +54,38 @@
   </div>
 </div>
 
+<!-- Scrapped Spare Parts (from Parts Dashboard's Faulty Request tab) -->
+<div class="d-flex justify-content-between align-items-center mb-2 mt-4">
+  <span class="text-muted small">{{ scrapped_parts|length }} scrapped spare part(s)</span>
+</div>
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="scrapPartsTable" class="table table-hover mb-0 small align-middle">
+        <thead class="table-dark"><tr>
+          <th>Tag Number</th><th>Part Name</th><th>Category</th><th>Qty</th>
+          <th>Requested By</th><th>Scrapped By</th><th>Scrapped On</th>
+        </tr></thead>
+        <tbody>
+          {% for p in scrapped_parts %}
+          <tr>
+            <td><a href="/devices/{{ p.barcode }}" class="font-monospace text-decoration-none">{{ p.barcode or '—' }}</a></td>
+            <td>{{ p.part_name }}</td>
+            <td class="text-muted">{{ p.part_category or '—' }}</td>
+            <td>{{ p.qty_requested }}</td>
+            <td>{{ p.engineer_name or p.requested_by or '—' }}</td>
+            <td>{{ p.actioned_by or '—' }}</td>
+            <td class="text-muted small">{{ p.actioned_at.strftime('%d-%m-%Y %H:%M') if p.actioned_at else '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="text-center text-muted py-4">No scrapped spare parts.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <!-- Verify Scrap Modal -->
 <div class="modal fade" id="verifyScrapModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
@@ -88,6 +120,7 @@
 <script>
 $(document).ready(function(){
   if ($('#scrapTable tbody tr td').length > 1) $('#scrapTable').DataTable({pageLength: 12, order:[]});
+  if ($('#scrapPartsTable tbody tr td').length > 1) $('#scrapPartsTable').DataTable({pageLength: 12, order:[]});
 });
 
 function openVerifyModal(barcode, name) {

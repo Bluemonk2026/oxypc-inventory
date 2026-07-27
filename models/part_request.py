@@ -23,6 +23,8 @@ class PartRequest(Base):
     part_id = Column(UUID(as_uuid=True), ForeignKey("spare_parts.id"), nullable=True)
     part_name = Column(String(150), nullable=False)        # fixed-list label snapshot
     part_category = Column(String(100), nullable=True)     # selected in the New Request/Replace modal
+    part_capacity = Column(String(50), nullable=True)      # e.g. 8GB, 256GB
+    part_type     = Column(String(50), nullable=True)      # e.g. DDR4, SSD
     request_type = Column(String(10), nullable=False, default="new")  # new | replace
 
     requested_by = Column(String(50), nullable=True)       # engineer username
@@ -31,7 +33,7 @@ class PartRequest(Base):
     qty_requested = Column(Integer, nullable=False, default=1)
     qty_handed_over = Column(Integer, nullable=False, default=0)
 
-    # requested | handed_over | not_in_stock | procure
+    # requested | handed_over | not_in_stock | procure | scrapped
     status = Column(String(20), nullable=False, default="requested", index=True)
 
     created_at = Column(DateTime, default=app_now)

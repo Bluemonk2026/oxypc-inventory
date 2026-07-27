@@ -1185,6 +1185,27 @@ async def update_contact(
     return RedirectResponse(url=f"/crm/contacts/{contact_id}?success=Contact+updated", status_code=302)
 
 
+# ── KYC VERIFICATION ─────────────────────────────────────────────────────────
+
+@router.post("/{contact_id}/verify-kyc")
+async def verify_kyc(
+    contact_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    contact = (await db.execute(select(CRMContact).where(CRMContact.id == contact_id))).scalar_one_or_none()
+    if not contact:
+        return RedirectResponse(url="/crm/contacts?error=Not+found", status_code=302)
+    contact.kyc_verified = True
+    contact.kyc_verified_by = current_user.username
+    contact.kyc_verified_at = app_now()
+    await audit(db, user=current_user, action="ACCOUNT_KYC_VERIFIED",
+                table_name="crm_contacts", record_id=str(contact.id), request=request)
+    await db.commit()
+    return RedirectResponse(url=f"/crm/contacts/{contact_id}?success=KYC+verified", status_code=302)
+
+
 # ── TRASH / RESTORE ───────────────────────────────────────────────────────────
 
 @router.post("/{contact_id}/trash")

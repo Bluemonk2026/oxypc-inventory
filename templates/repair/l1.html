@@ -56,7 +56,7 @@
                 <td>{% if wo %}<span class="badge bg-{{ 'danger' if wo.days_pending >= 3 else ('warning text-dark' if wo.days_pending >= 1 else 'secondary') }}">{{ wo.days_pending }} day{{ 's' if wo.days_pending != 1 else '' }}</span>{% if wo.paused %}<span class="badge bg-secondary ms-1" title="Frozen — a required part is out of stock"><i class="bi bi-pause-fill"></i> Paused</span>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
                 <td>
                   {% set st = device.l1l2_status or 'New' %}
-                  <span class="badge bg-{{ 'info' if st == 'Repair Started' else ('primary' if st == 'Requested to L3/L4' else 'secondary') }}">{{ st }}</span>
+                  <span class="badge bg-{{ 'info' if st == 'Repair Started' else ('primary' if st == 'Requested to L3/L4' else 'warning text-dark' if st == 'Returned from L3/L4' else 'secondary') }}">{{ st }}</span>
                 </td>
                 <td>
                   {% if device.l34_status %}
@@ -76,18 +76,17 @@
                       <input type="hidden" name="device_id" value="{{ device.id }}">
                       <button type="submit" class="btn btn-sm btn-success">Mark Complete</button>
                     </form>
-                    <button type="button" class="btn btn-sm request-part-btn" style="background-color:#ffc107;color:#000;border-color:#ffc107;" data-barcode="{{ device.barcode }}"><i class="bi bi-bag-plus"></i> Request Part</button>
+                    <a href="/devices/{{ device.barcode }}" class="btn btn-sm" style="background-color:#ffc107;color:#000;border-color:#ffc107;"><i class="bi bi-bag-plus"></i> Request Part</a>
+                    <button type="button" class="btn btn-sm btn-outline-primary request-l3l4-btn"
+                            data-device="{{ device.id }}" data-barcode="{{ device.barcode }}">
+                      <i class="bi bi-arrow-up-right-circle"></i> Request to L3/L4</button>
                   {% else %}
                     <form method="post" action="/repair/l1l2-start" class="d-inline">
                       <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                       <input type="hidden" name="device_id" value="{{ device.id }}">
                       <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-play-fill"></i> Start Repair</button>
                     </form>
-                    <button type="button" class="btn btn-sm request-part-btn" style="background-color:#ffc107;color:#000;border-color:#ffc107;" data-barcode="{{ device.barcode }}"><i class="bi bi-bag-plus"></i> Request Part</button>
                   {% endif %}
-                  <button type="button" class="btn btn-sm btn-outline-primary request-l3l4-btn"
-                          data-device="{{ device.id }}" data-barcode="{{ device.barcode }}">
-                    <i class="bi bi-arrow-up-right-circle"></i> Request to L3/L4</button>
                 </td>
               </tr>
               {% endfor %}
@@ -122,41 +121,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="submit" class="btn btn-primary">Assign</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- Request Part modal (BUG 2 — stay on the L1/L2 page) -->
-<div class="modal fade" id="requestPartModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
-    <form method="post" action="/part-requests/create" class="modal-content">
-      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-      <input type="hidden" name="barcode" id="rp_barcode_input">
-      <input type="hidden" name="part_id" id="rp_part_id">
-      <input type="hidden" name="part_category" id="rp_part_category">
-      <input type="hidden" name="from_page" value="repair_l1">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-bag-plus me-2"></i>Request Part</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="mb-2"><span class="text-muted small">Tag Number:</span> <strong id="rp_barcode">—</strong></div>
-        <label class="form-label small fw-semibold">Part</label>
-        <select name="part_name" id="rp_part_name" class="form-select mb-2" required
-                onchange="var o=this.selectedOptions[0]; document.getElementById('rp_part_id').value=o?o.dataset.id:''; document.getElementById('rp_part_category').value=o?o.dataset.category:'';">
-          <option value="">-- Select part --</option>
-          {% for sp in available_parts %}
-          <option value="{{ sp.name }}" data-id="{{ sp.id }}" data-category="{{ sp.category }}">{{ sp.name }} ({{ sp.category }}) — stock {{ sp.qty_in_stock }}</option>
-          {% endfor %}
-        </select>
-        <label class="form-label small fw-semibold">Quantity</label>
-        <input type="number" name="qty" class="form-control" min="1" value="1" required>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="submit" class="btn btn-warning"><i class="bi bi-check-lg me-1"></i>Submit Request</button>
+        <button type="submit" class="btn btn-primary">Request</button>
       </div>
     </form>
   </div>
@@ -172,17 +137,6 @@ $(document).ready(function(){ $('#l1Table').DataTable({}); });
       document.getElementById('rl_device').value = btn.dataset.device;
       document.getElementById('rl_barcode').textContent = btn.dataset.barcode;
       rlModal.show();
-    });
-  });
-  var rpModal = new bootstrap.Modal(document.getElementById('requestPartModal'));
-  document.querySelectorAll('.request-part-btn').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      document.getElementById('rp_barcode_input').value = btn.dataset.barcode;
-      document.getElementById('rp_barcode').textContent = btn.dataset.barcode;
-      document.getElementById('rp_part_name').value = '';
-      document.getElementById('rp_part_id').value = '';
-      document.getElementById('rp_part_category').value = '';
-      rpModal.show();
     });
   });
 })();

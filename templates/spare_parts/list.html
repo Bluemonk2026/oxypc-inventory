@@ -397,11 +397,18 @@
                 {% elif r.status == 'handed_over' %}<span class="badge bg-success">Handed Over &times;{{ r.qty_handed_over }}</span>
                 {% elif r.status == 'not_in_stock' %}<span class="badge bg-danger">Not In Stock</span>
                 {% elif r.status == 'procure' %}<span class="badge bg-info text-dark">Sent for Sourcing</span>
+                {% elif r.status == 'scrapped' %}<span class="badge bg-dark">Scrapped</span>
                 {% else %}<span class="badge bg-secondary">{{ r.status }}</span>{% endif %}
+                {% if r.status not in ('handed_over', 'scrapped') %}
                 <form method="post" action="/part-requests/{{ r.id }}/procure" class="d-inline">
                   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                   <button class="btn btn-sm btn-outline-info py-0 px-2">Procure</button>
                 </form>
+                <form method="post" action="/part-requests/{{ r.id }}/scrap" class="d-inline" onsubmit="return confirm('Mark this faulty part as scrapped?')">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                  <button class="btn btn-sm btn-outline-dark py-0 px-2">Scrap</button>
+                </form>
+                {% endif %}
               </div>
             </td>
           </tr>

@@ -510,6 +510,68 @@
   </div>
 </div>
 
+<!-- Scrap Products from Repair Line (moved here from Production Manager) -->
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+  <h6 class="fw-bold mb-0"><i class="bi bi-trash3 me-2"></i>Scrap Products from Repair Line</h6>
+</div>
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small">
+        <thead class="table-dark"><tr>
+          <th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Grade</th><th>Notes</th><th>Action</th>
+        </tr></thead>
+        <tbody>
+          {% for device, lot_number in scrap_devices %}
+          <tr>
+            <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a></td>
+            <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
+            <td>{{ device.brand or '—' }}</td>
+            <td>{{ device.model or '—' }}</td>
+            <td>{{ device.grade or '—' }}</td>
+            <td class="text-muted small">{{ device.replaced or device.notes or '—' }}</td>
+            <td class="text-nowrap">
+              <form method="post" action="/scrap-products/{{ device.barcode }}/move-to-inventory" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2"><i class="bi bi-box-arrow-in-left"></i> Move to Inventory</button>
+              </form>
+              <button type="button" class="btn btn-sm btn-outline-warning py-0 px-2 replace-scrap-btn"
+                      data-barcode="{{ device.barcode }}"><i class="bi bi-arrow-repeat"></i> Replace With Another</button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="text-center text-muted py-4">No scrapped devices from the repair line.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Replace With Another modal -->
+<div class="modal fade" id="replaceScrapModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="replaceScrapForm" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-arrow-repeat me-2"></i>Replace With Another</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2"><span class="text-muted small">Scrapped Tag Number:</span> <strong id="replaceScrapBarcode">—</strong></div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Replacement Tag Number</label>
+          <input type="text" name="replacement_barcode" class="form-control font-monospace" placeholder="Scan or type replacement tag" required>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-warning"><i class="bi bi-check-lg me-1"></i>Record Replacement</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Stock Aging report — embedded at the bottom of Overall Inventory -->
 <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
   <h6 class="fw-bold mb-0"><i class="bi bi-hourglass-split me-2"></i>Stock Aging</h6>
@@ -525,6 +587,16 @@
 {% block scripts %}
 <script>
 var CAN_VIEW_PRICING = {{ 'true' if can_view_pricing(current_user) else 'false' }};
+
+// Scrap Products — Replace With Another (moved here from Production Manager)
+document.querySelectorAll('.replace-scrap-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var bc = this.getAttribute('data-barcode');
+    document.getElementById('replaceScrapBarcode').textContent = bc;
+    document.getElementById('replaceScrapForm').action = '/scrap-products/' + bc + '/replace';
+    new bootstrap.Modal(document.getElementById('replaceScrapModal')).show();
+  });
+});
 // ── Movement table — all buckets, bucket-level pass/fail rollup ────────────
 (function () {
   fetch('/api/buckets?status=stock_in,trc_pending,validated').then(function(r){return r.json();}).then(function(buckets){

@@ -406,24 +406,26 @@
             <div class="modal-body">
               <div class="row g-3">
                 <div class="col-md-6">
-                  <label class="form-label form-label-sm mb-1">Part Category</label>
-                  <select id="pr_category" class="form-select form-select-sm" onchange="prFillPartNames()">
+                  <label class="form-label form-label-sm mb-1">Part Name</label>
+                  <select name="part_name" id="pr_part_name" class="form-select form-select-sm" required
+                          onchange="prFillPartModels()">
                     <option value="">— Select —</option>
                   </select>
                 </div>
                 <div class="col-md-6">
-                  <label class="form-label form-label-sm mb-1">Part Name</label>
-                  <select name="part_name" id="pr_part_name" class="form-select form-select-sm" required
-                          onchange="prFillPartModels()">
-                    <option value="">— Select a category first —</option>
-                  </select>
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label form-label-sm mb-1">Part Model</label>
+                  <label class="form-label form-label-sm mb-1">Model</label>
                   <select id="pr_part_model" class="form-select form-select-sm" required
                           onchange="prSelectModel()">
                     <option value="">— Select a part name first —</option>
                   </select>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label form-label-sm mb-1">Part Capacity</label>
+                  <input type="text" name="part_capacity" id="pr_part_capacity" class="form-control form-control-sm" placeholder="e.g. 8GB, 256GB">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label form-label-sm mb-1">Type</label>
+                  <input type="text" name="part_type" id="pr_part_type" class="form-control form-control-sm" placeholder="e.g. DDR4, SSD">
                 </div>
                 <div class="col-md-6">
                   <label class="form-label form-label-sm mb-1">Quantity</label>
@@ -442,25 +444,17 @@
     </div>
     <script>
       const ALL_SPARE_PARTS = {{ all_spare_parts | tojson }};
-      // Same canonical list as the Add New Part / Add Line Item / Add Harvest
-      // Part modals' Part Category dropdown (admin-managed via Master Data).
-      const PART_CATEGORY_OPTIONS = {{ master_options('iqc_part_category') | tojson }};
 
       function prFillPartNames() {
-        var cat = document.getElementById('pr_category').value;
-        document.getElementById('pr_part_category').value = cat;
         var nameSel = document.getElementById('pr_part_name');
-        var matches = ALL_SPARE_PARTS.filter(function(sp) { return sp.category === cat; });
         var seen = {};
-        var names = matches.filter(function(sp) {
+        var names = ALL_SPARE_PARTS.filter(function(sp) {
           if (seen[sp.name]) return false;
           seen[sp.name] = true;
           return true;
         });
-        if (!cat) {
-          nameSel.innerHTML = '<option value="">— Select a category first —</option>';
-        } else if (!names.length) {
-          nameSel.innerHTML = '<option value="">No parts in this category</option>';
+        if (!names.length) {
+          nameSel.innerHTML = '<option value="">No parts available</option>';
         } else {
           nameSel.innerHTML = '<option value="">— Select —</option>' + names.map(function(sp) {
             var nm = sp.name.replace(/"/g,'&quot;');
@@ -471,12 +465,11 @@
       }
 
       function prFillPartModels() {
-        var cat = document.getElementById('pr_category').value;
         var name = document.getElementById('pr_part_name').value;
         var modelSel = document.getElementById('pr_part_model');
         document.getElementById('pr_part_id').value = '';
         var matches = ALL_SPARE_PARTS.filter(function(sp) {
-          return sp.category === cat && sp.name === name;
+          return sp.name === name;
         });
         var seen = {};
         matches = matches.filter(function(sp) {
@@ -503,7 +496,13 @@
       }
 
       function prSelectModel() {
-        document.getElementById('pr_part_id').value = document.getElementById('pr_part_model').value || '';
+        var pid = document.getElementById('pr_part_model').value || '';
+        document.getElementById('pr_part_id').value = pid;
+        // Part Category is no longer a visible field — the hidden value that
+        // still backs the server's fuzzy-match fallback is derived from
+        // whichever SparePart the Model select resolved to.
+        var matched = ALL_SPARE_PARTS.filter(function(sp) { return sp.id === pid; })[0];
+        document.getElementById('pr_part_category').value = (matched && matched.category) || '';
       }
 
       var _prRowPartId = '';
@@ -516,14 +515,13 @@
         _prRowPartId = matchedPartId || '';
         document.getElementById('pr_request_type').value = requestType;
         document.getElementById('pr_qty').value = qty || 1;
+        document.getElementById('pr_part_capacity').value = '';
+        document.getElementById('pr_part_type').value = '';
         document.getElementById('pr_modal_title').innerHTML = requestType === 'replace'
           ? '<i class="bi bi-arrow-repeat me-2"></i>Replace Part'
           : '<i class="bi bi-bag-plus me-2"></i>New Part Request';
 
-        var catSel = document.getElementById('pr_category');
         var nameSel = document.getElementById('pr_part_name');
-        catSel.innerHTML = '<option value="">— Select —</option>' +
-          PART_CATEGORY_OPTIONS.map(function(c) { return '<option value="' + c + '">' + c + '</option>'; }).join('');
 
         // ALL fields stay enabled/editable (prefill is a starting point, not a
         // lock). Any stray hidden part_name mirror from a previous open is
@@ -531,19 +529,9 @@
         var form = document.getElementById('partRequestForm');
         var hiddenName = form.querySelector('input[type=hidden][name="part_name"]');
         if (hiddenName) hiddenName.remove();
-        catSel.disabled = false;
         nameSel.disabled = false;
         nameSel.setAttribute('required', 'required');
 
-        // Smart prefill: select the matched part's category, build its Part Name
-        // options, then pre-select the exact SparePart we already showed stock
-        // for (matchedPartId) so its id — not NULL — is submitted, while the
-        // user remains free to change either select.
-        if (prefillCategory && PART_CATEGORY_OPTIONS.includes(prefillCategory)) {
-          catSel.value = prefillCategory;
-        } else {
-          catSel.value = '';
-        }
         prFillPartNames();
         if (matchedPartId) {
           // Drive the Name + Model selects so the matched SparePart resolves.
@@ -570,7 +558,6 @@
           modelSel.value = matchedPartId;
           prSelectModel();
         }
-        document.getElementById('pr_part_category').value = catSel.value || prefillCategory || '';
 
         new bootstrap.Modal(document.getElementById('partRequestModal')).show();
       }
@@ -625,79 +612,6 @@
       }
     </script>
     {% endif %}
-
-    <!-- Spare Parts Consumed -->
-    <div class="accordion mb-3" id="sparePartsAcc">
-      <div class="accordion-item border-0 shadow-sm">
-        <h2 class="accordion-header">
-          <button class="accordion-button collapsed fw-semibold small text-uppercase" type="button"
-                  data-bs-toggle="collapse" data-bs-target="#sparePartsBody" aria-expanded="false">
-            <span><i class="bi bi-gear me-2"></i>Spare Parts Consumed</span>
-            {% if total_parts_cost > 0 %}
-            <span class="badge bg-danger ms-auto me-2">Total: ₹{{ "%.2f"|format(total_parts_cost) }}</span>
-            {% endif %}
-          </button>
-        </h2>
-        <div id="sparePartsBody" class="accordion-collapse collapse">
-          <div class="accordion-body p-0">
-        {% if parts_consumed %}
-        <table class="table table-sm mb-0">
-          <thead class="table-light">
-            <tr>
-              <th class="ps-3">Part</th><th>Category</th><th>Qty</th><th>Unit Cost</th><th>Total</th><th>Stage</th><th>Used By</th><th>Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in parts_consumed %}
-            <tr>
-              <td class="ps-3 small">{{ row.name }}</td>
-              <td class="small text-muted">{{ row.category }}</td>
-              <td class="small">{{ row.SparePartConsumption.qty_used }}</td>
-              <td class="small">₹{{ "%.2f"|format(row.SparePartConsumption.unit_cost or 0) }}</td>
-              <td class="small fw-semibold">₹{{ "%.2f"|format(row.SparePartConsumption.total_cost or 0) }}</td>
-              <td><span class="badge bg-secondary small">{{ row.SparePartConsumption.stage or '—' }}</span></td>
-              <td class="small">{{ row.SparePartConsumption.used_by or '—' }}</td>
-              <td class="small text-muted">
-                {{ row.SparePartConsumption.used_at.strftime('%d-%m-%Y') if row.SparePartConsumption.used_at else '—' }}
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% else %}
-        <div class="text-center text-muted py-3 small">No spare parts consumed on this device</div>
-        {% endif %}
-
-        {% if changed_parts_consumed %}
-        <div class="px-3 pt-3 pb-1 small fw-semibold text-uppercase text-muted border-top">Parts Consumed (Part Changed)</div>
-        <table class="table table-sm mb-0">
-          <thead class="table-light">
-            <tr>
-              <th class="ps-3">Part Name</th><th>Part Unit Price</th><th>Quantity Changed</th><th>Total Price Used</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in changed_parts_consumed %}
-            <tr>
-              <td class="ps-3 small">{{ row.part_name }}</td>
-              <td class="small">₹{{ "%.2f"|format(row.unit_price) }}</td>
-              <td class="small">{{ row.qty }}</td>
-              <td class="small fw-semibold">₹{{ "%.2f"|format(row.total) }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-          <tfoot>
-            <tr class="table-light">
-              <th class="ps-3" colspan="3">Total Price for Parts Consumed</th>
-              <th class="fw-bold">₹{{ "%.2f"|format(total_changed_parts_cost) }}</th>
-            </tr>
-          </tfoot>
-        </table>
-        {% endif %}
-          </div>
-        </div>
-      </div>
-    </div>
 
     <!-- Device P&L -->
     {% if can_view_pricing(current_user) %}
@@ -758,10 +672,10 @@
     </div>
     {% endif %}
 
-    <!-- Stage Timeline -->
+    <!-- Asset History (renamed from Stage Timeline) -->
     <div class="card border-0 shadow-sm mb-3">
       <div class="card-header bg-transparent fw-semibold small text-uppercase">
-        <i class="bi bi-arrow-left-right me-2"></i>Stage Timeline
+        <i class="bi bi-arrow-left-right me-2"></i>Asset History
       </div>
       <div class="card-body p-0" style="max-height:600px;overflow-y:auto">
         {% if movements %}
@@ -837,52 +751,6 @@
         </table>
         {% else %}
         <div class="text-center text-muted py-3 small">No repair jobs recorded</div>
-        {% endif %}
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- QC Checks -->
-    <div class="accordion mb-3" id="qcChecksAcc">
-      <div class="accordion-item border-0 shadow-sm">
-        <h2 class="accordion-header">
-          <button class="accordion-button collapsed fw-semibold small text-uppercase" type="button"
-                  data-bs-toggle="collapse" data-bs-target="#qcChecksBody" aria-expanded="false">
-            <i class="bi bi-patch-check me-2"></i>QC Checks
-          </button>
-        </h2>
-        <div id="qcChecksBody" class="accordion-collapse collapse">
-          <div class="accordion-body p-0">
-        {% if qc_checks %}
-        <table class="table table-sm mb-0">
-          <thead class="table-light">
-            <tr>
-              <th class="ps-3">Result</th><th>Grade</th><th>Inspector</th><th>Date</th><th>Notes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for qc in qc_checks %}
-            <tr>
-              <td class="ps-3">
-                <span class="badge bg-{{ 'success' if qc.result == 'pass' else 'danger' }}">
-                  {{ qc.result | upper }}
-                </span>
-              </td>
-              <td>
-                {% if qc.grade %}
-                <span class="badge bg-{{ 'success' if qc.grade == 'A' else 'warning text-dark' if qc.grade == 'B' else 'secondary' }}">{{ qc.grade }}</span>
-                {% else %}—{% endif %}
-              </td>
-              <td class="small">{{ qc.inspector_name or '—' }}</td>
-              <td class="small text-muted">{{ qc.checked_at.strftime('%d-%m-%Y %H:%M') if qc.checked_at else '—' }}</td>
-              <td class="small">{{ qc.notes or '—' }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% else %}
-        <div class="text-center text-muted py-3 small">No QC checks recorded</div>
         {% endif %}
           </div>
         </div>

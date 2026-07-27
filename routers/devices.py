@@ -231,6 +231,15 @@ async def device_search(
     model_summary = await _build_model_summary(db, filters)
     lot_summary = await _build_lot_summary(db)
 
+    # Scrap Products from Repair Line — moved here from Production Manager
+    # (that page now only handles active repair-line devices).
+    scrap_devices = (await db.execute(
+        select(Device, Lot.lot_number)
+        .join(Lot, Device.lot_id == Lot.id)
+        .where(Device.current_stage == DeviceStage.scrapped, Device.is_active == True)
+        .order_by(Device.updated_at.desc())
+    )).all()
+
     return templates.TemplateResponse("devices/list.html", {
         "request": request, "current_user": current_user,
         "devices": devices, "lots": lots,
@@ -244,6 +253,7 @@ async def device_search(
         "stock_price_map": stock_price_map, "sale_price_map": sale_price_map,
         "model_summary": model_summary,
         "lot_summary": lot_summary,
+        "scrap_devices": scrap_devices,
     })
 
 

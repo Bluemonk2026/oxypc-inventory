@@ -13,6 +13,7 @@ from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
 from models.lot import Lot
 from models.engines import DeviceCosting
+from models.part_request import PartRequest
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 
 router = APIRouter(tags=["scrap"], dependencies=[Depends(verify_csrf)])
@@ -74,8 +75,16 @@ async def scrap_products(request: Request, db: AsyncSession = Depends(get_db),
             "scrap_verified": device.scrap_verified,
         })
 
+    # Scrapped Spare Parts — faulty parts marked Scrap on the Parts Dashboard's
+    # Faulty Request tab (routers/part_requests.py :: scrap_part_request).
+    scrapped_parts = (await db.execute(
+        select(PartRequest).where(PartRequest.status == "scrapped")
+        .order_by(PartRequest.actioned_at.desc())
+    )).scalars().all()
+
     return templates.TemplateResponse("scrap/list.html", {
         "request": request, "current_user": current_user, "items": items,
+        "scrapped_parts": scrapped_parts,
     })
 
 

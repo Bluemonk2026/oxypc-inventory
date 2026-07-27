@@ -44,6 +44,8 @@ async def create_part_request(
     part_name: str = Form(...),
     part_id: str = Form(""),
     part_category: str = Form(""),
+    part_capacity: str = Form(""),
+    part_type: str = Form(""),
     request_type: str = Form("new"),
     qty: int = Form(1),
     from_page: str = Form(""),
@@ -92,6 +94,8 @@ async def create_part_request(
         device_id=device.id, barcode=device.barcode, stage=stage,
         part_id=resolved_part_id, part_name=part_name,
         part_category=part_category.strip() or None,
+        part_capacity=part_capacity.strip() or None,
+        part_type=part_type.strip() or None,
         request_type=request_type.strip() or "new",
         requested_by=current_user.username, engineer_name=current_user.full_name,
         qty_requested=max(1, qty), status="requested",
@@ -181,6 +185,24 @@ async def procure_part(req_id: str, request: Request,
                 request=request)
     await db.commit()
     return RedirectResponse(url="/spare-parts?success=Sent+to+sourcing", status_code=302)
+
+
+@router.post("/part-requests/{req_id}/scrap")
+async def scrap_part_request(req_id: str, request: Request,
+                             db: AsyncSession = Depends(get_db), current_user: User = Depends(spm_allowed)):
+    """Scrap button on the Faulty Request tab — a faulty part that isn't
+    worth sourcing/handing over. Surfaces on the Scrap Products page's
+    'Scrapped Spare Parts' table."""
+    pr = (await db.execute(select(PartRequest).where(PartRequest.id == _as_uuid(req_id)))).scalar_one_or_none()
+    if not pr:
+        raise HTTPException(404, "Part request not found")
+    pr.status = "scrapped"
+    pr.actioned_at = app_now()
+    pr.actioned_by = current_user.username
+    await audit(db, user=current_user, action="PART_SCRAPPED", table_name="part_requests",
+                record_id=str(pr.id), new_value={"part": pr.part_name}, request=request)
+    await db.commit()
+    return RedirectResponse(url="/spare-parts?success=Part+scrapped", status_code=302)
 
 
 @router.post("/part-sourcing/{sr_id}/close")

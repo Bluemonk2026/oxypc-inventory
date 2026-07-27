@@ -422,6 +422,10 @@ async def l3l4_complete(
         .values(status="completed", completed_at=app_now())
     )
     device.l34_status = "Completed"
+    # L1/L2's own status column was still stuck on "Requested to L3/L4" once
+    # L3/L4 finished — nothing told the L1/L2 queue the device was actually
+    # back and awaiting further action there.
+    device.l1l2_status = "Returned from L3/L4"
     device.updated_at = app_now()
     await audit(db, user=current_user, action="L3L4_COMPLETE",
                 table_name="devices", record_id=str(device.id),

@@ -2,6 +2,8 @@
 import csv
 import io
 import json
+import os
+import uuid as _uuid
 from datetime import datetime
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -12,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from templates_config import templates
 from database import get_db
+from config import UPLOADS_DIR
 from utils.csv_decode import decode_csv_bytes
 from utils.timezone import app_now
 from services.audit_engine import audit
@@ -22,21 +25,42 @@ from models.crm import (
     CRMActivity, CRMPurchaseOrder, SOURCE_TYPES, BUYER_TYPES,
 )
 
+PERSON_ROLES = ["Directors", "Finance", "Manager", "Other"]
 
-def _parse_contact_numbers(form) -> list[tuple[str, str, str]]:
-    """Extract (person_name, phone, email) rows from the repeating Contact
-    Numbers section. Skips fully-blank rows. Used by create + update."""
+
+def _parse_contact_numbers(form) -> list[tuple[str, str, str, str]]:
+    """Extract (person_role, person_name, phone, email) rows from the
+    repeating Contact Numbers section. Skips fully-blank rows. Used by
+    create + update."""
+    roles = form.getlist("cn_role[]")
     names = form.getlist("cn_person[]")
     phones = form.getlist("cn_phone[]")
     emails = form.getlist("cn_email[]")
-    rows: list[tuple[str, str, str]] = []
-    for i in range(max(len(names), len(phones), len(emails))):
+    rows: list[tuple[str, str, str, str]] = []
+    for i in range(max(len(roles), len(names), len(phones), len(emails))):
+        rl = (roles[i] if i < len(roles) else "").strip()
         nm = (names[i] if i < len(names) else "").strip()
         ph = (phones[i] if i < len(phones) else "").strip()
         em = (emails[i] if i < len(emails) else "").strip()
-        if nm or ph or em:
-            rows.append((nm, ph, em))
+        if rl or nm or ph or em:
+            rows.append((rl, nm, ph, em))
     return rows
+
+
+async def _save_kyc_upload(upload: UploadFile):
+    """Save a KYC document under uploads/crm/ with a UUID-hex safe name,
+    same pattern as CRM Sourcing's document uploads."""
+    if not upload or not upload.filename:
+        return None
+    ext = os.path.splitext(upload.filename)[1].lower()
+    uploads_dir = os.path.join(UPLOADS_DIR, "crm")
+    os.makedirs(uploads_dir, exist_ok=True)
+    safe_name = f"{_uuid.uuid4().hex}{ext}"
+    dest = os.path.join(uploads_dir, safe_name)
+    content = await upload.read()
+    with open(dest, "wb") as f:
+        f.write(content)
+    return safe_name
 
 router = APIRouter(prefix="/crm/contacts", tags=["crm-contacts"], dependencies=[Depends(verify_csrf)])
 
@@ -151,6 +175,7 @@ async def list_contacts(
     if all_ids:
         num_rows = (await db.execute(
             select(CRMContactNumber.contact_id,
+                   CRMContactNumber.person_role,
                    CRMContactNumber.person_name,
                    CRMContactNumber.phone,
                    CRMContactNumber.email)
@@ -159,6 +184,7 @@ async def list_contacts(
         )).all()
         for r in num_rows:
             numbers_map.setdefault(str(r.contact_id), []).append({
+                "role": r.person_role or "",
                 "name": r.person_name or "",
                 "phone": r.phone or "",
                 "email": r.email or "",
@@ -795,10 +821,14 @@ async def new_contact_form(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    users = (await db.execute(
+        select(User).where(User.status == True).order_by(User.full_name)
+    )).scalars().all()
     return templates.TemplateResponse("crm/contacts/form.html", {
         "request": request, "current_user": current_user,
         "contact": None, "contact_numbers": [],
         "source_types": SOURCE_TYPES, "buyer_types": BUYER_TYPES,
+        "users": users, "person_roles": PERSON_ROLES,
     })
 
 
@@ -821,6 +851,16 @@ async def create_contact(
     notes:          str = Form(default=None),
     status:         str = Form(default="active"),
     assigned_to:    str = Form(default=None),
+    bank_cheque_number:  str = Form(default=None),
+    msme_number:         str = Form(default=None),
+    director1_id_number: str = Form(default=None),
+    director2_id_number: str = Form(default=None),
+    gstin_doc:      UploadFile = File(default=None),
+    pan_doc:        UploadFile = File(default=None),
+    bank_cheque_doc:UploadFile = File(default=None),
+    msme_doc:       UploadFile = File(default=None),
+    director1_doc:  UploadFile = File(default=None),
+    director2_doc:  UploadFile = File(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _perm: User = Depends(require_module_perm("crm_contacts", "add")),
@@ -839,6 +879,16 @@ async def create_contact(
             credit_limit=credit_limit,
             tags=tags or None, notes=notes or None, status=status,
             assigned_to=assigned_to or current_user.username,
+            bank_cheque_number=bank_cheque_number or None,
+            msme_number=msme_number or None,
+            director1_id_number=director1_id_number or None,
+            director2_id_number=director2_id_number or None,
+            gstin_doc_path=await _save_kyc_upload(gstin_doc),
+            pan_doc_path=await _save_kyc_upload(pan_doc),
+            bank_cheque_doc_path=await _save_kyc_upload(bank_cheque_doc),
+            msme_doc_path=await _save_kyc_upload(msme_doc),
+            director1_doc_path=await _save_kyc_upload(director1_doc),
+            director2_doc_path=await _save_kyc_upload(director2_doc),
             created_by=current_user.username,
         )
         db.add(contact)
@@ -847,9 +897,9 @@ async def create_contact(
         except IntegrityError:
             await db.rollback()
             continue
-        for i, (nm, ph, em) in enumerate(number_rows):
+        for i, (rl, nm, ph, em) in enumerate(number_rows):
             db.add(CRMContactNumber(
-                contact_id=contact.id, person_name=nm or None,
+                contact_id=contact.id, person_role=rl or None, person_name=nm or None,
                 phone=ph or None, email=em or None, sort_order=i,
             ))
         await db.commit()
@@ -1031,10 +1081,14 @@ async def edit_contact_form(
         .order_by(CRMContactNumber.sort_order)
     )
     contact_numbers = nums_r.scalars().all()
+    users = (await db.execute(
+        select(User).where(User.status == True).order_by(User.full_name)
+    )).scalars().all()
     return templates.TemplateResponse("crm/contacts/form.html", {
         "request": request, "current_user": current_user,
         "contact": contact, "contact_numbers": contact_numbers,
         "source_types": SOURCE_TYPES, "buyer_types": BUYER_TYPES,
+        "users": users, "person_roles": PERSON_ROLES,
     })
 
 
@@ -1058,6 +1112,16 @@ async def update_contact(
     notes:          str = Form(default=None),
     status:         str = Form(default="active"),
     assigned_to:    str = Form(default=None),
+    bank_cheque_number:  str = Form(default=None),
+    msme_number:         str = Form(default=None),
+    director1_id_number: str = Form(default=None),
+    director2_id_number: str = Form(default=None),
+    gstin_doc:      UploadFile = File(default=None),
+    pan_doc:        UploadFile = File(default=None),
+    bank_cheque_doc:UploadFile = File(default=None),
+    msme_doc:       UploadFile = File(default=None),
+    director1_doc:  UploadFile = File(default=None),
+    director2_doc:  UploadFile = File(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1084,13 +1148,37 @@ async def update_contact(
     contact.notes = notes or None
     contact.status = status
     contact.assigned_to = assigned_to
+    contact.bank_cheque_number = bank_cheque_number or None
+    contact.msme_number = msme_number or None
+    contact.director1_id_number = director1_id_number or None
+    contact.director2_id_number = director2_id_number or None
+    # Uploads only overwrite the stored document when a new file is actually
+    # selected — leaving the existing one in place otherwise.
+    gstin_name = await _save_kyc_upload(gstin_doc)
+    if gstin_name:
+        contact.gstin_doc_path = gstin_name
+    pan_name = await _save_kyc_upload(pan_doc)
+    if pan_name:
+        contact.pan_doc_path = pan_name
+    cheque_name = await _save_kyc_upload(bank_cheque_doc)
+    if cheque_name:
+        contact.bank_cheque_doc_path = cheque_name
+    msme_name = await _save_kyc_upload(msme_doc)
+    if msme_name:
+        contact.msme_doc_path = msme_name
+    dir1_name = await _save_kyc_upload(director1_doc)
+    if dir1_name:
+        contact.director1_doc_path = dir1_name
+    dir2_name = await _save_kyc_upload(director2_doc)
+    if dir2_name:
+        contact.director2_doc_path = dir2_name
 
     # Replace the Contact Numbers child rows with whatever the form submitted.
     number_rows = _parse_contact_numbers(await request.form())
     await db.execute(delete(CRMContactNumber).where(CRMContactNumber.contact_id == contact.id))
-    for i, (nm, ph, em) in enumerate(number_rows):
+    for i, (rl, nm, ph, em) in enumerate(number_rows):
         db.add(CRMContactNumber(
-            contact_id=contact.id, person_name=nm or None,
+            contact_id=contact.id, person_role=rl or None, person_name=nm or None,
             phone=ph or None, email=em or None, sort_order=i,
         ))
     await db.commit()

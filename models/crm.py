@@ -123,6 +123,18 @@ class CRMContact(Base):
     do_not_contact        = Column(Boolean,  nullable=False, default=False, index=True)
     do_not_contact_reason = Column(String(200), nullable=True)
 
+    # ── KYC Documents (Add Account page) ────────────────────────────────────
+    gstin_doc_path          = Column(String(255), nullable=True)
+    pan_doc_path            = Column(String(255), nullable=True)
+    bank_cheque_number      = Column(String(50),  nullable=True)
+    bank_cheque_doc_path    = Column(String(255), nullable=True)
+    msme_number             = Column(String(50),  nullable=True)
+    msme_doc_path           = Column(String(255), nullable=True)
+    director1_id_number     = Column(String(50),  nullable=True)
+    director1_doc_path      = Column(String(255), nullable=True)
+    director2_id_number     = Column(String(50),  nullable=True)
+    director2_doc_path      = Column(String(255), nullable=True)
+
     sourcing_deals   = relationship("CRMSourcingDeal",    back_populates="contact", lazy="select")
     sales_opps       = relationship("CRMSalesOpportunity", back_populates="contact", lazy="select")
     activities       = relationship("CRMActivity",         back_populates="contact", lazy="select")
@@ -144,6 +156,7 @@ class CRMContactNumber(Base):
 
     id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     contact_id  = Column(UUID(as_uuid=True), ForeignKey("crm_contacts.id"), nullable=False, index=True)
+    person_role = Column(String(30),  nullable=True)   # Directors/Finance/Manager/Other
     person_name = Column(String(100), nullable=True)
     phone       = Column(String(20),  nullable=True)
     email       = Column(String(100), nullable=True)

@@ -163,7 +163,8 @@
               {% if nums %}
               <button type="button" class="btn btn-sm btn-info text-dark py-0 px-2 contact-numbers-btn"
                       data-company="{{ c.company_name }}"
-                      data-numbers='{{ nums|tojson }}'>
+                      data-numbers='{{ nums|tojson }}'
+                      title="{{ nums|map(attribute='role')|select|join(', ') or 'No role set' }}">
                 <i class="bi bi-people me-1"></i>{{ nums|length }}
               </button>
               {% else %}
@@ -310,7 +311,7 @@
       </div>
       <div class="modal-body p-0">
         <table class="table table-sm mb-0">
-          <thead class="table-light"><tr><th>Name</th><th>Email</th><th>Phone</th></tr></thead>
+          <thead class="table-light"><tr><th>Role</th><th>Name</th><th>Email</th><th>Phone</th></tr></thead>
           <tbody id="cnModalBody"></tbody>
         </table>
       </div>
@@ -387,11 +388,11 @@ $(document).ready(function(){
       try { nums = JSON.parse(this.getAttribute('data-numbers') || '[]'); } catch (e) {}
       document.getElementById('cnModalCompany').textContent = company;
       var rows = nums.map(function (n) {
-        return '<tr><td>' + (esc(n.name) || '—') + '</td><td>' +
+        return '<tr><td>' + (esc(n.role) || '—') + '</td><td>' + (esc(n.name) || '—') + '</td><td>' +
                (esc(n.email) || '—') + '</td><td>' + (esc(n.phone) || '—') + '</td></tr>';
       }).join('');
       document.getElementById('cnModalBody').innerHTML = rows ||
-        '<tr><td colspan="3" class="text-muted text-center py-3">No contact numbers.</td></tr>';
+        '<tr><td colspan="4" class="text-muted text-center py-3">No contact numbers.</td></tr>';
       modal.show();
     });
   });

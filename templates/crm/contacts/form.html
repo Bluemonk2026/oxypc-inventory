@@ -1,13 +1,16 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Edit' if contact else 'New' }} Contact — OxyPC{% endblock %}
-{% block page_title %}{{ 'Edit Contact' if contact else 'New CRM Contact' }}{% endblock %}
+{% block title %}{{ 'Edit' if contact else 'New' }} Account — OxyPC{% endblock %}
+{% block page_title %}{{ 'Edit Account' if contact else 'Add Account' }}{% endblock %}
 {% block content %}
 
 <div class="row justify-content-center">
 <div class="col-xl-9">
-<form method="post" action="{{ '/crm/contacts/'+contact.id|string+'/edit' if contact else '/crm/contacts/new' }}">
+<form method="post" action="{{ '/crm/contacts/'+contact.id|string+'/edit' if contact else '/crm/contacts/new' }}" enctype="multipart/form-data">
+<input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+
+<!-- ═══ SECTION 1: Company Details ═══ -->
 <div class="card border-0 shadow-sm mb-3">
-  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-building me-2 text-primary"></i>Contact Type &amp; Classification</div>
+  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-building me-2 text-primary"></i>Company Details</div>
   <div class="card-body">
     <div class="row g-3">
       <div class="col-md-4">
@@ -19,7 +22,7 @@
         </select>
       </div>
       <div class="col-md-4">
-        <label class="form-label fw-semibold">Source Type (if supplier)</label>
+        <label class="form-label fw-semibold">Supplier Type (if supplier)</label>
         <select name="source_type" class="form-select">
           <option value="">— Select —</option>
           {% for val, label in source_types %}
@@ -36,83 +39,20 @@
           {% endfor %}
         </select>
       </div>
-    </div>
-  </div>
-</div>
 
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-person me-2 text-primary"></i>Company &amp; Contact Details</div>
-  <div class="card-body">
-    <div class="row g-3">
-      <div class="col-md-8">
+      <div class="col-md-4">
         <label class="form-label fw-semibold">Company / Business Name <span class="text-danger">*</span></label>
         <input type="text" name="company_name" class="form-control" required value="{{ contact.company_name if contact else '' }}" placeholder="e.g. Sharma Recyclers Pvt Ltd">
       </div>
       <div class="col-md-4">
-        <label class="form-label fw-semibold">Email</label>
+        <label class="form-label fw-semibold">Company Email</label>
         <input type="email" name="email" class="form-control" value="{{ contact.email or '' if contact else '' }}" placeholder="email@company.com">
       </div>
-      <div class="col-md-6">
-        <label class="form-label fw-semibold">GSTIN</label>
-        <input type="text" name="gstin" class="form-control" value="{{ contact.gstin or '' if contact else '' }}" placeholder="15-char GSTIN" maxlength="15">
-      </div>
-      <div class="col-md-6">
-        <label class="form-label fw-semibold">PAN</label>
-        <input type="text" name="pan" class="form-control" value="{{ contact.pan or '' if contact else '' }}" placeholder="10-char PAN" maxlength="10">
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
-    <span class="fw-semibold"><i class="bi bi-telephone me-2 text-primary"></i>Contact Numbers</span>
-    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addNumberRow()">
-      <i class="bi bi-plus-lg me-1"></i>Add Number
-    </button>
-  </div>
-  <div class="card-body">
-    <div class="text-muted small mb-2">Add one or more people and their phone numbers for this contact.</div>
-    <div class="table-responsive">
-      <table class="table table-sm align-middle mb-0" id="contactNumbersTable">
-        <thead class="table-light">
-          <tr>
-            <th style="width:32%">Person Name</th>
-            <th style="width:29%">Phone Number</th>
-            <th style="width:31%">Email</th>
-            <th style="width:8%"></th>
-          </tr>
-        </thead>
-        <tbody id="contactNumbersBody">
-          {% for cn in contact_numbers %}
-          <tr>
-            <td><input type="text" name="cn_person[]" class="form-control form-control-sm" value="{{ cn.person_name or '' }}" placeholder="Name"></td>
-            <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" value="{{ cn.phone or '' }}" placeholder="Phone number"></td>
-            <td><input type="email" name="cn_email[]" class="form-control form-control-sm" value="{{ cn.email or '' }}" placeholder="email@example.com"></td>
-            <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button></td>
-          </tr>
-          {% else %}
-          <tr>
-            <td><input type="text" name="cn_person[]" class="form-control form-control-sm" placeholder="Name"></td>
-            <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" placeholder="Phone number"></td>
-            <td><input type="email" name="cn_email[]" class="form-control form-control-sm" placeholder="email@example.com"></td>
-            <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button></td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-geo-alt me-2 text-primary"></i>Address</div>
-  <div class="card-body">
-    <div class="row g-3">
-      <div class="col-12">
+      <div class="col-md-4">
         <label class="form-label fw-semibold">Address</label>
-        <textarea name="address" class="form-control" rows="2">{{ contact.address or '' if contact else '' }}</textarea>
+        <input type="text" name="address" class="form-control" value="{{ contact.address or '' if contact else '' }}" placeholder="Address">
       </div>
+
       <div class="col-md-4">
         <label class="form-label fw-semibold">City</label>
         <input type="text" name="city" class="form-control" value="{{ contact.city or '' if contact else '' }}">
@@ -129,6 +69,131 @@
   </div>
 </div>
 
+<!-- ═══ SECTION 2: KYC Documents ═══ -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-file-earmark-check me-2 text-primary"></i>KYC Documents</div>
+  <div class="card-body">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">GSTIN</label>
+        <input type="text" name="gstin" class="form-control" value="{{ contact.gstin or '' if contact else '' }}" placeholder="15-char GSTIN" maxlength="15">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Upload GSTIN Document</label>
+        <input type="file" name="gstin_doc" accept="application/pdf,image/*" class="form-control">
+        {% if contact and contact.gstin_doc_path %}<div class="form-text"><a href="/uploads/crm/{{ contact.gstin_doc_path }}" target="_blank">View current document</a></div>{% endif %}
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">PAN</label>
+        <input type="text" name="pan" class="form-control" value="{{ contact.pan or '' if contact else '' }}" placeholder="10-char PAN" maxlength="10">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Upload PAN Document</label>
+        <input type="file" name="pan_doc" accept="application/pdf,image/*" class="form-control">
+        {% if contact and contact.pan_doc_path %}<div class="form-text"><a href="/uploads/crm/{{ contact.pan_doc_path }}" target="_blank">View current document</a></div>{% endif %}
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Bank Cheque</label>
+        <input type="text" name="bank_cheque_number" class="form-control" value="{{ contact.bank_cheque_number or '' if contact else '' }}" placeholder="Cheque / account number">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Upload Bank Cheque</label>
+        <input type="file" name="bank_cheque_doc" accept="application/pdf,image/*" class="form-control">
+        {% if contact and contact.bank_cheque_doc_path %}<div class="form-text"><a href="/uploads/crm/{{ contact.bank_cheque_doc_path }}" target="_blank">View current document</a></div>{% endif %}
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">MSME/UDHYOG Certificate</label>
+        <input type="text" name="msme_number" class="form-control" value="{{ contact.msme_number or '' if contact else '' }}" placeholder="MSME / Udhyog registration number">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Upload MSME/UDHYOG Certificate</label>
+        <input type="file" name="msme_doc" accept="application/pdf,image/*" class="form-control">
+        {% if contact and contact.msme_doc_path %}<div class="form-text"><a href="/uploads/crm/{{ contact.msme_doc_path }}" target="_blank">View current document</a></div>{% endif %}
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Director 1 Aadhar/PAN</label>
+        <input type="text" name="director1_id_number" class="form-control" value="{{ contact.director1_id_number or '' if contact else '' }}" placeholder="Aadhar / PAN number">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Upload Aadhar/PAN <span class="text-muted small">(single PDF)</span></label>
+        <input type="file" name="director1_doc" accept="application/pdf" class="form-control">
+        {% if contact and contact.director1_doc_path %}<div class="form-text"><a href="/uploads/crm/{{ contact.director1_doc_path }}" target="_blank">View current document</a></div>{% endif %}
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Director 2 Aadhar/PAN</label>
+        <input type="text" name="director2_id_number" class="form-control" value="{{ contact.director2_id_number or '' if contact else '' }}" placeholder="Aadhar / PAN number">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Upload Aadhar/PAN <span class="text-muted small">(single PDF)</span></label>
+        <input type="file" name="director2_doc" accept="application/pdf" class="form-control">
+        {% if contact and contact.director2_doc_path %}<div class="form-text"><a href="/uploads/crm/{{ contact.director2_doc_path }}" target="_blank">View current document</a></div>{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SECTION 3: Contact Numbers ═══ -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
+    <span class="fw-semibold"><i class="bi bi-telephone me-2 text-primary"></i>Contact Numbers</span>
+    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addNumberRow()">
+      <i class="bi bi-plus-lg me-1"></i>Add Number
+    </button>
+  </div>
+  <div class="card-body">
+    <div class="text-muted small mb-2">Add one or more people and their phone numbers for this contact.</div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" id="contactNumbersTable">
+        <thead class="table-light">
+          <tr>
+            <th style="width:18%">Person Role</th>
+            <th style="width:27%">Person Name</th>
+            <th style="width:24%">Phone Number</th>
+            <th style="width:23%">Email</th>
+            <th style="width:8%"></th>
+          </tr>
+        </thead>
+        <tbody id="contactNumbersBody">
+          {% for cn in contact_numbers %}
+          <tr>
+            <td>
+              <select name="cn_role[]" class="form-select form-select-sm">
+                <option value="">— Select —</option>
+                {% for r in person_roles %}
+                <option value="{{ r }}" {% if cn.person_role == r %}selected{% endif %}>{{ r }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td><input type="text" name="cn_person[]" class="form-control form-control-sm" value="{{ cn.person_name or '' }}" placeholder="Name"></td>
+            <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" value="{{ cn.phone or '' }}" placeholder="Phone number"></td>
+            <td><input type="email" name="cn_email[]" class="form-control form-control-sm" value="{{ cn.email or '' }}" placeholder="email@example.com"></td>
+            <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button></td>
+          </tr>
+          {% else %}
+          <tr>
+            <td>
+              <select name="cn_role[]" class="form-select form-select-sm">
+                <option value="">— Select —</option>
+                {% for r in person_roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+              </select>
+            </td>
+            <td><input type="text" name="cn_person[]" class="form-control form-control-sm" placeholder="Name"></td>
+            <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" placeholder="Phone number"></td>
+            <td><input type="email" name="cn_email[]" class="form-control form-control-sm" placeholder="email@example.com"></td>
+            <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-sliders me-2 text-primary"></i>CRM Settings</div>
   <div class="card-body">
@@ -139,7 +204,15 @@
       </div>
       <div class="col-md-4">
         <label class="form-label fw-semibold">Assigned To</label>
-        <input type="text" name="assigned_to" class="form-control" value="{{ contact.assigned_to or '' if contact else current_user.username }}" placeholder="Username">
+        <select name="assigned_to" class="form-select">
+          {% for u in users %}
+          <option value="{{ u.username }}"
+            {% if contact and contact.assigned_to == u.username %}selected
+            {% elif not contact and u.username == current_user.username %}selected{% endif %}>
+            {{ u.full_name }} ({{ u.username }})
+          </option>
+          {% endfor %}
+        </select>
       </div>
       <div class="col-md-4">
         <label class="form-label fw-semibold">Status</label>
@@ -162,7 +235,7 @@
 </div>
 
 <div class="d-flex gap-2">
-  <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle me-1"></i>{{ 'Update Contact' if contact else 'Create Contact' }}</button>
+  <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle me-1"></i>{{ 'Update Account' if contact else 'Create Account' }}</button>
   <a href="{{ '/crm/contacts/'+contact.id|string if contact else '/crm/contacts' }}" class="btn btn-outline-secondary">Cancel</a>
 </div>
 </form>
@@ -172,6 +245,12 @@
 <!-- Row template for a new Contact Number -->
 <template id="contactNumberRowTemplate">
   <tr>
+    <td>
+      <select name="cn_role[]" class="form-select form-select-sm">
+        <option value="">— Select —</option>
+        {% for r in person_roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+      </select>
+    </td>
     <td><input type="text" name="cn_person[]" class="form-control form-control-sm" placeholder="Name"></td>
     <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" placeholder="Phone number"></td>
     <td><input type="email" name="cn_email[]" class="form-control form-control-sm" placeholder="email@example.com"></td>
@@ -192,6 +271,7 @@ function removeNumberRow(btn) {
   if (rows.length <= 1) {
     var r = btn.closest('tr');
     r.querySelectorAll('input').forEach(function (i) { i.value = ''; });
+    r.querySelectorAll('select').forEach(function (s) { s.selectedIndex = 0; });
     return;
   }
   btn.closest('tr').remove();

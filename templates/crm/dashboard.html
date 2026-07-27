@@ -179,7 +179,7 @@
         {% set _sm = current_user.role.value in ['admin','sales_manager'] %}
         {% for s in part_sourcing %}
         <tr>
-          <td class="ps-3"><span class="badge bg-warning text-dark">Open</span></td>
+          <td class="ps-3">{% if s.status == 'closed' %}<span class="badge bg-success">Closed</span>{% else %}<span class="badge bg-warning text-dark">Open</span>{% endif %}</td>
           <td><code>{{ s.part_code or '—' }}</code></td>
           <td class="fw-semibold">{{ s.part_name }}</td>
           <td>{{ s.qty_requested }}</td>
@@ -195,7 +195,9 @@
           </td>
           <td>{{ s.raised_by or '—' }}</td>
           <td>
-            {% if _sm %}
+            {% if s.status == 'closed' %}
+            <span class="badge bg-success">Closed</span>
+            {% elif _sm %}
             <button class="btn btn-sm btn-success py-0 px-2" data-bs-toggle="modal" data-bs-target="#closeDealModal"
                     data-sr="{{ s.id }}" data-part="{{ s.part_name }}">Close Deal</button>
             {% else %}<span class="text-muted">—</span>{% endif %}

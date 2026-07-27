@@ -145,13 +145,17 @@ async def _dealer_for_account(db: AsyncSession, contact: CRMContact,
     return dealer, True
 
 
-@router.get("/partners", response_class=HTMLResponse)
-async def partners_list(
-    request: Request,
-    q: str = "",
-    current_user: User = Depends(require_module_perm("trade_partner")),
-    db: AsyncSession = Depends(get_db),
+async def _render_partners(
+    request, current_user, db, q="",
+    provisioned=None, failed=None, success=None, error=None,
 ):
+    """Render the Trade Partner Accounts page.
+
+    Shared by the GET list view and by POST handlers that must show a
+    one-time temp-password banner (enable / reset). Rendering directly —
+    rather than redirecting with the password in the query string — keeps
+    the secret out of browser history and proxy logs.
+    """
     query = select(Dealer).where(Dealer.portal_enabled == True)  # noqa: E712
     if q:
         like = f"%{q}%"
@@ -172,10 +176,23 @@ async def partners_list(
         "q": q, "scores": scores,
         "sales_users": await _sales_users(db),
         "partner_types": PARTNER_TYPES, "price_segments": PRICE_SEGMENTS,
-        "provisioned": None, "failed": None,
-        "success": request.query_params.get("success"),
-        "error": request.query_params.get("error"),
+        "provisioned": provisioned, "failed": failed,
+        "success": success, "error": error,
     })
+
+
+@router.get("/partners", response_class=HTMLResponse)
+async def partners_list(
+    request: Request,
+    q: str = "",
+    current_user: User = Depends(require_module_perm("trade_partner")),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _render_partners(
+        request, current_user, db, q=q,
+        success=request.query_params.get("success"),
+        error=request.query_params.get("error"),
+    )
 
 
 @router.post("/partners/enable")
@@ -403,10 +420,20 @@ async def reset_partner_password(
     await audit(db, action="PARTNER_PASSWORD_RESET", user=current_user,
                 table_name="dealers", record_id=str(dealer.id), request=request)
     await db.commit()
-    return RedirectResponse(
-        url=f"/trade-partner/partners?temp_password={temp_password}"
-            f"&temp_for={dealer.business_name}&success=Password+reset",
-        status_code=302)
+    # Render directly with the one-time banner (like the enable flow). The temp
+    # password must never go into the URL — a redirect would leak it into
+    # browser history and proxy logs.
+    return await _render_partners(
+        request, current_user, db,
+        provisioned=[{
+            "name": dealer.business_name,
+            "dealer_code": dealer.dealer_code,
+            "phone": dealer.portal_phone or "",
+            "password": temp_password,
+            "dealer_created": False,
+        }],
+        success=f"Password reset for {dealer.business_name}",
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

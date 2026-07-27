@@ -55,7 +55,7 @@
                   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
                   <input type="hidden" name="barcode" value="{{ device.barcode }}">
                   <button type="submit" class="btn btn-sm btn-success py-0 px-2">
-                    <i class="bi bi-check2 me-1"></i>Complete
+                    <i class="bi bi-check2 me-1"></i>Move to {{ next_stage_label }}
                   </button>
                 </form>
                 {% if stage.value == 'cleaning' %}

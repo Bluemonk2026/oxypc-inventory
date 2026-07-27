@@ -13,7 +13,7 @@
 <div class="card border-0 shadow-sm mb-4">
   <div class="card-header bg-transparent fw-semibold"><i class="bi bi-plus-circle me-2"></i>Record New Payment</div>
   <div class="card-body">
-    <form action="/accounts/supplier-payments/new" method="post">
+    <form action="/accounts/supplier-payments/new" method="post" enctype="multipart/form-data">
       <div class="row g-3">
         <div class="col-md-4">
           <label class="form-label fw-semibold">Supplier</label>
@@ -27,6 +27,13 @@
           <select name="lot_id" class="form-select form-select-sm">
             <option value="">— No Lot —</option>
             {% for l in lots %}<option value="{{ l.id }}">{{ l.lot_number }} &mdash; {{ l.supplier_name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Supplier Deal ID</label>
+          <select name="sourcing_deal_id" class="form-select form-select-sm">
+            <option value="">— No Deal —</option>
+            {% for d in sourcing_deals %}<option value="{{ d.id }}">{{ d.deal_number }} — {{ d.title[:40] }}</option>{% endfor %}
           </select>
         </div>
         <div class="col-md-4">
@@ -58,6 +65,14 @@
           <label class="form-label">Notes</label>
           <input type="text" name="notes" class="form-control form-control-sm" placeholder="Notes">
         </div>
+        <div class="col-md-6">
+          <label class="form-label">Invoice PDF</label>
+          <input type="file" name="invoice" accept="application/pdf" class="form-control form-control-sm">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Payment Photo</label>
+          <input type="file" name="payment_photo" accept="image/*" class="form-control form-control-sm">
+        </div>
         <div class="col-12">
           <button type="submit" class="btn btn-danger btn-sm px-4"><i class="bi bi-check-circle me-2"></i>Record Payment</button>
         </div>
@@ -79,7 +94,7 @@
   </div>
   <div class="card-body p-0">
     <table class="table table-hover mb-0 small">
-      <thead class="table-dark"><tr><th>Date</th><th>Supplier</th><th>Lot</th><th>Mode</th><th>Ref</th><th>Advance</th><th>Amount</th><th>By</th></tr></thead>
+      <thead class="table-dark"><tr><th>Date</th><th>Supplier</th><th>Lot</th><th>Mode</th><th>Ref</th><th>Advance</th><th>Amount</th><th>Document</th><th>By</th></tr></thead>
       <tbody>
         {% for p in payments %}
         <tr>
@@ -90,18 +105,114 @@
           <td class="font-monospace small">{{ p.reference_no or '&mdash;' }}</td>
           <td>{% if p.is_advance %}<span class="badge bg-warning text-dark">Advance</span>{% else %}&mdash;{% endif %}</td>
           <td class="fw-semibold text-danger">&#8377;{{ "{:,.0f}".format(p.amount) }}</td>
+          <td class="text-nowrap">
+            {% if p.invoice_path %}<a href="/uploads/accounts/{{ p.invoice_path }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Invoice"><i class="bi bi-file-earmark-pdf"></i></a>{% endif %}
+            {% if p.payment_photo_path %}<a href="/uploads/accounts/{{ p.payment_photo_path }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Payment Photo"><i class="bi bi-image"></i></a>{% endif %}
+            {% if not p.invoice_path and not p.payment_photo_path %}&mdash;{% endif %}
+          </td>
           <td class="text-muted">{{ p.created_by or '&mdash;' }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="text-center text-muted py-4">No payments recorded.</td></tr>
+        <tr><td colspan="9" class="text-center text-muted py-4">No payments recorded.</td></tr>
         {% endfor %}
       </tbody>
       {% if payments %}
       <tfoot class="table-light">
-        <tr><td colspan="6" class="text-end fw-bold">Total:</td><td class="fw-bold text-danger">&#8377;{{ "{:,.0f}".format(total) }}</td><td></td></tr>
+        <tr><td colspan="6" class="text-end fw-bold">Total:</td><td class="fw-bold text-danger">&#8377;{{ "{:,.0f}".format(total) }}</td><td colspan="2"></td></tr>
       </tfoot>
       {% endif %}
     </table>
   </div>
 </div>
+
+<!-- List of PO Generated -->
+<div class="card border-0 shadow-sm mt-4">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-file-earmark-text me-2"></i>List of PO Generated</div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0 small">
+      <thead class="table-dark"><tr><th>PO Number</th><th>Supplier</th><th>Date</th><th>Amount</th><th>Payment Status</th><th>Document</th><th>Action</th></tr></thead>
+      <tbody>
+        {% for po in purchase_orders %}
+        <tr>
+          <td class="font-monospace">{{ po.po_number }}</td>
+          <td>{{ po.contact.company_name if po.contact else '&mdash;' }}</td>
+          <td>{{ po.po_date.strftime('%d-%m-%Y') if po.po_date else '&mdash;' }}</td>
+          <td class="fw-semibold">&#8377;{{ "{:,.0f}".format(po.total_amount or 0) }}</td>
+          <td>{% if po.payment_status == 'paid' %}<span class="badge bg-success">Paid</span>{% else %}<span class="badge bg-warning text-dark">Pending</span>{% endif %}</td>
+          <td class="text-nowrap">
+            {% if po.invoice_path %}<a href="/uploads/accounts/{{ po.invoice_path }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Invoice"><i class="bi bi-file-earmark-pdf"></i></a>{% endif %}
+            {% if po.payment_snapshot_path %}<a href="/uploads/accounts/{{ po.payment_snapshot_path }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Payment Snapshot"><i class="bi bi-image"></i></a>{% endif %}
+            {% if not po.invoice_path and not po.payment_snapshot_path %}&mdash;{% endif %}
+          </td>
+          <td class="text-nowrap">
+            {% if can_edit %}
+            {% if po.payment_status != 'paid' %}
+            <button type="button" class="btn btn-sm btn-success py-0 px-2" data-bs-toggle="modal" data-bs-target="#poCompletePaymentModal" data-id="{{ po.id }}">Complete Payment</button>
+            {% endif %}
+            <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2" data-bs-toggle="modal" data-bs-target="#poUploadInvoiceModal" data-id="{{ po.id }}">Upload Invoice</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No purchase orders generated.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Complete Payment modal (PO) -->
+<div class="modal fade" id="poCompletePaymentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="poCompletePaymentForm" class="modal-content" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header"><h5 class="modal-title">Complete Payment</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <label class="form-label fw-semibold">UTR Number <span class="text-danger">*</span></label>
+        <input type="text" name="utr_number" class="form-control mb-3" required>
+        <label class="form-label fw-semibold">Payment Snapshot</label>
+        <input type="file" name="payment_snapshot" accept="image/*" class="form-control">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-success">Complete Payment</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Upload Invoice modal (PO) -->
+<div class="modal fade" id="poUploadInvoiceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="poUploadInvoiceForm" class="modal-content" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header"><h5 class="modal-title">Upload Invoice</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <label class="form-label fw-semibold">Invoice PDF <span class="text-danger">*</span></label>
+        <input type="file" name="invoice" accept="application/pdf" class="form-control" required>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Upload</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+var _pcp = document.getElementById('poCompletePaymentModal');
+if (_pcp) {
+  _pcp.addEventListener('show.bs.modal', function (e) {
+    document.getElementById('poCompletePaymentForm').action = '/accounts/po/' + e.relatedTarget.getAttribute('data-id') + '/complete-payment';
+  });
+}
+var _pui = document.getElementById('poUploadInvoiceModal');
+if (_pui) {
+  _pui.addEventListener('show.bs.modal', function (e) {
+    document.getElementById('poUploadInvoiceForm').action = '/accounts/po/' + e.relatedTarget.getAttribute('data-id') + '/upload-invoice';
+  });
+}
+</script>
 {% endblock %}

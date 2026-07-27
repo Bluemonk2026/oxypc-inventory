@@ -41,5 +41,14 @@ class ModelRequest(Base):
     fulfilled_at = Column(DateTime, nullable=True)
     fulfillment_notes = Column(Text, nullable=True)
 
+    # ── Procurement close (Procure Dashboard "Device Sourcing" tab) — a
+    # separate closure path from TRC fulfillment above: this links the
+    # request to an actual CRM Sourcing Deal instead of allocating existing
+    # stock. status="closed" once this happens.
+    source_deal_id = Column(String(50), nullable=True)     # sourcing deal UUID string
+    sourcing_notes = Column(Text, nullable=True)
+    closed_by = Column(String(50), nullable=True)
+    closed_at = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, default=app_now)
     updated_at = Column(DateTime, default=app_now, onupdate=app_now)

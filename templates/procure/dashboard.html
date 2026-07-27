@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% block title %}Procure Dashboard — OxyPC{% endblock %}
+{% block page_title %}Procure Dashboard{% endblock %}
+{% block content %}
+
+{% if success %}<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>{% endif %}
+
+<h5 class="fw-bold mb-3">Pending Requests</h5>
+
+<ul class="nav nav-tabs mb-3" id="pendingReqTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="deviceSourcing-tab" data-bs-toggle="tab" data-bs-target="#deviceSourcingTab"
+            type="button" role="tab">Device Sourcing</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="partSourcing-tab" data-bs-toggle="tab" data-bs-target="#partSourcingTab"
+            type="button" role="tab">Parts Sourcing</button>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+  <!-- ═══ TAB: Device Sourcing (Telecaller Model Request queue, no Matching
+       Stock column, procurement-only Close Deal action) ═══ -->
+  <div class="tab-pane fade show active" id="deviceSourcingTab" role="tabpanel">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 fw-semibold">
+        <i class="bi bi-laptop me-2"></i>Pending Requests For Device Sourcing
+        <span class="badge bg-warning text-dark ms-1">{{ device_sourcing|selectattr('status','equalto','open')|list|length }} open</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover mb-0 small align-middle">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">Requested</th>
+              <th>By</th>
+              <th>Config</th>
+              <th>Grade</th>
+              <th>Qty</th>
+              <th>Status</th>
+              <th>Notes</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in device_sourcing %}
+            <tr>
+              <td class="ps-3 text-muted">{{ r.created_at.strftime('%d-%m-%Y %H:%M') if r.created_at else '—' }}</td>
+              <td>
+                <div class="fw-semibold">{{ r.requested_by_name or r.requested_by }}</div>
+                <div class="text-muted" style="font-size:0.72rem">{{ (r.requested_by_role or '') | replace('_',' ') | title }}</div>
+              </td>
+              <td>
+                <div class="fw-semibold">{{ r.sub_category or 'Any' }} — {{ r.brand or '' }} {{ r.model or '' }}</div>
+                <div class="text-muted" style="font-size:0.72rem">
+                  {{ r.cpu or '' }}{% if r.ram_gb %} · {{ r.ram_gb }}GB RAM{% endif %}{% if r.storage_gb %} · {{ r.storage_gb }}GB {{ r.storage_type or '' }}{% endif %}{% if r.screen_size %} · {{ r.screen_size }}{% endif %}
+                </div>
+              </td>
+              <td><span class="badge bg-secondary">{{ r.grade or 'Any' }}</span></td>
+              <td><span class="fw-semibold">{{ r.qty_fulfilled }}</span> / {{ r.qty_requested }}</td>
+              <td><span class="badge bg-{{ status_badge.get(r.status, 'secondary') }}">{{ r.status | replace('_',' ') | title }}</span></td>
+              <td class="text-muted" style="max-width:180px; white-space:normal;">{{ r.notes or r.sourcing_notes or '—' }}</td>
+              <td>
+                {% if is_sm and r.status in ('open', 'partially_fulfilled') %}
+                <button class="btn btn-sm btn-success py-0 px-2" data-bs-toggle="modal" data-bs-target="#closeSourcingDealModal"
+                        data-req="{{ r.id }}"
+                        data-model="{{ r.sub_category or 'Any' }} — {{ r.brand or '' }} {{ r.model or '' }}">Close Deal</button>
+                {% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="text-center text-muted py-4">No device sourcing requests.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: Parts Sourcing (identical to CRM Dashboard's table) ═══ -->
+  <div class="tab-pane fade" id="partSourcingTab" role="tabpanel">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 fw-semibold">
+        <i class="bi bi-box-seam me-2"></i>Pending Requests For Part Sourcing
+        <span class="badge bg-warning text-dark ms-1">{{ part_sourcing|selectattr('status','equalto','open')|list|length }} open</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover mb-0 small align-middle">
+          <thead class="table-light"><tr>
+            <th class="ps-3">Status</th><th>Part Code</th><th>Part Name</th><th>Qty Requested</th>
+            <th>Qty Sourced</th><th>Raised By</th><th>Action</th>
+          </tr></thead>
+          <tbody>
+            {% for s in part_sourcing %}
+            <tr>
+              <td class="ps-3">{% if s.status == 'closed' %}<span class="badge bg-success">Closed</span>{% else %}<span class="badge bg-warning text-dark">Open</span>{% endif %}</td>
+              <td><code>{{ s.part_code or '—' }}</code></td>
+              <td class="fw-semibold">{{ s.part_name }}</td>
+              <td>{{ s.qty_requested }}</td>
+              <td>{{ s.qty_sourced }}
+                {% if s.source_deal_id %}
+                  {% set _linked_deal = deal_map.get(s.source_deal_id) %}
+                  {% if _linked_deal %}
+                    <a href="/crm/sourcing/{{ s.source_deal_id }}" class="small">({{ _linked_deal.deal_number }})</a>
+                  {% else %}
+                    <span class="text-muted small">({{ s.source_deal_id }})</span>
+                  {% endif %}
+                {% endif %}
+              </td>
+              <td>{{ s.raised_by or '—' }}</td>
+              <td>
+                {% if s.status == 'closed' %}
+                <span class="badge bg-success">Closed</span>
+                {% elif is_sm %}
+                <button class="btn btn-sm btn-success py-0 px-2" data-bs-toggle="modal" data-bs-target="#closeDealModal"
+                        data-sr="{{ s.id }}" data-part="{{ s.part_name }}">Close Deal</button>
+                {% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="text-center text-muted py-4">No part sourcing requests.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Close Sourcing Deal modal — Device Sourcing tab -->
+<div class="modal fade" id="closeSourcingDealModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="closeSourcingDealForm" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-box-seam me-2"></i>Close Sourcing Deal</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3"><span class="text-muted small">Model Name:</span> <strong id="csd_model">—</strong></div>
+        <label class="form-label fw-semibold">Sourcing Deal</label>
+        <select name="source_deal_id" class="form-select mb-3" required>
+          <option value="" disabled selected>Select sourcing deal…</option>
+          {% for d in sourcing_deals_for_close %}
+          <option value="{{ d.id }}">{{ d.deal_number }} — {{ d.title[:60] }}{% if d.title|length > 60 %}…{% endif %}</option>
+          {% endfor %}
+        </select>
+        <label class="form-label fw-semibold">Sourced Quantity</label>
+        <input type="number" name="qty_sourced" class="form-control mb-3" min="0" value="1" required>
+        <label class="form-label fw-semibold">Sourcing Notes</label>
+        <textarea name="sourcing_notes" class="form-control" rows="2"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-success"><i class="bi bi-check-lg me-1"></i>Close Deal</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Close Deal modal — Parts Sourcing tab -->
+<div class="modal fade" id="closeDealModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="closeDealForm" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-box-seam me-2"></i>Close Sourcing Deal</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3"><span class="text-muted small">Part:</span> <strong id="cd_part">—</strong></div>
+        <label class="form-label fw-semibold">Sourcing Deal</label>
+        <select name="source_deal_id" class="form-select mb-3" required>
+          <option value="" disabled selected>Select sourcing deal…</option>
+          {% for d in sourcing_deals_for_close %}
+          <option value="{{ d.id }}">{{ d.deal_number }} — {{ d.title[:60] }}{% if d.title|length > 60 %}…{% endif %}</option>
+          {% endfor %}
+        </select>
+        <label class="form-label fw-semibold">Sourced Quantity</label>
+        <input type="number" name="qty_sourced" class="form-control" min="0" value="1" required>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-success"><i class="bi bi-check-lg me-1"></i>Close Deal</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+var _csd = document.getElementById('closeSourcingDealModal');
+if (_csd) {
+  _csd.addEventListener('show.bs.modal', function (e) {
+    var b = e.relatedTarget;
+    document.getElementById('closeSourcingDealForm').action = '/procure-dashboard/device-sourcing/' + b.getAttribute('data-req') + '/close';
+    document.getElementById('csd_model').textContent = b.getAttribute('data-model') || '—';
+  });
+}
+var _cd = document.getElementById('closeDealModal');
+if (_cd) {
+  _cd.addEventListener('show.bs.modal', function (e) {
+    var b = e.relatedTarget;
+    document.getElementById('closeDealForm').action = '/part-sourcing/' + b.getAttribute('data-sr') + '/close';
+    document.getElementById('cd_part').textContent = b.getAttribute('data-part') || '—';
+  });
+}
+</script>
+{% endblock %}

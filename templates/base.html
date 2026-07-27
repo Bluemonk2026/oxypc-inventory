@@ -236,6 +236,9 @@
       <li><a href="/crm/" class="nav-link {% if request.url.path == '/crm/' %}active{% endif %}">
         <i class="bi bi-diagram-3 me-2"></i> {{ sidebar_label('crm_dashboard', 'CRM Dashboard') }}
       </a></li>
+      <li><a href="/procure-dashboard" class="nav-link {% if request.url.path == '/procure-dashboard' %}active{% endif %}">
+        <i class="bi bi-cart-check me-2"></i> Procure Dashboard
+      </a></li>
       {% endif %}
       {% if has_perm(role,'crm_contacts','enable') %}
       <li><a href="/crm/contacts" class="nav-link {% if request.url.path.startswith('/crm/contacts') %}active{% endif %}">

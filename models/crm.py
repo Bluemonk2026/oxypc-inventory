@@ -264,6 +264,12 @@ class CRMQuote(Base):
     created_at      = Column(DateTime,    default=app_now)
     updated_at      = Column(DateTime,    default=app_now, onupdate=app_now)
 
+    # ── Customer Payments (Accounts) — Complete Payment / Upload Invoice ────
+    payment_status       = Column(String(20), nullable=False, default="pending")  # pending/paid
+    utr_number           = Column(String(100), nullable=True)
+    payment_snapshot_path= Column(String(255), nullable=True)
+    invoice_path         = Column(String(255), nullable=True)
+
     contact     = relationship("CRMContact",          back_populates="quotes")
     items       = relationship("CRMQuoteItem",         back_populates="quote",
                                cascade="all, delete-orphan", order_by="CRMQuoteItem.sort_order")
@@ -366,6 +372,12 @@ class CRMPurchaseOrder(Base):
     created_at            = Column(DateTime,     default=app_now)
     updated_at            = Column(DateTime,     default=app_now, onupdate=app_now)
 
+    # ── Supplier Payments (Accounts) — Complete Payment / Upload Invoice ────
+    payment_status        = Column(String(20),   nullable=False, default="pending")  # pending/paid
+    utr_number            = Column(String(100),  nullable=True)
+    payment_snapshot_path = Column(String(255),  nullable=True)
+    invoice_path          = Column(String(255),  nullable=True)
+
     contact    = relationship("CRMContact",       foreign_keys=[contact_id])
     deal       = relationship("CRMSourcingDeal",  foreign_keys=[deal_id])
     line_items = relationship("CRMPOLineItem",    back_populates="po",
@@ -422,17 +434,21 @@ class SupplierPayment(Base):
     contact_id    = Column(UUID(as_uuid=True), ForeignKey("crm_contacts.id"), nullable=True)
     lot_id        = Column(UUID(as_uuid=True), ForeignKey("lots.id"), nullable=True)
     po_id         = Column(UUID(as_uuid=True), ForeignKey("crm_purchase_orders.id"), nullable=True)
+    sourcing_deal_id = Column(UUID(as_uuid=True), ForeignKey("crm_sourcing_deals.id"), nullable=True)
     payment_date  = Column(Date, nullable=False, default=date.today)
     amount        = Column(Numeric(14, 2), nullable=False)
     payment_mode  = Column(String(20), nullable=True)   # cash/upi/neft/cheque/rtgs
     reference_no  = Column(String(100), nullable=True)  # UTR / cheque no
     is_advance    = Column(Boolean, default=False)
     notes         = Column(Text, nullable=True)
+    invoice_path       = Column(String(255), nullable=True)
+    payment_photo_path = Column(String(255), nullable=True)
     created_by    = Column(String(50), nullable=True)
     created_at    = Column(DateTime, default=app_now)
 
     contact = relationship("CRMContact", foreign_keys=[contact_id])
     lot     = relationship("Lot",        foreign_keys=[lot_id])
+    sourcing_deal = relationship("CRMSourcingDeal", foreign_keys=[sourcing_deal_id])
 
 
 class CustomerReceipt(Base):
@@ -444,16 +460,20 @@ class CustomerReceipt(Base):
     dealer_id        = Column(UUID(as_uuid=True), ForeignKey("dealers.id"), nullable=True)
     sale_id          = Column(UUID(as_uuid=True), ForeignKey("sales.id"), nullable=True)
     dealer_order_id  = Column(UUID(as_uuid=True), ForeignKey("dealer_orders.id"), nullable=True)
+    opportunity_id   = Column(UUID(as_uuid=True), ForeignKey("crm_sales_opportunities.id"), nullable=True)
     receipt_date     = Column(Date, nullable=False, default=date.today)
     amount           = Column(Numeric(14, 2), nullable=False)
     payment_mode     = Column(String(20), nullable=True)
     reference_no     = Column(String(100), nullable=True)
     notes            = Column(Text, nullable=True)
+    invoice_path       = Column(String(255), nullable=True)
+    payment_photo_path = Column(String(255), nullable=True)
     created_by       = Column(String(50), nullable=True)
     created_at       = Column(DateTime, default=app_now)
 
     contact = relationship("CRMContact", foreign_keys=[contact_id])
     dealer  = relationship("Dealer",     foreign_keys=[dealer_id])
+    opportunity = relationship("CRMSalesOpportunity", foreign_keys=[opportunity_id])
 
 
 # ── ASSIGN LEADS MODULE ───────────────────────────────────────────────────────

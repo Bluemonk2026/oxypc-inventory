@@ -13,7 +13,7 @@
 <div class="card border-0 shadow-sm mb-4">
   <div class="card-header bg-transparent fw-semibold"><i class="bi bi-plus-circle me-2"></i>Record New Receipt</div>
   <div class="card-body">
-    <form action="/accounts/customer-receipts/new" method="post">
+    <form action="/accounts/customer-receipts/new" method="post" enctype="multipart/form-data">
       <div class="row g-3">
         <div class="col-md-4">
           <label class="form-label">Dealer</label>
@@ -22,7 +22,14 @@
             {% for d in dealers %}<option value="{{ d.id }}">{{ d.business_name }}</option>{% endfor %}
           </select>
         </div>
-        <div class="col-md-8">
+        <div class="col-md-4">
+          <label class="form-label">Opportunity ID</label>
+          <select name="opportunity_id" class="form-select form-select-sm">
+            <option value="">— No Opportunity —</option>
+            {% for o in opportunities %}<option value="{{ o.id }}">{{ o.opp_number }} — {{ o.title[:40] }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
           <label class="form-label small fw-semibold">Dealer Order ID <span class="text-muted">(optional — auto-reconciles order balance)</span></label>
           <input type="text" name="dealer_order_id" class="form-control form-control-sm font-monospace"
                  placeholder="Paste order UUID to auto-reconcile outstanding balance">
@@ -51,6 +58,14 @@
           <label class="form-label">Notes</label>
           <input type="text" name="notes" class="form-control form-control-sm" placeholder="Notes">
         </div>
+        <div class="col-md-6">
+          <label class="form-label">Invoice PDF</label>
+          <input type="file" name="invoice" accept="application/pdf" class="form-control form-control-sm">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Payment Photo</label>
+          <input type="file" name="payment_photo" accept="image/*" class="form-control form-control-sm">
+        </div>
         <div class="col-12">
           <button type="submit" class="btn btn-success btn-sm px-4"><i class="bi bi-check-circle me-2"></i>Record Receipt</button>
         </div>
@@ -78,7 +93,7 @@
   </div>
   <div class="card-body p-0">
     <table class="table table-hover mb-0 small">
-      <thead class="table-dark"><tr><th>Date</th><th>Contact</th><th>Dealer</th><th>Mode</th><th>Ref</th><th>Amount</th><th>By</th></tr></thead>
+      <thead class="table-dark"><tr><th>Date</th><th>Contact</th><th>Dealer</th><th>Mode</th><th>Ref</th><th>Amount</th><th>Document</th><th>By</th></tr></thead>
       <tbody>
         {% for r in receipts %}
         <tr>
@@ -88,18 +103,114 @@
           <td><span class="badge bg-secondary">{{ r.payment_mode or '&mdash;' }}</span></td>
           <td class="font-monospace small">{{ r.reference_no or '&mdash;' }}</td>
           <td class="fw-semibold text-success">&#8377;{{ "{:,.0f}".format(r.amount) }}</td>
+          <td class="text-nowrap">
+            {% if r.invoice_path %}<a href="/uploads/accounts/{{ r.invoice_path }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Invoice"><i class="bi bi-file-earmark-pdf"></i></a>{% endif %}
+            {% if r.payment_photo_path %}<a href="/uploads/accounts/{{ r.payment_photo_path }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Payment Photo"><i class="bi bi-image"></i></a>{% endif %}
+            {% if not r.invoice_path and not r.payment_photo_path %}&mdash;{% endif %}
+          </td>
           <td class="text-muted">{{ r.created_by or '&mdash;' }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="text-center text-muted py-4">No receipts recorded.</td></tr>
+        <tr><td colspan="8" class="text-center text-muted py-4">No receipts recorded.</td></tr>
         {% endfor %}
       </tbody>
       {% if receipts %}
       <tfoot class="table-light">
-        <tr><td colspan="5" class="text-end fw-bold">Total:</td><td class="fw-bold text-success">&#8377;{{ "{:,.0f}".format(total) }}</td><td></td></tr>
+        <tr><td colspan="5" class="text-end fw-bold">Total:</td><td class="fw-bold text-success">&#8377;{{ "{:,.0f}".format(total) }}</td><td colspan="2"></td></tr>
       </tfoot>
       {% endif %}
     </table>
   </div>
 </div>
+
+<!-- List of Quotes Sent -->
+<div class="card border-0 shadow-sm mt-4">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-file-earmark-text me-2"></i>List of Quotes Sent</div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0 small">
+      <thead class="table-dark"><tr><th>Quote Number</th><th>Contact</th><th>Date</th><th>Amount</th><th>Payment Status</th><th>Document</th><th>Action</th></tr></thead>
+      <tbody>
+        {% for q in quotes %}
+        <tr>
+          <td class="font-monospace">{{ q.quote_number }}</td>
+          <td>{{ q.contact.company_name if q.contact else '&mdash;' }}</td>
+          <td>{{ q.quote_date.strftime('%d-%m-%Y') if q.quote_date else '&mdash;' }}</td>
+          <td class="fw-semibold">&#8377;{{ "{:,.0f}".format(q.total_amount or 0) }}</td>
+          <td>{% if q.payment_status == 'paid' %}<span class="badge bg-success">Paid</span>{% else %}<span class="badge bg-warning text-dark">Pending</span>{% endif %}</td>
+          <td class="text-nowrap">
+            {% if q.invoice_path %}<a href="/uploads/accounts/{{ q.invoice_path }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Invoice"><i class="bi bi-file-earmark-pdf"></i></a>{% endif %}
+            {% if q.payment_snapshot_path %}<a href="/uploads/accounts/{{ q.payment_snapshot_path }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Payment Snapshot"><i class="bi bi-image"></i></a>{% endif %}
+            {% if not q.invoice_path and not q.payment_snapshot_path %}&mdash;{% endif %}
+          </td>
+          <td class="text-nowrap">
+            {% if can_edit %}
+            {% if q.payment_status != 'paid' %}
+            <button type="button" class="btn btn-sm btn-success py-0 px-2" data-bs-toggle="modal" data-bs-target="#quoteCompletePaymentModal" data-id="{{ q.id }}">Complete Payment</button>
+            {% endif %}
+            <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2" data-bs-toggle="modal" data-bs-target="#quoteUploadInvoiceModal" data-id="{{ q.id }}">Upload Invoice</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No quotes sent.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Complete Payment modal (Quote) -->
+<div class="modal fade" id="quoteCompletePaymentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="quoteCompletePaymentForm" class="modal-content" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header"><h5 class="modal-title">Complete Payment</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <label class="form-label fw-semibold">UTR Number <span class="text-danger">*</span></label>
+        <input type="text" name="utr_number" class="form-control mb-3" required>
+        <label class="form-label fw-semibold">Payment Snapshot</label>
+        <input type="file" name="payment_snapshot" accept="image/*" class="form-control">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-success">Complete Payment</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Upload Invoice modal (Quote) -->
+<div class="modal fade" id="quoteUploadInvoiceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="quoteUploadInvoiceForm" class="modal-content" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="modal-header"><h5 class="modal-title">Upload Invoice</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <label class="form-label fw-semibold">Invoice PDF <span class="text-danger">*</span></label>
+        <input type="file" name="invoice" accept="application/pdf" class="form-control" required>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Upload</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+var _qcp = document.getElementById('quoteCompletePaymentModal');
+if (_qcp) {
+  _qcp.addEventListener('show.bs.modal', function (e) {
+    document.getElementById('quoteCompletePaymentForm').action = '/accounts/quote/' + e.relatedTarget.getAttribute('data-id') + '/complete-payment';
+  });
+}
+var _qui = document.getElementById('quoteUploadInvoiceModal');
+if (_qui) {
+  _qui.addEventListener('show.bs.modal', function (e) {
+    document.getElementById('quoteUploadInvoiceForm').action = '/accounts/quote/' + e.relatedTarget.getAttribute('data-id') + '/upload-invoice';
+  });
+}
+</script>
 {% endblock %}

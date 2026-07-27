@@ -144,6 +144,7 @@ from routers.grn import router as grn_router
 from routers.parts_grn import router as parts_grn_router
 import models.parts_grn  # ensure parts_grn tables are in Base.metadata
 import models.company  # ensure companies table is in Base.metadata
+from routers.procure_dashboard import router as procure_dashboard_router
 from routers.stage_control import router as stage_control_router
 from routers.market import router as market_router
 from routers.inventory_location import router as inventory_location_router
@@ -244,6 +245,7 @@ app.include_router(notifications_router)
 app.include_router(manuals_router)
 app.include_router(landing_pages_router)
 app.include_router(company_settings_router)
+app.include_router(procure_dashboard_router)
 app.include_router(terms_conditions_router)
 app.include_router(dealer_quotations_router)
 app.include_router(quotations_list_router)

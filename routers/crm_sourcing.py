@@ -328,6 +328,8 @@ async def deal_detail(
     companies = (await db.execute(
         select(Company).where(Company.is_active == True).order_by(Company.company_name)
     )).scalars().all()
+    from routers.crm_quotes import active_terms_by_type
+    terms_by_type = await active_terms_by_type(db)
 
     return templates.TemplateResponse("crm/sourcing/detail.html", {
         "request": request, "current_user": current_user,
@@ -336,7 +338,7 @@ async def deal_detail(
         "deal_po_items": deal_po_items,
         "deal_po_items_total": deal_po_items_total,
         "deal_po_items_offer_total": deal_po_items_offer_total,
-        "companies": companies,
+        "companies": companies, "terms_by_type": terms_by_type,
         "next_fu": next_fu, "lot": lot,
         "lot_registered": lot_registered,
         "lot_sold": lot_sold,
@@ -668,13 +670,20 @@ async def generate_po_from_deal(
 ):
     username = current_user.username   # capture before any rollback (MissingGreenlet guard)
     form = await request.form()
+    term_ids = {
+        "payment":    (form.get("payment_term_id")    or "").strip(),
+        "delivery":   (form.get("delivery_term_id")   or "").strip(),
+        "disclaimer": (form.get("disclaimer_term_id") or "").strip(),
+    }
     sections = {
         "account":    bool(form.get("include_account")),
         "company":    bool(form.get("include_company")),
         "items":      bool(form.get("include_items")),
-        "payment":    bool(form.get("include_payment")),
-        "delivery":   bool(form.get("include_delivery")),
-        "conditions": bool(form.get("include_conditions")),
+        # A terms block is included only when a specific policy was picked
+        # for it — same rule as the Quote generate modal.
+        "payment":    bool(term_ids["payment"]),
+        "delivery":   bool(term_ids["delivery"]),
+        "conditions": bool(term_ids["disclaimer"]),
     }
 
     deal = (await db.execute(select(CRMSourcingDeal).where(CRMSourcingDeal.id == deal_id))).scalar_one_or_none()
@@ -722,11 +731,26 @@ async def generate_po_from_deal(
     if po is None:
         return RedirectResponse(url=f"/crm/sourcing/{deal_id}?error=Could+not+generate+PO+number", status_code=302)
 
-    # Gather company + active terms for the selected sections.
+    # Gather company + the specific term chosen per section (falls back to
+    # every active policy of that type if somehow no id was picked but the
+    # section is enabled — mirrors the Quote generate flow).
+    from models.terms import TermsCondition
+
+    async def _chosen_term(kind, enabled):
+        if not enabled:
+            return []
+        chosen = term_ids.get(kind)
+        if chosen:
+            row = (await db.execute(
+                select(TermsCondition).where(TermsCondition.id == chosen)
+            )).scalar_one_or_none()
+            return [row] if row else []
+        return await get_active_terms(db, kind)
+
     company = await get_company_settings(db, (form.get("company_id") or "").strip())
-    payment_terms  = await get_active_terms(db, "payment")    if sections["payment"]    else []
-    delivery_terms = await get_active_terms(db, "delivery")   if sections["delivery"]   else []
-    disclaimers    = await get_active_terms(db, "disclaimer") if sections["conditions"] else []
+    payment_terms  = await _chosen_term("payment",    sections["payment"])
+    delivery_terms = await _chosen_term("delivery",   sections["delivery"])
+    disclaimers    = await _chosen_term("disclaimer", sections["conditions"])
 
     pdf_bytes = build_po_pdf(
         po_number=po.po_number, po_date=po.po_date.strftime("%d %b %Y") if po.po_date else "",

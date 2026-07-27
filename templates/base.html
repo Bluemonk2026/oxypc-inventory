@@ -510,11 +510,10 @@
               <i class="bi bi-layout-text-sidebar me-2"></i> {{ sidebar_label('landing_pages', 'Module Page Titles') }}
             </a></li>
             {% endif %}
-            {% if has_explicit_perm(role, 'company_settings') %}
-            <li><a href="/admin/company-settings" class="nav-link py-1 small {% if '/admin/company-settings' in request.url.path %}active{% endif %}">
-              <i class="bi bi-building me-2"></i> {{ sidebar_label('company_settings', 'Company Settings') }}
-            </a></li>
-            {% endif %}
+            {# "/admin/company-settings" retired in favor of the multi-company
+               "/settings" page (top-level "Company Setting" nav item) —
+               having two separate Company Settings surfaces was the source of
+               "added company not showing" confusion. #}
             {% if has_explicit_perm(role, 'attendance_config') %}
             <li><a href="/admin/attendance-config" class="nav-link py-1 small {% if '/admin/attendance-config' in request.url.path %}active{% endif %}">
               <i class="bi bi-people me-2"></i> {{ sidebar_label('attendance_config', 'Attendance Config') }}

@@ -1,63 +1,45 @@
-"""Company Settings — admin-editable company details (name, address, GSTIN,
-phone, email) used to auto-fill the "Company Detail" section of a Dealer
-Quotation. Stored as AppSetting rows (key/value), same pattern as the Landing
-Pages page-title cache."""
+"""Company Settings — legacy helper module, kept only for its
+get_company_settings() function (still imported by routers/dealers.py and
+routers/dealer_quotations.py to auto-fill "Company Detail" on a Dealer
+Quotation). The admin-facing page itself has been retired in favor of the
+multi-company "/settings" page (routers/settings.py) — the two used to be
+separate surfaces backed by separate data, which is what caused "added
+company not showing" confusion. This module now reads from the same
+`companies` table as /settings, using the first active company as the
+single-company fallback these older callers expect."""
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from templates_config import templates
 from database import get_db
 from models.user import User, UserRole
-from models.settings import AppSetting
-from auth.dependencies import require_roles, verify_csrf
+from models.company import Company
+from auth.dependencies import require_roles
 
 router = APIRouter(prefix="/admin/company-settings", tags=["company_settings"])
 admin_only = require_roles(UserRole.admin)
 
-SETTING_KEYS = ["company_name", "company_address", "company_gstin", "company_phone", "company_email"]
-
 
 async def get_company_settings(db: AsyncSession) -> dict:
-    """Fetch current Company Settings values (empty string default for any unset key)."""
-    rows = (await db.execute(
-        select(AppSetting).where(AppSetting.key.in_(SETTING_KEYS))
-    )).scalars().all()
-    values = {r.key: r.value or "" for r in rows}
-    return {key: values.get(key, "") for key in SETTING_KEYS}
+    """Fetch the first active company's details (empty string default for any
+    unset field) — same key names as before (company_name, company_address,
+    company_gstin, company_phone, company_email) for template back-compat."""
+    company = (await db.execute(
+        select(Company).where(Company.is_active == True).order_by(Company.created_at)
+    )).scalars().first()
+    if not company:
+        return {"company_name": "", "company_address": "", "company_gstin": "",
+                "company_phone": "", "company_email": ""}
+    return {
+        "company_name": company.company_name or "",
+        "company_address": company.company_address or "",
+        "company_gstin": company.company_gstin or "",
+        "company_phone": company.company_phone or "",
+        "company_email": company.company_email or "",
+    }
 
 
-@router.get("", response_class=HTMLResponse)
-async def company_settings_form(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(admin_only),
-):
-    settings = await get_company_settings(db)
-    return templates.TemplateResponse("admin/company_settings.html", {
-        "request": request,
-        "current_user": current_user,
-        "settings": settings,
-        "success": request.query_params.get("success"),
-    })
-
-
-@router.post("/save", dependencies=[Depends(verify_csrf)])
-async def save_company_settings(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(admin_only),
-):
-    form = await request.form()
-    for key in SETTING_KEYS:
-        value = (form.get(key) or "").strip()
-        existing = (await db.execute(select(AppSetting).where(AppSetting.key == key))).scalar_one_or_none()
-        if existing:
-            existing.value = value
-            existing.updated_by = current_user.username
-        else:
-            db.add(AppSetting(key=key, value=value, description="Company Settings (Quotation autofill)",
-                               updated_by=current_user.username))
-    await db.commit()
-    return RedirectResponse(url="/admin/company-settings?success=Company+Settings+saved", status_code=302)
+@router.get("")
+async def company_settings_redirect(request: Request, current_user: User = Depends(admin_only)):
+    return RedirectResponse(url="/settings", status_code=302)

@@ -390,16 +390,40 @@
           <div class="modal-body">
             <div class="text-muted small mb-2">Select the sections to include. This creates a PO record and downloads the document.</div>
             <div class="form-check"><input class="form-check-input" type="checkbox" name="include_account" id="incAccount" checked><label class="form-check-label" for="incAccount">Account details (supplier)</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" name="include_company" id="incCompany" checked><label class="form-check-label" for="incCompany">Company details</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" name="include_items" id="incItems" checked><label class="form-check-label" for="incItems">PO line items</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" name="include_payment" id="incPayment" checked><label class="form-check-label" for="incPayment">Payment Terms</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" name="include_delivery" id="incDelivery" checked><label class="form-check-label" for="incDelivery">Delivery Terms</label></div>
-            <div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="include_conditions" id="incConditions" checked><label class="form-check-label" for="incConditions">Conditions</label></div>
+            <div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="include_company" id="incCompany" checked><label class="form-check-label" for="incCompany">Company details</label></div>
+            <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="include_items" id="incItems" checked><label class="form-check-label" for="incItems">PO line items</label></div>
 
             <label class="form-label small fw-semibold mb-1">Company Details</label>
-            <select name="company_id" class="form-select form-select-sm">
+            <select name="company_id" class="form-select form-select-sm mb-3">
               {% for c in companies %}
               <option value="{{ c.id }}">{{ c.company_name }}</option>
+              {% endfor %}
+            </select>
+
+            {# Titles come from the Terms & Condition page; leaving one blank
+               omits that block from the document entirely — same rule as
+               the Quote generate modal. #}
+            <label class="form-label small fw-semibold mb-1">Payment Terms</label>
+            <select name="payment_term_id" class="form-select form-select-sm mb-2">
+              <option value="">— None —</option>
+              {% for t in terms_by_type.get('payment', []) %}
+              <option value="{{ t.id }}">{{ t.title }}</option>
+              {% endfor %}
+            </select>
+
+            <label class="form-label small fw-semibold mb-1">Delivery Terms</label>
+            <select name="delivery_term_id" class="form-select form-select-sm mb-2">
+              <option value="">— None —</option>
+              {% for t in terms_by_type.get('delivery', []) %}
+              <option value="{{ t.id }}">{{ t.title }}</option>
+              {% endfor %}
+            </select>
+
+            <label class="form-label small fw-semibold mb-1">Conditions</label>
+            <select name="disclaimer_term_id" class="form-select form-select-sm">
+              <option value="">— None —</option>
+              {% for t in terms_by_type.get('disclaimer', []) %}
+              <option value="{{ t.id }}">{{ t.title }}</option>
               {% endfor %}
             </select>
           </div>

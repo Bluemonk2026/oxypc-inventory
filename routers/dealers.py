@@ -1967,6 +1967,7 @@ async def quick_new_dealer(
         address=address or None,
         status=status,
         added_by=current_user.username,
+        assigned_to=current_user.username,
     )
     db.add(dealer)
     await db.flush()

@@ -960,6 +960,10 @@ async def contact_profile(
     )).scalars().all()
     quote_rows = await quote_summary_rows(db, quotes)
     terms_by_type = await active_terms_by_type(db)
+    from models.company import Company
+    companies = (await db.execute(
+        select(Company).where(Company.is_active == True).order_by(Company.company_name)
+    )).scalars().all()
     # Lots this Account won at auction — the "Quote for Bid Won" picker.
     won_lots = await lots_won_by_contact(db, contact.id)
 
@@ -1001,6 +1005,7 @@ async def contact_profile(
         "lost_bids": lost_bids, "won_bid_lots": won_bid_lots,
         "purchase_orders": purchase_orders,
         "quote_rows": quote_rows, "terms_by_type": terms_by_type,
+        "companies": companies,
         "won_lots": won_lots,
         "source_map": source_map, "buyer_map": buyer_map,
         "scorecard": scorecard,

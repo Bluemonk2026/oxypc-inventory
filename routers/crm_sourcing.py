@@ -316,7 +316,18 @@ async def deal_detail(
     )
     deal_po_items = dpi_r.scalars().all()
     deal_po_items_total = sum(float(li.total_price or 0) for li in deal_po_items)
-    deal_po_items_offer_total = sum(float(li.offer_price or 0) for li in deal_po_items)
+    # Effective offer total: use each row's Offer Price where set, otherwise
+    # fall back to that row's Total Price - a row with no offer price yet
+    # shouldn't drag the bottom total down to 0 for that item.
+    deal_po_items_offer_total = sum(
+        float(li.offer_price) if li.offer_price else float(li.total_price or 0)
+        for li in deal_po_items
+    )
+
+    from models.company import Company
+    companies = (await db.execute(
+        select(Company).where(Company.is_active == True).order_by(Company.company_name)
+    )).scalars().all()
 
     return templates.TemplateResponse("crm/sourcing/detail.html", {
         "request": request, "current_user": current_user,
@@ -325,6 +336,7 @@ async def deal_detail(
         "deal_po_items": deal_po_items,
         "deal_po_items_total": deal_po_items_total,
         "deal_po_items_offer_total": deal_po_items_offer_total,
+        "companies": companies,
         "next_fu": next_fu, "lot": lot,
         "lot_registered": lot_registered,
         "lot_sold": lot_sold,
@@ -711,7 +723,7 @@ async def generate_po_from_deal(
         return RedirectResponse(url=f"/crm/sourcing/{deal_id}?error=Could+not+generate+PO+number", status_code=302)
 
     # Gather company + active terms for the selected sections.
-    company = await get_company_settings(db)
+    company = await get_company_settings(db, (form.get("company_id") or "").strip())
     payment_terms  = await get_active_terms(db, "payment")    if sections["payment"]    else []
     delivery_terms = await get_active_terms(db, "delivery")   if sections["delivery"]   else []
     disclaimers    = await get_active_terms(db, "disclaimer") if sections["conditions"] else []

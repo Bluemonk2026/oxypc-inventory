@@ -183,6 +183,13 @@
         <div class="form-check"><input class="form-check-input" type="checkbox" name="include_company" id="gqCompany" checked><label class="form-check-label" for="gqCompany">Company details</label></div>
         <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="include_items" id="gqItems" checked><label class="form-check-label" for="gqItems">Buyer Deal Line Items</label></div>
 
+        <label class="form-label small fw-semibold mb-1">Company Details</label>
+        <select name="company_id" class="form-select form-select-sm mb-3">
+          {% for c in companies %}
+          <option value="{{ c.id }}">{{ c.company_name }}</option>
+          {% endfor %}
+        </select>
+
         {# Titles come from the Terms &amp; Condition page; leaving one blank
            omits that block from the document entirely. #}
         <label class="form-label small fw-semibold mb-1">Payment Terms</label>

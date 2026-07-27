@@ -1,6 +1,8 @@
 """Attendance Config (Application Settings) — admin sets up groups of users
 with a designated manager. That manager can then view /attendance/report
-scoped to just their group's members (see routers/attendance.py)."""
+scoped to just their group's members (see routers/attendance.py). Also the
+sole place that sets Application Timezone (moved here from the Company
+Setting page — that page can now hold multiple company profiles instead)."""
 import uuid
 from templates_config import templates
 from fastapi import APIRouter, Depends, Form, Request, HTTPException
@@ -10,13 +12,27 @@ from sqlalchemy import select
 
 from database import get_db
 from models.user import User, UserRole
+from models.settings import AppSetting
 from models.attendance_group import AttendanceGroup, AttendanceGroupMember
 from auth.dependencies import require_roles, verify_csrf
 from services.audit_engine import audit
+from utils.timezone import set_app_timezone
 
 router = APIRouter(prefix="/admin/attendance-config", tags=["attendance_config"],
                    dependencies=[Depends(verify_csrf)])
 admin_only = require_roles(UserRole.admin)
+
+TZ_OPTIONS = [
+    ("Asia/Kolkata",   "Asia/Kolkata — IST (UTC+5:30)"),
+    ("Asia/Colombo",   "Asia/Colombo — Sri Lanka (UTC+5:30)"),
+    ("Asia/Kathmandu", "Asia/Kathmandu — Nepal (UTC+5:45)"),
+    ("Asia/Dubai",     "Asia/Dubai — GST (UTC+4:00)"),
+    ("Asia/Singapore", "Asia/Singapore — SGT (UTC+8:00)"),
+    ("Asia/Bangkok",   "Asia/Bangkok — ICT (UTC+7:00)"),
+    ("UTC",            "UTC — Coordinated Universal Time"),
+    ("US/Eastern",     "US/Eastern — EST/EDT"),
+    ("Europe/London",  "Europe/London — GMT/BST"),
+]
 
 
 @router.get("", response_class=HTMLResponse)
@@ -38,12 +54,36 @@ async def attendance_config_list(request: Request, db: AsyncSession = Depends(ge
         )).scalars().all()
         member_map[str(g.id)] = [r.username for r in rows]
 
+    tz_row = await db.get(AppSetting, "app_timezone")
+    current_tz = (tz_row.value if tz_row and tz_row.value else "Asia/Kolkata")
+
     return templates.TemplateResponse("admin/attendance_config.html", {
         "request": request, "current_user": current_user,
         "groups": groups, "users": users, "member_map": member_map,
+        "tz_options": TZ_OPTIONS, "current_tz": current_tz,
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
     })
+
+
+@router.post("/timezone")
+async def save_timezone(
+    request: Request,
+    app_timezone: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(admin_only),
+):
+    tz_val = app_timezone.strip() or "Asia/Kolkata"
+    existing = await db.get(AppSetting, "app_timezone")
+    if existing:
+        existing.value = tz_val
+        existing.updated_by = current_user.username
+    else:
+        db.add(AppSetting(key="app_timezone", value=tz_val,
+                          description="Application Timezone", updated_by=current_user.username))
+    await db.commit()
+    set_app_timezone(tz_val)
+    return RedirectResponse(url="/admin/attendance-config?success=Timezone+updated", status_code=302)
 
 
 @router.post("/create")

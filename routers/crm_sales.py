@@ -253,6 +253,10 @@ async def opp_detail(
     )).scalars().all()
     quote_rows = await quote_summary_rows(db, deal_quotes)
     terms_by_type = await active_terms_by_type(db)
+    from models.company import Company
+    companies = (await db.execute(
+        select(Company).where(Company.is_active == True).order_by(Company.company_name)
+    )).scalars().all()
 
     acts_r = await db.execute(
         select(CRMActivity)
@@ -271,6 +275,7 @@ async def opp_detail(
         "opp": opp, "contact": contact, "quote": quote, "activities": activities,
         "lot": lot,
         "quote_rows": quote_rows, "terms_by_type": terms_by_type,
+        "companies": companies,
         "next_fu": next_fu,
         "sales_stages": SALES_STAGES, "stage_list": stage_list, "current_idx": current_idx,
         "buyer_map": dict(BUYER_TYPES), "material_map": dict(MATERIAL_TYPES),

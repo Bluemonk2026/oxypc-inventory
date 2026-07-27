@@ -745,6 +745,22 @@ Table app_settings {
   updated_at datetime [default: `now()`]
 }
 
+// ── companies (Company Setting page — multiple company profiles) ──
+Table companies {
+  id uuid [pk, not null]
+  company_name varchar(200) [not null]
+  company_address varchar(500)
+  company_gstin varchar(20)
+  company_state varchar(100)
+  company_state_code varchar(5)
+  company_phone varchar(50)
+  company_email varchar(100)
+  is_active boolean [not null, default: true]
+  created_by varchar(50)
+  created_at datetime
+  updated_at datetime
+}
+
 // ── iqc_inspections ──────────────────────────────────────────
 Table iqc_inspections {
   id uuid [pk, not null]

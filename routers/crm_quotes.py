@@ -505,7 +505,7 @@ class _QuoteLine:
         self.total_price = item.total_price
 
 
-async def _quote_pdf(db: AsyncSession, quote, *, sections, term_ids=None):
+async def _quote_pdf(db: AsyncSession, quote, *, sections, term_ids=None, company_id=None):
     """Build the quote PDF. term_ids maps 'payment'/'delivery'/'disclaimer' to a
     single chosen TermsCondition id; absent or blank means include every active
     policy of that type (which is what the plain Download link does)."""
@@ -536,7 +536,7 @@ async def _quote_pdf(db: AsyncSession, quote, *, sections, term_ids=None):
             return [row] if row else []
         return await get_active_terms(db, kind)
 
-    company = await get_company_settings(db)
+    company = await get_company_settings(db, company_id)
     pdf_bytes: bytes = build_po_pdf(
         po_number=quote.quote_number,
         po_date=quote.quote_date.strftime("%d %b %Y") if quote.quote_date else "",
@@ -594,7 +594,8 @@ async def generate_quote_doc(
         "delivery":   bool(term_ids["delivery"]),
         "conditions": bool(term_ids["disclaimer"]),
     }
-    return await _quote_pdf(db, quote, sections=sections, term_ids=term_ids)
+    company_id = (form.get("company_id") or "").strip()
+    return await _quote_pdf(db, quote, sections=sections, term_ids=term_ids, company_id=company_id)
 
 
 def quote_pdf_path(quote_id) -> str:

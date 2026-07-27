@@ -10,7 +10,7 @@
   <div class="card-header bg-transparent">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
       <span class="fw-semibold">
-        <i class="bi bi-telephone me-2"></i>Telecaller Requests
+        <i class="bi bi-telephone me-2"></i>Tag Number Requests
         <span class="badge bg-warning text-dark ms-1">{{ requests|selectattr('status','equalto','requested')|list|length }} pending</span>
       </span>
       <div class="d-flex gap-2 flex-nowrap ms-auto justify-content-end">
@@ -80,7 +80,7 @@
   <div class="card-header bg-transparent">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
       <span class="fw-semibold">
-        <i class="bi bi-collection me-2"></i>Sales Request for Lot
+        <i class="bi bi-collection me-2"></i>Lot Number Requests
         <span class="badge bg-warning text-dark ms-1">{{ lot_requests|selectattr('status','equalto','requested')|list|length }} pending</span>
       </span>
       {% if _appr %}

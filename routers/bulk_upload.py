@@ -88,20 +88,20 @@ TEMPLATES = {
             "lot_number", "supplier_name", "buying_price", "qty", "purchase_date",
             # GRN
             "grn_system_number", "grn_number_new", "grn_date",
-            # Invoice / GST
-            "invoice_no", "invoice_date", "invoice_value",
+            # Invoice / GST — invoice date is taken from purchase_date (GRN/Invoice)
+            "invoice_no", "invoice_value",
             "taxable_amount", "sgst", "cgst", "igst",
             # PO / Logistics
-            "po_number", "vendor_name", "vehicle_number", "e_way_bill",
+            "po_number", "vehicle_number", "e_way_bill",
             # Misc
             "notes",
         ],
         "example": [
             "LOT-001", "ABC Traders", "50000", "10", "2024-01-15",
             "GRN-178", "178", "2024-01-14",
-            "INV-2024-001", "2024-01-14", "59000",
+            "INV-2024-001", "59000",
             "50000", "4500", "4500", "0",
-            "PO-2024-001", "ABC Suppliers Pvt Ltd", "MH04AB1234", "EWB-123456",
+            "PO-2024-001", "MH04AB1234", "EWB-123456",
             "First lot - HP laptops",
         ],
     },
@@ -239,9 +239,9 @@ async def upload_lots(
                 grn_system_number = row.get("grn_system_number", "").strip() or None,
                 grn_number_new    = _parse_int(row.get("grn_number_new")),
                 grn_date          = _parse_date(row.get("grn_date")),
-                # Invoice / GST
+                # Invoice / GST — GRN/Invoice (purchase_date) doubles as invoice date
                 invoice_no     = row.get("invoice_no", "").strip() or None,
-                invoice_date   = _parse_date(row.get("invoice_date")),
+                invoice_date   = purchase_date,
                 invoice_value  = _parse_decimal(row.get("invoice_value")),
                 taxable_amount = _parse_decimal(row.get("taxable_amount")),
                 sgst           = _parse_decimal(row.get("sgst")),
@@ -249,7 +249,6 @@ async def upload_lots(
                 igst           = _parse_decimal(row.get("igst")),
                 # PO / Logistics
                 po_number      = row.get("po_number", "").strip() or None,
-                vendor_name    = row.get("vendor_name", "").strip() or None,
                 vehicle_number = row.get("vehicle_number", "").strip() or None,
                 e_way_bill     = row.get("e_way_bill", "").strip() or None,
                 # Misc

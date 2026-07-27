@@ -390,7 +390,6 @@ async def create_lot(
     grn_system_number: str = Form(""),
     grn_number_new: str = Form(""),
     grn_date: str = Form(""),
-    invoice_date: str = Form(""),
     invoice_no: str = Form(""),
     invoice_value: str = Form(""),
     taxable_amount: str = Form(""),
@@ -400,7 +399,6 @@ async def create_lot(
     vehicle_number: str = Form(""),
     e_way_bill: str = Form(""),
     po_number: str = Form(""),
-    vendor_name: str = Form(""),
     notes: str = Form(""),
     crm_deal_id: str = Form(""),
     db: AsyncSession = Depends(get_db),
@@ -426,7 +424,9 @@ async def create_lot(
         grn_system_number=grn_system_number or None,
         grn_number_new=int(grn_number_new) if grn_number_new else None,
         grn_date=_parse_date(grn_date),
-        invoice_date=_parse_date(invoice_date),
+        # Invoice Date field was removed from the form - GRN/Invoice (the
+        # renamed Purchase/GRN Date field) now doubles as the invoice date.
+        invoice_date=datetime.strptime(purchase_date, "%Y-%m-%d"),
         invoice_no=invoice_no or None,
         invoice_value=_parse_decimal(invoice_value),
         selling_price=_parse_decimal(selling_price),
@@ -437,7 +437,6 @@ async def create_lot(
         vehicle_number=vehicle_number or None,
         e_way_bill=e_way_bill or None,
         po_number=po_number or None,
-        vendor_name=vendor_name or None,
         notes=notes or None,
         created_by=current_user.username,
     )
@@ -505,7 +504,6 @@ async def edit_lot(
     grn_system_number: str = Form(""),
     grn_number_new: str = Form(""),
     grn_date: str = Form(""),
-    invoice_date: str = Form(""),
     invoice_no: str = Form(""),
     invoice_value: str = Form(""),
     taxable_amount: str = Form(""),
@@ -515,7 +513,6 @@ async def edit_lot(
     vehicle_number: str = Form(""),
     e_way_bill: str = Form(""),
     po_number: str = Form(""),
-    vendor_name: str = Form(""),
     notes: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
@@ -532,7 +529,9 @@ async def edit_lot(
     lot.grn_system_number = grn_system_number or None
     lot.grn_number_new = int(grn_number_new) if grn_number_new else None
     lot.grn_date = _parse_date(grn_date)
-    lot.invoice_date = _parse_date(invoice_date)
+    # Invoice Date field was removed from the form - GRN/Invoice (the renamed
+    # Purchase/GRN Date field) now doubles as the invoice date.
+    lot.invoice_date = datetime.strptime(purchase_date, "%Y-%m-%d")
     lot.invoice_no = invoice_no or None
     lot.invoice_value = _parse_decimal(invoice_value)
     lot.selling_price = _parse_decimal(selling_price)
@@ -543,7 +542,6 @@ async def edit_lot(
     lot.vehicle_number = vehicle_number or None
     lot.e_way_bill = e_way_bill or None
     lot.po_number = po_number or None
-    lot.vendor_name = vendor_name or None
     lot.notes = notes or None
     await db.commit()
     return RedirectResponse(url=f"/lots/{lot_id}?success=Lot+updated", status_code=302)

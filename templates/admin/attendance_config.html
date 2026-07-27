@@ -6,6 +6,27 @@
 {% if success %}<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>{% endif %}
 {% if error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>{% endif %}
 
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-globe me-2"></i>Application Timezone</div>
+  <div class="card-body">
+    <form method="post" action="/admin/attendance-config/timezone" class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Timezone</label>
+        <select name="app_timezone" class="form-select form-select-sm">
+          {% for tz_val, tz_label in tz_options %}
+          <option value="{{ tz_val }}" {% if current_tz == tz_val %}selected{% endif %}>{{ tz_label }}</option>
+          {% endfor %}
+        </select>
+        <div class="form-text text-muted">All new timestamps will be recorded in this timezone.</div>
+      </div>
+      <div class="col-md-auto">
+        <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-save me-1"></i>Save Timezone</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h5 class="mb-0 fw-bold">Attendance Groups</h5>

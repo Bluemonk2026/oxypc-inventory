@@ -143,6 +143,7 @@ from routers.m_telecalling import router as m_telecalling_router
 from routers.grn import router as grn_router
 from routers.parts_grn import router as parts_grn_router
 import models.parts_grn  # ensure parts_grn tables are in Base.metadata
+import models.company  # ensure companies table is in Base.metadata
 from routers.stage_control import router as stage_control_router
 from routers.market import router as market_router
 from routers.inventory_location import router as inventory_location_router

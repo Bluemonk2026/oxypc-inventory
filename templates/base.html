@@ -233,9 +233,6 @@
       {% if any_perm(role,'crm_dashboard','crm_contacts','crm_sourcing','crm_sales_opp','crm_price_matrix','crm_purchase_orders','crm_analytics','crm_assign_leads') %}
       <li class="nav-section">CRM</li>
       {% if has_perm(role,'crm_dashboard','enable') %}
-      <li><a href="/crm/" class="nav-link {% if request.url.path == '/crm/' %}active{% endif %}">
-        <i class="bi bi-diagram-3 me-2"></i> {{ sidebar_label('crm_dashboard', 'CRM Dashboard') }}
-      </a></li>
       <li><a href="/procure-dashboard" class="nav-link {% if request.url.path == '/procure-dashboard' %}active{% endif %}">
         <i class="bi bi-cart-check me-2"></i> Procure Dashboard
       </a></li>

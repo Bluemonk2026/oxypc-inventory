@@ -320,6 +320,7 @@
                 {% if r.status == 'requested' %}
                 <button class="btn btn-sm btn-success py-0 px-2" data-bs-toggle="modal" data-bs-target="#handoverModal"
                         data-req="{{ r.id }}" data-part="{{ r.part_name }}" data-eng="{{ r.engineer_name or r.requested_by }}"
+                        data-qty="{{ r.qty_requested }}"
                         {{ 'disabled' if not available }}>Handover</button>
                 {% elif r.status == 'handed_over' %}<span class="badge bg-success">Handed Over &times;{{ r.qty_handed_over }}</span>
                 {% elif r.status == 'not_in_stock' %}<span class="badge bg-danger">Not In Stock</span>
@@ -391,6 +392,7 @@
                 {% if r.status == 'requested' %}
                 <button class="btn btn-sm btn-success py-0 px-2" data-bs-toggle="modal" data-bs-target="#handoverModal"
                         data-req="{{ r.id }}" data-part="{{ r.part_name }}" data-eng="{{ r.engineer_name or r.requested_by }}"
+                        data-qty="{{ r.qty_requested }}"
                         {{ 'disabled' if not available }}>Handover</button>
                 {% elif r.status == 'handed_over' %}<span class="badge bg-success">Handed Over &times;{{ r.qty_handed_over }}</span>
                 {% elif r.status == 'not_in_stock' %}<span class="badge bg-danger">Not In Stock</span>
@@ -469,9 +471,11 @@
             <td>
               {% if s.verified %}
               <span class="badge bg-success"><i class="bi bi-patch-check"></i> Verified</span>
-              {% else %}
+              {% elif s.status == 'closed' %}
               <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
                       onclick="openSourcingVerifyModal('{{ s.id }}', '{{ s.part_name }}')">Verify</button>
+              {% else %}
+              <span class="badge bg-warning text-dark">Pending at Sourcing</span>
               {% endif %}
             </td>
           </tr>
@@ -522,7 +526,7 @@
         <div class="mb-2"><span class="text-muted small">Part:</span> <strong id="ho_part">—</strong></div>
         <div class="mb-3"><span class="text-muted small">Engineer:</span> <strong id="ho_eng">—</strong></div>
         <label class="form-label fw-semibold">Quantity to Hand Over</label>
-        <input type="number" name="qty" class="form-control" min="1" value="1" required>
+        <input type="number" id="ho_qty" name="qty" class="form-control" readonly tabindex="-1">
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -667,6 +671,7 @@ if (_hm) {
     document.getElementById('handoverForm').action = '/part-requests/' + b.getAttribute('data-req') + '/handover';
     document.getElementById('ho_part').textContent = b.getAttribute('data-part') || '—';
     document.getElementById('ho_eng').textContent = b.getAttribute('data-eng') || '—';
+    document.getElementById('ho_qty').value = b.getAttribute('data-qty') || '';
   });
 }
 

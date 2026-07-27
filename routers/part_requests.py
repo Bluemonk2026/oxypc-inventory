@@ -107,11 +107,15 @@ async def create_part_request(
 
 
 @router.post("/part-requests/{req_id}/handover")
-async def handover_part(req_id: str, request: Request, qty: int = Form(...),
+async def handover_part(req_id: str, request: Request,
                         db: AsyncSession = Depends(get_db), current_user: User = Depends(spm_allowed)):
     pr = (await db.execute(select(PartRequest).where(PartRequest.id == _as_uuid(req_id)))).scalar_one_or_none()
     if not pr:
         raise HTTPException(404, "Part request not found")
+    # Handover quantity is not user-editable — it always equals what was
+    # requested, so the server is authoritative rather than trusting a
+    # posted qty field (the form field itself is read-only display-only).
+    qty = pr.qty_requested
     pr.qty_handed_over = max(0, qty)
     pr.status = "handed_over"
     pr.actioned_at = app_now()
@@ -230,6 +234,8 @@ async def verify_sourcing(sr_id: str, request: Request,
     )).scalar_one_or_none()
     if not sr:
         return JSONResponse({"ok": False, "error": "Sourcing request not found"}, status_code=404)
+    if sr.status != "closed":
+        return JSONResponse({"ok": False, "error": "Pending at Sourcing — deal must be closed before verifying"}, status_code=409)
     if sr.verified:
         return JSONResponse({"ok": False, "error": "Already verified"}, status_code=409)
     sr.verified = True

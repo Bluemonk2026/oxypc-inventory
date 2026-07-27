@@ -55,13 +55,6 @@
         </a>
       </li>
       {% endif %}
-      {% if has_perm(role,'inventory_requests','enable') %}
-      <li class="nav-item">
-        <a href="/inventory-requests" class="nav-link {% if '/inventory-requests' in request.url.path %}active{% endif %}">
-          <i class="bi bi-inboxes me-2"></i> {{ sidebar_label('inventory_requests', 'Inventory Request') }}
-        </a>
-      </li>
-      {% endif %}
 
       {# ── ATTENDANCE ──────────────────────────────────────────────────── #}
       {% if has_perm(role,'attendance','enable') or has_perm(role,'attendance_report','enable') %}
@@ -109,11 +102,23 @@
       {% endif %}
 
       {# ── INVENTORY ───────────────────────────────────────────────────── #}
-      {% if any_perm(role,'stock','production_manager','transfers') %}
+      {% if any_perm(role,'stock','production_manager','transfers','inventory_requests','model_requested') %}
       <li class="nav-section">INVENTORY</li>
       {% if has_perm(role,'stock','enable') %}
       <li><a href="/stock" class="nav-link {% if request.url.path == '/stock' %}active{% endif %}">
         <i class="bi bi-archive me-2"></i> {{ sidebar_label('stock', 'Stock Inwards') }}
+      </a></li>
+      {% endif %}
+      {# Inventory Request + Model Requested sit directly after Stock Inwards
+         (the Inventory Manager's page) per the requested nav order. #}
+      {% if has_perm(role,'inventory_requests','enable') %}
+      <li><a href="/inventory-requests" class="nav-link {% if '/inventory-requests' in request.url.path %}active{% endif %}">
+        <i class="bi bi-inboxes me-2"></i> {{ sidebar_label('inventory_requests', 'Inventory Request') }}
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'model_requested','enable') %}
+      <li><a href="/model-requested" class="nav-link {% if '/model-requested' in request.url.path %}active{% endif %}">
+        <i class="bi bi-clipboard-data me-2"></i> {{ sidebar_label('model_requested', 'Model Requested') }}
       </a></li>
       {% endif %}
       {% if has_perm(role,'production_manager','enable') %}
@@ -276,6 +281,13 @@
         <i class="bi bi-person-lines-fill me-2"></i> {{ sidebar_label('crm_assign_leads', 'Assign Social Leads') }}
       </a></li>
       {% endif %}
+      {# Terms & Conditions sits directly after Assign Social Leads per the
+         requested nav order. Admin-only (moved out of Application Settings). #}
+      {% if role == 'admin' %}
+      <li><a href="/admin/terms-conditions" class="nav-link {% if '/admin/terms-conditions' in request.url.path %}active{% endif %}">
+        <i class="bi bi-file-text me-2"></i> Terms &amp; Conditions
+      </a></li>
+      {% endif %}
       {% endif %}
 
       {# ── TRADE PARTNER (dealer-facing B2B portal admin) ────────────────── #}
@@ -414,8 +426,15 @@
 
 
       {# ── REPORTS ─────────────────────────────────────────────────────── #}
-      {% if has_perm(role,'reports','enable') or has_perm(role,'report_sales','enable') or has_perm(role,'report_stage','enable') or has_perm(role,'report_bizpl','enable') or has_perm(role,'report_aging','enable') or has_perm(role,'report_overdue','enable') or has_perm(role,'report_receivables','enable') or has_perm(role,'market','enable') %}
+      {# Stock Aging / Overdue Devices / Receivables / Market Intel were moved
+         out of this section into the Application Settings accordion below. #}
+      {% if has_perm(role,'reports','enable') or has_perm(role,'report_sales','enable') or has_perm(role,'report_stage','enable') or has_perm(role,'report_bizpl','enable') %}
       <li class="nav-section">REPORTS</li>
+      {% endif %}
+      {% if has_perm(role,'report_bizpl','enable') %}
+      <li><a href="/reports/business-pl" class="nav-link {% if '/reports/business-pl' in request.url.path %}active{% endif %}">
+        <i class="bi bi-graph-up-arrow me-2"></i> {{ sidebar_label('report_bizpl', 'Business P&L') }}
+      </a></li>
       {% endif %}
       {% if has_perm(role,'reports','enable') %}
       <li><a href="/reports/lot-pl" class="nav-link {% if '/reports/lot' in request.url.path %}active{% endif %}">
@@ -432,73 +451,101 @@
         <i class="bi bi-shuffle me-2"></i> {{ sidebar_label('report_stage', 'Stage Log') }}
       </a></li>
       {% endif %}
-      {% if has_perm(role,'report_bizpl','enable') %}
-      <li><a href="/reports/business-pl" class="nav-link {% if '/reports/business-pl' in request.url.path %}active{% endif %}">
-        <i class="bi bi-graph-up-arrow me-2"></i> {{ sidebar_label('report_bizpl', 'Business P&L') }}
-      </a></li>
-      {% endif %}
-      {% if has_perm(role,'report_aging','enable') %}
-      <li><a href="/reports/stock-aging" class="nav-link {% if '/reports/stock-aging' in request.url.path %}active{% endif %}">
-        <i class="bi bi-hourglass-split me-2"></i> {{ sidebar_label('report_aging', 'Stock Aging') }}
-      </a></li>
-      {% endif %}
-      {% if has_perm(role,'report_overdue','enable') %}
-      <li><a href="/reports/overdue" class="nav-link {% if '/reports/overdue' in request.url.path %}active{% endif %}">
-        <i class="bi bi-exclamation-triangle me-2"></i> {{ sidebar_label('report_overdue', 'Overdue Devices') }}
-      </a></li>
-      {% endif %}
-      {% if has_perm(role,'report_receivables','enable') %}
-      <li><a href="/reports/receivables" class="nav-link {% if '/reports/receivables' in request.url.path %}active{% endif %}">
-        <i class="bi bi-hourglass-split me-2 text-warning"></i> {{ sidebar_label('report_receivables', 'Receivables') }}
-      </a></li>
-      {% endif %}
-      {% if has_perm(role,'market','enable') %}
-      <li><a href="/market" class="nav-link {% if request.url.path.startswith('/market') %}active{% endif %}">
-        <i class="bi bi-graph-up-arrow me-2"></i> {{ sidebar_label('market', 'Market Intel') }}
-      </a></li>
-      {% endif %}
 
       {# ── ADMIN ───────────────────────────────────────────────────────── #}
-      {% if role == 'admin' %}
+      {# Admin Settings accordion (formerly "User Settings"). Visible to admin
+         always, and to sub_admin / any role granted its modules via the
+         "Sub Admin Role" tab (/admin/master). 'admin_settings' is the master
+         switch admin toggles to reveal/hide the whole accordion for sub_admin;
+         each item below is independently gated by has_explicit_perm() so admin
+         can hand a sub_admin exactly the pieces it needs. The legacy per-item
+         perms are OR'd into the container guard so any role previously granted
+         Move Device Internal / Sidebar Config / Module Page Titles keeps
+         seeing the accordion (no regression). QA Dashboard stays admin-only. #}
+      {% set admin_settings_visible = role == 'admin'
+             or has_explicit_perm(role, 'admin_settings')
+             or has_explicit_perm(role, 'admin_users')
+             or has_explicit_perm(role, 'admin_master')
+             or has_explicit_perm(role, 'move_device_internal')
+             or has_explicit_perm(role, 'sidebar_config')
+             or has_explicit_perm(role, 'landing_pages')
+             or has_explicit_perm(role, 'company_settings')
+             or has_explicit_perm(role, 'attendance_config') %}
+      {% if admin_settings_visible %}
       <li class="nav-section">ADMIN</li>
 
-      {# User Settings — collapsible group #}
-      {% set user_settings_active = '/admin/users' in request.url.path or '/admin/master' in request.url.path %}
+      {% set admin_settings_active = '/admin/users' in request.url.path or '/admin/master' in request.url.path or '/repair/move' in request.url.path or '/admin/sidebar-config' in request.url.path or '/admin/landing-pages' in request.url.path or '/admin/company-settings' in request.url.path or '/admin/attendance-config' in request.url.path %}
       <li class="nav-item">
-        <a href="#userSettingsCollapse" class="nav-link d-flex align-items-center {% if user_settings_active %}active{% endif %}"
+        <a href="#adminSettingsCollapse" class="nav-link d-flex align-items-center {% if admin_settings_active %}active{% endif %}"
            data-bs-toggle="collapse" role="button"
-           aria-expanded="{{ 'true' if user_settings_active else 'false' }}" aria-controls="userSettingsCollapse">
-          <i class="bi bi-people me-2"></i> User Settings
+           aria-expanded="{{ 'true' if admin_settings_active else 'false' }}" aria-controls="adminSettingsCollapse">
+          <i class="bi bi-shield-lock me-2"></i> Admin Settings
           <i class="bi bi-chevron-down ms-auto small transition-icon"></i>
         </a>
-        <div class="collapse {% if user_settings_active %}show{% endif %}" id="userSettingsCollapse">
+        <div class="collapse {% if admin_settings_active %}show{% endif %}" id="adminSettingsCollapse">
           <ul class="nav flex-column ps-3 pb-1">
+            {% if has_explicit_perm(role, 'admin_users') %}
             <li><a href="/admin/users" class="nav-link py-1 small {% if '/admin/users' in request.url.path %}active{% endif %}">
               <i class="bi bi-people me-2"></i> Users
             </a></li>
+            {% endif %}
+            {% if has_explicit_perm(role, 'admin_master') %}
             <li><a href="/admin/master" class="nav-link py-1 small {% if '/admin/master' in request.url.path %}active{% endif %}">
               <i class="bi bi-database-gear me-2"></i> Master Data
             </a></li>
+            {% endif %}
+            {% if has_explicit_perm(role, 'move_device_internal') %}
+            <li><a href="/repair/move/form" class="nav-link py-1 small {% if '/repair/move' in request.url.path %}active{% endif %}">
+              <i class="bi bi-arrow-left-right me-2"></i> {{ sidebar_label('move_device_internal', 'Move Device Internal') }}
+            </a></li>
+            {% endif %}
+            {% if has_explicit_perm(role, 'sidebar_config') %}
+            <li><a href="/admin/sidebar-config/" class="nav-link py-1 small {% if '/admin/sidebar-config' in request.url.path %}active{% endif %}">
+              <i class="bi bi-list-ul me-2"></i> {{ sidebar_label('sidebar_config', 'Sidebar Config') }}
+            </a></li>
+            {% endif %}
+            {% if has_explicit_perm(role, 'landing_pages') %}
+            <li><a href="/admin/landing-pages" class="nav-link py-1 small {% if '/admin/landing-pages' in request.url.path %}active{% endif %}">
+              <i class="bi bi-layout-text-sidebar me-2"></i> {{ sidebar_label('landing_pages', 'Module Page Titles') }}
+            </a></li>
+            {% endif %}
+            {% if has_explicit_perm(role, 'company_settings') %}
+            <li><a href="/admin/company-settings" class="nav-link py-1 small {% if '/admin/company-settings' in request.url.path %}active{% endif %}">
+              <i class="bi bi-building me-2"></i> Company Settings
+            </a></li>
+            {% endif %}
+            {% if has_explicit_perm(role, 'attendance_config') %}
+            <li><a href="/admin/attendance-config" class="nav-link py-1 small {% if '/admin/attendance-config' in request.url.path %}active{% endif %}">
+              <i class="bi bi-people me-2"></i> Attendance Config
+            </a></li>
+            {% endif %}
           </ul>
         </div>
       </li>
 
       {# QA Dashboard — admin only, all sub-pages accessible via tabs on the QA pages #}
+      {% if role == 'admin' %}
       <li><a href="/qa/" class="nav-link {% if request.url.path.startswith('/qa') %}active{% endif %}">
         <i class="bi bi-speedometer2 me-2"></i> {{ sidebar_label('qa', 'QA Dashboard') }}
       </a></li>
+      {% endif %}
       {% endif %}
 
       {# Application Settings — collapsible group. Standalone (not nested inside
          role=='admin') so roles individually granted the Parts Purchased/Tracking/
          Consumption permissions still see this accordion — but every admin-only
          item inside is still explicitly gated on role=='admin', so non-admin
-         visibility is unchanged from before this reorg. #}
-      {% set app_settings_active = '/stage-control' in request.url.path or '/admin/audit-log' in request.url.path or '/repair/move' in request.url.path or '/admin/landing-pages' in request.url.path or '/admin/sidebar-config' in request.url.path or '/admin/company-settings' in request.url.path or '/admin/terms-conditions' in request.url.path or '/admin/attendance-config' in request.url.path or '/whatsapp/audit' in request.url.path or '/purchase' in request.url.path or '/ram' in request.url.path or '/consume' in request.url.path %}
+         visibility is unchanged from before this reorg.
+         Stock Aging / Overdue Devices / Receivables / Market Intel were moved
+         here from the REPORTS section. Move Device Internal / Sidebar Config /
+         Module Page Titles / Company Settings / Attendance Config moved to the
+         Admin Settings accordion; Terms & Conditions moved to the CRM section. #}
+      {% set app_settings_active = '/stage-control' in request.url.path or '/admin/audit-log' in request.url.path or '/reports/stock-aging' in request.url.path or '/reports/overdue' in request.url.path or '/reports/receivables' in request.url.path or '/market' in request.url.path or '/purchase' in request.url.path or '/ram' in request.url.path or '/consume' in request.url.path %}
       {% if role == 'admin' or has_perm(role,'spare_parts_purchase','enable') or has_perm(role,'parts_tracking','enable') or has_perm(role,'parts_consumption','enable')
-            or has_perm(role,'move_device_internal','enable') or has_perm(role,'stage_control','enable') or has_perm(role,'aging_tracker','enable')
-            or has_perm(role,'stage_audit_log','enable') or has_perm(role,'system_audit_log','enable') or has_perm(role,'sidebar_config','enable')
-            or has_perm(role,'landing_pages','enable') or has_perm(role,'wa_audit_log','enable') %}
+            or has_perm(role,'stage_control','enable') or has_perm(role,'aging_tracker','enable')
+            or has_perm(role,'stage_audit_log','enable') or has_perm(role,'system_audit_log','enable')
+            or has_perm(role,'report_aging','enable') or has_perm(role,'report_overdue','enable')
+            or has_perm(role,'report_receivables','enable') or has_perm(role,'market','enable') %}
       <li class="nav-item">
         <a href="#appSettingsCollapse" class="nav-link d-flex align-items-center {% if app_settings_active %}active{% endif %}"
            data-bs-toggle="collapse" role="button"
@@ -510,11 +557,6 @@
         </a>
         <div class="collapse {% if app_settings_active %}show{% endif %}" id="appSettingsCollapse">
           <ul class="nav flex-column ps-3 pb-1">
-            {% if role == 'admin' or has_perm(role,'move_device_internal','enable') %}
-            <li><a href="/repair/move/form" class="nav-link py-1 small {% if '/repair/move' in request.url.path %}active{% endif %}">
-              <i class="bi bi-arrow-left-right me-2"></i> {{ sidebar_label('move_device_internal', 'Move Device Internal') }}
-            </a></li>
-            {% endif %}
             {% if role == 'admin' or has_perm(role,'stage_control','enable') %}
             <li><a href="/stage-control" class="nav-link py-1 small {% if request.url.path == '/stage-control' %}active{% endif %}">
               <i class="bi bi-diagram-3 me-2"></i> {{ sidebar_label('stage_control', 'Stage Control') }}
@@ -535,25 +577,25 @@
               <i class="bi bi-shield-check me-2"></i> {{ sidebar_label('system_audit_log', 'System Audit Log') }}
             </a></li>
             {% endif %}
-            {% if role == 'admin' or has_perm(role,'sidebar_config','enable') %}
-            <li><a href="/admin/sidebar-config/" class="nav-link py-1 small {% if '/admin/sidebar-config' in request.url.path %}active{% endif %}">
-              <i class="bi bi-list-ul me-2"></i> {{ sidebar_label('sidebar_config', 'Sidebar Config') }}
+            {# ── Reports relocated from REPORTS section ── #}
+            {% if has_perm(role,'report_aging','enable') %}
+            <li><a href="/reports/stock-aging" class="nav-link py-1 small {% if '/reports/stock-aging' in request.url.path %}active{% endif %}">
+              <i class="bi bi-hourglass-split me-2"></i> {{ sidebar_label('report_aging', 'Stock Aging') }}
             </a></li>
             {% endif %}
-            {% if role == 'admin' or has_perm(role,'landing_pages','enable') %}
-            <li><a href="/admin/landing-pages" class="nav-link py-1 small {% if '/admin/landing-pages' in request.url.path %}active{% endif %}">
-              <i class="bi bi-layout-text-sidebar me-2"></i> {{ sidebar_label('landing_pages', 'Landing Pages') }}
+            {% if has_perm(role,'report_overdue','enable') %}
+            <li><a href="/reports/overdue" class="nav-link py-1 small {% if '/reports/overdue' in request.url.path %}active{% endif %}">
+              <i class="bi bi-exclamation-triangle me-2"></i> {{ sidebar_label('report_overdue', 'Overdue Devices') }}
             </a></li>
             {% endif %}
-            {% if role == 'admin' %}
-            <li><a href="/admin/company-settings" class="nav-link py-1 small {% if '/admin/company-settings' in request.url.path %}active{% endif %}">
-              <i class="bi bi-building me-2"></i> Company Settings
+            {% if has_perm(role,'report_receivables','enable') %}
+            <li><a href="/reports/receivables" class="nav-link py-1 small {% if '/reports/receivables' in request.url.path %}active{% endif %}">
+              <i class="bi bi-hourglass-split me-2 text-warning"></i> {{ sidebar_label('report_receivables', 'Receivables') }}
             </a></li>
-            <li><a href="/admin/terms-conditions" class="nav-link py-1 small {% if '/admin/terms-conditions' in request.url.path %}active{% endif %}">
-              <i class="bi bi-file-text me-2"></i> Terms &amp; Conditions
-            </a></li>
-            <li><a href="/admin/attendance-config" class="nav-link py-1 small {% if '/admin/attendance-config' in request.url.path %}active{% endif %}">
-              <i class="bi bi-people me-2"></i> Attendance Config
+            {% endif %}
+            {% if has_perm(role,'market','enable') %}
+            <li><a href="/market" class="nav-link py-1 small {% if request.url.path.startswith('/market') %}active{% endif %}">
+              <i class="bi bi-graph-up-arrow me-2"></i> {{ sidebar_label('market', 'Market Intel') }}
             </a></li>
             {% endif %}
             {# WhatsApp integration removed — WA Audit Log nav entry disabled

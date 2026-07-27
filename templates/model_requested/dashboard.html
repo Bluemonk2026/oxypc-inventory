@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Model Requested — OxyPC{% endblock %}
+{% block page_title %}Model Requested{% endblock %}
+{% block content %}
+
+<div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+    <div>
+      <label class="form-label form-label-sm mb-1 text-muted small">Status</label>
+      <select name="status" class="form-select form-select-sm" style="width:190px" onchange="this.form.submit()">
+        <option value="">Open &amp; Partial</option>
+        <option value="open" {% if status=='open' %}selected{% endif %}>Open only</option>
+        <option value="partially_fulfilled" {% if status=='partially_fulfilled' %}selected{% endif %}>Partially Fulfilled</option>
+        <option value="fulfilled" {% if status=='fulfilled' %}selected{% endif %}>Fulfilled</option>
+      </select>
+    </div>
+    <a href="/model-requested" class="btn btn-sm btn-outline-secondary">Clear</a>
+  </form>
+  <a href="/model-requests" class="btn btn-sm btn-outline-primary">
+    <i class="bi bi-list-check me-1"></i>Manage Requests
+  </a>
+</div>
+
+<div class="alert alert-light border py-2 small text-muted">
+  <i class="bi bi-info-circle me-1"></i>
+  Read-only demand rollup of configuration requests raised by Sales / Telecalling.
+  Fulfil or edit individual requests on the <a href="/model-requests">Model Requests</a> page.
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-4">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-danger">{{ total_outstanding }}</div>
+      <div class="small text-muted">Outstanding Units</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-primary">{{ total_requested }}</div>
+      <div class="small text-muted">Total Requested</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-warning">{{ active_configs }}</div>
+      <div class="small text-muted">Configs In Demand</div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0" id="modelRequestedTable">
+      <thead class="table-light">
+        <tr>
+          <th>Configuration</th>
+          <th>Category</th>
+          <th>Grade</th>
+          <th class="text-end">Requested</th>
+          <th class="text-end">Fulfilled</th>
+          <th class="text-end">Outstanding</th>
+          <th class="text-center">Open Reqs</th>
+          <th>Requested By</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in demand %}
+        <tr>
+          <td class="fw-semibold">{{ d.label }}</td>
+          <td>{{ d.sub_category }}</td>
+          <td><span class="badge bg-secondary">{{ d.grade }}</span></td>
+          <td class="text-end">{{ d.qty_requested }}</td>
+          <td class="text-end">{{ d.qty_fulfilled }}</td>
+          <td class="text-end">
+            {% if d.outstanding > 0 %}
+            <span class="fw-bold text-danger">{{ d.outstanding }}</span>
+            {% else %}
+            <span class="text-success">0</span>
+            {% endif %}
+          </td>
+          <td class="text-center">{{ d.open_requests }}</td>
+          <td class="small text-muted">{{ d.requesters }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-4">No model demand for the selected filter.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

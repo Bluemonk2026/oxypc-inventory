@@ -130,6 +130,7 @@ from routers.transfers import router as transfers_router
 from routers.part_requests import router as part_requests_router
 from routers.dispatch import router as dispatch_router
 from routers.model_requests import router as model_requests_router
+from routers.model_requested import router as model_requested_router
 import models.model_requests  # ensure model_requests table is in Base.metadata
 from routers.attendance import router as attendance_router
 from routers.attendance_group_config import router as attendance_group_config_router
@@ -206,6 +207,7 @@ app.include_router(transfers_router)
 app.include_router(part_requests_router)
 app.include_router(dispatch_router)
 app.include_router(model_requests_router)
+app.include_router(model_requested_router)
 app.include_router(attendance_router)
 app.include_router(attendance_group_config_router)
 app.include_router(telesales_dashboard_router)
@@ -475,6 +477,26 @@ async def startup_event():
         print("  [Perms] Role permission cache loaded")
     except Exception as _pe:
         print(f"  [Perms] Could not load permission cache: {_pe}")
+
+    # ── Ensure the 'sub_admin' custom role exists (item 7) ────────────────────
+    # Seeded so it shows in role dropdowns and the "Sub Admin Role" tab has a
+    # target. Idempotent: skips if already present. Starts with NO permissions
+    # (admin grants them via the tab), so a fresh sub_admin sees nothing extra.
+    try:
+        from models.role_permissions import CustomRole as _CustomRole
+        from database import AsyncSessionLocal as _ASLsa
+        from sqlalchemy import select as _sel_sa
+        async with _ASLsa() as _sess_sa:
+            _exists = (await _sess_sa.execute(
+                _sel_sa(_CustomRole).where(_CustomRole.role_name == "sub_admin")
+            )).scalar_one_or_none()
+            if not _exists:
+                _sess_sa.add(_CustomRole(role_name="sub_admin", display_name="Sub Admin",
+                                         created_by="system"))
+                await _sess_sa.commit()
+                print("  [Perms] Seeded 'sub_admin' custom role")
+    except Exception as _sae:
+        print(f"  [Perms] Could not seed sub_admin role: {_sae}")
 
     # ── Warm Sidebar Config label cache from DB ───────────────────────────────
     try:

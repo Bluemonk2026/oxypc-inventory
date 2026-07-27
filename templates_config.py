@@ -62,10 +62,20 @@ templates.env.filters["ist_datetime"] = ist_datetime  # {{ dt | ist_datetime }}
 #                                       at least one of its modules is visible).
 from models.role_permissions import (
     has_perm as _has_perm,
+    has_explicit_perm as _has_explicit_perm_fn,
     get_cached_sidebar_label as _sidebar_label,
     get_cached_page_title as _get_cached_page_title,
     can_view_pricing as _can_view_pricing_by_role,
 )
+
+
+def _has_explicit_perm(role, module):
+    """Template helper mirroring models.role_permissions.has_explicit_perm:
+    True only when the matrix holds an explicit ENABLE row for (role, module),
+    with admin always True. Used by the Admin Settings accordion so admin can
+    grant a sub_admin individual admin modules via the Sub Admin Role tab."""
+    role_val = getattr(role, "value", None) or str(role)
+    return _has_explicit_perm_fn(role_val, module)
 
 
 def _can_view_pricing(current_user):
@@ -143,6 +153,7 @@ def _breadcrumb_enabled(path: str) -> bool:
 
 
 templates.env.globals["has_perm"] = _has_perm
+templates.env.globals["has_explicit_perm"] = _has_explicit_perm
 templates.env.globals["any_perm"] = _any_perm
 templates.env.globals["can_view_pricing"] = _can_view_pricing
 templates.env.globals["breadcrumb_enabled"] = _breadcrumb_enabled

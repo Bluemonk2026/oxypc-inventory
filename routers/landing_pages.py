@@ -54,6 +54,8 @@ async def load_breadcrumb_settings_to_cache(db: AsyncSession) -> None:
 NAV_PAGE_TITLES = [
     ("dashboard",            "Admin Dashboard",               "Admin Dashboard",               "/dashboard"),
     ("dispatch",             "TRC Dashboard",                 "TRC Dashboard",                 "/dispatch"),
+    ("inventory_requests",   "Inventory Request",             "Inventory Request",             "/inventory-requests"),
+    ("model_requested",      "Model Requested",               "Model Requested",               "/model-requested"),
     ("devices",              "Inventory Search",              "Inventory Search",              "/devices"),
     ("attendance",           "My Attendance",                 "My Attendance",                 "/attendance"),
     ("attendance_report",    "Attendance Report",             "Attendance Report",             "/attendance/report"),

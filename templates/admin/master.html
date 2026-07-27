@@ -47,6 +47,12 @@
       <i class="bi bi-currency-rupee me-1"></i>Pricing Visibility
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link {{ 'active' if main_tab == 'sub_admin' else '' }}"
+       href="/admin/master?main_tab=sub_admin">
+      <i class="bi bi-shield-lock-fill me-1"></i>Sub Admin Role
+    </a>
+  </li>
 </ul>
 
 {# ═══════════════════════════════════════════════════════════════════════════ #}
@@ -552,6 +558,85 @@
 </form>
 
 {% endif %}{# end tab 4 #}
+
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+{# TAB 5 — SUB ADMIN ROLE (item 7)                                            #}
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+{% if main_tab == 'sub_admin' %}
+
+{% set sub_admin_modules = sub_admin_modules|default([]) %}
+
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+    <span class="fw-semibold">
+      <i class="bi bi-shield-lock-fill me-2"></i>Sub Admin Role &mdash;
+      <span class="text-primary">{{ sub_admin_role|default('sub_admin') }}</span>
+    </span>
+    <div class="d-flex gap-2">
+      <button type="button" class="btn btn-sm btn-outline-success" onclick="toggleAllSubAdmin(true)">
+        <i class="bi bi-check2-all me-1"></i>Grant All
+      </button>
+      <button type="button" class="btn btn-sm btn-outline-danger" onclick="toggleAllSubAdmin(false)">
+        <i class="bi bi-x-circle me-1"></i>Revoke All
+      </button>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="alert alert-info m-3 mb-0">
+      <i class="bi bi-info-circle me-2"></i>
+      Enable or disable <strong>any</strong> module — including admin-only surfaces — for the
+      <strong>sub_admin</strong> role only. This is where you switch the <strong>Admin Settings</strong>
+      accordion on/off for sub admins (via the <em>Admin Settings (accordion master switch)</em> row)
+      and grant them individual admin pages (Users, Master Data, Sidebar Config, Module Page Titles,
+      Company Settings, Attendance Config, Move Device Internal). No other role is affected.
+    </div>
+
+    <form method="post" action="/admin/master/permissions/save-sub-admin" id="subAdminForm">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="table-responsive mt-3">
+        <table class="table table-bordered table-sm mb-0" id="subAdminMatrix">
+          <thead class="table-dark">
+            <tr>
+              <th style="min-width:220px">Module</th>
+              <th class="text-center" style="width:110px">Enable</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for mod_key, mod_label in sub_admin_modules %}
+            {% set row = sub_admin_perm_rows.get(mod_key) if sub_admin_perm_rows is defined else none %}
+            {% set checked = row.can_enable if row else false %}
+            <tr>
+              <td class="fw-semibold small">{{ sidebar_label(mod_key, mod_label) }}</td>
+              <td class="text-center">
+                <div class="form-check d-flex justify-content-center">
+                  <input class="form-check-input sub-admin-cb" type="checkbox"
+                         name="perm_{{ mod_key }}_can_enable"
+                         id="sacb_{{ mod_key }}"
+                         {% if checked %}checked{% endif %}>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="px-3 py-3 border-top d-flex gap-2">
+        <button type="submit" class="btn btn-primary px-4">
+          <i class="bi bi-save me-1"></i>Save Sub Admin Role Permissions
+        </button>
+        <a href="/admin/master?main_tab=sub_admin" class="btn btn-outline-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function toggleAllSubAdmin(state) {
+  document.querySelectorAll('.sub-admin-cb').forEach(function(cb){ cb.checked = state; });
+}
+</script>
+
+{% endif %}{# end tab 5 #}
 
 {# ─────────────────────── SHARED MODALS (Tab 1) ───────────────────────────── #}
 {% if main_tab == 'dropdowns' %}

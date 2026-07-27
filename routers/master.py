@@ -99,6 +99,7 @@ PERM_MODULES = [
     ("dashboard",            "Admin Dashboard"),
     ("dispatch",             "TRC Dashboard"),
     ("inventory_requests",   "Inventory Request"),
+    ("model_requested",      "Model Requested"),
     ("devices",              "Inventory Search"),
     # ── ATTENDANCE ─────────────────────────────────────────────────
     ("attendance",           "My Attendance"),
@@ -180,9 +181,32 @@ PERM_MODULES = [
     ("stage_audit_log",      "Stage Audit Log"),
     ("system_audit_log",     "System Audit Log"),
     ("sidebar_config",       "Sidebar Config"),
-    ("landing_pages",        "Landing Pages"),
+    ("landing_pages",        "Module Page Titles"),
     ("wa_audit_log",         "WA Audit Log"),
 ]
+
+# ── Sub Admin Role tab (item 7) ───────────────────────────────────────────────
+# Admin-only surfaces that live OUTSIDE PERM_MODULES because they were previously
+# hardcoded `role == 'admin'` (no grant path). Exposing them ONLY through the
+# "Sub Admin Role" tab lets admin hand a sub_admin the Admin Settings accordion
+# and its items without adding these toggles to every other role's matrix.
+#   admin_settings   — master switch for the whole Admin Settings accordion
+#   admin_users      — Users page
+#   admin_master     — Master Data page
+#   company_settings / attendance_config / terms_conditions — the admin config pages
+SUB_ADMIN_EXTRA_MODULES = [
+    ("admin_settings",    "Admin Settings (accordion master switch)"),
+    ("admin_users",       "Users"),
+    ("admin_master",      "Master Data"),
+    ("company_settings",  "Company Settings"),
+    ("attendance_config", "Attendance Config"),
+    ("terms_conditions",  "Terms & Conditions"),
+]
+
+# Everything the Sub Admin Role tab can toggle for the sub_admin role: every
+# regular module PLUS the admin-only surfaces above.
+SUB_ADMIN_MODULES = PERM_MODULES + SUB_ADMIN_EXTRA_MODULES
+SUB_ADMIN_ROLE = "sub_admin"
 
 PERM_ACTIONS = [
     ("can_enable", "Enable"),
@@ -366,6 +390,15 @@ async def master_list(
         for rval, rlabel in all_roles if rval != "admin"
     ]
 
+    # ── Sub Admin Role data (item 7) ──────────────────────────────────────────
+    # Always scoped to the fixed 'sub_admin' role (unlike the general matrix,
+    # which follows the role dropdown). Includes the admin-only surfaces so an
+    # admin can hand sub_admin the Admin Settings accordion and its pages.
+    sub_admin_rows = (await db.execute(
+        select(RoleModulePermission).where(RoleModulePermission.role_name == SUB_ADMIN_ROLE)
+    )).scalars().all()
+    sub_admin_perm_rows = {r.module: r for r in sub_admin_rows}
+
     return templates.TemplateResponse("admin/master.html", {
         "request": request,
         "grouped": grouped,
@@ -385,6 +418,10 @@ async def master_list(
         "additional_perm_row": additional_perm_row,
         # Pricing Visibility tab data
         "pricing_rows": pricing_rows,
+        # Sub Admin Role tab data (item 7)
+        "sub_admin_modules": SUB_ADMIN_MODULES,
+        "sub_admin_perm_rows": sub_admin_perm_rows,
+        "sub_admin_role": SUB_ADMIN_ROLE,
     })
 
 
@@ -756,6 +793,46 @@ async def save_pricing_visibility(
     await db.commit()
     return RedirectResponse(
         url="/admin/master?main_tab=pricing_visibility&success=Pricing+visibility+saved", status_code=302)
+
+
+@router.post("/permissions/save-sub-admin")
+async def save_sub_admin_permissions(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(admin_only),
+):
+    """Sub Admin Role tab (item 7): save the enable-matrix for the fixed
+    'sub_admin' role across SUB_ADMIN_MODULES (regular modules + the admin-only
+    surfaces). Hardwired to role_name='sub_admin' — this tab never touches any
+    other role. Replaces existing rows, same as the general matrix save."""
+    form = await request.form()
+
+    await db.execute(delete(RoleModulePermission).where(RoleModulePermission.role_name == SUB_ADMIN_ROLE))
+
+    new_perms: dict = {}
+    for mod_key, _mod_label in SUB_ADMIN_MODULES:
+        can_enable = f"perm_{mod_key}_can_enable" in form
+        db.add(RoleModulePermission(
+            role_name  = SUB_ADMIN_ROLE,
+            module     = mod_key,
+            can_enable = can_enable,
+            can_add    = can_enable,
+            can_edit   = can_enable,
+            can_upload = can_enable,
+            updated_by = current_user.username,
+        ))
+        new_perms[mod_key] = {
+            "enable": can_enable, "add": can_enable,
+            "edit":   can_enable, "upload": can_enable,
+        }
+
+    await db.commit()
+    set_cached_perms(SUB_ADMIN_ROLE, new_perms)
+
+    return RedirectResponse(
+        url="/admin/master?main_tab=sub_admin&success=Sub+Admin+Role+permissions+saved",
+        status_code=302,
+    )
 
 
 @router.post("/permissions/add-role")

@@ -426,6 +426,31 @@ async def export_devices(
     result = await db.execute(query)
     rows = result.all()
 
+    # Full stage-history string per device (Tag Number -> every stage it has
+    # passed through, in order) — a single current_stage column doesn't show
+    # the path a device took to get there, which is what this export is for.
+    device_ids = [device.id for device, _ in rows]
+    movements_by_device = {}
+    if device_ids:
+        mv_result = await db.execute(
+            select(StageMovement)
+            .where(StageMovement.device_id.in_(device_ids))
+            .order_by(StageMovement.moved_at.asc())
+        )
+        for mv in mv_result.scalars().all():
+            movements_by_device.setdefault(mv.device_id, []).append(mv)
+
+    def _stage_history(device):
+        moves = movements_by_device.get(device.id)
+        if not moves:
+            return STAGE_LABELS.get(device.current_stage, device.current_stage)
+        parts = []
+        for mv in moves:
+            label = STAGE_LABELS.get(mv.to_stage, mv.to_stage)
+            when = mv.moved_at.strftime("%d-%b-%Y") if mv.moved_at else ""
+            parts.append(f"{label} ({when})" if when else label)
+        return " -> ".join(parts)
+
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
@@ -433,7 +458,7 @@ async def export_devices(
         "Serial No", "CPU", "CPU Make", "Generation", "RAM GB", "RAM", "Total RAM Count", "Total RAM Size",
         "SSD GB", "Storage Type", "Hard Drive",
         "HDD GB", "Total HDD Count", "Total HDD Size", "Screen Size", "Battery %", "BIOS Pwd", "Color",
-        "Grade", "Stage", "Floor", "Warehouse", "Notes", "Created", "Updated"
+        "Grade", "Stage", "Stage History", "Floor", "Warehouse", "Notes", "Created", "Updated"
     ])
     for device, lot_number in rows:
         writer.writerow([
@@ -446,6 +471,7 @@ async def export_devices(
             device.battery_health_pct, "Yes" if device.bios_password else "No",
             device.color, device.grade,
             STAGE_LABELS.get(device.current_stage, device.current_stage),
+            _stage_history(device),
             device.floor, device.warehouse, device.notes,
             device.created_at.strftime("%d-%m-%Y %H:%M") if device.created_at else "",
             device.updated_at.strftime("%d-%m-%Y %H:%M") if device.updated_at else "",

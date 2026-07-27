@@ -282,10 +282,11 @@
       </a></li>
       {% endif %}
       {# Terms & Conditions sits directly after Assign Social Leads per the
-         requested nav order. Admin-only (moved out of Application Settings). #}
-      {% if role == 'admin' %}
+         requested nav order. Admin-only by default; grantable to sub_admin
+         (or any role) via has_explicit_perm(), same as the Admin Settings items. #}
+      {% if role == 'admin' or has_explicit_perm(role, 'terms_conditions') %}
       <li><a href="/admin/terms-conditions" class="nav-link {% if '/admin/terms-conditions' in request.url.path %}active{% endif %}">
-        <i class="bi bi-file-text me-2"></i> Terms &amp; Conditions
+        <i class="bi bi-file-text me-2"></i> {{ sidebar_label('terms_conditions', 'Terms & Conditions') }}
       </a></li>
       {% endif %}
       {% endif %}
@@ -486,12 +487,12 @@
           <ul class="nav flex-column ps-3 pb-1">
             {% if has_explicit_perm(role, 'admin_users') %}
             <li><a href="/admin/users" class="nav-link py-1 small {% if '/admin/users' in request.url.path %}active{% endif %}">
-              <i class="bi bi-people me-2"></i> Users
+              <i class="bi bi-people me-2"></i> {{ sidebar_label('admin_users', 'Users') }}
             </a></li>
             {% endif %}
             {% if has_explicit_perm(role, 'admin_master') %}
             <li><a href="/admin/master" class="nav-link py-1 small {% if '/admin/master' in request.url.path %}active{% endif %}">
-              <i class="bi bi-database-gear me-2"></i> Master Data
+              <i class="bi bi-database-gear me-2"></i> {{ sidebar_label('admin_master', 'Master Data') }}
             </a></li>
             {% endif %}
             {% if has_explicit_perm(role, 'move_device_internal') %}
@@ -511,12 +512,12 @@
             {% endif %}
             {% if has_explicit_perm(role, 'company_settings') %}
             <li><a href="/admin/company-settings" class="nav-link py-1 small {% if '/admin/company-settings' in request.url.path %}active{% endif %}">
-              <i class="bi bi-building me-2"></i> Company Settings
+              <i class="bi bi-building me-2"></i> {{ sidebar_label('company_settings', 'Company Settings') }}
             </a></li>
             {% endif %}
             {% if has_explicit_perm(role, 'attendance_config') %}
             <li><a href="/admin/attendance-config" class="nav-link py-1 small {% if '/admin/attendance-config' in request.url.path %}active{% endif %}">
-              <i class="bi bi-people me-2"></i> Attendance Config
+              <i class="bi bi-people me-2"></i> {{ sidebar_label('attendance_config', 'Attendance Config') }}
             </a></li>
             {% endif %}
           </ul>

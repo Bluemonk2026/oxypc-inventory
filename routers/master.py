@@ -183,28 +183,29 @@ PERM_MODULES = [
     ("sidebar_config",       "Sidebar Config"),
     ("landing_pages",        "Module Page Titles"),
     ("wa_audit_log",         "WA Audit Log"),
+    # ── ADMIN SETTINGS accordion (admin-only by default; grantable to
+    #    sub_admin — or any role — via this matrix / the Sub Admin Role tab) ─
+    ("admin_users",          "Users"),
+    ("admin_master",         "Master Data"),
+    ("company_settings",     "Company Settings"),
+    ("attendance_config",    "Attendance Config"),
+    ("terms_conditions",     "Terms & Conditions"),
 ]
 
 # ── Sub Admin Role tab (item 7) ───────────────────────────────────────────────
-# Admin-only surfaces that live OUTSIDE PERM_MODULES because they were previously
-# hardcoded `role == 'admin'` (no grant path). Exposing them ONLY through the
-# "Sub Admin Role" tab lets admin hand a sub_admin the Admin Settings accordion
-# and its items without adding these toggles to every other role's matrix.
-#   admin_settings   — master switch for the whole Admin Settings accordion
-#   admin_users      — Users page
-#   admin_master     — Master Data page
-#   company_settings / attendance_config / terms_conditions — the admin config pages
+# 'admin_settings' is a SYNTHETIC master switch — not a real navigable page, so
+# it stays out of PERM_MODULES (would render nonsensically on the Sidebar
+# Config / Module Page Titles pages, which iterate PERM_MODULES expecting real
+# URLs). It's the one thing exclusive to the "Sub Admin Role" tab; every other
+# admin module above is a real page and lives in PERM_MODULES so it shows
+# consistently in the general Permission Matrix, Sidebar Config, and Module
+# Page Titles too — any role can be granted it there, not just sub_admin.
 SUB_ADMIN_EXTRA_MODULES = [
     ("admin_settings",    "Admin Settings (accordion master switch)"),
-    ("admin_users",       "Users"),
-    ("admin_master",      "Master Data"),
-    ("company_settings",  "Company Settings"),
-    ("attendance_config", "Attendance Config"),
-    ("terms_conditions",  "Terms & Conditions"),
 ]
 
 # Everything the Sub Admin Role tab can toggle for the sub_admin role: every
-# regular module PLUS the admin-only surfaces above.
+# regular module PLUS the synthetic master switch above.
 SUB_ADMIN_MODULES = PERM_MODULES + SUB_ADMIN_EXTRA_MODULES
 SUB_ADMIN_ROLE = "sub_admin"
 
@@ -673,8 +674,13 @@ async def save_role_permissions(
     if not role_name:
         return RedirectResponse(url="/admin/master?main_tab=permissions&error=Role+name+required", status_code=302)
 
-    # Delete existing permissions for this role
-    await db.execute(delete(RoleModulePermission).where(RoleModulePermission.role_name == role_name))
+    # Delete only this tab's own module rows for the role — scoped to
+    # PERM_MODULES keys so saving here for role_name='sub_admin' can never wipe
+    # the synthetic 'admin_settings' row the Sub Admin Role tab (Tab 5) owns.
+    await db.execute(delete(RoleModulePermission).where(
+        RoleModulePermission.role_name == role_name,
+        RoleModulePermission.module.in_([m for m, _ in PERM_MODULES]),
+    ))
 
     # Re-insert from form — checkboxes only present when checked
     new_perms: dict = {}
@@ -699,8 +705,14 @@ async def save_role_permissions(
 
     await db.commit()
 
-    # Refresh in-memory cache so enforcement takes effect immediately
-    set_cached_perms(role_name, new_perms)
+    # Refresh in-memory cache so enforcement takes effect immediately. Preserve
+    # any cached keys outside PERM_MODULES (e.g. the synthetic 'admin_settings'
+    # row the Sub Admin Role tab owns for role_name='sub_admin') — this save
+    # only touched PERM_MODULES rows, so a flat overwrite would otherwise evict
+    # them from memory even though their DB rows were left untouched.
+    perm_module_keys = {m for m, _ in PERM_MODULES}
+    preserved = {k: v for k, v in get_cached_perms(role_name).items() if k not in perm_module_keys}
+    set_cached_perms(role_name, {**preserved, **new_perms})
 
     return RedirectResponse(
         url=f"/admin/master?main_tab=permissions&role={role_name}&success=Permissions+saved+for+{role_name}",

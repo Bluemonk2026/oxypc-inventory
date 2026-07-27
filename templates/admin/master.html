@@ -584,11 +584,13 @@
   <div class="card-body p-0">
     <div class="alert alert-info m-3 mb-0">
       <i class="bi bi-info-circle me-2"></i>
-      Enable or disable <strong>any</strong> module — including admin-only surfaces — for the
-      <strong>sub_admin</strong> role only. This is where you switch the <strong>Admin Settings</strong>
-      accordion on/off for sub admins (via the <em>Admin Settings (accordion master switch)</em> row)
-      and grant them individual admin pages (Users, Master Data, Sidebar Config, Module Page Titles,
-      Company Settings, Attendance Config, Move Device Internal). No other role is affected.
+      A shortcut view scoped to the <strong>sub_admin</strong> role only — saving here never touches
+      any other role's permissions. Toggle the <em>Admin Settings (accordion master switch)</em> row
+      to switch the whole <strong>Admin Settings</strong> accordion on/off for sub admins, and use the
+      rows below it for individual pages (Users, Master Data, Sidebar Config, Module Page Titles,
+      Company Settings, Attendance Config, Move Device Internal, Terms &amp; Conditions). Every module
+      except the master switch is the same list shown on the <strong>Module Permissions</strong> tab —
+      you can grant these to other roles there too.
     </div>
 
     <form method="post" action="/admin/master/permissions/save-sub-admin" id="subAdminForm">

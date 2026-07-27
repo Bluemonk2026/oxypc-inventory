@@ -124,6 +124,13 @@ NAV_PAGE_TITLES = [
     ("sidebar_config",       "Sidebar Config",                "Sidebar Config",                "/admin/sidebar-config"),
     ("landing_pages",        "Landing Pages",                 "Landing Pages",                 "/admin/landing-pages"),
     ("wa_audit_log",         "WA Audit Log",                  "WA Audit Log",                  "/whatsapp/audit"),
+    # ── ADMIN SETTINGS accordion (admin-only by default; grantable to
+    #    sub_admin — or any role — via the Module Permissions matrix) ────────
+    ("admin_users",          "Users",                         "Users",                         "/admin/users"),
+    ("admin_master",         "Master Data",                   "Master Data",                   "/admin/master"),
+    ("company_settings",     "Company Settings",              "Company Settings",              "/admin/company-settings"),
+    ("attendance_config",    "Attendance Config",             "Attendance Config",             "/admin/attendance-config"),
+    ("terms_conditions",     "Terms & Conditions",             "Terms & Conditions",            "/admin/terms-conditions"),
 ]
 
 

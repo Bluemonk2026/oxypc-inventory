@@ -12,7 +12,7 @@ from sqlalchemy import select
 from database import get_db
 from utils.csv_decode import decode_csv_bytes
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
+from models.device import Device, DeviceStage, DeviceGrade, StageMovement, STAGE_LABELS
 from models.iqc_inspection import IQCInspection
 from models.lot import Lot
 from models.spare_parts import SparePart
@@ -315,6 +315,9 @@ async def upload_devices(
         m = re.search(r"-?\d+", v)
         return int(m.group()) if m else None
 
+    def _grade(row, key="grade"):
+        return _parse_grade(row.get(key))
+
     for i, row in enumerate(reader, start=2):
         try:
             barcode = _s(row, "Tag No")
@@ -381,7 +384,7 @@ async def upload_devices(
                 screen_size=_s(row, "screen_size"),
                 battery_health_pct=_i(row, "battery_health_pct"),
                 bios_password=(bios_pwd_raw == "yes"),
-                color=_s(row, "color"), grade=_s(row, "grade"),
+                color=_s(row, "color"), grade=_grade(row),
                 floor=_s(row, "floor"), warehouse=_s(row, "warehouse"),
                 qty=qty_raw or 1,
                 device_price=dev_price,
@@ -470,6 +473,23 @@ async def approve_duplicate_move(
                           "new_stage_label": STAGE_LABELS.get(new_stage, new_stage.value)})
 
 
+def _parse_grade(raw: str):
+    # devicegrade is a real Postgres enum (A/B/C/D/scrap) but GRN-style
+    # exports commonly write "B Grade", "Grade B", etc. An unrecognized value
+    # assigned straight to Device.grade only fails at the next db.commit()
+    # flush — which is outside any per-row try/except — so this must
+    # normalize or drop, never pass raw text through to the enum column.
+    v = (raw or "").strip().lower()
+    if not v:
+        return None
+    m = re.match(r"(?:grade\s*)?([abcd])(?:\s*grade)?\b", v)
+    if m:
+        return DeviceGrade(m.group(1).upper())
+    if "scrap" in v:
+        return DeviceGrade.scrap
+    return None
+
+
 def _apply_row_to_device(device: Device, row: dict) -> None:
     """Apply one CSV row's field values onto an already-existing device —
     shared by the single-row Update and bulk Update All actions on the
@@ -503,7 +523,7 @@ def _apply_row_to_device(device: Device, row: dict) -> None:
     if s("screen_size"): device.screen_size = s("screen_size")
     if i("battery_health_pct") is not None: device.battery_health_pct = i("battery_health_pct")
     if s("color"): device.color = s("color")
-    if s("grade"): device.grade = s("grade")
+    if _parse_grade(row.get("grade")) is not None: device.grade = _parse_grade(row.get("grade"))
     if s("grn_number"): device.grn_number = s("grn_number")
     device.updated_at = app_now()
 

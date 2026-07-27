@@ -35,7 +35,7 @@ PORT = 8765
 # Bump this whenever detect()/probe logic changes materially. Lets a freshly
 # downloaded exe recognise a stale already-running instance and replace it
 # (see _shutdown_running_instance) instead of silently no-op'ing behind it.
-AGENT_VERSION = "2026-07-08.1"
+AGENT_VERSION = "2026-07-27.1"
 IS_WINDOWS = platform.system() == "Windows"
 IS_MAC = platform.system() == "Darwin"
 
@@ -497,6 +497,42 @@ def _mac_physical_disk_ids():
     return ids
 
 
+def _mac_physical_disks():
+    """Return one entry per internal PHYSICAL disk (via `diskutil info -plist`
+    on each id from _mac_physical_disk_ids()) instead of per APFS volume.
+
+    SPStorageDataType (system_profiler) lists APFS *volumes*, not physical
+    disks — a single container shows up as both "Macintosh HD" and
+    "Macintosh HD - Data" (plus Preboot/VM/Update on some setups), and EVERY
+    one of those volumes reports size_in_bytes for the FULL container, not
+    its own share. Summing that list double- (or triple-) counts the real
+    physical disk capacity. `diskutil info` on the physical /dev/diskN node
+    gives the true, single TotalSize plus a direct SolidState flag."""
+    disks = []
+    for disk_id in _mac_physical_disk_ids():
+        try:
+            r = subprocess.run(["diskutil", "info", "-plist", disk_id],
+                                capture_output=True, timeout=10)
+            import plistlib
+            data = plistlib.loads(r.stdout)
+        except Exception:
+            continue
+        size_bytes = data.get("TotalSize") or data.get("Size")
+        if not size_bytes:
+            continue
+        gb = round(int(size_bytes) / (1024 ** 3))
+        if gb <= 30:
+            continue
+        is_ssd = data.get("SolidState")
+        disk_type = "SSD" if is_ssd else "HDD"
+        disks.append({
+            "type": disk_type, "sizeGB": gb,
+            "make": data.get("MediaName") or "",
+            "rpm": 0 if disk_type == "SSD" else None,
+        })
+    return disks
+
+
 def _mac_storage_health():
     """Best-effort per-disk wear percentage for internal storage.
 
@@ -551,10 +587,25 @@ def _probe_mac():
     hw_list = _sp("SPHardwareDataType")
     hw = hw_list[0] if hw_list else {}
 
-    model_name = hw.get("machine_name") or hw.get("machine_model") or ""
+    model_name = hw.get("machine_name") or hw.get("model_name") or hw.get("machine_model") or ""
     model_id = hw.get("machine_model") or model_name
     serial = hw.get("serial_number", "")
     chip = hw.get("chip_type") or hw.get("cpu_type") or ""
+    # On Apple Silicon, system_profiler's "machine_name" is only ever the
+    # generic line ("MacBook Pro"), never the full marketing name with
+    # size/year/chip the way Windows' Win32_ComputerSystem.Model returns an
+    # exact vendor model string — Apple simply doesn't expose that mapping
+    # via any local, no-sudo API. Rather than guess a marketing name from a
+    # hardcoded identifier table (risk of showing a WRONG specific model),
+    # append the machine identifier so the field is still exact + unique
+    # per hardware revision, just not a "size-inch" style pretty name.
+    # Keep model_name (used below for the "MacBook"/screen-size/USB-C
+    # regex heuristics) unmodified — only build a separate display string
+    # so an identifier like "Mac14,9" (contains "14") can't accidentally
+    # match a "1[46]-inch" style regex meant for real screen sizes.
+    model_display = model_name
+    if model_id and model_id != model_name and model_id not in model_name:
+        model_display = f"{model_name} ({model_id})".strip()
     cores = None
     cores_raw = hw.get("number_processors") or hw.get("total_number_of_cores") or hw.get("number_of_cores")
     m = re.search(r"(\d+)", str(cores_raw or ""))
@@ -585,34 +636,36 @@ def _probe_mac():
             battery_wh = round(max_cap * voltage_mv / 1_000_000, 1)  # mAh * mV -> Wh
         on_ac = bool(batt.get("external_connected"))
 
-    # Storage — capacity + rough SSD/HDD classification
-    disks = []
-    for item in _sp("SPStorageDataType"):
-        try:
-            size_bytes = item.get("size_in_bytes")
-            drive = item.get("physical_drive") or {}
-            if not size_bytes:
-                size_bytes = drive.get("size_in_bytes")
-            if not size_bytes:
+    # Storage — capacity + rough SSD/HDD classification. Use physical disks
+    # (diskutil), not APFS volumes (system_profiler SPStorageDataType), so a
+    # single internal drive isn't double-counted as "Macintosh HD" +
+    # "Macintosh HD - Data" (see _mac_physical_disks docstring).
+    disks = _mac_physical_disks()
+    if not disks:
+        # Fallback for the rare case diskutil/plistlib fails — best-effort
+        # from system_profiler, same de-dup risk as before but better than
+        # reporting no storage at all.
+        for item in _sp("SPStorageDataType"):
+            try:
+                size_bytes = item.get("size_in_bytes")
+                drive = item.get("physical_drive") or {}
+                if not size_bytes:
+                    size_bytes = drive.get("size_in_bytes")
+                if not size_bytes:
+                    continue
+                gb = round(int(size_bytes) / (1024 ** 3))
+                if gb <= 30:
+                    continue
+                medium = str(drive.get("medium_type") or "").lower()
+                disk_type = "HDD" if "rotational" in medium else "SSD"
+                rpm = 0 if disk_type == "SSD" else None
+                disks.append({
+                    "type": disk_type, "sizeGB": gb,
+                    "make": drive.get("device_name") or item.get("_name") or "",
+                    "rpm": rpm,
+                })
+            except Exception:
                 continue
-            gb = round(int(size_bytes) / (1024 ** 3))
-            if gb <= 30:
-                continue
-            medium = str(drive.get("medium_type") or "").lower()
-            disk_type = "HDD" if "rotational" in medium else "SSD"
-            # Apple doesn't expose spindle RPM for internal drives via
-            # system_profiler (no built-in equivalent of Windows'
-            # SpindleSpeed) — virtually every Mac since ~2013 ships SSD/NVMe
-            # anyway (0 RPM, not a missing value), so only flag genuinely
-            # unknown for the rare case of an actual rotational drive.
-            rpm = 0 if disk_type == "SSD" else None
-            disks.append({
-                "type": disk_type, "sizeGB": gb,
-                "make": drive.get("device_name") or item.get("_name") or "",
-                "rpm": rpm,
-            })
-        except Exception:
-            continue
 
     # RAM — per-DIMM detail (Intel Macs only; Apple Silicon reports unified
     # memory with no discrete DIMMs, so this list is empty there and detect()
@@ -691,7 +744,7 @@ def _probe_mac():
 
     info = {
         "manufacturer": "Apple",
-        "model": model_name or model_id,
+        "model": model_display or model_name or model_id,
         "serial": serial,
         "cpu": chip,
         "clock": None,

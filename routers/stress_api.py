@@ -316,6 +316,62 @@ async def save_results(
         raise HTTPException(500, f"Save failed: {exc}")
 
 
+@router.post("/{barcode}/save-agent")
+async def save_agent_results(
+    barcode: str,
+    payload: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Persist an ON-DEVICE stress run produced by the local OxyQC agent
+    (PXE station mode). Unlike /save there is no server-side session — the
+    browser forwards the agent's results JSON directly. Result shape matches
+    stress_runner.TestResult.to_dict(), so PDF generation works unchanged."""
+    results = payload.get("results") or {}
+    if not isinstance(results, dict) or not results:
+        raise HTTPException(422, "No results in payload")
+    dev = (await db.execute(
+        select(Device).where(Device.barcode == barcode, Device.is_active == True)
+    )).scalar_one_or_none()
+    if not dev:
+        raise HTTPException(404, "Device not found")
+
+    overall = str(payload.get("overall_status") or "UNKNOWN")[:30]
+    try:
+        record = StressTestResult(
+            barcode=barcode,
+            brand=payload.get("brand") or dev.brand,
+            model_name=payload.get("model") or dev.model,
+            run_at=datetime.now(timezone.utc),
+            duration=int(payload.get("duration") or 0),
+            overall_status=overall,
+            results_json=results,
+            run_by=f"{current_user.username} (on-device agent)",
+        )
+        db.add(record)
+        await db.flush()
+        try:
+            pdf_bytes = _generate_pdf(record)
+            fname = _pdf_filename(barcode, record.id)
+            fpath = REPORTS_DIR / fname
+            fpath.write_bytes(pdf_bytes)
+            record.pdf_path = str(fpath)
+        except Exception:
+            record.pdf_path = None
+        await audit(db, action="STRESS_AGENT_SAVED", user=current_user,
+                    table_name="stress_test_results", record_id=str(record.id),
+                    new_value={"barcode": barcode, "overall": overall,
+                               "agent_version": payload.get("version")})
+        await db.commit()
+        return {"saved": True, "result_id": record.id, "overall_status": overall,
+                "pdf_available": record.pdf_path is not None}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(500, f"Save failed: {exc}")
+
+
 @router.get("/{barcode}/report")
 async def download_report(
     barcode: str,

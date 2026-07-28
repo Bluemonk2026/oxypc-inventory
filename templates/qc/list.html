@@ -113,6 +113,10 @@
             <button id="stressRunBtn" class="btn btn-success btn-sm flex-fill" onclick="runStressTests()">
               <i class="bi bi-play-fill me-1"></i>Run All Tests
             </button>
+            <button id="stressAgentBtn" class="btn btn-outline-primary btn-sm px-3 d-none" onclick="runAgentStress()"
+                    title="Run the tests ON this device via the local OxyQC agent (PXE station mode) — results save to the ERP automatically">
+              <i class="bi bi-laptop me-1"></i>On Device
+            </button>
             <button id="stressStopBtn" class="btn btn-danger btn-sm px-3" onclick="stopStressTests()" disabled>
               <i class="bi bi-stop-fill me-1"></i>Stop
             </button>
@@ -494,6 +498,80 @@ function setSpinner(on) {
   const sp = document.getElementById('stressSpinner');
   if (on) sp.classList.remove('d-none'); else sp.classList.add('d-none');
 }
+
+/* ── On-device stress via the local OxyQC agent (PXE station mode) ──
+   When the Diagnose_Device_Agent is running on THIS machine (the laptop
+   under test, booted from the PXE image), an "On Device" button appears.
+   It runs the agent's local stress suite and saves the results + PDF to
+   the ERP — the server-side runner (which tests the SERVER's hardware)
+   is bypassed entirely. ?autorun=1 makes selecting a device start the
+   on-device run automatically (used by the PXE station launcher). */
+const AGENT_URL = 'http://127.0.0.1:8765';
+const AUTORUN   = new URLSearchParams(location.search).get('autorun') === '1';
+let _agentAlive = false;
+
+(function agentPingLoop(){
+  function ping(){
+    fetch(AGENT_URL + '/ping').then(r => r.json()).then(() => {
+      _agentAlive = true;
+      document.getElementById('stressAgentBtn').classList.remove('d-none');
+    }).catch(() => {
+      _agentAlive = false;
+      document.getElementById('stressAgentBtn').classList.add('d-none');
+    });
+  }
+  ping();
+  setInterval(ping, 5000);
+})();
+
+async function runAgentStress() {
+  if (!_barcode) { alert('Select a device first (Start button in the table).'); return; }
+  if (!_agentAlive) { alert('Local OxyQC agent is not running on this device.'); return; }
+  buildGrid();
+  _completed = false;
+  document.getElementById('stressSaveRow').classList.add('d-none');
+  document.getElementById('stressRunBtn').disabled   = true;
+  document.getElementById('stressAgentBtn').disabled = true;
+  setSpinner(true);
+  setOverall('IN_PROGRESS', true);
+  try {
+    const r = await fetch(AGENT_URL + '/stress');   // synchronous suite, ~30-60s
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    applyResults(d.results || {});
+    setOverall(d.overall_status, false);
+    const s = await fetch(`/stress/${_barcode}/save-agent`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': CSRF},
+      body: JSON.stringify(d),
+    });
+    const sd = await s.json().catch(() => ({}));
+    if (s.ok && sd.saved) {
+      _completed = true;
+      // Results are already saved server-side — the /save session flow doesn't
+      // apply here, so open the generated PDF directly instead of showing the
+      // session-based Save button.
+      if (sd.pdf_available) {
+        window.open(`/stress/${_barcode}/report?result_id=${sd.result_id}`, '_blank');
+      }
+    } else {
+      alert(sd.detail || 'Tests ran on device, but saving to the ERP failed.');
+    }
+  } catch (e) {
+    alert('On-device stress failed: ' + e.message);
+  } finally {
+    setSpinner(false);
+    document.getElementById('stressRunBtn').disabled   = false;
+    document.getElementById('stressAgentBtn').disabled = false;
+  }
+}
+
+/* ?autorun=1 — selecting a device kicks off the on-device run automatically. */
+const _origActivateStressTest = activateStressTest;
+activateStressTest = function(btn) {
+  _origActivateStressTest(btn);
+  if (AUTORUN && _agentAlive) setTimeout(runAgentStress, 500);
+};
 
 $(document).ready(function(){
   $('#qcTable').DataTable({

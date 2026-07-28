@@ -355,6 +355,23 @@ async def diagnose_device(current_user: User = Depends(allowed)):
     return JSONResponse({"ok": True, "data": fields, "summary": summary})
 
 
+@router.get("/agent-exe")
+async def agent_exe_public():
+    """UNAUTHENTICATED agent download for PXE station bootstrap scripts.
+
+    The PXE first-boot .bat (oxyqc-agent/pxe/setup_station.bat) runs before any
+    user can log in, so it cannot pass a session cookie. The exe is a hardware
+    diagnostic tool with no secrets, and the server is LAN-only post-cutover —
+    skipping auth here is deliberate and scoped to this one binary."""
+    import os
+    from fastapi.responses import FileResponse
+    base = os.path.join(os.path.dirname(os.path.dirname(__file__)), "downloads")
+    path = os.path.join(base, "Diagnose_Device_Agent.exe")
+    if not os.path.exists(path):
+        raise HTTPException(404, "Agent exe not packaged on this server")
+    return FileResponse(path, filename="Diagnose_Device_Agent.exe", media_type="application/octet-stream")
+
+
 @router.get("/agent-installer")
 async def agent_installer(current_user: User = Depends(allowed)):
     """Download the single self-installing Diagnose_Device_Agent exe. Running it

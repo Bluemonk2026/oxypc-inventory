@@ -35,7 +35,7 @@ PORT = 8765
 # Bump this whenever detect()/probe logic changes materially. Lets a freshly
 # downloaded exe recognise a stale already-running instance and replace it
 # (see _shutdown_running_instance) instead of silently no-op'ing behind it.
-AGENT_VERSION = "2026-07-27.1"
+AGENT_VERSION = "2026-07-28.1"
 IS_WINDOWS = platform.system() == "Windows"
 IS_MAC = platform.system() == "Darwin"
 
@@ -1016,6 +1016,190 @@ def detect():
     return f, None
 
 
+def run_stress_suite():
+    """Standalone ON-DEVICE stress suite (PXE station mode).
+
+    Unlike the ERP server's stress_runner (which exercises the SERVER's
+    hardware), this runs on the laptop under test itself. Result shape matches
+    stress_runner.TestResult.to_dict() — {status, summary, data, elapsed} per
+    test key — so the ERP can persist and PDF-render it unchanged.
+    """
+    import tempfile
+    import hashlib
+    started = time.time()
+    results = {}
+
+    def rec(key, status, summary, elapsed=0.0, data=None):
+        results[key] = {"status": status, "summary": summary,
+                        "data": data or {}, "elapsed": round(elapsed, 1)}
+
+    # One hardware probe up front — presence/health checks reuse it.
+    t0 = time.time()
+    system = platform.system()
+    if system == "Windows":
+        info, _perr = _probe_windows()
+    elif system == "Darwin":
+        info, _perr = _probe_mac()
+    else:
+        info, _perr = None, "unsupported platform"
+    probe_elapsed = time.time() - t0
+    info = info or {}
+
+    # CPU — multi-thread integer burn, 5s
+    t0 = time.time()
+    try:
+        stop_at = t0 + 5.0
+        outs = []
+
+        def _burn():
+            n = 0
+            while time.time() < stop_at:
+                n += 1
+                _ = (n * 2654435761) % 4294967296
+            outs.append(n)
+
+        threads = [threading.Thread(target=_burn)
+                   for _ in range(max(2, (os.cpu_count() or 2)))]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+        total = sum(outs)
+        rec("cpu", "PASS" if total > 0 else "FAIL",
+            f"{len(threads)} threads, {total:,} ops in 5s", time.time() - t0)
+    except Exception as e:
+        rec("cpu", "FAIL", f"CPU test error: {e}", time.time() - t0)
+
+    # RAM — allocate 256MB, pattern write/verify
+    t0 = time.time()
+    try:
+        block = bytearray(256 * 1024 * 1024)
+        step = 4096
+        for i in range(0, len(block), step):
+            block[i] = i % 251
+        bad = sum(1 for i in range(0, len(block), step) if block[i] != i % 251)
+        del block
+        rec("ram", "PASS" if bad == 0 else "FAIL",
+            "256MB write/verify OK" if bad == 0 else f"{bad} page verify errors",
+            time.time() - t0)
+    except MemoryError:
+        rec("ram", "FAIL", "Could not allocate 256MB", time.time() - t0)
+    except Exception as e:
+        rec("ram", "WARN", f"RAM test error: {e}", time.time() - t0)
+
+    # Storage — 64MB write/read/verify + SMART health from the probe
+    t0 = time.time()
+    try:
+        payload = os.urandom(1024 * 1024)
+        digest = hashlib.sha256(payload).hexdigest()
+        mb = 64
+        with tempfile.NamedTemporaryFile(delete=False) as fh:
+            path = fh.name
+            for _ in range(mb):
+                fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        w_secs = max(time.time() - t0, 0.01)
+        t1 = time.time()
+        ok = True
+        with open(path, "rb") as fh:
+            for _ in range(mb):
+                if hashlib.sha256(fh.read(1024 * 1024)).hexdigest() != digest:
+                    ok = False
+                    break
+        r_secs = max(time.time() - t1, 0.01)
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+        health = info.get("storage_health")
+        hs = f", SMART {int(health)}%" if isinstance(health, (int, float)) else ""
+        status = "PASS" if ok else "FAIL"
+        if ok and isinstance(health, (int, float)) and health < 70:
+            status = "WARN"
+        rec("storage", status,
+            f"{mb}MB write {mb / w_secs:.0f}MB/s, read {mb / r_secs:.0f}MB/s{hs}",
+            time.time() - t0)
+    except Exception as e:
+        rec("storage", "FAIL", f"Disk I/O error: {e}", time.time() - t0)
+
+    # Presence checks from the probe ('ok' | 'error' | 'absent')
+    for key, state, okmsg in (
+        ("usb",     info.get("usbctrl"), "USB controller OK"),
+        ("camera",  info.get("camera"),  "Camera detected and OK"),
+        ("speaker", info.get("sound"),   "Sound device OK"),
+        ("wifi",    info.get("wifi"),    "WiFi adapter OK"),
+    ):
+        if state == "ok":
+            rec(key, "PASS", okmsg)
+        elif state == "error":
+            rec(key, "FAIL", "Device reports an error state")
+        else:
+            rec(key, "WARN", "Not detected")
+
+    # Battery
+    bh = info.get("battery_health")
+    if not info.get("has_battery"):
+        rec("battery", "WARN", "No internal battery detected")
+    elif isinstance(bh, (int, float)) and bh > 0:
+        bhc = min(int(bh), 100)
+        rec("battery", "PASS" if bhc >= 60 else "WARN", f"Battery health {bhc}%")
+    else:
+        rec("battery", "WARN", "Battery present, health unreadable")
+
+    # Bluetooth
+    t0 = time.time()
+    try:
+        if system == "Windows":
+            ps = shutil.which("powershell") or "powershell"
+            r = subprocess.run(
+                [ps, "-NoProfile", "-Command",
+                 "@(Get-CimInstance Win32_PnPEntity|Where-Object{$_.Name -match 'bluetooth'}).Count"],
+                capture_output=True, text=True, timeout=20,
+                creationflags=0x08000000)
+            n = int((r.stdout or "0").strip() or 0)
+            rec("bluetooth", "PASS" if n > 0 else "WARN",
+                f"{n} Bluetooth device(s)" if n else "No Bluetooth adapter",
+                time.time() - t0)
+        else:
+            rec("bluetooth", "WARN", "Not checked on this platform", time.time() - t0)
+    except Exception as e:
+        rec("bluetooth", "WARN", f"Bluetooth check error: {e}", time.time() - t0)
+
+    # Display & GPU
+    mc = info.get("mons_count")
+    gpu = str(info.get("gpu") or "")
+    if isinstance(mc, int) and mc > 0:
+        rec("display", "PASS", f"{mc} display(s), GPU: {gpu[:40] or 'n/a'}")
+    else:
+        rec("display", "WARN", "No active display reported")
+
+    # Thermal — fan state + the CPU burn completing without shutdown is the proxy
+    fw = info.get("fan_working")
+    if fw == "Yes":
+        rec("thermal", "PASS", "Fan working; CPU burn completed without thermal shutdown")
+    elif fw == "No":
+        rec("thermal", "WARN", "Fan reports not working")
+    else:
+        rec("thermal", "WARN", "Fan state unknown; CPU burn completed without shutdown")
+
+    finished = time.time()
+    statuses = [r["status"] for r in results.values()]
+    overall = ("FAIL" if "FAIL" in statuses
+               else "PASS_WITH_WARNINGS" if "WARN" in statuses else "PASS")
+    brand = str(info.get("manufacturer") or "").split()[0].title() if info.get("manufacturer") else ""
+    return {
+        "agent": "OxyQC", "version": AGENT_VERSION, "on_device": True,
+        "brand": brand,
+        "model": str(info.get("model") or ""),
+        "serial": str(info.get("serial") or ""),
+        "results": results,
+        "overall_status": overall,
+        "duration": round(finished - started, 1),
+        "started_at": started, "finished_at": finished,
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -1050,6 +1234,22 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             threading.Thread(target=self.server.shutdown, daemon=True).start()
+            return
+        if path == "/stress":
+            # Standalone on-device stress suite — runs synchronously (~30-60s);
+            # the Stress Test page fetches this then saves results to the ERP.
+            try:
+                payload = run_stress_suite()
+                body = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+            except Exception as e:
+                body = json.dumps({"error": f"stress suite failed: {e}"}).encode("utf-8")
+                self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self._cors()
+            self.end_headers()
+            self.wfile.write(body)
             return
         if path not in ("/diagnose", "/"):
             self.send_response(404)

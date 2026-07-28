@@ -36,12 +36,14 @@ async def main():
             "AND value NOT IN ('Hardware','Software','Cosmetic')"
         ))
         for i, v in enumerate(NEW_FAILURE_REASONS):
+            # :val appears twice with different inferred types under asyncpg
+            # (text vs varchar) — pass it as two parameters with explicit casts.
             await conn.execute(text(
                 "INSERT INTO master_data (id, category, value, display_order, is_active, created_at) "
-                "SELECT :id, 'qc_failure_reason', :val, :ord, true, NOW() "
+                "SELECT :id, 'qc_failure_reason', CAST(:val AS VARCHAR(200)), :ord, true, NOW() "
                 "WHERE NOT EXISTS (SELECT 1 FROM master_data "
-                "  WHERE category = 'qc_failure_reason' AND value = :val)"
-            ), {"id": str(uuid.uuid4()), "val": v, "ord": i})
+                "  WHERE category = 'qc_failure_reason' AND value = CAST(:val2 AS VARCHAR(200)))"
+            ), {"id": str(uuid.uuid4()), "val": v, "val2": v, "ord": i})
             # Re-activate in case the value existed but was inactive
             await conn.execute(text(
                 "UPDATE master_data SET is_active = true "

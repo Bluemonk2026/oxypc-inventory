@@ -28,11 +28,14 @@
             <div class="row g-3">
               <div class="col-md-3">
                 <label class="form-label fw-semibold">Lot Number <span class="text-danger">*</span></label>
+                {# Lot number is system-generated in sequence — read-only on create
+                   so duplicates / out-of-sequence numbers can't be typed in.
+                   Editing an existing lot keeps its number locked too. #}
                 <input type="text" name="lot_number" id="lotNumberInput" data-exclude="{{ lot.id if lot else '' }}"
                        maxlength="100"
-                       class="form-control font-monospace {{ 'bg-light' if _from_grn and prefill_lot_number }}"
+                       class="form-control font-monospace bg-light"
                        value="{{ lot.lot_number if lot else ((prefill_lot_number if (prefill_lot_number is defined and prefill_lot_number) else next_lot_number)) }}" required
-                       {% if _from_grn and prefill_lot_number is defined and prefill_lot_number %}readonly tabindex="-1"{% endif %}>
+                       readonly tabindex="-1">
                 <div id="lotNumberErr" class="text-danger small mt-1 d-none">Duplicate Lot Number — this lot already exists.</div>
               </div>
               <div class="col-md-3">

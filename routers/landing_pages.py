@@ -72,7 +72,7 @@ NAV_PAGE_TITLES = [
     ("repair_l2",            "L2 Repair",                     "L2 Repair",                     "/repair/l2"),
     ("repair_l3",            "L3 Repair",                     "L3 Repair",                     "/repair/l3"),
     ("qc_check",             "Stress Test",                   "Stress Test",                   "/qc"),
-    ("cosmetic",             "Cosmetic Stages",               "Cosmetic Stages",               "/cosmetic/cleaning"),
+    ("cosmetic",             "Cosmetic & Paint",              "Cosmetic & Paint",              "/cosmetic/cleaning"),
     ("cosmetic_finalqc",     "Final QC",                      "Final QC",                      "/cosmetic/final_qc"),
     ("workid_status",        "WorkID Status",                 "WorkID Status",                 "/workid-status"),
     ("spare_parts",          "Parts Dashboard",               "Parts Dashboard",               "/spare-parts"),

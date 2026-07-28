@@ -125,9 +125,16 @@ def _resolve_module_key(path: str):
     # this module at its own top level.
     best_key, best_len = None, -1
     for module_key, _nav_label, _default_title, url in NAV_PAGE_TITLES:
-        if path == url or (url != "/" and path.startswith(url)):
-            if len(url) > best_len:
-                best_key, best_len = module_key, len(url)
+        u = url.rstrip("/") or "/"
+        # Trailing-slash-tolerant, segment-boundary match: nav url "/qa/" must
+        # cover both "/qa" and "/qa/uat" (bare "/qa" previously matched nothing,
+        # so the permission matrix could never unlock it).
+        if u == "/":
+            matched = path == "/"
+        else:
+            matched = path == u or path.startswith(u + "/")
+        if matched and len(u) > best_len:
+            best_key, best_len = module_key, len(u)
     return best_key
 
 

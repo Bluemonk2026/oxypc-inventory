@@ -147,7 +147,7 @@ $os=Get-CimInstance Win32_OperatingSystem
 $encl=Get-CimInstance Win32_SystemEnclosure|Select-Object -First 1
 $batt=Get-CimInstance Win32_Battery|Select-Object -First 1
 $gpu=Get-CimInstance Win32_VideoController|Where-Object {$_.Name -notmatch 'Basic|Remote|Meta|Mirror|DisplayLink|USB'}|Select-Object -First 1
-$pd=@(Get-PhysicalDisk|Where-Object {$_.Size -gt 30GB}|ForEach-Object{[ordered]@{type="$($_.MediaType)";sizeGB=[math]::Round($_.Size/1GB);make="$($_.FriendlyName)".Trim();rpm=$_.SpindleSpeed}})
+$pd=@(Get-PhysicalDisk|Where-Object {$_.BusType -ne 'USB' -and $_.Size -gt 8GB}|ForEach-Object{[ordered]@{type="$($_.MediaType)";sizeGB=[math]::Round($_.Size/1GB);make="$($_.FriendlyName)".Trim();rpm=$_.SpindleSpeed}})
 $ram=@(Get-CimInstance Win32_PhysicalMemory -EA SilentlyContinue|ForEach-Object{[ordered]@{capacityGB=[math]::Round($_.Capacity/1GB);speed=$_.Speed;make="$($_.Manufacturer)".Trim();memType=$_.SMBIOSMemoryType}})
 $bh=$null
 $full=(Get-CimInstance -Namespace root\wmi -ClassName BatteryFullChargedCapacity -EA SilentlyContinue|Select-Object -First 1).FullChargedCapacity
@@ -159,7 +159,7 @@ $batt_wh=$null
 if($full -gt 0){$batt_wh=[math]::Round($full/1000.0, 1)}
 $storage_health=$null
 try{
-  $bigDisks=@(Get-PhysicalDisk -EA SilentlyContinue|Where-Object{$_.Size -gt 30GB})
+  $bigDisks=@(Get-PhysicalDisk -EA SilentlyContinue|Where-Object{$_.BusType -ne 'USB' -and $_.Size -gt 8GB})
   if($bigDisks.Count -gt 0){
     # Prefer real SMART/NVMe wear-level data (Wear = % of rated life used) so
     # Storage Health % reflects actual drive wear, not just a healthy/unhealthy flag.
@@ -195,7 +195,7 @@ if($storage_health -eq $null){
   # $bigDisks is even populated above. Win32_DiskDrive is the classic WMI
   # class (present since Windows XP) and needs no extra module.
   try{
-    $legacyDisks=@(Get-CimInstance Win32_DiskDrive -EA SilentlyContinue|Where-Object{$_.Size -gt 30GB*1})
+    $legacyDisks=@(Get-CimInstance Win32_DiskDrive -EA SilentlyContinue|Where-Object{$_.InterfaceType -ne 'USB' -and $_.Size -gt 8GB*1})
     if($legacyDisks.Count -gt 0){
       $okCount2=($legacyDisks|Where-Object{$_.Status -eq 'OK'}).Count
       if($okCount2 -eq $legacyDisks.Count){$storage_health=100}
@@ -217,14 +217,14 @@ $snd=@(Get-CimInstance Win32_SoundDevice|Where-Object {$_.Name -notmatch 'Virtua
 $cam=@(Get-CimInstance Win32_PnPEntity|Where-Object {$_.PNPClass -eq 'Camera' -or $_.Name -match 'web ?cam|integrated camera'})
 $nics=@(Get-CimInstance Win32_NetworkAdapter|Where-Object {$_.PhysicalAdapter -eq $true})
 $wifi=@($nics|Where-Object {$_.Name -match 'Wi-?Fi|Wireless|802\.11|Dual Band|AX2|Centrino'})
-$eth=@($nics|Where-Object {($_.Name -match 'Ethernet|Gigabit|GbE|Realtek PCIe|Killer E|I2[12]9') -and $_.Name -notmatch 'Wi-?Fi|Wireless|Bluetooth|Virtual|VPN|TAP|Loopback|VMware|Hyper-V'})
+$eth=@($nics|Where-Object {($_.Name -match 'Ethernet|Gigabit|GbE|Realtek PCIe|Killer E|I2[12]9') -and $_.Name -notmatch 'Wi-?Fi|Wireless|Bluetooth|Virtual|VPN|TAP|Loopback|VMware|Hyper-V' -and $_.PNPDeviceID -notmatch '^USB'})
 $dvd=@(Get-CimInstance Win32_CDROMDrive|Where-Object {$_.Name -notmatch 'Virtual'})
 $usb=@(Get-CimInstance Win32_USBController)
 $ucm=@(Get-CimInstance Win32_PnPEntity -EA SilentlyContinue|Where-Object {$_.Name -match 'UCSI|USB Connector Manager|USB Type-C|USB-C|USB4|Thunderbolt'})
 $clk=[math]::Round($cpu.MaxClockSpeed/1000.0,2)
 $onAC=$true; if($batt -and $batt.BatteryStatus -eq 1){$onAC=$false}
 [ordered]@{
- manufacturer="$($cs.Manufacturer)";model="$($cs.Model)";serial="$($bios.SerialNumber)";
+ manufacturer="$($cs.Manufacturer)";model="$($cs.Model)";sysfamily="$($cs.SystemFamily)";serial="$($bios.SerialNumber)";
  cpu="$(($cpu.Name).Trim())";cpu_make="$($cpu.Manufacturer)".Trim();clock=$clk;cores=$cpu.NumberOfCores;ram_gb=[math]::Round($cs.TotalPhysicalMemory/1GB);
  chassis=@($encl.ChassisTypes);has_battery=[bool]$batt;battery_pct=$batt.EstimatedChargeRemaining;battery_health=$bh;on_ac=$onAC;
  screen_in=$scr;gpu="$($gpu.Name)";os="$($os.Caption)";disks=$pd;ram_sticks=$ram;
@@ -809,7 +809,15 @@ def detect():
     if info.get("manufacturer"):
         f["brand"] = str(info["manufacturer"]).split()[0].title()   # e.g. "Dell" / "Apple"
     if info.get("model"):
-        f["model"] = info["model"]
+        model_raw = str(info["model"]).strip()
+        # Dell BIOSes sometimes report the SKU (short code like "0A30") in
+        # Win32_ComputerSystem.Model — fall back to SystemFamily ("Latitude
+        # 5420") when the model looks like a SKU, not a marketing name.
+        fam = str(info.get("sysfamily") or "").strip()
+        if fam and "dell" in str(info.get("manufacturer") or "").lower() \
+                and re.fullmatch(r"[0-9A-Fa-f]{3,6}", model_raw):
+            model_raw = fam
+        f["model"] = model_raw
     serial = str(info.get("serial") or "").strip()
     if serial and serial not in ("To Be Filled By O.E.M.", "Default string", "System Serial Number", "None"):
         f["serial_no"] = serial
@@ -837,12 +845,16 @@ def detect():
     # Total RAM Count = # DIMMs (Apple Silicon unified → 1); plain summed size like "16GB" (or "1TB" if >= 1000GB)
     ram_dimms = [s for s in ram_sticks if s.get("capacityGB")]
     ram_plain = None
+    if ram_sticks:
+        # Count every populated slot — a sub-1GB module rounds to
+        # capacityGB=0 in the probe and previously vanished from the count.
+        f["total_ram_count"] = str(len(ram_sticks))
     if ram_dimms:
-        f["total_ram_count"] = str(len(ram_dimms))
         _rg = sum(int(s["capacityGB"]) for s in ram_dimms)
         ram_plain = f"{round(_rg / 1000)}TB" if _rg >= 1000 else f"{_rg}GB"
     elif info.get("ram_gb"):
-        f["total_ram_count"] = "1"
+        if not ram_sticks:
+            f["total_ram_count"] = "1"
         _rg = int(info["ram_gb"])
         ram_plain = f"{round(_rg / 1000)}TB" if _rg >= 1000 else f"{_rg}GB"
     # Swapped per spec: "Total RAM Size" holds the combined string,

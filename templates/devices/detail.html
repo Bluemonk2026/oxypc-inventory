@@ -59,6 +59,12 @@
           <a href="/lots/{{ lot.id }}" class="badge bg-info text-dark text-decoration-none fs-6">{{ lot.lot_number }}</a>
         </div>
         {% endif %}
+        {% if device.final_qc_status %}
+        <div>
+          <div class="small text-muted">Final QC Status</div>
+          <span class="badge fs-6 bg-{{ 'success' if device.final_qc_status == 'pass' else 'danger' }}">{{ device.final_qc_status | title }}</span>
+        </div>
+        {% endif %}
       </div>
     </div>
 

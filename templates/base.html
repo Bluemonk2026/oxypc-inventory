@@ -153,7 +153,7 @@
 
       {% if has_perm(role,'cosmetic','enable') %}
       <li><a href="/cosmetic/cleaning" class="nav-link {% if request.url.path == '/cosmetic/cleaning' %}active{% endif %}">
-        <i class="bi bi-droplet me-2"></i> {{ sidebar_label('cosmetic', 'Stages') }}
+        <i class="bi bi-droplet me-2"></i> {{ sidebar_label('cosmetic', 'Cosmetic & Paint') }}
       </a></li>
       {% endif %}
       {% if has_perm(role,'cosmetic_finalqc','enable') %}

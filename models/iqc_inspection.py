@@ -32,7 +32,8 @@ class IQCInspection(Base):
     screen_line = Column(String(10), nullable=True)          # Yes / No
     screen_functional = Column(String(10), nullable=True)    # Yes / No
     screen_discoloration = Column(String(10), nullable=True) # Yes / No
-    screen_patch = Column(String(10), nullable=True)         # Yes / No
+    screen_patch = Column(String(10), nullable=True)         # No / Minor / Major
+    touch_screen = Column(String(15), nullable=True)         # Yes / No / Yes - Faulty
     screen_broken = Column(String(10), nullable=True)        # Yes / No
     screen_flickering = Column(String(10), nullable=True)    # Yes / No
     screen_scratch = Column(String(20), nullable=True)       # No / Minor Scratch / Major Scratch

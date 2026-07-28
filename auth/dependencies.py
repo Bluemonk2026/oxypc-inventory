@@ -98,6 +98,17 @@ _SEGMENT_MODULE_ALIASES = {
     "accounts":   ("finance", "finance_supplier", "finance_customer"),
     "repair":     ("repair_l1", "repair_l2", "repair_l3"),
     "spare-parts": ("spare_parts", "spare_parts_purchase", "parts_consumption"),
+    # Routers whose URLs no nav entry prefixes — without these, a module ticked
+    # ON in the Permission Matrix still 403'd on the module's action endpoints.
+    "part-requests":     ("spare_parts", "parts_consumption"),
+    "part-sourcing":     ("spare_parts", "spare_parts_purchase"),
+    "parts-grn":         ("spare_parts", "spare_parts_purchase"),
+    "procure-dashboard": ("spare_parts_purchase", "spare_parts"),
+    "buckets":           ("production_manager",),
+    "api":               ("production_manager",),   # /api/bucket-engineers (assign modal)
+    "scrap":             ("scrap_products",),
+    "dealer-quotations": ("sales", "crm_sales_opp"),
+    "bulk-upload":       ("iqc", "devices"),
 }
 
 

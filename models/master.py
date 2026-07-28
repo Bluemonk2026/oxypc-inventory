@@ -207,7 +207,7 @@ MASTER_SEED = {
     "call_type": ["outbound", "inbound"],
     # ── QC / Cosmetic (unifies 3 previously-divergent copies) ─────────────────
     "qc_failure_reason": [
-        "Functional", "Paint", "Plastic Part", "Screen", "Keyboard", "Battery",
+        "Hardware", "Software", "Cosmetic",
     ],
     # ── Repair L3 ──────────────────────────────────────────────────────────────
     "repair_action_taken": [

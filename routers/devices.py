@@ -468,7 +468,7 @@ async def export_devices(
         "Serial No", "CPU", "CPU Make", "Generation", "RAM GB", "RAM", "Total RAM Count", "Total RAM Size",
         "SSD GB", "Storage Type", "Hard Drive",
         "HDD GB", "Total HDD Count", "Total HDD Size", "Screen Size", "Battery %", "BIOS Pwd", "Color",
-        "Grade", "Stage", "Stage History", "Floor", "Warehouse", "Notes", "Created", "Updated"
+        "Grade", "Stage", "Final QC Status", "Stage History", "Floor", "Warehouse", "Notes", "Created", "Updated"
     ])
     for device, lot_number in rows:
         writer.writerow([
@@ -481,6 +481,7 @@ async def export_devices(
             device.battery_health_pct, "Yes" if device.bios_password else "No",
             device.color, device.grade,
             STAGE_LABELS.get(device.current_stage, device.current_stage),
+            device.final_qc_status or "",
             _stage_history(device),
             device.floor, device.warehouse, device.notes,
             device.created_at.strftime("%d-%m-%Y %H:%M") if device.created_at else "",

@@ -73,7 +73,7 @@ $os=Get-CimInstance Win32_OperatingSystem
 $encl=Get-CimInstance Win32_SystemEnclosure|Select-Object -First 1
 $batt=Get-CimInstance Win32_Battery|Select-Object -First 1
 $gpu=Get-CimInstance Win32_VideoController|Where-Object {$_.Name -notmatch 'Basic|Remote|Meta|Mirror|DisplayLink|USB'}|Select-Object -First 1
-$pd=@(Get-PhysicalDisk|Where-Object {$_.Size -gt 30GB}|ForEach-Object{[ordered]@{type="$($_.MediaType)";sizeGB=[math]::Round($_.Size/1GB);make="$($_.FriendlyName)".Trim();rpm=$_.SpindleSpeed}})
+$pd=@(Get-PhysicalDisk|Where-Object {$_.BusType -ne 'USB' -and $_.Size -gt 8GB}|ForEach-Object{[ordered]@{type="$($_.MediaType)";sizeGB=[math]::Round($_.Size/1GB);make="$($_.FriendlyName)".Trim();rpm=$_.SpindleSpeed}})
 $ram=@(Get-CimInstance Win32_PhysicalMemory -EA SilentlyContinue|ForEach-Object{[ordered]@{capacityGB=[math]::Round($_.Capacity/1GB);speed=$_.Speed;make="$($_.Manufacturer)".Trim();memType=$_.SMBIOSMemoryType}})
 $bh=$null
 $full=(Get-CimInstance -Namespace root\wmi -ClassName BatteryFullChargedCapacity -EA SilentlyContinue|Select-Object -First 1).FullChargedCapacity
@@ -272,8 +272,11 @@ def _detect_host_hardware():
     # Total RAM Count = number of DIMMs; plain summed size like "16GB" (or "1TB" if >= 1000GB)
     ram_dimms = [s for s in ram_sticks if s.get("capacityGB")]
     ram_plain = None
+    if ram_sticks:
+        # Count every populated slot — a sub-1GB module rounds to
+        # capacityGB=0 in the probe and previously vanished from the count.
+        f["total_ram_count"] = str(len(ram_sticks))
     if ram_dimms:
-        f["total_ram_count"] = str(len(ram_dimms))
         _rg = sum(int(s["capacityGB"]) for s in ram_dimms)
         ram_plain = f"{round(_rg / 1000)}TB" if _rg >= 1000 else f"{_rg}GB"
     elif info.get("ram_gb"):
@@ -864,6 +867,7 @@ async def iqc_create(
     screen_functional: str = Form(""),
     screen_discoloration: str = Form(""),
     screen_patch: str = Form(""),
+    touch_screen: str = Form(""),
     screen_broken: str = Form(""),
     screen_flickering: str = Form(""),
     screen_scratch: str = Form(""),
@@ -996,6 +1000,14 @@ async def iqc_create(
             resolved_location_id = loc.id
             resolved_warehouse = loc.display_name
 
+    # qty arrives as free text; a non-numeric value must degrade to 1, not 500.
+    def _safe_qty(s):
+        try:
+            n = int(str(s).strip())
+            return n if n > 0 else 1
+        except (ValueError, TypeError):
+            return 1
+
     device = Device(
         barcode=barcode, lot_id=lot_id,
         sub_category=sub_category or None,
@@ -1015,7 +1027,7 @@ async def iqc_create(
         floor=floor or None, warehouse=resolved_warehouse,
         location_id=resolved_location_id, notes=notes or None,
         lot_line_item_id=lot_line_item_id or None,
-        qty=int(qty) if qty else 1,
+        qty=_safe_qty(qty),
     )
 
     # Auto-set device_price from LotLineItem unit_price (or lot average as fallback)
@@ -1058,6 +1070,7 @@ async def iqc_create(
         screen_dot=_v(screen_dot), screen_line=_v(screen_line),
         screen_functional=_v(screen_functional), screen_discoloration=_v(screen_discoloration),
         screen_patch=_v(screen_patch), screen_broken=_v(screen_broken),
+        touch_screen=_v(touch_screen),
         screen_flickering=_v(screen_flickering), screen_scratch=_v(screen_scratch),
         screen_loose=_v(screen_loose), screen_missing=_v(screen_missing),
         screen_hinge_broken=_v(screen_hinge_broken), screen_colour_spread=_v(screen_colour_spread),
@@ -1109,7 +1122,16 @@ async def iqc_create(
                            "model": model, "grade": grade, "status": status},
                 request=request)
 
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception as exc:
+        # Surface constraint violations etc. as a form error instead of a 500.
+        await db.rollback()
+        from urllib.parse import quote
+        return RedirectResponse(
+            url=f"/iqc/new?error={quote('Could not save IQC entry: ' + str(exc)[:180])}",
+            status_code=302,
+        )
     return RedirectResponse(url="/iqc?success=Device+added+to+IQC", status_code=302)
 
 

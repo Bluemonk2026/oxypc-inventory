@@ -150,11 +150,26 @@ async def bucket_tags(
     devices = (await db.execute(
         select(Device).where(Device.bucket_id == uid, Device.is_active == True)
     )).scalars().all()
+    # Latest Final-QC failure note per device — failure reasons live only in
+    # StageMovement notes, and the Production Manager needs to see them here.
+    fail_notes = {}
+    dev_ids = [d.id for d in devices]
+    if dev_ids:
+        mv_rows = (await db.execute(
+            select(StageMovement.device_id, StageMovement.notes)
+            .where(StageMovement.device_id.in_(dev_ids),
+                   StageMovement.notes.like("Final QC Failed%"))
+            .order_by(StageMovement.moved_at.desc())
+        )).all()
+        for _did, _note in mv_rows:
+            fail_notes.setdefault(_did, _note)
     return JSONResponse([{
         "barcode": d.barcode,
         "brand": d.brand or "",
         "model": d.model or "",
         "grade": d.grade.value if d.grade else "",
+        "final_qc_status": d.final_qc_status or "",
+        "failure_note": fail_notes.get(d.id, ""),
     } for d in devices])
 
 

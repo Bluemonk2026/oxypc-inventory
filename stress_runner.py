@@ -73,22 +73,23 @@ def _default_gateway() -> Optional[str]:
 
 # ── Durations (seconds per test) ─────────────────────────────────────────────
 DURATIONS: dict[str, dict[str, int]] = {
-    "quick":     {"cpu": 20,  "ram": 15,  "storage": 15, "usb": 5,  "camera": 5,  "speaker": 3,  "battery": 5,  "wifi": 10, "display": 5,  "thermal": 10},
-    "standard":  {"cpu": 60,  "ram": 45,  "storage": 30, "usb": 5,  "camera": 8,  "speaker": 5,  "battery": 8,  "wifi": 20, "display": 8,  "thermal": 20},
-    "intensive": {"cpu": 180, "ram": 120, "storage": 90, "usb": 5,  "camera": 10, "speaker": 5,  "battery": 10, "wifi": 30, "display": 10, "thermal": 60},
+    "quick":     {"cpu": 20,  "ram": 15,  "storage": 15, "usb": 5,  "camera": 5,  "speaker": 3,  "battery": 5,  "wifi": 10, "bluetooth": 5,  "display": 5,  "thermal": 10},
+    "standard":  {"cpu": 60,  "ram": 45,  "storage": 30, "usb": 5,  "camera": 8,  "speaker": 5,  "battery": 8,  "wifi": 20, "bluetooth": 5,  "display": 8,  "thermal": 20},
+    "intensive": {"cpu": 180, "ram": 120, "storage": 90, "usb": 5,  "camera": 10, "speaker": 5,  "battery": 10, "wifi": 30, "bluetooth": 5,  "display": 10, "thermal": 60},
 }
 
 TEST_NAMES = {
-    "cpu":     "CPU Stress",
-    "ram":     "RAM Stress",
-    "storage": "Storage I/O",
-    "usb":     "USB Ports",
-    "camera":  "Camera",
-    "speaker": "Speaker",
-    "battery": "Battery",
-    "wifi":    "WiFi / Network",
-    "display": "Display & GPU",
-    "thermal": "Thermal",
+    "cpu":       "CPU Stress",
+    "ram":       "RAM Stress",
+    "storage":   "Storage I/O",
+    "usb":       "USB Ports",
+    "camera":    "Camera",
+    "speaker":   "Speaker",
+    "battery":   "Battery",
+    "wifi":      "WiFi / Network",
+    "bluetooth": "Bluetooth",
+    "display":   "Display & GPU",
+    "thermal":   "Thermal",
 }
 
 ALL_KEYS = list(TEST_NAMES.keys())
@@ -368,6 +369,42 @@ def _run_wifi(duration: int, progress: Callable) -> TestResult:
         return TestResult("WARN", str(e), elapsed=time.monotonic()-start)
 
 
+def _run_bluetooth(_duration: int, progress: Callable) -> TestResult:
+    start = time.monotonic()
+    try:
+        if IS_MAC:
+            bt_list = _sp_json("SPBluetoothDataType")
+            if not bt_list:
+                return TestResult("WARN", "No Bluetooth controller detected", elapsed=time.monotonic()-start)
+            info = bt_list[0] if isinstance(bt_list, list) else bt_list
+            state = "controller_properties" in info or "controller_state" in info
+            return TestResult("PASS" if state else "WARN",
+                              "Bluetooth controller detected" if state else "Bluetooth present but state unclear",
+                              elapsed=time.monotonic()-start)
+        elif _WMI:
+            devs = [d for d in _WMI.Win32_PnPEntity() if d.Name and "bluetooth" in d.Name.lower()]
+            if not devs:
+                return TestResult("WARN", "No Bluetooth adapter detected", elapsed=time.monotonic()-start)
+            ok = any((d.Status or "").upper() == "OK" for d in devs)
+            names = ", ".join(sorted({d.Name for d in devs}))[:80]
+            return TestResult("PASS" if ok else "WARN", f"{len(devs)} device(s): {names}",
+                              data={"count": len(devs)}, elapsed=time.monotonic()-start)
+        else:
+            # Linux
+            if Path("/sys/class/bluetooth").exists() and any(Path("/sys/class/bluetooth").iterdir()):
+                return TestResult("PASS", "Bluetooth adapter present (/sys/class/bluetooth)",
+                                  elapsed=time.monotonic()-start)
+            try:
+                out = subprocess.run(["hciconfig"], capture_output=True, text=True, timeout=5)
+                if "hci" in (out.stdout or ""):
+                    return TestResult("PASS", "Bluetooth adapter present (hciconfig)", elapsed=time.monotonic()-start)
+            except Exception:
+                pass
+            return TestResult("WARN", "No Bluetooth adapter detected", elapsed=time.monotonic()-start)
+    except Exception as e:
+        return TestResult("WARN", f"Bluetooth check error: {e}", elapsed=time.monotonic()-start)
+
+
 def _run_display(_duration: int, progress: Callable) -> TestResult:
     start = time.monotonic()
     try:
@@ -454,6 +491,7 @@ _RUNNERS = {
     "speaker": _run_speaker,
     "battery": _run_battery,
     "wifi":    _run_wifi,
+    "bluetooth": _run_bluetooth,
     "display": _run_display,
     "thermal": _run_thermal,
 }

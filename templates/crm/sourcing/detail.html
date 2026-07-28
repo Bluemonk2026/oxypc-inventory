@@ -447,13 +447,18 @@
               <label class="form-label small fw-semibold mb-1">PO Line Item</label>
               <select id="c_po_item" class="form-select form-select-sm">
                 <option value="">— Select —</option>
+                {# Acquisition cost = negotiated Offer Price when one is set,
+                   falling back to list Unit Price — profitability must reflect
+                   what we actually offered, not the vendor's asking price. #}
                 {% for li in deal_po_items %}
-                <option value="{{ li.id }}" data-qty="{{ li.quantity or 0 }}" data-unit="{{ li.unit_price or 0 }}">{{ li.item_name }}</option>
+                <option value="{{ li.id }}" data-qty="{{ li.quantity or 0 }}" data-unit="{{ li.offer_price if li.offer_price else (li.unit_price or 0) }}">{{ li.item_name }}</option>
                 {% endfor %}
                 {% if deal_po_items %}
+                {% set _all_eff = namespace(total=0) %}
+                {% for li in deal_po_items %}{% set _all_eff.total = _all_eff.total + (li.offer_price if li.offer_price else (li.unit_price or 0)) %}{% endfor %}
                 <option value="__all__"
                         data-qty="{{ deal_po_items | sum(attribute='quantity') }}"
-                        data-unit="{{ deal_po_items | sum(attribute='unit_price') }}">All Item</option>
+                        data-unit="{{ _all_eff.total }}">All Item</option>
                 {% endif %}
               </select>
             </div>

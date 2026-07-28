@@ -3,16 +3,17 @@
 {% block page_title %}Stress Test{% endblock %}
 {% block content %}
 
-<div class="row g-0">
+<div class="row g-3">
 
   {# ── Left: Device Table (2/3) ─────────────────────────────────────────── #}
-  <div class="col-md-8 pe-3">
+  <div class="col-12 col-lg-8">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <span class="text-muted small">{{ devices|length }} device(s) awaiting QC</span>
       <a href="/qc/new" class="btn btn-primary btn-sm"><i class="bi bi-patch-check me-1"></i>QC a Device</a>
     </div>
     <div class="card border-0 shadow-sm">
       <div class="card-body p-0">
+        <div class="table-responsive">
         <table id="qcTable" class="table table-hover mb-0 small">
           <thead class="table-dark">
             <tr>
@@ -69,13 +70,14 @@
             {% endfor %}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
 
   </div>
 
   {# ── Right: Stress Test Panel (1/3) ──────────────────────────────────── #}
-  <div class="col-md-4 ps-1">
+  <div class="col-12 col-lg-4">
     <div class="card border-0 shadow-sm stress-panel-card" id="stressPanel">
 
       <div class="card-header bg-dark text-white d-flex align-items-center justify-content-between py-2">
@@ -186,7 +188,12 @@
 {% endblock %}
 {% block scripts %}
 <style>
-.stress-panel-card { position:sticky; top:16px; max-height:calc(100vh - 100px); overflow-y:auto; }
+/* Sticky positioning only makes sense once the panel sits beside the table
+   (lg+ / >=992px) - below that breakpoint the columns stack and a sticky
+   panel would float on top of the table underneath it instead. */
+@media (min-width: 992px) {
+  .stress-panel-card { position:sticky; top:16px; max-height:calc(100vh - 100px); overflow-y:auto; }
+}
 .s-row { display:flex; align-items:flex-start; gap:7px; background:#f8f9fa; border-radius:5px; padding:5px 8px; border-left:3px solid #dee2e6; }
 .s-row.status-PASS    { border-left-color:#198754; background:#f0fdf4; }
 .s-row.status-FAIL    { border-left-color:#dc3545; background:#fff5f5; }
@@ -216,6 +223,7 @@ const STRESS_TESTS = [
   {key:'speaker', name:'Speaker',        icon:'speaker-fill'},
   {key:'battery', name:'Battery',        icon:'battery-charging'},
   {key:'wifi',    name:'WiFi / Network', icon:'wifi'},
+  {key:'bluetooth', name:'Bluetooth',    icon:'bluetooth'},
   {key:'display', name:'Display & GPU',  icon:'display'},
   {key:'thermal', name:'Thermal',        icon:'thermometer-half'},
 ];
@@ -489,6 +497,10 @@ function setSpinner(on) {
 
 $(document).ready(function(){
   $('#qcTable').DataTable({
+    // Preserve the server's newest-first order (Device.updated_at desc) -
+    // without this, DataTables defaults to sorting by the first visible
+    // column (Tag Number), silently undoing it.
+    order: [],
     columnDefs: [{visible: false, targets: [8]}],
   });
 });

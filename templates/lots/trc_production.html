@@ -251,7 +251,11 @@ function loadTrcBuckets(){
         fetch('/api/buckets/'+id+'/tags').then(function(r){return r.json();}).then(function(tags){
           if(!tags.length){ document.getElementById('trcBktTagsBody').textContent='No devices.'; return; }
           document.getElementById('trcBktTagsBody').innerHTML = tags.map(function(t){
-            return '<div class="py-1 border-bottom"><code>'+t.barcode+'</code> <span class="text-muted">'+t.brand+' '+t.model+'</span> <span class="badge bg-light text-dark">'+t.grade+'</span></div>';
+            var qc = '';
+            if (t.final_qc_status === 'pass') qc = ' <span class="badge bg-success">Final QC: Pass</span>';
+            else if (t.final_qc_status === 'fail') qc = ' <span class="badge bg-danger">Final QC: Fail</span>';
+            var note = t.failure_note ? '<div class="small text-danger ms-4">'+t.failure_note+'</div>' : '';
+            return '<div class="py-1 border-bottom"><code>'+t.barcode+'</code> <span class="text-muted">'+t.brand+' '+t.model+'</span> <span class="badge bg-light text-dark">'+t.grade+'</span>'+qc+note+'</div>';
           }).join('');
         });
       });

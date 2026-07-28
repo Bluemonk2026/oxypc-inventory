@@ -121,7 +121,7 @@ PERM_MODULES = [
     ("repair_l3",            "L3 Repair"),
     ("qc_check",             "Stress Test"),
     # ── COSMETIC REFURB ────────────────────────────────────────────
-    ("cosmetic",             "Cosmetic Stages"),
+    ("cosmetic",             "Cosmetic & Paint"),
     ("cosmetic_finalqc",     "Final QC"),
     ("workid_status",        "WorkID Status"),
     # ── STORE MANAGER ──────────────────────────────────────────────

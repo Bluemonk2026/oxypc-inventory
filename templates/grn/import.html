@@ -2,9 +2,8 @@
 {% block title %}GRN — OxyPC{% endblock %}
 {% block page_title %}GRN — Invoice Import{% endblock %}
 {% block content %}
-
-{% if error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>{% endif %}
-{% if success %}<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>{% endif %}
+{# Flash messages are rendered once by base.html — rendering them here too
+   showed every success/error twice. #}
 
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -194,7 +193,7 @@ $(document).ready(function(){
       var from = document.getElementById('fFrom').value;
       var to   = document.getElementById('fTo').value;
       if (!from && !to) return true;
-      var d = (data[2] || '').trim();
+      var d = (data[3] || '').trim();  // Date of Invoice is column 3 (after Lot Number was inserted)
       if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;  // unparseable dates excluded when filtering
       if (from && d < from) return false;
       if (to && d > to) return false;
@@ -202,14 +201,15 @@ $(document).ready(function(){
     });
 
     // Per-column text searches
+    // Columns: 0=GRN, 1=Lot, 2=Invoice, 3=Date, 4=Vendor
     document.getElementById('fGrn').addEventListener('input', function(){ dt.column(0).search(this.value).draw(); });
-    document.getElementById('fInvoice').addEventListener('input', function(){ dt.column(1).search(this.value).draw(); });
-    document.getElementById('fVendor').addEventListener('input', function(){ dt.column(3).search(this.value).draw(); });
+    document.getElementById('fInvoice').addEventListener('input', function(){ dt.column(2).search(this.value).draw(); });
+    document.getElementById('fVendor').addEventListener('input', function(){ dt.column(4).search(this.value).draw(); });
     document.getElementById('fFrom').addEventListener('change', function(){ dt.draw(); });
     document.getElementById('fTo').addEventListener('change', function(){ dt.draw(); });
     document.getElementById('fReset').addEventListener('click', function(){
       ['fGrn','fInvoice','fVendor','fFrom','fTo'].forEach(function(id){ document.getElementById(id).value=''; });
-      dt.column(0).search('').column(1).search('').column(3).search('').draw();
+      dt.column(0).search('').column(2).search('').column(4).search('').draw();
     });
   }
 
@@ -266,6 +266,21 @@ if (vgm) { vgm.addEventListener('show.bs.modal', function(e){
   document.getElementById('vg_grn').textContent = b.getAttribute('data-grn') || '';
   document.getElementById('vg_expected').value = b.getAttribute('data-qty') || '';
   document.getElementById('vg_received').value = '';
-});}
+});
+// The validate endpoint returns JSON — intercept the submit so the user
+// doesn't navigate to a raw JSON page (previous behaviour of this form).
+document.getElementById('validateGrnForm').addEventListener('submit', function(ev){
+  ev.preventDefault();
+  var form = this;
+  fetch(form.action, {method:'POST', body: new URLSearchParams(new FormData(form)),
+    headers:{'Content-Type':'application/x-www-form-urlencoded'}})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d && d.ok) { window.location = '/grn?success=GRN+' + encodeURIComponent(d.grn_number||'') + '+validated'; }
+      else { alert((d && d.error) || 'Validation failed'); }
+    })
+    .catch(function(){ alert('Validation failed — please retry.'); });
+});
+}
 </script>
 {% endblock %}

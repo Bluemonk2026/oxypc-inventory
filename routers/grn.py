@@ -279,6 +279,14 @@ async def grn_validate(
     if not g:
         raise HTTPException(404, "GRN not found")
     g.validated = True
+    # Persist what the operator entered — previously accepted then discarded,
+    # which meant discrepancy notes at the Plant GRN stage were silently lost.
+    try:
+        g.received_qty = int(received_qty) if str(received_qty).strip() else None
+    except (ValueError, TypeError):
+        g.received_qty = None
+    g.validation_ref = (grn_number or "").strip()[:100] or None
+    g.validation_notes = (notes or "").strip()[:500] or None
     await db.commit()
     return JSONResponse({"ok": True, "grn_number": g.grn_number})
 

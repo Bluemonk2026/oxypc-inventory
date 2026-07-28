@@ -145,6 +145,7 @@ PERM_MODULES = [
     # ── SALES & CRM ────────────────────────────────────────────────
     ("telesales_dashboard",  "TeleSales Dashboard"),
     ("sales",                "Ready to Sale / Sales List"),
+    ("gate_pass",            "Gate Pass"),
     ("returns",              "Returns"),
     ("dealers",              "Dealers"),
     ("telecalling",          "Telecalling"),

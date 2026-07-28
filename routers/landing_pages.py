@@ -89,6 +89,7 @@ NAV_PAGE_TITLES = [
     ("crm_assign_leads",     "Assign Social Leads",           "Assign Social Leads",           "/crm/assign-social-leads"),
     ("telesales_dashboard",  "TeleSales Dashboard",           "TeleSales Dashboard",           "/telesales-dashboard"),
     ("sales",                "Ready to Sale / Sales List",    "Ready to Sale",                 "/sales/ready"),
+    ("gate_pass",            "Gate Pass",                     "Gate Pass",                     "/gate-pass"),
     ("returns",              "Returns",                       "Process Return",                "/returns"),
     ("dealers",              "Dealers",                       "Dealers",                       "/dealers"),
     ("telecalling",          "Telecalling",                   "Telecalling",                   "/telecalling"),

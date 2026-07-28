@@ -267,6 +267,49 @@ async def advance_stage(
         # Pass only — the Grade dropdown is hidden on fail but still posts its value.
         if grade: device.grade = grade
 
+        # Pricing gate: on Final QC pass, finalize the device price as
+        # acquisition price + consumed parts + changed (received) parts —
+        # the same arithmetic the Final QC page's Pricing panel displays.
+        # Run at most once per device (a rework loop that passes Final QC a
+        # second time must not add the same parts costs again).
+        already_priced = (await db.execute(
+            select(StageMovement.id).where(
+                StageMovement.device_id == device.id,
+                StageMovement.notes.like("Final QC Passed — price finalized%"),
+            ).limit(1)
+        )).scalar_one_or_none()
+        if not already_priced:
+            try:
+                parts_cost = float((await db.execute(
+                    select(func.coalesce(func.sum(SparePartConsumption.total_cost), 0))
+                    .where(SparePartConsumption.device_id == device.id)
+                )).scalar() or 0)
+                changed_cost = 0.0
+                _prs = (await db.execute(
+                    select(PartRequest).where(PartRequest.device_id == device.id,
+                                              PartRequest.status == "received",
+                                              PartRequest.part_id.isnot(None))
+                )).scalars().all()
+                _pids = {r.part_id for r in _prs}
+                if _pids:
+                    _sps = {sp.id: sp for sp in (await db.execute(
+                        select(SparePart).where(SparePart.id.in_(_pids))
+                    )).scalars().all()}
+                    for r in _prs:
+                        sp = _sps.get(r.part_id)
+                        if sp:
+                            changed_cost += float(sp.unit_price or 0) * (r.qty_handed_over or 0)
+                base_price = float(device.device_price or 0)
+                device.device_price = base_price + parts_cost + changed_cost
+                db.add(StageMovement(
+                    device_id=device.id, from_stage=current, to_stage=current,
+                    moved_by=current_user.username,
+                    notes=(f"Final QC Passed — price finalized: ₹{base_price:,.0f} + "
+                           f"parts ₹{parts_cost:,.0f} + changed ₹{changed_cost:,.0f} "
+                           f"= ₹{float(device.device_price):,.0f}")))
+            except Exception:
+                pass  # pricing snapshot must never block the QC pass itself
+
     prev = current
     device.current_stage = next_stage
     device.updated_at = app_now()

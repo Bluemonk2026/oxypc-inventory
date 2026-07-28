@@ -369,6 +369,11 @@
         <i class="bi bi-receipt me-2"></i> {{ sidebar_label('sales', 'Sales List') }}
       </a></li>
       {% endif %}
+      {% if has_perm(role,'gate_pass','enable') %}
+      <li><a href="/gate-pass" class="nav-link {% if '/gate-pass' in request.url.path %}active{% endif %}">
+        <i class="bi bi-shield-check me-2"></i> {{ sidebar_label('gate_pass', 'Gate Pass') }}
+      </a></li>
+      {% endif %}
       {% if has_perm(role,'returns','enable') %}
       <li><a href="/returns" class="nav-link {% if '/returns' in request.url.path %}active{% endif %}">
         <i class="bi bi-arrow-return-left me-2"></i> {{ sidebar_label('returns', 'Returns') }}

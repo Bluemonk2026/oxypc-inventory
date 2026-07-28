@@ -79,10 +79,30 @@
         </div>
         <div class="mb-3">
           <label class="form-label small fw-semibold">Tag Number <span class="text-danger">*</span></label>
-          <input type="text" id="barcodeInput" class="form-control form-control-lg barcode-field"
-                 placeholder="Scan or type tag number…" autofocus autocomplete="off"
-                 onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('registerBtn').click();}">
+          <div class="input-group input-group-lg">
+            <input type="text" id="barcodeInput" class="form-control barcode-field"
+                   placeholder="Scan or type tag number…" autofocus autocomplete="off"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('registerBtn').click();}">
+            <button type="button" class="btn btn-outline-secondary" id="genTagBtn"
+                    title="System-generate the next sequential tag number for this lot">
+              <i class="bi bi-magic"></i> Generate
+            </button>
+          </div>
         </div>
+        <script>
+        document.getElementById('genTagBtn').addEventListener('click', function(){
+          fetch('/lots/{{ lot.id }}/next-tag')
+            .then(function(r){ return r.json(); })
+            .then(function(d){
+              if (d.barcode) {
+                var inp = document.getElementById('barcodeInput');
+                inp.value = d.barcode;
+                inp.focus();
+              }
+            })
+            .catch(function(){ alert('Could not generate a tag number.'); });
+        });
+        </script>
         <div class="row g-2 mb-3">
           <div class="col-6">
             <label class="form-label small fw-semibold">Category</label>

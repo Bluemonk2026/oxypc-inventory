@@ -1238,6 +1238,36 @@ async def export_line_items_csv(
     )
 
 
+@router.get("/lots/{lot_id}/next-tag", response_class=JSONResponse)
+async def next_tag_number(
+    lot_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """System-generated Tag Number for a lot: <LOT_NUMBER>-NNN, where NNN is
+    one past the highest existing numeric suffix among the lot's barcodes.
+    Gap-safe and collision-checked against the whole devices table."""
+    lot = (await db.execute(select(Lot).where(Lot.id == lot_id))).scalar_one_or_none()
+    if not lot:
+        raise HTTPException(404, "Lot not found")
+    prefix = f"{lot.lot_number}-"
+    rows = (await db.execute(
+        select(Device.barcode).where(Device.barcode.like(prefix + "%"))
+    )).scalars().all()
+    highest = 0
+    for bc in rows:
+        suffix = bc[len(prefix):]
+        if suffix.isdigit():
+            highest = max(highest, int(suffix))
+    n = highest + 1
+    # Belt-and-braces: skip any value that exists on a device outside this lot
+    while (await db.execute(
+        select(Device.id).where(Device.barcode == f"{prefix}{n:03d}")
+    )).scalar_one_or_none():
+        n += 1
+    return JSONResponse({"barcode": f"{prefix}{n:03d}"})
+
+
 @router.get("/lots/{lot_id}/line-items", response_class=JSONResponse)
 async def get_lot_line_items(
     lot_id: str,

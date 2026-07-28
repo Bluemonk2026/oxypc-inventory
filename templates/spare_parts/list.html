@@ -398,11 +398,25 @@
                 {% elif r.status == 'not_in_stock' %}<span class="badge bg-danger">Not In Stock</span>
                 {% elif r.status == 'procure' %}<span class="badge bg-info text-dark">Sent for Sourcing</span>
                 {% elif r.status == 'scrapped' %}<span class="badge bg-dark">Scrapped</span>
+                {% elif r.status == 'warranty_sent' %}<span class="badge bg-warning text-dark">Sent for Warranty Replacement</span>
+                {% elif r.status == 'warranty_replaced' %}<span class="badge bg-success">Warranty Replaced</span>
                 {% else %}<span class="badge bg-secondary">{{ r.status }}</span>{% endif %}
-                {% if r.status not in ('handed_over', 'scrapped') %}
+                {% if r.status == 'warranty_sent' %}
+                <form method="post" action="/part-requests/{{ r.id }}/warranty-received" class="d-inline"
+                      onsubmit="return confirm('Replacement received from supplier? The part will be added back to stock.')">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                  <button class="btn btn-sm btn-outline-success py-0 px-2">Replacement Received</button>
+                </form>
+                {% endif %}
+                {% if r.status not in ('handed_over', 'scrapped', 'warranty_sent', 'warranty_replaced') %}
                 <form method="post" action="/part-requests/{{ r.id }}/procure" class="d-inline">
                   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                   <button class="btn btn-sm btn-outline-info py-0 px-2">Procure</button>
+                </form>
+                <form method="post" action="/part-requests/{{ r.id }}/warranty-replace" class="d-inline"
+                      onsubmit="return confirm('Send this faulty part back to the supplier under warranty?')">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                  <button class="btn btn-sm btn-outline-warning py-0 px-2">Warranty Replace</button>
                 </form>
                 <form method="post" action="/part-requests/{{ r.id }}/scrap" class="d-inline" onsubmit="return confirm('Mark this faulty part as scrapped?')">
                   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">

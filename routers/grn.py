@@ -287,8 +287,42 @@ async def grn_validate(
         g.received_qty = None
     g.validation_ref = (grn_number or "").strip()[:100] or None
     g.validation_notes = (notes or "").strip()[:500] or None
+
+    # Auto-map: validating a Plant GRN now maps the linked lot's IQC-stage
+    # devices to Stock Inward automatically — previously the operator had to
+    # go to GRN post IQC and run "Map this GRN" by hand for every lot.
+    auto_mapped = 0
+    if g.lot_number:
+        lot = (await db.execute(
+            select(Lot).where(Lot.lot_number == g.lot_number)
+        )).scalar_one_or_none()
+        if lot:
+            devices = (await db.execute(
+                select(Device).where(Device.lot_id == lot.id,
+                                     Device.current_stage == DeviceStage.iqc,
+                                     Device.is_active == True)
+            )).scalars().all()
+            now = app_now()
+            for d in devices:
+                d.grn_number = g.grn_number
+                prev = (await db.execute(
+                    select(StageMovement).where(
+                        StageMovement.device_id == d.id,
+                        StageMovement.to_stage == d.current_stage,
+                        StageMovement.exited_at.is_(None),
+                    ).order_by(StageMovement.moved_at.desc())
+                )).scalars().first()
+                if prev:
+                    prev.exited_at = now
+                db.add(StageMovement(
+                    device_id=d.id, from_stage=DeviceStage.iqc,
+                    to_stage=DeviceStage.stock_in, moved_by=current_user.username,
+                    notes=f"GRN {g.grn_number} validated — auto-mapped to Stock Inward"))
+                d.current_stage = DeviceStage.stock_in
+                d.updated_at = now
+                auto_mapped += 1
     await db.commit()
-    return JSONResponse({"ok": True, "grn_number": g.grn_number})
+    return JSONResponse({"ok": True, "grn_number": g.grn_number, "auto_mapped": auto_mapped})
 
 
 @router.post("/{grn_id}/delete")

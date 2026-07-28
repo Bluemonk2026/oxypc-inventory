@@ -205,6 +205,51 @@ async def scrap_part_request(req_id: str, request: Request,
     return RedirectResponse(url="/spare-parts?success=Part+scrapped", status_code=302)
 
 
+@router.post("/part-requests/{req_id}/warranty-replace")
+async def warranty_replace(req_id: str, request: Request,
+                           db: AsyncSession = Depends(get_db), current_user: User = Depends(spm_allowed)):
+    """Warranty Faulty Replacement Cycle, step 1: a faulty part still under
+    supplier warranty is sent back for replacement instead of scrap/sourcing."""
+    pr = (await db.execute(select(PartRequest).where(PartRequest.id == _as_uuid(req_id)))).scalar_one_or_none()
+    if not pr:
+        raise HTTPException(404, "Part request not found")
+    pr.status = "warranty_sent"
+    pr.actioned_at = app_now()
+    pr.actioned_by = current_user.username
+    await audit(db, user=current_user, action="PART_WARRANTY_SENT", table_name="part_requests",
+                record_id=str(pr.id), new_value={"part": pr.part_name}, request=request)
+    await db.commit()
+    return RedirectResponse(url="/spare-parts?success=Part+sent+for+warranty+replacement", status_code=302)
+
+
+@router.post("/part-requests/{req_id}/warranty-received")
+async def warranty_received(req_id: str, request: Request,
+                            db: AsyncSession = Depends(get_db), current_user: User = Depends(spm_allowed)):
+    """Warranty cycle, step 2: the replacement part arrived from the supplier —
+    close the cycle and put the replacement back into spare-part stock."""
+    pr = (await db.execute(select(PartRequest).where(PartRequest.id == _as_uuid(req_id)))).scalar_one_or_none()
+    if not pr:
+        raise HTTPException(404, "Part request not found")
+    if pr.status != "warranty_sent":
+        raise HTTPException(409, "Part is not in the warranty-replacement cycle")
+    pr.status = "warranty_replaced"
+    pr.actioned_at = app_now()
+    pr.actioned_by = current_user.username
+    restocked = False
+    if pr.part_id:
+        sp = (await db.execute(select(SparePart).where(SparePart.id == pr.part_id))).scalar_one_or_none()
+        if sp is not None and sp.qty_in_stock is not None:
+            sp.qty_in_stock = (sp.qty_in_stock or 0) + (pr.qty_requested or 1)
+            restocked = True
+    await audit(db, user=current_user, action="PART_WARRANTY_REPLACED", table_name="part_requests",
+                record_id=str(pr.id),
+                new_value={"part": pr.part_name, "restocked": restocked,
+                           "qty": pr.qty_requested or 1}, request=request)
+    await db.commit()
+    return RedirectResponse(url="/spare-parts?success=Warranty+replacement+received"
+                                + ("+and+restocked" if restocked else ""), status_code=302)
+
+
 @router.post("/part-sourcing/{sr_id}/close")
 async def close_sourcing(sr_id: str, request: Request,
                          source_deal_id: str = Form(...), qty_sourced: int = Form(...),

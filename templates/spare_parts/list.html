@@ -138,7 +138,7 @@
             <th><input type="checkbox" class="form-check-input sp-sa" data-tbl="partsTable"></th>
             <th>Code</th><th>GRN</th><th>Added As</th><th>Name</th><th>Category</th>
             <th>Crate Number</th><th>Make</th><th>Model</th>
-            <th>Min Alert</th><th>In Stock</th><th>Consumed</th>
+            <th>Min Alert</th><th>In Stock</th><th>Consumed</th><th>Sold</th>
             {% if can_view_pricing(current_user) %}<th>Unit Price</th>
             <th>Stock Value</th>{% endif %}
             <th>Actions</th>
@@ -147,7 +147,9 @@
         <tbody>
           {% for part in parts %}
           {% set consumed = consumed_by_part.get(part.id|string, 0) %}
-          {% set live_stock = part.qty_in_stock - consumed %}
+          {# Sold via Ready to Sale Parts reduces stock just like consumption does. #}
+          {% set sold = part.sold_qty or 0 %}
+          {% set live_stock = part.qty_in_stock - consumed - sold %}
           <tr class="{{ 'table-danger' if live_stock <= part.min_stock_alert else '' }}">
             <td><input type="checkbox" class="form-check-input sp-cb" data-tbl="partsTable" value="{{ part.id }}"></td>
             <td><code>{{ part.part_code }}</code></td>
@@ -180,6 +182,7 @@
               </span>
             </td>
             <td>{% if consumed %}<span class="badge bg-info text-dark">{{ consumed }}</span>{% else %}0{% endif %}</td>
+            <td>{% if sold %}<span class="badge bg-success">{{ sold }}</span>{% else %}0{% endif %}</td>
             {% if can_view_pricing(current_user) %}
             <td>&#8377;{{ "{:,.2f}".format(part.unit_price) }}</td>
             <td>&#8377;{{ "{:,.0f}".format(part.unit_price * live_stock) }}</td>

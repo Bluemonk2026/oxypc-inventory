@@ -42,15 +42,6 @@
             {% if lot %} &bull; Lot: {{ lot.lot_number }} (₹{{ "{:,.0f}".format(lot.buying_price/lot.qty if lot.qty else 0) }}/unit cost){% endif %}
           </div>
           {% endif %}
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Stock Price (₹){% if multi_count is defined and multi_count and multi_count > 1 %} <span class="text-muted small">(sum of {{ multi_count }} selected devices' unit costs)</span>{% endif %}</label>
-            <div class="input-group">
-              <span class="input-group-text">₹</span>
-              <input type="text" id="stockPrice" class="form-control" readonly
-                     value="{{ '%.2f'|format(stock_price) if stock_price is defined and stock_price is not none else '' }}"
-                     placeholder="—" title="Device cost (device price if set, otherwise lot buying price ÷ lot qty)">
-            </div>
-          </div>
           <div class="row g-3">
             <div class="col-md-4">
               <label class="form-label fw-semibold">Sale Price (₹) <span class="text-danger">*</span></label>
@@ -66,7 +57,7 @@
                 <span class="input-group-text">₹</span>
                 <input type="number" id="totalSalePrice" class="form-control" placeholder="0" min="0" step="0.01">
               </div>
-              <div class="form-text small text-muted">Autofills Sale Price = Total ÷ Quantity</div>
+              <div class="form-text small text-muted">Either field fills the other</div>
             </div>
             <div class="col-md-4">
               <label class="form-label">Quantity</label>
@@ -139,15 +130,29 @@
 </div>
 
 <script>
-// Total Sale Price → Sale Price = Total ÷ Quantity (live, 2dp; one direction only)
-document.getElementById('totalSalePrice').addEventListener('input', function(){
-  var total = parseFloat(this.value);
-  if (isNaN(total)) return;
+// Sale Price <-> Total Sale Price, both driven by Quantity. Filling either one
+// fills the other (previously only Total -> Sale Price worked).
+function _saleQty(){
   var qtyEl = document.getElementById('qtyInput');
-  var qty = parseInt(qtyEl ? qtyEl.value : '1', 10);
-  if (!qty || qty < 1) qty = 1;
-  document.getElementById('salePrice').value = (total / qty).toFixed(2);
-});
+  var q = parseInt(qtyEl ? qtyEl.value : '1', 10);
+  return (!q || q < 1) ? 1 : q;
+}
+function recalcTotalFromUnit(){
+  var u = parseFloat(document.getElementById('salePrice').value);
+  if (isNaN(u)) return;
+  document.getElementById('totalSalePrice').value = (u * _saleQty()).toFixed(2);
+}
+function recalcUnitFromTotal(){
+  var t = parseFloat(document.getElementById('totalSalePrice').value);
+  if (isNaN(t)) return;
+  document.getElementById('salePrice').value = (t / _saleQty()).toFixed(2);
+}
+document.getElementById('salePrice').addEventListener('input', recalcTotalFromUnit);
+document.getElementById('totalSalePrice').addEventListener('input', recalcUnitFromTotal);
+(function(){
+  var qtyEl = document.getElementById('qtyInput');
+  if (qtyEl) qtyEl.addEventListener('input', recalcTotalFromUnit);
+})();
 function getCookie(name) {
   var m = document.cookie.match('(?:^|;)\\s*' + name + '=([^;]*)');
   return m ? decodeURIComponent(m[1]) : '';

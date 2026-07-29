@@ -170,12 +170,22 @@
       {# ── STORE MANAGER ───────────────────────────────────────────────── #}
       {% if has_perm(role,'spare_parts','enable') %}
       <li class="nav-section">STORE MANAGER</li>
+      {% if has_perm(role,'parts_dashboard','enable') %}
+      <li><a href="/parts-dashboard" class="nav-link {% if '/parts-dashboard' in request.url.path %}active{% endif %}">
+        <i class="bi bi-speedometer2 me-2"></i> {{ sidebar_label('parts_dashboard', 'Parts Dashboard') }}
+      </a></li>
+      {% endif %}
       <li><a href="/spare-parts" class="nav-link {% if request.url.path == '/spare-parts' %}active{% endif %}">
-        <i class="bi bi-gear me-2"></i> {{ sidebar_label('spare_parts', 'Parts Dashboard') }}
+        <i class="bi bi-gear me-2"></i> {{ sidebar_label('spare_parts', 'Parts Manager') }}
       </a></li>
       <li><a href="/parts-grn" class="nav-link {% if '/parts-grn' in request.url.path %}active{% endif %}">
         <i class="bi bi-receipt me-2"></i> Parts GRN
       </a></li>
+      {% if has_perm(role,'parts_sale_request','enable') %}
+      <li><a href="/parts-sale-request" class="nav-link {% if '/parts-sale-request' in request.url.path %}active{% endif %}">
+        <i class="bi bi-inbox me-2"></i> {{ sidebar_label('parts_sale_request', 'Parts Sale Request') }}
+      </a></li>
+      {% endif %}
       {% endif %}
 
       {# ── INVENTORY LOCATIONS ──────────────────────────────────────────── #}
@@ -365,8 +375,18 @@
       <li><a href="/sales/ready" class="nav-link {% if '/sales/ready' in request.url.path %}active{% endif %}">
         <i class="bi bi-check-circle me-2"></i> {{ sidebar_label('sales', 'Ready to Sale') }}
       </a></li>
+      {% if has_perm(role,'ready_to_sale_parts','enable') %}
+      <li><a href="/ready-to-sale-parts" class="nav-link {% if '/ready-to-sale-parts' in request.url.path %}active{% endif %}">
+        <i class="bi bi-box-seam me-2"></i> {{ sidebar_label('ready_to_sale_parts', 'Ready to Sale Parts') }}
+      </a></li>
+      {% endif %}
       <li><a href="/sales" class="nav-link {% if request.url.path == '/sales' %}active{% endif %}">
         <i class="bi bi-receipt me-2"></i> {{ sidebar_label('sales', 'Sales List') }}
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'part_sales','enable') %}
+      <li><a href="/part-sales" class="nav-link {% if '/part-sales' in request.url.path %}active{% endif %}">
+        <i class="bi bi-cart-check me-2"></i> {{ sidebar_label('part_sales', 'Spare Part Sales') }}
       </a></li>
       {% endif %}
       {% if has_perm(role,'gate_pass','enable') %}

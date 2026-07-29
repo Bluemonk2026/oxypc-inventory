@@ -125,7 +125,9 @@ PERM_MODULES = [
     ("cosmetic_finalqc",     "Final QC"),
     ("workid_status",        "WorkID Status"),
     # ── STORE MANAGER ──────────────────────────────────────────────
-    ("spare_parts",          "Parts Dashboard"),
+    ("parts_dashboard",      "Parts Dashboard"),
+    ("spare_parts",          "Parts Manager"),
+    ("parts_sale_request",   "Parts Sale Request"),
     ("spare_parts_purchase", "Parts Purchased"),
     ("parts_tracking",       "Parts Tracking"),
     ("parts_consumption",    "Parts Consumption"),
@@ -145,6 +147,8 @@ PERM_MODULES = [
     # ── SALES & CRM ────────────────────────────────────────────────
     ("telesales_dashboard",  "TeleSales Dashboard"),
     ("sales",                "Ready to Sale / Sales List"),
+    ("ready_to_sale_parts",  "Ready to Sale Parts"),
+    ("part_sales",           "Spare Part Sales"),
     ("gate_pass",            "Gate Pass"),
     ("returns",              "Returns"),
     ("dealers",              "Dealers"),

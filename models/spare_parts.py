@@ -34,6 +34,9 @@ class SparePart(Base):
     crate_number = Column(String(50), nullable=True)
     make = Column(String(100), nullable=True)
     model = Column(String(100), nullable=True)
+    # Quantity sold as a spare part via Ready to Sale Parts → New Parts Sale.
+    # Sellable stock = qty_in_stock - consumed(handed_over) - sold_qty.
+    sold_qty = Column(Integer, nullable=False, default=0, server_default=text("0"))
     created_at = Column(DateTime, default=app_now)
     is_trashed = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     trashed_at = Column(DateTime, nullable=True)

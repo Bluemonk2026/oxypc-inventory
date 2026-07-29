@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Ready to Sale Parts — OxyPC{% endblock %}
+{% block page_title %}Ready to Sale Parts{% endblock %}
+{% block content %}
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold mb-1">Search Code</label>
+        <input type="text" id="fCode" class="form-control form-control-sm font-monospace" placeholder="PART-0001">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold mb-1">Search Name</label>
+        <input type="text" id="fName" class="form-control form-control-sm" placeholder="Part name">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Make</label>
+        <select id="fMake" class="form-select form-select-sm">
+          <option value="">All</option>
+          {% for m in makes %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Model</label>
+        <select id="fModel" class="form-select form-select-sm">
+          <option value="">All</option>
+          {% for m in models %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button type="button" id="fReset" class="btn btn-outline-secondary btn-sm w-100">
+          <i class="bi bi-x-circle me-1"></i>Reset
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold small">
+    <i class="bi bi-box-seam me-2"></i>Available Spare Parts
+    <span class="text-muted fw-normal">— parts added as New</span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="rtsTable" class="table table-hover mb-0 small align-middle">
+        <thead class="table-dark">
+          <tr>
+            <th class="ps-3">Code</th><th>Name</th><th>Make</th><th>Model</th>
+            <th>In Stock</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          {% set p = row.part %}
+          <tr>
+            <td class="ps-3 font-monospace fw-bold">{{ p.part_code }}</td>
+            <td>{{ p.name }}</td>
+            <td>{{ p.make or '—' }}</td>
+            <td>{{ p.model or '—' }}</td>
+            <td>
+              {% if row.stock <= 0 %}<span class="badge bg-danger">0</span>
+              {% elif row.stock <= (p.min_stock_alert or 0) %}<span class="badge bg-warning text-dark">{{ row.stock }}</span>
+              {% else %}<span class="badge bg-success">{{ row.stock }}</span>{% endif %}
+            </td>
+            <td class="text-nowrap">
+              {# Both buttons are always visible. Request is disabled at zero stock
+                 or while one is already pending; Sell stays disabled until a
+                 request for this part has been approved. #}
+              <form method="post" action="/ready-to-sale-parts/{{ p.id }}/request" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
+                <button class="btn btn-sm btn-outline-primary py-0 px-2"
+                        {% if row.stock <= 0 or row.pending %}disabled{% endif %}
+                        title="{% if row.stock <= 0 %}Out of stock{% elif row.pending %}A request is already pending{% else %}Raise a sale request{% endif %}">
+                  <i class="bi bi-send me-1"></i>Request
+                </button>
+              </form>
+              <a href="/part-sales/new?part_id={{ p.id }}"
+                 class="btn btn-sm btn-success py-0 px-2 {% if not row.can_sell %}disabled{% endif %}"
+                 {% if not row.can_sell %}tabindex="-1" aria-disabled="true"{% endif %}
+                 title="{% if row.stock <= 0 %}Out of stock{% elif not row.can_sell %}Needs an approved sale request{% else %}Sell this part{% endif %}">
+                <i class="bi bi-cart-check me-1"></i>Sell
+              </a>
+              {% if row.status == 'pending' %}<span class="badge bg-warning text-dark ms-1">Pending</span>
+              {% elif row.status == 'approved' and row.can_sell %}<span class="badge bg-success ms-1">Approved</span>
+              {% elif row.status == 'rejected' %}<span class="badge bg-danger ms-1">Rejected</span>{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-muted py-4">No spare parts added as New yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){
+  if ($('#rtsTable tbody tr td').length > 1) {
+    var dt = $('#rtsTable').DataTable({pageLength: 25, lengthChange: false, order: []});
+    // Columns: 0=Code, 1=Name, 2=Make, 3=Model
+    document.getElementById('fCode').addEventListener('input', function(){ dt.column(0).search(this.value).draw(); });
+    document.getElementById('fName').addEventListener('input', function(){ dt.column(1).search(this.value).draw(); });
+    document.getElementById('fMake').addEventListener('change', function(){ dt.column(2).search(this.value, false, false).draw(); });
+    document.getElementById('fModel').addEventListener('change', function(){ dt.column(3).search(this.value, false, false).draw(); });
+    document.getElementById('fReset').addEventListener('click', function(){
+      ['fCode','fName','fMake','fModel'].forEach(function(id){ document.getElementById(id).value=''; });
+      dt.column(0).search('').column(1).search('').column(2).search('').column(3).search('').draw();
+    });
+  }
+});
+</script>
+{% endblock %}

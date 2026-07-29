@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}New Parts Sale — OxyPC{% endblock %}
+{% block page_title %}New Parts Sale{% endblock %}
+{% block content %}
+
+{% if request.query_params.get('error') %}
+<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ request.query_params.get('error') }}</div>
+{% endif %}
+
+<div class="row justify-content-center">
+  <div class="col-xl-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-cart-plus me-2"></i>Record Spare Part Sale</span>
+        <span class="badge bg-light text-dark font-monospace">{{ next_sale_number }}</span>
+      </div>
+      <div class="card-body">
+        {% if not options %}
+        <div class="alert alert-warning mb-0">
+          <i class="bi bi-info-circle me-2"></i>
+          No parts are available to sell. A part needs an <strong>approved</strong> sale request
+          (raised on <a href="/ready-to-sale-parts">Ready to Sale Parts</a>) and stock on hand.
+        </div>
+        {% else %}
+        <form action="/part-sales/new" method="post">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
+          <input type="hidden" name="part_id" id="partId">
+
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Part Name <span class="text-danger">*</span></label>
+              <select id="partName" class="form-select" required>
+                <option value="">— Select part —</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Part Make</label>
+              <select id="partMake" class="form-select"><option value="">—</option></select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Part Model</label>
+              <select id="partModel" class="form-select"><option value="">—</option></select>
+            </div>
+
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Available Quantity</label>
+              <select id="availableQty" class="form-select bg-light" disabled><option value="">—</option></select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Sale Quantity <span class="text-danger">*</span></label>
+              <input type="number" name="qty" id="qtyInput" class="form-control" min="1" value="1" required>
+              <div class="form-text small text-muted">Cannot exceed Available Quantity</div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Sale Price (₹) <span class="text-danger">*</span></label>
+              <input type="number" name="sale_price" id="salePrice" class="form-control"
+                     min="0" step="0.01" placeholder="0" required>
+              <div class="form-text small text-muted">Per-unit price</div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Total Sale Price (₹)</label>
+              <input type="number" id="totalSalePrice" class="form-control" min="0" step="0.01" placeholder="0">
+              <div class="form-text small text-muted">Either field fills the other</div>
+            </div>
+
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Payment Mode</label>
+              <select name="payment_mode" class="form-select">
+                <option value="cash">Cash</option>
+                <option value="upi">UPI</option>
+                <option value="card">Card</option>
+                <option value="credit">Credit</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Customer Name</label>
+              <input type="text" name="customer_name" class="form-control" placeholder="Customer name">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label fw-semibold">Customer Phone</label>
+              <input type="tel" name="customer_phone" class="form-control" placeholder="Phone">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Customer State</label>
+              <select name="customer_state" class="form-select">
+                <option value="">—</option>
+                {% for s in master_options('customer_state') %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+              </select>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Invoice No.</label>
+              <input type="text" name="invoice_no" class="form-control" placeholder="Invoice number">
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Notes</label>
+              <textarea name="notes" class="form-control" rows="2" placeholder="Optional notes"></textarea>
+            </div>
+          </div>
+
+          <div class="d-flex gap-2 mt-4">
+            <button type="submit" class="btn btn-success px-4"><i class="bi bi-check-lg me-1"></i>Record Sale</button>
+            <a href="/ready-to-sale-parts" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+/* Part dropdowns are driven from Part Master (only parts with an approved,
+   unconsumed sale request and stock on hand reach this list). Name -> Make ->
+   Model narrows to exactly one part, whose id and available qty are then set. */
+const PARTS = {{ options | tojson }};
+const PREFILL = {{ (prefill_part_id or '') | tojson }};
+
+const elName = document.getElementById('partName');
+const elMake = document.getElementById('partMake');
+const elModel = document.getElementById('partModel');
+const elAvail = document.getElementById('availableQty');
+const elPartId = document.getElementById('partId');
+const elQty = document.getElementById('qtyInput');
+const elUnit = document.getElementById('salePrice');
+const elTotal = document.getElementById('totalSalePrice');
+
+function uniq(a){ return Array.from(new Set(a)); }
+function fill(sel, values, keepFirst){
+  sel.innerHTML = '<option value="">' + (keepFirst || '—') + '</option>' +
+    values.map(v => `<option value="${v}">${v}</option>`).join('');
+}
+
+fill(elName, uniq(PARTS.map(p => p.name)), '— Select part —');
+
+function currentMatches(){
+  return PARTS.filter(p =>
+    (!elName.value  || p.name  === elName.value) &&
+    (!elMake.value  || p.make  === elMake.value) &&
+    (!elModel.value || p.model === elModel.value));
+}
+
+function refresh(){
+  const byName = PARTS.filter(p => !elName.value || p.name === elName.value);
+  const makes = uniq(byName.map(p => p.make).filter(Boolean));
+  const prevMake = elMake.value;
+  fill(elMake, makes);
+  if (makes.includes(prevMake)) elMake.value = prevMake;
+  else if (makes.length === 1) elMake.value = makes[0];
+
+  const byMake = byName.filter(p => !elMake.value || p.make === elMake.value);
+  const models = uniq(byMake.map(p => p.model).filter(Boolean));
+  const prevModel = elModel.value;
+  fill(elModel, models);
+  if (models.includes(prevModel)) elModel.value = prevModel;
+  else if (models.length === 1) elModel.value = models[0];
+
+  const m = currentMatches();
+  if (m.length === 1){
+    elPartId.value = m[0].id;
+    elAvail.innerHTML = `<option value="${m[0].available}">${m[0].available}</option>`;
+    elQty.max = m[0].available;
+    if (!elUnit.value && m[0].unit_price) elUnit.value = m[0].unit_price.toFixed(2);
+  } else {
+    elPartId.value = '';
+    elAvail.innerHTML = '<option value="">—</option>';
+    elQty.removeAttribute('max');
+  }
+  recalcFromUnit();
+}
+
+[elName, elMake, elModel].forEach(el => el.addEventListener('change', refresh));
+
+/* Two-way price calculation, both driven by Sale Quantity. */
+function qty(){ const q = parseInt(elQty.value, 10); return (!q || q < 1) ? 1 : q; }
+function recalcFromUnit(){
+  const u = parseFloat(elUnit.value);
+  if (isNaN(u)) return;
+  elTotal.value = (u * qty()).toFixed(2);
+}
+function recalcFromTotal(){
+  const t = parseFloat(elTotal.value);
+  if (isNaN(t)) return;
+  elUnit.value = (t / qty()).toFixed(2);
+}
+elUnit.addEventListener('input', recalcFromUnit);
+elTotal.addEventListener('input', recalcFromTotal);
+elQty.addEventListener('input', function(){
+  const max = parseInt(elQty.max, 10);
+  if (max && parseInt(this.value, 10) > max){
+    this.value = max;
+    this.setCustomValidity('Sale Quantity cannot exceed Available Quantity');
+    this.reportValidity();
+    setTimeout(() => this.setCustomValidity(''), 1500);
+  }
+  recalcFromUnit();
+});
+
+// Deep link from the Sell button on Ready to Sale Parts
+if (PREFILL){
+  const p = PARTS.find(x => x.id === PREFILL);
+  if (p){ elName.value = p.name; refresh(); elMake.value = p.make || ''; elModel.value = p.model || ''; refresh(); }
+} else { refresh(); }
+</script>
+{% endblock %}

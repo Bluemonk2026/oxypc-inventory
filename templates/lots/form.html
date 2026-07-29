@@ -28,16 +28,15 @@
             <div class="row g-3">
               <div class="col-md-3">
                 <label class="form-label fw-semibold">Lot Number <span class="text-danger">*</span></label>
-                {# Lot number is system-generated in sequence — read-only on CREATE
-                   so duplicates / out-of-sequence numbers can't be typed in.
-                   On EDIT it is editable: corrections to an existing lot's number
-                   are a legitimate operation (duplicates are still rejected both
-                   live via /lots/api/exists and server-side on save). #}
+                {# Lot number is pre-filled with the next number in sequence, but
+                   stays editable on both create and edit so it can be overridden
+                   (e.g. to match a supplier's own lot reference). Duplicates are
+                   rejected live via /lots/api/exists and again server-side on
+                   save, on both the create and edit routes. #}
                 <input type="text" name="lot_number" id="lotNumberInput" data-exclude="{{ lot.id if lot else '' }}"
                        maxlength="100"
-                       class="form-control font-monospace {{ '' if lot else 'bg-light' }}"
-                       value="{{ lot.lot_number if lot else ((prefill_lot_number if (prefill_lot_number is defined and prefill_lot_number) else next_lot_number)) }}" required
-                       {% if not lot %}readonly tabindex="-1"{% endif %}>
+                       class="form-control font-monospace"
+                       value="{{ lot.lot_number if lot else ((prefill_lot_number if (prefill_lot_number is defined and prefill_lot_number) else next_lot_number)) }}" required>
                 <div id="lotNumberErr" class="text-danger small mt-1 d-none">Duplicate Lot Number — this lot already exists.</div>
               </div>
               <div class="col-md-3">

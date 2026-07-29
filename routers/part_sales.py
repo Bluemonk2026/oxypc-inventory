@@ -211,8 +211,10 @@ async def part_sale_new_form(request: Request, db: AsyncSession = Depends(get_db
         "id": str(p.id), "name": p.name, "make": p.make or "", "model": p.model or "",
         "available": _stock_of(p, consumed), "unit_price": float(p.unit_price or 0),
     } for p in parts if str(p.id) in approved and _stock_of(p, consumed) > 0]
+    from utils.sales_person import sales_person_options
     return templates.TemplateResponse("parts/sale_new.html", {
         "request": request, "current_user": current_user,
+        "sales_person_options": await sales_person_options(db),
         "options": options, "prefill_part_id": part_id,
         "next_sale_number": await _next_part_sale_number(db),
     })
@@ -224,6 +226,7 @@ async def create_part_sale(request: Request,
                            qty: str = Form("1"),
                            sale_price: str = Form(...),
                            customer_name: str = Form(""),
+                           sales_person: str = Form(""),
                            customer_phone: str = Form(""),
                            customer_state: str = Form(default=None),
                            invoice_no: str = Form(""),
@@ -278,7 +281,8 @@ async def create_part_sale(request: Request,
         customer_name=customer_name or None, customer_phone=customer_phone or None,
         customer_state=customer_state or None, invoice_no=invoice_no or None,
         payment_mode=payment_mode or None, notes=notes or None,
-        sold_by=current_user.username, sold_at=app_now(),
+        sold_by=current_user.username, sales_person=sales_person.strip() or None,
+        sold_at=app_now(),
     )
     db.add(sale)
     part.sold_qty = int(part.sold_qty or 0) + q      # feeds Part Master's Sold column

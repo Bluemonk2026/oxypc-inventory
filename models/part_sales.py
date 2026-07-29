@@ -79,6 +79,9 @@ class PartSale(Base):
     payment_mode = Column(String(20), nullable=True)
     payment_reference = Column(String(100), nullable=True)
     sold_by = Column(String(50), nullable=True, index=True)
+    # Credited salesperson, distinct from sold_by (the logged-in operator).
+    # Mirrors Sale.sales_person so both sale types report the same way.
+    sales_person = Column(String(100), nullable=True, index=True)
     sold_at = Column(DateTime, default=app_now)
     notes = Column(Text, nullable=True)
 

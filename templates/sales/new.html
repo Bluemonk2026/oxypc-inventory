@@ -87,6 +87,17 @@
               <label class="form-label">Customer Name</label>
               <input type="text" name="customer_name" class="form-control" placeholder="Customer name">
             </div>
+            {# Who gets credit for the sale. Deliberately free text and separate
+               from the logged-in user recorded in sold_by: counter and floor
+               staff are credited but do not all have platform logins. #}
+            <div class="col-md-6">
+              <label class="form-label">Sales Person Name</label>
+              <input type="text" name="sales_person" class="form-control"
+                     list="salesPersonList" placeholder="Who made this sale">
+              <datalist id="salesPersonList">
+                {% for sp in sales_person_options | default([]) %}<option value="{{ sp }}">{% endfor %}
+              </datalist>
+            </div>
             <div class="col-md-6">
               <label class="form-label">Customer Phone</label>
               <input type="tel" name="customer_phone" class="form-control" placeholder="Phone number">

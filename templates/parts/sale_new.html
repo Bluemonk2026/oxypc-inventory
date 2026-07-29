@@ -76,6 +76,15 @@
               <label class="form-label fw-semibold">Customer Name</label>
               <input type="text" name="customer_name" class="form-control" placeholder="Customer name">
             </div>
+            {# Mirrors New Sale so both sale types credit a salesperson the same way. #}
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Sales Person Name</label>
+              <input type="text" name="sales_person" class="form-control"
+                     list="salesPersonList" placeholder="Who made this sale">
+              <datalist id="salesPersonList">
+                {% for sp in sales_person_options | default([]) %}<option value="{{ sp }}">{% endfor %}
+              </datalist>
+            </div>
             <div class="col-md-2">
               <label class="form-label fw-semibold">Customer Phone</label>
               <input type="tel" name="customer_phone" class="form-control" placeholder="Phone">

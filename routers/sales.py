@@ -282,8 +282,10 @@ async def sale_new_form(request: Request, barcode: str = None,
                 approved_qty = appr.qty_requested
             stock_price = _unit_stock_price(device, lot)
     next_num = await _next_sale_number(db)
+    from utils.sales_person import sales_person_options
     return templates.TemplateResponse("sales/new.html", {
         "request": request, "device": device, "lot": lot,
+        "sales_person_options": await sales_person_options(db),
         "next_sale_number": next_num, "current_user": current_user,
         "error": stage_error, "approved_qty": approved_qty,
         "stock_price": stock_price, "prefill_barcode": prefill_barcode,
@@ -299,6 +301,7 @@ async def create_sale(
     barcode: str = Form(...),
     sale_price: str = Form(...),
     customer_name: str = Form(""),
+    sales_person: str = Form(""),
     customer_phone: str = Form(""),
     customer_state: str = Form(default=None),
     invoice_no: str = Form(""),
@@ -424,7 +427,8 @@ async def create_sale(
             customer_name=customer_name or None, customer_phone=customer_phone or None,
             customer_state=customer_state or None,
             invoice_no=invoice_no or None, payment_mode=payment_mode,
-            sold_by=current_user.username, notes=notes or None,
+            sold_by=current_user.username, sales_person=sales_person.strip() or None,
+            notes=notes or None,
             invoice_file_path=invoice_file_path or None,
             sold_at=sold_at,
             warranty_type=wtype, warranty_expires_at=warranty_expires_at,

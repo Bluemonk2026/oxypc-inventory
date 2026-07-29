@@ -21,6 +21,11 @@ class Sale(Base):
     invoice_no = Column(String(50), nullable=True)
     payment_mode = Column(String(20), nullable=True)
     sold_by = Column(String(50), nullable=True, index=True)
+    # Who gets CREDIT for the sale, which is not the same thing as sold_by —
+    # sold_by records the logged-in operator who keyed the entry. Free text
+    # rather than a user FK because the people credited (floor staff, walk-in
+    # counter) do not all have platform logins.
+    sales_person = Column(String(100), nullable=True, index=True)
     sold_at = Column(DateTime, default=app_now)
     notes = Column(Text, nullable=True)
     # ── Transport ────────────────────────────────────────────────────────────────

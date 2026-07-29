@@ -25,6 +25,27 @@ def exists(path: str) -> bool:
     return os.path.exists(os.path.join(ROOT, path))
 
 
+def _linked_from_any_template(url: str) -> bool:
+    """True if any template contains an <a href> pointing at `url`.
+
+    Matches href specifically, not a bare substring: a URL can appear in an
+    active-state condition (`{% if '/dealers/overdue' in request.url.path %}`)
+    without being a link, which makes a substring check pass while the page is
+    actually unreachable. Searches all templates because navigation is not
+    confined to base.html — several pages are reached from dashboard buttons.
+    """
+    pattern = re.compile(r'href\s*=\s*["\']' + re.escape(url) + r'(?:[/?#"\']|$)')
+    tpl_root = os.path.join(ROOT, "templates")
+    for dirpath, _dirnames, filenames in os.walk(tpl_root):
+        for name in filenames:
+            if not name.endswith(".html"):
+                continue
+            with open(os.path.join(dirpath, name), encoding="utf-8") as fh:
+                if pattern.search(fh.read()):
+                    return True
+    return False
+
+
 def has_route(router_src: str, method: str, pattern: str) -> bool:
     """
     Return True if the router source contains a route decorator matching
@@ -80,10 +101,28 @@ class TestUAT01Authentication:
         )
 
     def test_rate_limit_on_login(self):
-        """UAT-01-06: Rate limit decorator (5/minute) present on login endpoint."""
+        """UAT-01-06: login is rate limited, and keyed on IP rather than cookie.
+
+        Previously asserted the literal "5/minute". The limit was deliberately
+        raised to 20/minute (commit 9e1a1ff) because staff share one NAT'd office
+        IP and were being locked out, so the test failed against correct code and
+        would fail again on any future tuning.
+
+        What actually matters is asserted instead: a limit exists, and it keys on
+        the client IP. Keying on the session cookie would void the protection —
+        an attacker can mint a fresh cookie per attempt and land in a new bucket
+        every time, which is exactly why limiter.ip_key_func exists.
+        """
         content = src("routers/auth.py")
-        assert "@limiter.limit" in content, "Rate limit decorator not found on login"
-        assert "5/minute" in content, "5/minute rate limit not found"
+        login_pos = content.find('@router.post("/login")')
+        assert login_pos != -1, "POST /login handler not found in routers/auth.py"
+        # Decorators sit between the route decorator and the function body.
+        window = content[login_pos:login_pos + 400]
+        assert "@limiter.limit(" in window, "login endpoint is not rate limited"
+        assert "ip_key_func" in window, (
+            "login rate limit is not keyed on client IP — a cookie-keyed bucket "
+            "can be rotated by an attacker and provides no brute-force protection"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -801,18 +840,29 @@ class TestUAT21DatabaseModels:
 # ---------------------------------------------------------------------------
 class TestUAT22Navigation:
 
-    def test_ageing_nav_link_present(self):
-        """UAT-22-01: Ageing nav link present in base.html."""
-        content = src("templates/base.html")
-        assert "/dealers/ageing" in content, (
-            "/dealers/ageing nav link not found in base.html"
+    def test_dealer_ageing_page_is_reachable(self):
+        """UAT-22-01: /dealers/ageing is linked from somewhere in the UI.
+
+        Was asserting the link lived in base.html. It never has — these two pages
+        are reached from the Dashboard's receivables buttons, not the sidebar —
+        so the test failed against a perfectly reachable page. Its sibling below
+        "passed" only because "/dealers/overdue" happens to appear inside the
+        /dealers active-state condition, which is not a link at all.
+
+        The invariant worth protecting is that the page is not orphaned, so both
+        now search every template rather than one file, and neither can pass or
+        fail by accident.
+        """
+        assert _linked_from_any_template("/dealers/ageing"), (
+            "/dealers/ageing is not linked from any template — the dealer ageing "
+            "report exists as a route but users cannot navigate to it"
         )
 
-    def test_overdue_orders_nav_link_present(self):
-        """UAT-22-02: Overdue Orders nav link present in base.html."""
-        content = src("templates/base.html")
-        assert "/dealers/overdue" in content, (
-            "/dealers/overdue nav link not found in base.html"
+    def test_overdue_orders_page_is_reachable(self):
+        """UAT-22-02: /dealers/overdue is linked from somewhere in the UI."""
+        assert _linked_from_any_template("/dealers/overdue"), (
+            "/dealers/overdue is not linked from any template — the overdue "
+            "orders page exists as a route but users cannot navigate to it"
         )
 
     def test_audit_log_nav_link_present(self):

@@ -293,7 +293,26 @@ async def business_pl(
     parts_by_month = {int(r.month): float(r.parts_cost) for r in parts_result}
     monthly_parts_cogs = [parts_by_month.get(m, 0.0) for m in range(1, 13)]
 
-    monthly_cogs = [d + p for d, p in zip(monthly_device_cogs, monthly_parts_cogs)]
+    # ── Repair LABOUR COGS per month ────────────────────────────────────────
+    # Same join path as parts: RepairAttempt.device_id → Device.id → Sale.device_id.
+    # Labour was previously missing from this report while Lot P&L above did
+    # include it, so the two disagreed on the same devices and Business P&L
+    # overstated gross margin by the whole repair-labour bill.
+    labour_result = await db.execute(
+        select(
+            extract("month", Sale.sold_at).label("month"),
+            func.coalesce(func.sum(RepairAttempt.cost), 0).label("labour_cost"),
+        )
+        .join(Device, RepairAttempt.device_id == Device.id)
+        .join(Sale, Sale.device_id == Device.id)
+        .where(extract("year", Sale.sold_at) == year)
+        .group_by(extract("month", Sale.sold_at))
+    )
+    labour_by_month = {int(r.month): float(r.labour_cost) for r in labour_result}
+    monthly_labour_cogs = [labour_by_month.get(m, 0.0) for m in range(1, 13)]
+
+    monthly_cogs = [d + p + l for d, p, l in
+                    zip(monthly_device_cogs, monthly_parts_cogs, monthly_labour_cogs)]
 
     # ── Year totals ──────────────────────────────────────────────────────────
     total_revenue = float((await db.execute(
@@ -312,6 +331,7 @@ async def business_pl(
     total_cogs        = sum(monthly_cogs)
     total_device_cogs = sum(monthly_device_cogs)
     total_parts_cogs  = sum(monthly_parts_cogs)
+    total_labour_cogs = sum(monthly_labour_cogs)
     gross_profit      = total_revenue - total_cogs
     gross_margin      = round(gross_profit / total_revenue * 100, 1) if total_revenue > 0 else 0
 
@@ -321,12 +341,14 @@ async def business_pl(
         "monthly_rev":          monthly_rev,
         "monthly_device_cogs":  monthly_device_cogs,
         "monthly_parts_cogs":   monthly_parts_cogs,
+        "monthly_labour_cogs":  monthly_labour_cogs,
         "monthly_cogs":         monthly_cogs,
         "monthly_profit":       [r - c for r, c in zip(monthly_rev, monthly_cogs)],
         "total_revenue":        total_revenue,
         "total_cogs":           total_cogs,
         "total_device_cogs":    total_device_cogs,
         "total_parts_cogs":     total_parts_cogs,
+        "total_labour_cogs":    total_labour_cogs,
         "gross_profit":         gross_profit,
         "gross_margin":         gross_margin,
         "total_sales_ct":       total_sales_ct,

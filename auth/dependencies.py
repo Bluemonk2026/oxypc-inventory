@@ -40,15 +40,28 @@ ROLE_PERMISSIONS = {
 }
 
 
+def _bcrypt_bytes(password: str) -> bytes:
+    """Encode a password for bcrypt, capped at bcrypt's 72-byte limit.
+
+    bcrypt has ALWAYS ignored everything past 72 bytes; the difference is that
+    bcrypt < 5.0 truncated silently while 5.0 raises ValueError. Truncating here
+    keeps the old behaviour exactly, so hashes stored before the upgrade still
+    verify. Without it, hash_password() raises a 500 when someone sets a long
+    passphrase, and verify_password() swallows the same error and reports a
+    correct password as wrong.
+    """
+    return password.encode("utf-8")[:72]
+
+
 def verify_password(plain: str, hashed: str) -> bool:
     try:
-        return _bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+        return _bcrypt.checkpw(_bcrypt_bytes(plain), hashed.encode("utf-8"))
     except Exception:
         return False
 
 
 def hash_password(password: str) -> str:
-    return _bcrypt.hashpw(password.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
+    return _bcrypt.hashpw(_bcrypt_bytes(password), _bcrypt.gensalt()).decode("utf-8")
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

@@ -60,11 +60,17 @@ class TestUAT01Authentication:
         """UAT-01-03: Login template file exists."""
         assert exists("templates/login.html"), "templates/login.html not found"
 
-    def test_password_hashed_with_passlib(self):
-        """UAT-01-04: passlib/bcrypt used for password hashing in auth dependencies."""
+    def test_password_hashed_with_bcrypt(self):
+        """UAT-01-04: bcrypt used for password hashing in auth dependencies.
+
+        Was asserting passlib + CryptContext, which the code has not used for some
+        time — so this test failed against correct code and told us nothing. It now
+        checks what actually protects passwords: bcrypt's own hashpw/checkpw.
+        """
         content = src("auth/dependencies.py")
-        assert "passlib" in content, "passlib not imported in auth/dependencies.py"
-        assert "CryptContext" in content, "CryptContext not found — bcrypt hashing not configured"
+        assert "bcrypt" in content, "bcrypt not imported in auth/dependencies.py"
+        assert "checkpw" in content, "bcrypt.checkpw not used — password verification not configured"
+        assert "hashpw" in content, "bcrypt.hashpw not used — password hashing not configured"
 
     def test_session_cookie_set_on_login(self):
         """UAT-01-05: access_token cookie set in login handler."""
@@ -711,7 +717,9 @@ class TestUAT20SecurityConfig:
         """UAT-20-05: requirements.txt uses pinned (==) versions for critical packages."""
         content = src("requirements.txt")
         # Core packages that must be pinned
-        critical = ["fastapi", "sqlalchemy", "passlib", "python-jose"]
+        # bcrypt replaces passlib here: passlib is no longer a dependency, and an
+        # unpinned bcrypt is exactly the drift this test exists to catch.
+        critical = ["fastapi", "sqlalchemy", "bcrypt", "python-jose"]
         unpinned = []
         for pkg in critical:
             # Check if pkg appears but NOT with == pinning

@@ -4,8 +4,15 @@ sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
 alembic==1.14.0
 python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-bcrypt>=4.0.0
+# Password hashing calls the bcrypt API directly (auth/dependencies.py) — passlib
+# was dropped from the code but left in here, and it is the ONLY thing in the tree
+# incompatible with modern bcrypt: passlib 1.7.4 reads bcrypt.__about__, removed in
+# bcrypt 4.1, so CryptContext.verify() raises against bcrypt 5.x. Nothing imports
+# passlib, so its removal changes no behaviour and removes a live footgun.
+# Pinned to the version already running in production rather than a floor, so a
+# rebuild cannot silently pull a release with different truncation semantics —
+# bcrypt 5.0 raises on >72-byte passwords where earlier versions truncated.
+bcrypt==5.0.0
 python-multipart==0.0.20
 jinja2==3.1.4
 aiofiles==24.1.0

@@ -84,7 +84,7 @@
       <thead class="table-dark">
         <tr>
           <th>Month</th><th>Revenue</th>
-          <th>Device COGS</th><th>Parts Cost</th><th>Total COGS</th>
+          <th>Device COGS</th><th>Parts Cost</th><th>Labour Cost</th><th>Total COGS</th>
           <th>Gross Profit</th><th>Margin %</th>
         </tr>
       </thead>
@@ -94,6 +94,7 @@
         {% set rev    = monthly_rev[i] %}
         {% set dcogs  = monthly_device_cogs[i] %}
         {% set pcogs  = monthly_parts_cogs[i] %}
+        {% set lcogs  = monthly_labour_cogs[i] %}
         {% set cogs   = monthly_cogs[i] %}
         {% set profit = monthly_profit[i] %}
         {% set margin = (profit / rev * 100) | round(1) if rev > 0 else 0 %}
@@ -102,6 +103,8 @@
           <td>₹{{ "{:,.0f}".format(rev) }}</td>
           <td>₹{{ "{:,.0f}".format(dcogs) }}</td>
           <td class="text-warning">₹{{ "{:,.0f}".format(pcogs) }}</td>
+          {# Repair labour. Without it the breakdown does not sum to Total COGS. #}
+          <td class="text-warning">₹{{ "{:,.0f}".format(lcogs) }}</td>
           <td>₹{{ "{:,.0f}".format(cogs) }}</td>
           <td class="{% if profit >= 0 %}text-success{% else %}text-danger{% endif %} fw-semibold">
             ₹{{ "{:,.0f}".format(profit) }}
@@ -116,6 +119,7 @@
           <td>₹{{ "{:,.0f}".format(total_revenue) }}</td>
           <td>₹{{ "{:,.0f}".format(total_device_cogs) }}</td>
           <td class="text-warning">₹{{ "{:,.0f}".format(total_parts_cogs) }}</td>
+          <td class="text-warning">₹{{ "{:,.0f}".format(total_labour_cogs) }}</td>
           <td>₹{{ "{:,.0f}".format(total_cogs) }}</td>
           <td class="{% if gross_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
             ₹{{ "{:,.0f}".format(gross_profit) }}

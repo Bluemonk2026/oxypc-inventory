@@ -73,6 +73,7 @@
           <div class="modal-dialog">
             <div class="modal-content">
               <form method="post" action="/qa/uat/{{ s.id }}/execute">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                 <div class="modal-header">
                   <h6 class="modal-title">UAT: {{ s.title|truncate(40) }}</h6>
                   <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -139,6 +140,7 @@
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="/qa/uat/new">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <div class="modal-header">
           <h5 class="modal-title"><i class="bi bi-person-check me-2"></i>New UAT Scenario</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

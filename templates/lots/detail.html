@@ -78,6 +78,7 @@
       <div class="collapse" id="grnInlineForm">
         <div class="card-body border-bottom bg-light py-3">
           <form method="post" action="/grn/submit">
+            <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
             <input type="hidden" name="lot_id" value="{{ lot.id }}">
             <div class="row g-2 align-items-end">
               <div class="col-md-2">

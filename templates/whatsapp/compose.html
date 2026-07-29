@@ -64,6 +64,7 @@
         </div>
         <div class="card-body">
           <form method="POST" action="/whatsapp/send">
+            <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
             <!-- Hidden fields -->
             <input type="hidden" name="dealer_id" value="{{ dealer.id }}">
             <input type="hidden" name="message_type" value="reminder">

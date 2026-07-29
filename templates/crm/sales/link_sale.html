@@ -21,6 +21,7 @@
   </form>
 
   <form method="post" action="/crm/sales/{{ opp.id }}/link-sale">
+    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
     <div class="card border-0 shadow-sm mb-3">
       <div class="card-body p-0">
         <div class="table-responsive">

@@ -15,6 +15,7 @@
       contact_type (supplier/buyer/both), source_type, buyer_type, city, state, gstin, tags
     </div>
     <form method="post" enctype="multipart/form-data" action="/crm/contacts/import-csv">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
       <div class="mb-3">
         <label class="form-label fw-semibold">Select CSV File <span class="text-danger">*</span></label>
         <input type="file" name="file" class="form-control" accept=".csv" required>
@@ -68,6 +69,7 @@
   </div>
 </div>
 <form method="post" action="/crm/contacts/import-confirm" class="mt-3">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
   <input type="hidden" name="preview_data" value="{{ preview_json }}">
   <button type="submit" class="btn btn-success"><i class="bi bi-check-circle me-1"></i>Confirm Import</button>
   <a href="/crm/contacts/import-csv" class="btn btn-outline-secondary ms-2">Re-upload</a>

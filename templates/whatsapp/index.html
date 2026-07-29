@@ -35,6 +35,7 @@
         <div class="text-muted small mb-1"><i class="bi bi-phone me-1"></i>{{ session.phone_number or 'Unknown' }}</div>
         <div class="text-muted small mb-3">Since: {{ session.connected_at | ist if session.connected_at else '—' }} IST</div>
         <form method="post" action="/whatsapp/disconnect">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
           <button class="btn btn-outline-danger btn-sm px-4"><i class="bi bi-power me-1"></i>Disconnect</button>
         </form>
 
@@ -56,6 +57,7 @@
         <div class="fw-bold fs-5 mb-2">Connect Your WhatsApp</div>
         <p class="small text-muted mb-3">Link <strong>your own</strong> WhatsApp number (this is <strong>{{ current_user.username }}</strong>'s private session). Scan the QR once from your phone — your number is captured automatically on linking, and only your messages &amp; groups sync. Each user links their own number.</p>
         <form method="post" action="/whatsapp/connect">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
           <button class="btn btn-success w-100 py-2" {% if not service_online %}disabled{% endif %}>
             <i class="bi bi-qr-code-scan me-2"></i>Connect via QR Code
           </button>
@@ -140,6 +142,7 @@
           <div class="card-header bg-transparent fw-semibold"><i class="bi bi-send me-2"></i>Compose &amp; Send</div>
           <div class="card-body">
             <form method="post" action="/whatsapp/send">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
               <div class="row g-3">
                 <div class="col-md-6">
                   <label class="form-label">Dealer</label>
@@ -203,12 +206,14 @@
                 <a href="/whatsapp/groups/export-csv" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download me-1"></i>Export CSV</a>
                 {# Sync Groups #}
                 <form method="post" action="/whatsapp/groups/sync" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                   <button class="btn btn-sm btn-outline-success" {% if not session or session.status != 'connected' %}disabled{% endif %}>
                     <i class="bi bi-arrow-clockwise me-1"></i>Sync Groups
                   </button>
                 </form>
                 {# Sync Messages #}
                 <form method="post" action="/whatsapp/groups/sync-messages" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                   <input type="hidden" name="limit" value="100">
                   <button class="btn btn-sm btn-success" {% if not session or session.status != 'connected' %}disabled{% endif %}
                           onclick="return confirm('This will fetch recent messages from ALL synced groups. May take a few minutes. Continue?')">
@@ -276,6 +281,7 @@
             {# Multi-group send bar — appears when groups are selected #}
             <div id="multiSendBar" class="d-none border-top p-3 bg-light">
               <form method="post" action="/whatsapp/send-multi-group" id="multiGroupForm">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                 <div class="row g-2 align-items-end">
                   <div class="col-md-3">
                     <label class="form-label small fw-semibold mb-1">Message Type</label>
@@ -350,6 +356,7 @@
               <div class="fw-semibold">No messages synced yet</div>
               <div class="text-muted small mb-3">Click <strong>Sync Messages</strong> (green button above) to import messages from all your WhatsApp groups into this search index.</div>
               <form method="post" action="/whatsapp/groups/sync-messages" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                 <input type="hidden" name="limit" value="100">
                 <button class="btn btn-success btn-sm" {% if not session or session.status != 'connected' %}disabled{% endif %}
                         onclick="return confirm('Fetch last 100 messages from all groups? May take a few minutes.')">
@@ -393,6 +400,7 @@
           <div class="card-header bg-transparent fw-semibold"><i class="bi bi-megaphone me-2"></i>Broadcast Message</div>
           <div class="card-body">
             <form method="post" action="/whatsapp/broadcast" id="broadcastForm">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
               <div class="row g-3 mb-3">
                 <div class="col-md-6">
                   <label class="form-label">Broadcast Name <span class="text-muted small">(optional)</span></label>
@@ -513,6 +521,7 @@
                     </td>
                     <td>
                       <form method="post" action="/whatsapp/send-reminder/{{ order.id }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                         <button class="btn btn-sm btn-warning" {% if not session or session.status != 'connected' %}disabled{% endif %}>
                           <i class="bi bi-bell me-1"></i>Send
                         </button>
@@ -547,6 +556,7 @@
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <form method="post" action="/whatsapp/send-group">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <input type="hidden" name="group_wa_id" id="modalGroupId">
         <input type="hidden" name="group_name"  id="modalGroupNameHidden">
         <div class="modal-body">
@@ -582,6 +592,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="post" id="tagForm">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <input type="hidden" name="group_wa_id" id="tagGroupId">
         <div class="modal-body">
           <label class="form-label small">Tags <span class="text-muted">(comma-separated)</span></label>
@@ -651,6 +662,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="post" action="/market/link-dealer">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <input type="hidden" name="group_wa_id" id="glGroupId">
         <div class="modal-body">
           <div class="mb-3">

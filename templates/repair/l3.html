@@ -93,6 +93,7 @@
       <div class="card-header bg-success-subtle fw-semibold"><i class="bi bi-check-circle me-2"></i>Complete L3 Repair Job</div>
       <div class="card-body">
         <form action="/repair/complete" method="post">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
           <div class="row g-2">
             <div class="col-12">
               <label class="form-label small fw-semibold">Open Job</label>

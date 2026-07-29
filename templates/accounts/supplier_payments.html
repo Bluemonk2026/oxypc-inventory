@@ -14,6 +14,7 @@
   <div class="card-header bg-transparent fw-semibold"><i class="bi bi-plus-circle me-2"></i>Record New Payment</div>
   <div class="card-body">
     <form action="/accounts/supplier-payments/new" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
       <div class="row g-3">
         <div class="col-md-4">
           <label class="form-label fw-semibold">Supplier</label>

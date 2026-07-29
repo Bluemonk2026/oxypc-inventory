@@ -17,6 +17,7 @@
         </div>
         {% endif %}
         <form action="{% if lot %}/lots/{{ lot.id }}/edit{% else %}/lots/new{% endif %}" method="post">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         {% if prefill %}
         <input type="hidden" name="crm_deal_id" value="{{ prefill.from_deal }}">
         {% endif %}

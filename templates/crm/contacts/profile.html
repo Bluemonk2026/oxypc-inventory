@@ -123,6 +123,7 @@
       <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-plus-circle me-1 text-success"></i>Log Activity</div>
       <div class="card-body">
         <form method="post" action="/crm/activities/log" class="row g-2">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
           <input type="hidden" name="contact_id" value="{{ contact.id }}">
           <input type="hidden" name="redirect_to" value="/crm/contacts/{{ contact.id }}">
           <div class="col-md-3">

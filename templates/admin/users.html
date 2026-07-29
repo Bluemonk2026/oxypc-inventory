@@ -75,6 +75,7 @@
     <div class="modal-content">
       <div class="modal-header"><h5 class="modal-title">Reset Password</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <form id="resetForm" method="post">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <div class="modal-body">
           <p class="small text-muted mb-2">Resetting password for: <strong id="resetUsername"></strong></p>
           <input type="password" name="new_password" class="form-control" placeholder="New password" required minlength="6">

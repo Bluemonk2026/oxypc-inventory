@@ -72,6 +72,7 @@
     </form>
     {# Hidden form for POST export-selected #}
     <form id="exportForm" action="/sales/export-selected" method="post" style="display:none">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
       <input type="hidden" name="sale_ids" id="selectedIds">
     </form>
   </div>

@@ -144,6 +144,7 @@
               <div class="d-flex gap-1">
                 <a href="/market/{{ e.id }}/edit" class="btn btn-xs btn-outline-secondary" style="padding:2px 6px;font-size:0.72rem"><i class="bi bi-pencil"></i></a>
                 <form method="post" action="/market/{{ e.id }}/toggle" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                   {% if e.is_active %}
                   <button class="btn btn-xs btn-outline-danger" style="padding:2px 6px;font-size:0.72rem" title="Mark as Closed/Dealt">
                     <i class="bi bi-x-circle me-1"></i>Close
@@ -228,6 +229,7 @@
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <form method="post" action="/market/add">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <div class="modal-body">
           <div class="row g-3">
             <div class="col-md-3">
@@ -351,6 +353,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="post" action="/market/link-dealer">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <input type="hidden" name="group_wa_id" id="linkGroupId">
         <div class="modal-body">
           <div class="mb-3">

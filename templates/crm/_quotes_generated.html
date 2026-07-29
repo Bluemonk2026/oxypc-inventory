@@ -107,6 +107,7 @@
 <div class="modal fade" id="wonLotModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <form method="post" action="/crm/quotes/from-lot" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
       <input type="hidden" name="contact_id" value="{{ nq_contact_id or '' }}">
       <input type="hidden" name="opp_id" value="{{ nq_opp_id or '' }}">
       <input type="hidden" name="return_to" value="{{ nq_return_to }}">
@@ -162,6 +163,7 @@
 {# Buyer Deal: the lot is already known from Opportunity Info, so Bid Won
    needs no picker — it posts straight through. #}
 <form method="post" action="/crm/quotes/from-lot" id="bidWonDirectForm" class="d-none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
   <input type="hidden" name="lot_id" value="{{ nq_lot_id }}">
   <input type="hidden" name="contact_id" value="{{ nq_contact_id or '' }}">
   <input type="hidden" name="opp_id" value="{{ nq_opp_id or '' }}">
@@ -173,6 +175,7 @@
 <div class="modal fade" id="generateQuoteModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <form method="post" id="generateQuoteForm" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
       <div class="modal-header py-2">
         <h6 class="modal-title">Generate Quote <span class="text-muted small" id="gqNumber"></span></h6>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

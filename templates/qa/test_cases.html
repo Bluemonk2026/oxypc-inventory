@@ -88,6 +88,7 @@
           <div class="modal-dialog">
             <div class="modal-content">
               <form method="post" action="/qa/test-cases/{{ tc.id }}/execute">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                 <div class="modal-header">
                   <h6 class="modal-title">Log Execution — {{ tc.tc_code or tc.title|truncate(30) }}</h6>
                   <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -163,6 +164,7 @@
   <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <form method="post" action="/qa/test-cases/new">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <div class="modal-header">
           <h5 class="modal-title"><i class="bi bi-clipboard-plus me-2"></i>New Test Case</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

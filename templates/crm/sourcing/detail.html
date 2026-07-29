@@ -204,10 +204,12 @@
         <i class="bi bi-boxes me-1"></i>Create Lot &amp; Mark WON
       </a>
       <form method="post" action="/crm/sourcing/{{ deal.id }}/stage" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <input type="hidden" name="new_stage" value="won">
         <button class="btn btn-sm btn-outline-success"><i class="bi bi-trophy me-1"></i>Mark WON (no lot)</button>
       </form>
       <form method="post" action="/crm/sourcing/{{ deal.id }}/stage" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <input type="hidden" name="new_stage" value="lost">
         <button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-circle me-1"></i>Mark LOST</button>
       </form>
@@ -240,6 +242,7 @@
         <!-- Stage Move Form -->
         {% if deal.stage not in ['won','lost'] %}
         <form method="post" action="/crm/sourcing/{{ deal.id }}/stage" class="row g-2 align-items-end">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
           <div class="col-md-4">
             <label class="form-label small fw-semibold mb-1">Move to Stage</label>
             <select name="new_stage" class="form-select form-select-sm">
@@ -536,6 +539,7 @@
         <div class="small mt-1">{{ next_fu.summary }}</div>
       </div>
       <form method="post" action="/crm/activities/{{ next_fu.id }}/done" class="ms-3 flex-shrink-0">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <input type="hidden" name="redirect_to" value="/crm/sourcing/{{ deal.id }}">
         <button class="btn btn-sm btn-success"><i class="bi bi-check me-1"></i>Mark Done</button>
       </form>
@@ -588,6 +592,7 @@
       <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-plus-circle me-1 text-success"></i>Log Activity</div>
       <div class="card-body">
         <form method="post" action="/crm/activities/log" class="row g-2">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
           <input type="hidden" name="contact_id" value="{{ contact.id if contact else '' }}">
           <input type="hidden" name="deal_id" value="{{ deal.id }}">
           <input type="hidden" name="deal_type" value="sourcing">

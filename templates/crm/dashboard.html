@@ -135,6 +135,7 @@
             {% endif %}
             <div class="small text-muted">{{ act.summary[:60] }}{% if act.summary|length > 60 %}…{% endif %}</div>
             <form method="post" action="/crm/activities/{{ act.id }}/done" class="mt-1">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
               <input type="hidden" name="redirect_to" value="/crm/">
               <button class="btn btn-xs btn-outline-success btn-sm py-0 px-2" style="font-size:.7rem">✓ Mark Done</button>
             </form>

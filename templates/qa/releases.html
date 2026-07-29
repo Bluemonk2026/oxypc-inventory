@@ -92,6 +92,7 @@
     <div class="modal-dialog">
       <div class="modal-content">
         <form method="post" action="/qa/releases/{{ rel.id }}/status">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
           <div class="modal-header">
             <h6 class="modal-title">Advance {{ rel.version }} Status</h6>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -155,6 +156,7 @@
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="/qa/releases/new">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <div class="modal-header">
           <h5 class="modal-title"><i class="bi bi-rocket me-2"></i>New Release</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

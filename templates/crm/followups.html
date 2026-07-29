@@ -76,6 +76,7 @@
       {% endif %}
       {% if show_done %}
       <form method="post" action="/crm/activities/{{ act.id }}/done">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <input type="hidden" name="redirect_to" value="/crm/activities/followups{% if filter_type %}?filter_type={{ filter_type }}{% endif %}">
         <button class="btn btn-sm btn-success"><i class="bi bi-check me-1"></i>Mark Done</button>
       </form>

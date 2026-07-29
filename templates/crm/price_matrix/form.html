@@ -6,6 +6,7 @@
 <div class="row justify-content-center">
 <div class="col-xl-7">
 <form method="post" action="{{ '/crm/price-matrix/'+row.id|string+'/edit' if row else '/crm/price-matrix/new' }}">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-table me-2 text-primary"></i>Device &amp; Grade</div>
   <div class="card-body">

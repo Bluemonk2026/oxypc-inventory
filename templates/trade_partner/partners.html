@@ -133,6 +133,7 @@
                 <div class="modal-dialog">
                   <div class="modal-content">
                     <form method="post" action="/trade-partner/partners/{{ p.id }}/update">
+                      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                       <div class="modal-header py-2">
                         <h6 class="modal-title">Edit — {{ p.business_name }}</h6>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -198,6 +199,7 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <form method="post" id="resetPwForm" action="">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <div class="modal-header py-2">
           <h6 class="modal-title"><i class="bi bi-key me-2"></i>Reset Password</h6>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -221,6 +223,7 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <form method="post" id="togglePortalForm" action="">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <div class="modal-header py-2">
           <h6 class="modal-title" id="togglePortalTitle">Portal Access</h6>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -244,6 +247,7 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <form method="post" action="/trade-partner/partners/enable">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <div class="modal-header py-2">
           <h6 class="modal-title">Enable Portal Access</h6>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

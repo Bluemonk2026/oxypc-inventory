@@ -25,6 +25,7 @@
   {% if audit.status.value == 'in_progress' %}
   <form action="/locations/audit/{{ audit.id }}/close" method="post"
         onsubmit="return confirm('Close this audit? This is final and cannot be undone.')">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
     <button class="btn btn-success btn-sm">
       <i class="bi bi-check2-circle me-1"></i> Close Audit
     </button>
@@ -96,6 +97,7 @@
       </div>
       <div class="card-body">
         <form action="/locations/audit/{{ audit.id }}/scan" method="post" id="scanForm">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
           <div class="row g-2 align-items-end">
             <div class="col-md-5">
               <label class="form-label small fw-semibold">Tag Number <span class="text-danger">*</span></label>

@@ -88,6 +88,7 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <form action="/locations/audit/create" method="post">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <div class="modal-header">
           <h5 class="modal-title"><i class="bi bi-clipboard-plus me-2"></i>Initiate Physical Audit</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

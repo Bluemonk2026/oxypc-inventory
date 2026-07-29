@@ -11,6 +11,7 @@
    typed on that workstation and silently lands on a customer quote. #}
 <form method="post" action="{{ '/crm/quotes/'+quote.id|string+'/edit' if quote else '/crm/quotes/new' }}"
       id="quoteForm" autocomplete="off" data-no-autosave>
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
 {% if opp_id %}<input type="hidden" name="opp_id" value="{{ opp_id }}">{% endif %}
 
 <!-- Header Details -->

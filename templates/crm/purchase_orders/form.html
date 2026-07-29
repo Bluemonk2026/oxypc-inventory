@@ -6,6 +6,7 @@
   <div class="card-header bg-transparent fw-semibold"><i class="bi bi-file-earmark-plus me-2"></i>Create Purchase Order</div>
   <div class="card-body">
     <form action="/crm/purchase-orders/new" method="post" id="poForm">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
       <div class="row g-3 mb-3">
         <div class="col-md-3">
           <label class="form-label fw-semibold">PO Number</label>

@@ -12,6 +12,10 @@
       <div class="card-body">
         {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
         <form action="/iqc/new" method="post" id="iqcEntryForm">
+          {# Required: the IQC router enforces CSRF on every POST. Without this
+             field every submission was bounced to /auth/login before reaching
+             the handler, losing the whole form. #}
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
 
           <!-- ── Auto-fill helpers: Diagnose (this station) | Import (from USB) ── -->
           <div class="row g-2 mb-3">

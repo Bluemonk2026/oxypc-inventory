@@ -88,6 +88,7 @@
           <div class="modal-dialog">
             <div class="modal-content">
               <form method="post" action="/qa/defects/{{ d.id }}/status">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                 <div class="modal-header">
                   <h6 class="modal-title">Update — {{ d.defect_code or 'BUG' }}: {{ d.title|truncate(40) }}</h6>
                   <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -132,6 +133,7 @@
   <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <form method="post" action="/qa/defects/new">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <div class="modal-header bg-danger bg-opacity-10">
           <h5 class="modal-title text-danger"><i class="bi bi-bug me-2"></i>Log Defect</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

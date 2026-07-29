@@ -70,6 +70,7 @@
           <td class="small text-muted">{{ r.created_at.strftime('%d-%m-%Y') if r.created_at else '—' }}</td>
           <td>
             <form method="post" action="/qa/requirements/{{ r.id }}/status" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
               <select name="status" class="form-select form-select-sm d-inline-block" style="width:110px"
                       onchange="this.form.submit()">
                 {% for s in statuses %}
@@ -92,6 +93,7 @@
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="/qa/requirements/new">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <div class="modal-header">
           <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>New Requirement</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

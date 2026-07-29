@@ -50,6 +50,7 @@
         <a href="/crm/purchase-orders/{{ po.id }}/print" target="_blank" class="btn btn-outline-secondary"><i class="bi bi-printer me-2"></i>Print PO</a>
         {% if can_edit and po.status == 'draft' %}
         <form action="/crm/purchase-orders/{{ po.id }}/issue" method="post">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
           <button type="submit" class="btn btn-primary w-100"><i class="bi bi-send me-2"></i>Issue PO</button>
         </form>
         {% endif %}

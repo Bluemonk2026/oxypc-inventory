@@ -121,6 +121,7 @@
       <div class="card-header bg-white border-0 fw-semibold"><i class="bi bi-arrow-repeat me-1 text-warning"></i>Update Status</div>
       <div class="card-body">
         <form method="post" action="/crm/quotes/{{ quote.id }}/status" class="d-flex gap-2">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
           <select name="new_status" class="form-select form-select-sm">
             {% for val in ['draft','sent','negotiating','accepted','rejected','expired'] %}
             <option value="{{ val }}" {% if quote.status==val %}selected{% endif %}>{{ val | title }}</option>
@@ -167,6 +168,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="post" action="/whatsapp/send">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <div class="modal-body">
           <div class="mb-3">
             <label class="form-label fw-semibold">Recipient Phone</label>

@@ -33,6 +33,7 @@
       </div>
       <div class="card-body">
         <form action="/devices/{{ device.barcode }}/edit" method="post">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
 
           <!-- ── Section 1: Identity ── -->
           <p class="fw-bold small text-uppercase mb-2 border-bottom pb-1 sec-hd">Identity</p>

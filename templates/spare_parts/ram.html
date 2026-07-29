@@ -6,6 +6,7 @@
   <div class="card-header bg-transparent fw-semibold"><i class="bi bi-memory me-2"></i>Log RAM Movement</div>
   <div class="card-body">
     <form action="/ram-tracking" method="post">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
       <div class="row g-3">
         <div class="col-md-2">
           <label class="form-label fw-semibold">Action <span class="text-danger">*</span></label>

@@ -125,6 +125,7 @@
                 {% if b.status == 'proof_uploaded' %}
                 <form method="post" action="/trade-partner/bookings/{{ b.id }}/verify" class="d-inline"
                       onsubmit="return confirm('Verify token payment for {{ b.booking_number }}?');">
+                        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                   <button class="btn btn-sm btn-success" title="Verify token proof"><i class="bi bi-check2-circle"></i> Verify</button>
                 </form>
                 {% endif %}
@@ -136,6 +137,7 @@
                 {% if b.status == 'pending_payment' %}
                 <form method="post" action="/trade-partner/bookings/{{ b.id }}/extend" class="d-inline"
                       onsubmit="return confirm('Extend hold by 24h?');">
+                        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                   <input type="hidden" name="extra_hours" value="24">
                   <button class="btn btn-sm btn-outline-secondary" title="Extend hold 24h"><i class="bi bi-clock-history"></i></button>
                 </form>
@@ -149,6 +151,7 @@
                 {% if b.status in ('confirmed_token','balance_pending') %}
                 <form method="post" action="/trade-partner/bookings/{{ b.id }}/balance-verify" class="d-inline"
                       onsubmit="return confirm('Confirm balance received for {{ b.booking_number }}? Booking becomes ready for dispatch.');">
+                        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                   <button class="btn btn-sm btn-primary" title="Verify balance"><i class="bi bi-cash-stack"></i> Balance OK</button>
                 </form>
                 {% if wa and b.status == 'confirmed_token' %}
@@ -161,6 +164,7 @@
                 {% if b.status == 'ready_for_dispatch' %}
                 <form method="post" action="/trade-partner/bookings/{{ b.id }}/dispatched" class="d-inline"
                       onsubmit="return confirm('Mark {{ b.booking_number }} as dispatched?');">
+                        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                   <button class="btn btn-sm btn-dark" title="Mark dispatched"><i class="bi bi-truck"></i> Dispatched</button>
                 </form>
                 {% endif %}
@@ -171,6 +175,7 @@
                 <div class="modal-dialog">
                   <div class="modal-content">
                     <form method="post" action="/trade-partner/bookings/{{ b.id }}/reject">
+                      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                       <div class="modal-header py-2">
                         <h6 class="modal-title">Reject {{ b.booking_number }}</h6>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

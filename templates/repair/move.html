@@ -8,6 +8,7 @@
       <div class="card-header bg-transparent fw-semibold"><i class="bi bi-arrow-left-right me-2"></i>Manual Stage Movement</div>
       <div class="card-body">
         <form action="/repair/move" method="post">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
           <div class="mb-3">
             <label class="form-label fw-semibold">Device Tag Number</label>
             <input type="text" name="barcode" class="form-control barcode-field font-monospace" placeholder="Scan or type tag number" autofocus required>

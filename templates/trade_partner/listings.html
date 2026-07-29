@@ -90,6 +90,7 @@
                 {% elif l.status == 'published' %}
                 <form method="post" action="/trade-partner/listings/{{ l.id }}/pause" class="d-inline"
                       onsubmit="return confirm('Pause {{ l.listing_code }}? Dealers will stop seeing it.');">
+                        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                   <button class="btn btn-outline-warning" title="Pause"><i class="bi bi-pause-circle"></i></button>
                 </form>
                 {% endif %}
@@ -103,6 +104,7 @@
                 <div class="modal-dialog">
                   <div class="modal-content">
                     <form method="post" action="/trade-partner/listings/{{ l.id }}/publish">
+                      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                       <div class="modal-header py-2">
                         <h6 class="modal-title">Publish {{ l.listing_code }}</h6>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -130,6 +132,7 @@
                 <div class="modal-dialog">
                   <div class="modal-content">
                     <form method="post" action="/trade-partner/listings/{{ l.id }}/reprice">
+                      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
                       <div class="modal-header py-2">
                         <h6 class="modal-title">Reprice {{ l.listing_code }}</h6>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -185,6 +188,7 @@
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="/trade-partner/listings/create" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <div class="modal-header py-2">
           <h6 class="modal-title">New Listing</h6>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

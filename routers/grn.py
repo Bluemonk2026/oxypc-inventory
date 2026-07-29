@@ -163,11 +163,16 @@ async def grn_map(request: Request, grn_id: str = Form(...),
 
 @router.get("/records", response_class=HTMLResponse)
 async def grn_records(request: Request, db: AsyncSession = Depends(get_db),
-                      current_user: User = Depends(allowed)):
+                      current_user: User = Depends(allowed),
+                      date_from: str = Query(default=""),
+                      date_to: str = Query(default="")):
+    from utils.date_filter import apply_date_range
+    _rec_filters = [Device.is_active == True, Device.is_trashed == False]
+    apply_date_range(_rec_filters, Device.created_at, date_from, date_to)
     base = (
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id, isouter=True)
-        .where(Device.is_active == True, Device.is_trashed == False)
+        .where(*_rec_filters)
     )
     # GRN Assigned — tag numbers that already have a GRN value
     assigned = (await db.execute(

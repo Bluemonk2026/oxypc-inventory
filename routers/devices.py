@@ -160,10 +160,13 @@ async def device_search(
     grade: str = "",
     category: str = "",
     device_type: str = "",
+    date_from: str = "",
+    date_to: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(view_allowed),
 ):
     """Global inventory browser — search across all stages."""
+    from utils.date_filter import apply_date_range
     query = (
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id)
@@ -194,6 +197,7 @@ async def device_search(
         filters.append(Device.sub_category == category)
     if device_type:
         filters.append(Device.device_type == device_type)
+    apply_date_range(filters, Device.created_at, date_from, date_to)
 
     for f in filters:
         query = query.where(f)

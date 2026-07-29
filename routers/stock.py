@@ -854,7 +854,10 @@ async def stock_in_list(
     current_user: User = Depends(allowed),
     device_type: str = Query(default=""),
     lot_number: str = Query(default=""),
+    date_from: str = Query(default=""),
+    date_to: str = Query(default=""),
 ):
+    from utils.date_filter import apply_date_range
     # Full dataset (no server-side page cap) so the scan/search box can match
     # against every stock-in device, not just the current page; pagination is
     # client-side (DataTable, 12/page) — see stock_in.html.
@@ -863,6 +866,7 @@ async def stock_in_list(
         stock_filters.append(Device.device_type == device_type)
     if lot_number:
         stock_filters.append(Lot.lot_number == lot_number)
+    apply_date_range(stock_filters, Device.created_at, date_from, date_to)
 
     base_stmt = (
         select(Device, Lot.lot_number)
@@ -1095,11 +1099,17 @@ async def trc_production_list(
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
+    date_from: str = Query(default=""),
+    date_to: str = Query(default=""),
 ):
+    from utils.date_filter import apply_date_range
+    _trc_filters = [Device.current_stage == DeviceStage.trc_production,
+                    Device.is_active == True]
+    apply_date_range(_trc_filters, Device.created_at, date_from, date_to)
     base_stmt = (
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id)
-        .where(Device.current_stage == DeviceStage.trc_production, Device.is_active == True)
+        .where(*_trc_filters)
     )
     devices = (await db.execute(
         base_stmt.order_by(Device.updated_at.desc())

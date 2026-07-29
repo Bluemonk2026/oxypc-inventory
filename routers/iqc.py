@@ -13,7 +13,7 @@ from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.lot import Lot, LotLineItem
 from models.iqc_inspection import IQCInspection
 from models.location import StorageLocation
-from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
+from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm, require_any_module_perm
 from services.audit_engine import audit
 from services.control_engine import validate_transition
 from utils.master_data import master_values
@@ -506,7 +506,10 @@ async def iqc_list(
     grade: str = Query(default=""),
     lot: str = Query(default=""),
     device_type: str = Query(default=""),
+    date_from: str = Query(default=""),
+    date_to: str = Query(default=""),
 ):
+    from utils.date_filter import apply_date_range
     # Stage defaults to IQC (this page's usual purpose) unless the user
     # explicitly picks a different stage from the new Stage filter — lets
     # this page double as a broader device search without changing its
@@ -534,6 +537,7 @@ async def iqc_list(
             Device.model.ilike(q_like),
             Device.serial_no.ilike(q_like),
         ))
+    apply_date_range(base_filters, Device.created_at, date_from, date_to)
 
     base_q = (
         select(Device, Lot.lot_number)
@@ -662,7 +666,9 @@ async def iqc_bulk_apply_grade_type(
     to_stage: str = Form(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
-    _perm: User = Depends(require_module_perm("iqc", "edit")),
+    # Posted from BOTH Product IQC and All Inventory — accept edit rights on
+    # either module so an Inventory Manager can use the Customise modal.
+    _perm: User = Depends(require_any_module_perm("iqc", "devices", action="edit")),
 ):
     """Bulk-apply Device Type, Grade, Invoice Number, PO Number and/or a stage
     move to a set of devices. Powers the same Customise modal reused across

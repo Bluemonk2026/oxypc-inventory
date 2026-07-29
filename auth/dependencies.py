@@ -200,6 +200,30 @@ def require_module_perm(module: str, action: str = "enable"):
     return checker
 
 
+def require_any_module_perm(*modules: str, action: str = "enable"):
+    """Like require_module_perm, but passes if ANY of the modules grants it.
+
+    Needed where one endpoint serves several pages: the Customise bulk-edit is
+    posted from both All Inventory (/devices) and Product IQC (/iqc), so
+    demanding the 'iqc' bit alone locked out an Inventory Manager who legitimately
+    has edit rights on the page they were actually using.
+    """
+    from models.role_permissions import has_perm
+
+    async def checker(current_user: User = Depends(get_current_user)) -> User:
+        role_name = (current_user.role.value if hasattr(current_user.role, "value")
+                     else str(current_user.role))
+        if any(has_perm(role_name, m, action) for m in modules):
+            return current_user
+        raise HTTPException(
+            status_code=403,
+            detail=(f"Your role ({role_name}) does not have '{action}' permission "
+                    f"for any of: {', '.join(modules)}."),
+        )
+
+    return checker
+
+
 async def verify_csrf(request: Request) -> None:
     """Dependency: validate CSRF double-submit cookie for mutating requests.
 

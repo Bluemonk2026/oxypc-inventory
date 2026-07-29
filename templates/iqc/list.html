@@ -2,6 +2,7 @@
 {% block title %}IQC List — OxyPC{% endblock %}
 {% block page_title %}IQC Inspection{% endblock %}
 {% block content %}
+{% include "_date_range_filter.html" %}
 <form method="get" action="/iqc" class="card border-0 shadow-sm mb-3">
   <div class="card-body py-2">
     <div class="row g-2 align-items-end">

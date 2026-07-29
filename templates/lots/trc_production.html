@@ -2,6 +2,7 @@
 {% block title %}Devices in Production — OxyPC{% endblock %}
 {% block page_title %}Devices in Production{% endblock %}
 {% block content %}
+{% include "_date_range_filter.html" %}
 {% if request.query_params.get('success') %}
 <div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success')|replace('+',' ') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
 {% endif %}

@@ -2,6 +2,7 @@
 {% block title %}GRN Records — OxyPC{% endblock %}
 {% block page_title %}GRN Records{% endblock %}
 {% block content %}
+{% include "_date_range_filter.html" %}
 
 {% macro tag_table(tid, rows, show_grn) %}
 <div class="table-responsive">

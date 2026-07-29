@@ -18,6 +18,7 @@ from decimal import Decimal, InvalidOperation
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select, func, text
+from sqlalchemy.exc import ProgrammingError, DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from templates_config import templates
@@ -188,7 +189,30 @@ async def reject_sale_request(req_id: str, request: Request, reason: str = Form(
 
 # ── New Parts Sale ────────────────────────────────────────────────────────────
 async def _next_part_sale_number(db: AsyncSession) -> str:
-    seq = (await db.execute(text("SELECT nextval('part_sale_number_seq')"))).scalar()
+    """Next PS-#### number, creating the sequence if the environment lacks it.
+
+    This is called by the Sell page's GET handler purely to preview the number,
+    so a missing sequence used to turn "click Sell" into a 500 — which is exactly
+    what happened on the Supabase environment, where migrate_part_sales.py had
+    never been run. The table can exist without the sequence because they are
+    created by a one-off migration rather than by the schema auto-provisioner,
+    so any environment that missed that migration hits it.
+
+    Seeded past the highest existing sale number so recreating it on a database
+    that already holds part sales cannot re-issue a number that is in use.
+    """
+    try:
+        seq = (await db.execute(text("SELECT nextval('part_sale_number_seq')"))).scalar()
+    except (ProgrammingError, DBAPIError):
+        await db.rollback()          # the failed statement poisons the transaction
+        highest = (await db.execute(
+            text("SELECT COALESCE(MAX(NULLIF(regexp_replace(sale_number, '\\D', '', 'g'), '')::bigint), 0) "
+                 "FROM part_sales")
+        )).scalar() or 0
+        await db.execute(text(
+            "CREATE SEQUENCE IF NOT EXISTS part_sale_number_seq START WITH %d" % (int(highest) + 1)))
+        await db.commit()
+        seq = (await db.execute(text("SELECT nextval('part_sale_number_seq')"))).scalar()
     return f"PS-{seq:04d}"
 
 

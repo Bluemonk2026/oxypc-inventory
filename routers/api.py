@@ -11,6 +11,7 @@ from sqlalchemy.exc import DBAPIError
 from database import get_db
 from models.lot import Lot, LotLineItem
 from models.grn_import import GRNImport
+from models.master import MasterData
 from models.dealers import Dealer
 from models.device import Device
 from models.stage_control import AllowedTransition
@@ -111,6 +112,61 @@ async def get_lot_meta(
         "grn_number": (grn.grn_number if grn else "") or "",
         "invoice_number": (grn.invoice_number if grn else None)
                           or getattr(lot, "invoice_number", None) or "",
+    })
+
+
+@router.get("/port-profile")
+async def get_port_profile(
+    brand: str = "",
+    model: str = "",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Physical port counts for a Make + Model, from the `port_profile` master list.
+
+    Windows cannot report how many USB-A / USB-C / RJ45 sockets a chassis has, so
+    the agent's counts are a form-factor guess. A match here replaces them with
+    the real figures. Rows are maintained in Master Data as
+    `<Brand>|<Model>|A=<n>,C=<n>,E=<n>`.
+
+    Matching is case-insensitive and takes the LONGEST matching model prefix, so
+    "ThinkPad X1 Carbon" wins over "ThinkPad X1" for an X1 Carbon.
+    """
+    b, m = (brand or "").strip().lower(), (model or "").strip().lower()
+    if not b or not m:
+        return JSONResponse({"found": False})
+
+    rows = (await db.execute(
+        select(MasterData.value).where(MasterData.category == "port_profile",
+                                       MasterData.is_active == True)
+    )).scalars().all()
+
+    best = None
+    for raw in rows:
+        parts = (raw or "").split("|")
+        if len(parts) != 3:
+            continue                     # malformed row — skip, don't 500
+        r_brand, r_model, spec = (p.strip() for p in parts)
+        if r_brand.lower() != b or not m.startswith(r_model.lower()):
+            continue
+        if best is None or len(r_model) > len(best[0]):
+            best = (r_model, spec)
+
+    if not best:
+        return JSONResponse({"found": False})
+
+    counts = {}
+    for token in best[1].split(","):
+        key, _, val = token.partition("=")
+        try:
+            counts[key.strip().upper()] = int(val)
+        except ValueError:
+            continue
+    return JSONResponse({
+        "found": True, "matched_model": best[0],
+        "usb_a_ports": counts.get("A"),
+        "usb_c_ports": counts.get("C"),
+        "ethernet_ports": counts.get("E"),
     })
 
 

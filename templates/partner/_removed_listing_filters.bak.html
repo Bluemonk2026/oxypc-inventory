@@ -1,0 +1,36 @@
+{# Removed from catalog.html on 2026-07-29. These filters (type / sort / brand /
+   grade) drove ONLY the Published Listings query, which was removed in the same
+   change, so on the page as it now stands every control here was inert. Kept for
+   restore alongside _removed_listings_block.bak.html. Not included anywhere. #}
+<form method="get" class="mb-3">
+  <div class="row g-2">
+    <div class="col-6">
+      <select name="listing_type" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="">All Types</option>
+        {% for t, label in [('finished_goods','Finished Goods'), ('bulk_lot','Bulk Lots'),
+                            ('functional_ok','Functional OK'), ('as_is','As-Is')] %}
+        <option value="{{ t }}" {% if f_type==t %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-6">
+      <select name="sort" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="newest" {% if f_sort=='newest' %}selected{% endif %}>Newest first</option>
+        <option value="fresh" {% if f_sort=='fresh' %}selected{% endif %}>Fresh arrivals</option>
+        <option value="deals" {% if f_sort=='deals' %}selected{% endif %}>Deals (aged stock)</option>
+        <option value="price_low" {% if f_sort=='price_low' %}selected{% endif %}>Price: low → high</option>
+        <option value="price_high" {% if f_sort=='price_high' %}selected{% endif %}>Price: high → low</option>
+      </select>
+    </div>
+    <div class="col-6">
+      <input type="text" name="brand" value="{{ f_brand }}" class="form-control form-control-sm" placeholder="Brand">
+    </div>
+    <div class="col-4">
+      <input type="text" name="grade" value="{{ f_grade }}" class="form-control form-control-sm" placeholder="Grade">
+    </div>
+    <div class="col-2">
+      <button class="btn btn-sm btn-primary w-100"><i class="bi bi-search"></i></button>
+    </div>
+  </div>
+</form>
+

@@ -62,6 +62,39 @@ MASTER_SEED = {
         "Laptop", "Desktop", "All-in-One", "Workstation", "Mini PC",
         "Tablet", "Server", "Chromebook", "Thin Client",
     ],
+    # Physical port counts per model, because Windows cannot report how many
+    # sockets are on a chassis — UCSI exposes connector-manager nodes, not
+    # connectors, and USB-A has no enumerable source at all. The agent's probe
+    # is a form-factor guess; a match here overrides it.
+    #
+    # Format: "<Brand>|<Model>|A=<n>,C=<n>,E=<n>"  (A=USB-A, C=USB-C, E=RJ45)
+    # Model matching is case-insensitive and prefix-based, so "Latitude 5420"
+    # also matches "Latitude 5420 Rugged". Add rows from Master Data — no code
+    # change and no agent rebuild needed.
+    "port_profile": [
+        "Dell|Latitude 5420|A=2,C=2,E=1",
+        "Dell|Latitude 5430|A=2,C=2,E=1",
+        "Dell|Latitude 7420|A=2,C=2,E=0",
+        "Dell|Latitude 7430|A=2,C=2,E=0",
+        "Dell|Precision 5570|A=0,C=3,E=0",
+        "Dell|Precision 5560|A=0,C=3,E=0",
+        "Dell|OptiPlex 7090|A=6,C=1,E=1",
+        "Dell|OptiPlex 3080|A=6,C=0,E=1",
+        "HP|EliteBook 840 G7|A=2,C=2,E=1",
+        "HP|EliteBook 840 G8|A=2,C=2,E=1",
+        "HP|EliteBook 830 G8|A=2,C=2,E=0",
+        "HP|ProBook 440 G8|A=2,C=1,E=1",
+        "HP|EliteDesk 800 G6|A=6,C=1,E=1",
+        "Lenovo|ThinkPad T14|A=2,C=2,E=1",
+        "Lenovo|ThinkPad T490|A=2,C=2,E=1",
+        "Lenovo|ThinkPad X1 Carbon|A=2,C=2,E=0",
+        "Lenovo|ThinkPad L14|A=2,C=2,E=1",
+        "Lenovo|ThinkCentre M720|A=6,C=0,E=1",
+        "Apple|MacBook Air|A=0,C=2,E=0",
+        "Apple|MacBook Pro 13|A=0,C=2,E=0",
+        "Apple|MacBook Pro 14|A=0,C=3,E=0",
+        "Apple|MacBook Pro 16|A=0,C=3,E=0",
+    ],
     "processor_series": [
         "Intel Core i3", "Intel Core i5", "Intel Core i7", "Intel Core i9",
         "Intel Pentium", "Intel Celeron", "Intel Xeon",

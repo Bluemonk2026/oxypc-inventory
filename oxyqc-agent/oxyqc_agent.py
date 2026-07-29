@@ -35,7 +35,7 @@ PORT = 8765
 # Bump this whenever detect()/probe logic changes materially. Lets a freshly
 # downloaded exe recognise a stale already-running instance and replace it
 # (see _shutdown_running_instance) instead of silently no-op'ing behind it.
-AGENT_VERSION = "2026-07-29.1"
+AGENT_VERSION = "2026-07-29.2"
 IS_WINDOWS = platform.system() == "Windows"
 IS_MAC = platform.system() == "Darwin"
 
@@ -245,10 +245,27 @@ $snd=@(Get-CimInstance Win32_SoundDevice|Where-Object {$_.Name -notmatch 'Virtua
 $cam=@(Get-CimInstance Win32_PnPEntity|Where-Object {$_.PNPClass -eq 'Camera' -or $_.Name -match 'web ?cam|integrated camera'})
 $nics=@(Get-CimInstance Win32_NetworkAdapter|Where-Object {$_.PhysicalAdapter -eq $true})
 $wifi=@($nics|Where-Object {$_.Name -match 'Wi-?Fi|Wireless|802\.11|Dual Band|AX2|Centrino'})
-$eth=@($nics|Where-Object {($_.Name -match 'Ethernet|Gigabit|GbE|Realtek PCIe|Killer E|I2[12]9') -and $_.Name -notmatch 'Wi-?Fi|Wireless|Bluetooth|Virtual|VPN|TAP|Loopback|VMware|Hyper-V' -and $_.PNPDeviceID -notmatch '^USB'})
+# Onboard RJ45 only. A Thunderbolt dock's NIC tunnels over PCI and therefore
+# passes a naive PCI-vs-USB test, which is how a Precision 5570 (no onboard
+# Ethernet at all) came back reporting 1 port. Exclude by name, and exclude any
+# adapter Windows marks as hot-pluggable — an onboard NIC never is, a dock's
+# always is.
+$tbNames='Thunderbolt|Dock|Docking|USB 3\.?[01]|USB-?C|DisplayLink|Surface Dock|Ethernet Adapter \(|AX88|RTL8153|RTL8156'
+$eth=@($nics|Where-Object {($_.Name -match 'Ethernet|Gigabit|GbE|Realtek PCIe|Killer E|I2[12]9') -and $_.Name -notmatch 'Wi-?Fi|Wireless|Bluetooth|Virtual|VPN|TAP|Loopback|VMware|Hyper-V' -and $_.Name -notmatch $tbNames -and $_.PNPDeviceID -notmatch '^USB' -and $_.PNPDeviceID -notmatch '^\{' })
+$eth=@($eth|Where-Object {
+  $rp=$null
+  try{$rp=(Get-PnpDeviceProperty -InstanceId $_.PNPDeviceID -KeyName 'DEVPKEY_Device_RemovalPolicy' -EA SilentlyContinue).Data}catch{}
+  # RemovalPolicy 1 = ExpectNoRemoval (soldered/onboard). 2/3 = surprise or
+  # orderly removal, i.e. a dock or add-in card. Keep the adapter when the
+  # property is unreadable rather than dropping a real onboard NIC.
+  ($rp -eq $null) -or ($rp -eq 1)
+})
 $dvd=@(Get-CimInstance Win32_CDROMDrive|Where-Object {$_.Name -notmatch 'Virtual'})
 $usb=@(Get-CimInstance Win32_USBController)
-$ucm=@(Get-CimInstance Win32_PnPEntity -EA SilentlyContinue|Where-Object {$_.Name -match 'UCSI|USB Connector Manager|USB Type-C|USB-C|USB4|Thunderbolt'})
+# USB-C connectors only. The old pattern also matched 'Thunderbolt', so every
+# Thunderbolt controller and its root ports inflated the Type-C count. UCSI is
+# the connector-level interface; Thunderbolt controllers are not connectors.
+$ucm=@(Get-CimInstance Win32_PnPEntity -EA SilentlyContinue|Where-Object {$_.Name -match 'UCSI|USB Connector Manager|USB Type-C Connector|USB4 Host Router' -and $_.Name -notmatch 'Thunderbolt'})
 $clk=[math]::Round($cpu.MaxClockSpeed/1000.0,2)
 $onAC=$true; if($batt -and $batt.BatteryStatus -eq 1){$onAC=$false}
 [ordered]@{
@@ -261,6 +278,52 @@ $onAC=$true; if($batt -and $batt.BatteryStatus -eq 1){$onAC=$false}
  battery_wh=$batt_wh;storage_health=$storage_health;fan_working=$fan_working;fan_rpm=$fan_rpm
 } | ConvertTo-Json -Depth 5 -Compress
 '''
+
+# ── Detailed per-drive SMART report (serves the Storage Health modal) ─────────
+# Reads the same counters a dedicated SMART tool reports: identity, power-on
+# hours, power cycles, temperature, wear level and reallocated/pending sectors.
+# Get-StorageReliabilityCounter needs elevation on some systems; every field is
+# emitted as null rather than 0 when unavailable, because a missing reading and
+# a genuinely-zero reading mean very different things to a technician grading a
+# drive.
+_PS_SMART = r'''
+$ErrorActionPreference='SilentlyContinue'
+$out=@()
+$disks=@(Get-PhysicalDisk|Where-Object {$_.BusType -notin @('USB','SD','MMC','Virtual','File Backed Virtual') -and "$($_.FriendlyName)" -notmatch 'USB|Card ?Reader' -and $_.Size -gt 8GB})
+foreach($d in $disks){
+  $rc=$null
+  try{$rc=$d|Get-StorageReliabilityCounter -EA SilentlyContinue}catch{}
+  # Wear is "% of rated life USED". Some drivers return exactly 100 as an
+  # "unsupported" sentinel rather than $null, which would read as a dead drive.
+  $wear=$null;$health=$null
+  if($rc -and $rc.Wear -ne $null -and $rc.Wear -ge 0 -and $rc.Wear -lt 100){$wear=[int]$rc.Wear;$health=100-$wear}
+  $temp=$null
+  if($rc -and $rc.Temperature -ne $null -and $rc.Temperature -gt 0 -and $rc.Temperature -lt 200){$temp=[int]$rc.Temperature}
+  $poh=$null
+  if($rc -and $rc.PowerOnHours -ne $null -and $rc.PowerOnHours -ge 0){$poh=[int64]$rc.PowerOnHours}
+  $cycles=$null
+  if($rc -and $rc.StartStopCycleCount -ne $null -and $rc.StartStopCycleCount -ge 0){$cycles=[int64]$rc.StartStopCycleCount}
+  $realloc=$null
+  if($rc -and $rc.ReadErrorsTotal -ne $null){$realloc=[int64]$rc.ReadErrorsTotal}
+  # No wear data (SATA SSDs and spinners often expose none): fall back to the
+  # drive's own health flag so the modal still shows a verdict.
+  if($health -eq $null){
+    if($d.HealthStatus -eq 'Healthy'){$health=100}
+    elseif($d.HealthStatus -eq 'Warning'){$health=50}
+    elseif($d.HealthStatus -eq 'Unhealthy'){$health=0}
+  }
+  $out+=[ordered]@{
+    name="$($d.FriendlyName)".Trim(); serial="$($d.SerialNumber)".Trim();
+    firmware="$($d.FirmwareVersion)".Trim(); media="$($d.MediaType)"; bus="$($d.BusType)";
+    sizeGB=[math]::Round($d.Size/1e9); rpm=$d.SpindleSpeed;
+    health_status="$($d.HealthStatus)"; operational="$($d.OperationalStatus)";
+    health_pct=$health; wear_pct=$wear; temperature_c=$temp;
+    power_on_hours=$poh; power_cycles=$cycles; read_errors=$realloc
+  }
+}
+@{disks=$out} | ConvertTo-Json -Depth 5 -Compress
+'''
+
 
 _STD_CAPACITIES = [32, 64, 120, 128, 240, 256, 320, 480, 500, 512, 640, 750, 1000, 1024,
                    2000, 2048, 3000, 4000, 4096, 6000, 8000]
@@ -818,6 +881,59 @@ def _probe_mac():
     return info, None
 
 
+def smart_report():
+    """Per-drive SMART detail for the IQC page's Storage Health modal.
+
+    Returns {"ok", "error", "disks": [...], "overall_health_pct"}. Never raises —
+    the modal shows whatever came back, and a drive that reports nothing is shown
+    as unknown rather than as failed.
+    """
+    disks, err = [], None
+    if IS_WINDOWS:
+        ps = shutil.which("powershell") or "powershell"
+        try:
+            r = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-Command", _PS_SMART],
+                               capture_output=True, text=True, timeout=45,
+                               creationflags=0x08000000)
+            raw = (r.stdout or "").strip()
+            if raw:
+                parsed = json.loads(raw)
+                disks = parsed.get("disks") or []
+                if isinstance(disks, dict):      # ConvertTo-Json unwraps a 1-item array
+                    disks = [disks]
+            else:
+                err = (r.stderr or "no output from SMART probe").strip()[:200]
+        except Exception as e:
+            err = f"SMART probe failed: {e}"
+    elif IS_MAC:
+        # macOS has no Storage Reliability Counters; reuse the smartctl-based
+        # wear reader, which is already best-effort and needs no sudo for NVMe.
+        health = _mac_storage_health()
+        for d in _mac_physical_disks():
+            disks.append({"name": d.get("make") or "Internal disk", "serial": "",
+                          "firmware": "", "media": d.get("type"), "bus": "",
+                          "sizeGB": d.get("sizeGB"), "rpm": d.get("rpm"),
+                          "health_status": "", "operational": "",
+                          "health_pct": health, "wear_pct": None,
+                          "temperature_c": None, "power_on_hours": None,
+                          "power_cycles": None, "read_errors": None})
+    else:
+        err = "SMART reporting is not supported on this platform"
+
+    for d in disks:
+        snapped = _snap_capacity(d.get("sizeGB"))
+        if snapped:
+            d["sizeGB"] = snapped
+
+    # Worst drive drives the headline: a machine is only as healthy as its
+    # weakest disk, and averaging would hide one failing drive behind a good one.
+    pcts = [d["health_pct"] for d in disks
+            if isinstance(d.get("health_pct"), (int, float))]
+    return {"agent": "OxyQC", "version": AGENT_VERSION,
+            "ok": err is None, "error": err, "disks": disks,
+            "overall_health_pct": min(pcts) if pcts else None}
+
+
 def detect():
     system = platform.system()
     if system == "Windows":
@@ -1021,13 +1137,16 @@ def detect():
     ec = info.get("ethernet_count")
     if isinstance(ec, int):
         f["ethernet_ports"] = ec
-    # USB port counts:
-    #   USB-C → best-effort from Windows UCSI/Type-C hints, or macOS model-based estimate
-    #   USB-A → form-factor estimate; technician verifies (modern Macs have none)
+    # USB port counts are ESTIMATES and are labelled as such. Windows exposes no
+    # count of physical connectors on the chassis — UCSI reports connector-manager
+    # nodes, not sockets — so these are a starting point that the ERP overrides
+    # from its per-model port table (/api/port-profile) whenever the model is
+    # known, and that the technician can correct either way.
     uch = info.get("usbc_hint")
     f["usb_c_ports"] = min(int(uch), 4) if isinstance(uch, int) and uch >= 0 else 0
     f["usbc_hint"] = int(uch) if isinstance(uch, int) else 0  # pass raw hint to JS
     f["usb_a_ports"] = 0 if IS_MAC else (2 if is_laptop else 4)
+    f["ports_estimated"] = True   # tells the IQC page these three need confirming
     # Storage health
     sh = info.get("storage_health")
     if isinstance(sh, (int, float)) and sh >= 0:
@@ -1281,6 +1400,20 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             threading.Thread(target=self.server.shutdown, daemon=True).start()
+            return
+        if path == "/smart":
+            # Per-drive SMART detail for the Storage Health modal. Fast (~1-2s)
+            # and read-only — unlike /stress it never loads the hardware.
+            try:
+                body = json.dumps(smart_report()).encode("utf-8")
+            except Exception as e:
+                body = json.dumps({"ok": False, "error": str(e), "disks": []}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self._cors()
+            self.end_headers()
+            self.wfile.write(body)
             return
         if path == "/stress":
             # Standalone on-device stress suite — runs synchronously (~30-60s);

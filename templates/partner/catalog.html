@@ -4,15 +4,45 @@
 {% block main_max %}100%{% endblock %}
 {% block content %}
 <style>
-  /* Two-column split above 920px: lots list 1/3, everything else 2/3.
+  /* Two-column split above 920px: lots list 1/3, stock 2/3.
      Below that the columns stack, which is the phone/tablet reading order. */
   @media (min-width: 920px) {
     .cat-left  { flex: 0 0 33.3333%; max-width: 33.3333%; }
     .cat-right { flex: 0 0 66.6667%; max-width: 66.6667%; }
-    .cat-left .cat-sticky { position: sticky; top: 12px; }
+
+    /* The PAGE does not scroll — each table does, inside its own pane. --cat-h is
+       measured at runtime (see sizeCatRow below) from this row's real top offset
+       and the real height of the fixed bottom nav, because the portal chrome is
+       a top bar PLUS an always-visible fixed bottom bar and any hardcoded
+       figure drifts the moment either changes. The calc() is only a fallback
+       for the instant before the script runs. */
+    .cat-row { height: var(--cat-h, calc(100vh - 13rem)); overflow: hidden; }
+    .cat-left, .cat-right { display: flex; flex-direction: column; min-height: 0; }
+    /* min-height:0 matters: a flex child defaults to min-height:auto, which
+       refuses to shrink below its content and would push the scroll back onto
+       the page instead of keeping it inside the pane. */
+    .cat-pane { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    .cat-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+    /* Lots: vertical only. Stock: both, because it carries the full IQC column set. */
+    .cat-scroll-lots  { overflow-x: hidden; }
+    .cat-scroll-stock { overflow-x: auto; }
   }
+
+  /* Sticky header on both tables. position:sticky on <th> (not <thead>) is what
+     actually holds under a scrolling ancestor across browsers. */
+  .cat-scroll thead th {
+    position: sticky; top: 0; z-index: 3;
+    background: var(--bs-table-bg, #f8f9fa);
+    box-shadow: inset 0 -1px 0 var(--bs-border-color, #dee2e6);
+  }
+  /* Model Name stays readable while the stock table scrolls sideways. */
+  #stockTable td.stock-sticky-col, #stockTable th.stock-sticky-col {
+    position: sticky; left: 0; z-index: 2; background: #fff;
+  }
+  #stockTable thead th.stock-sticky-col { z-index: 4; background: #f8f9fa; }
+  #stockTable th { white-space: nowrap; }
 </style>
-<div class="row g-3"><div class="col-12 cat-left"><div class="cat-sticky">
+<div class="row g-3 cat-row"><div class="col-12 cat-left"><div class="cat-pane">
 
 {% if incentive_text %}
 <div class="alert alert-warning py-2 small mb-3">
@@ -28,9 +58,9 @@
 {% endif %}
 
 {% if visible_lots %}
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-header bg-transparent fw-semibold small"><i class="bi bi-box-seam me-2"></i>Lots Available to You</div>
-  <div class="table-responsive">
+<div class="card border-0 shadow-sm mb-3 cat-pane">
+  <div class="card-header bg-transparent fw-semibold small flex-shrink-0"><i class="bi bi-box-seam me-2"></i>Lots Available to You</div>
+  <div class="cat-scroll cat-scroll-lots">
     <table class="table table-sm table-hover mb-0 small align-middle">
       <thead class="table-light">
         <tr><th class="ps-2">Lot Number</th><th>Purchase Date</th><th>Available Qty</th>
@@ -97,77 +127,82 @@
   </div>
 </div>
 {% endif %}
-</div></div><div class="col-12 cat-right">
-
-<form method="get" class="mb-3">
-  <div class="row g-2">
-    <div class="col-6">
-      <select name="listing_type" class="form-select form-select-sm" onchange="this.form.submit()">
-        <option value="">All Types</option>
-        {% for t, label in [('finished_goods','Finished Goods'), ('bulk_lot','Bulk Lots'),
-                            ('functional_ok','Functional OK'), ('as_is','As-Is')] %}
-        <option value="{{ t }}" {% if f_type==t %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="col-6">
-      <select name="sort" class="form-select form-select-sm" onchange="this.form.submit()">
-        <option value="newest" {% if f_sort=='newest' %}selected{% endif %}>Newest first</option>
-        <option value="fresh" {% if f_sort=='fresh' %}selected{% endif %}>Fresh arrivals</option>
-        <option value="deals" {% if f_sort=='deals' %}selected{% endif %}>Deals (aged stock)</option>
-        <option value="price_low" {% if f_sort=='price_low' %}selected{% endif %}>Price: low → high</option>
-        <option value="price_high" {% if f_sort=='price_high' %}selected{% endif %}>Price: high → low</option>
-      </select>
-    </div>
-    <div class="col-6">
-      <input type="text" name="brand" value="{{ f_brand }}" class="form-control form-control-sm" placeholder="Brand">
-    </div>
-    <div class="col-4">
-      <input type="text" name="grade" value="{{ f_grade }}" class="form-control form-control-sm" placeholder="Grade">
-    </div>
-    <div class="col-2">
-      <button class="btn btn-sm btn-primary w-100"><i class="bi bi-search"></i></button>
-    </div>
-  </div>
-</form>
+</div></div><div class="col-12 cat-right"><div class="cat-pane">
 
 {# ── Available Stock ───────────────────────────────────────────────────────
-   Model-wise breakdown of every lot visible to this dealer, rendered inline
-   (it used to be a per-lot modal). Lot No is a real column here because rows
-   from different lots sit in the same table. #}
-<div class="d-flex justify-content-between align-items-center mb-2" id="availableStock">
+   One row PER UNIT, carrying the full IQC record — hardware specification and
+   cosmetic condition. Cosmetics are recorded per device and cannot be
+   aggregated, so this is deliberately not a model-wise summary. The table
+   scrolls in both directions inside its pane; the page itself does not scroll. #}
+<div class="d-flex justify-content-between align-items-center mb-2 flex-shrink-0" id="availableStock">
   <h6 class="fw-bold mb-0">Available Stock</h6>
   <div class="d-flex align-items-center gap-2">
     <span class="badge bg-secondary d-none" id="stockLotChip"></span>
-    <span class="badge bg-primary">{{ lot_stock | sum(attribute='qty') }} units</span>
+    {# Selected lot / all lots visible to this dealer. Both halves are unit
+       counts; with no lot selected the two are equal by definition. #}
+    <span class="badge bg-primary">
+      <span id="stockSelCount">{{ lot_stock | length }}</span> /
+      <span id="stockTotCount">{{ lot_stock | length }}</span> units
+    </span>
   </div>
 </div>
 
 {% if lot_stock %}
-<div class="card border-0 shadow-sm mb-4">
-  <div class="table-responsive">
+<div class="card border-0 shadow-sm cat-pane">
+  <div class="cat-scroll cat-scroll-stock">
     <table class="table table-sm table-hover mb-0 small align-middle" id="stockTable">
       <thead class="table-light">
         <tr>
-          <th class="ps-2">Model Name</th><th>Lot No</th><th>Quantity</th>
-          <th>CPU</th><th>Generation</th><th>RAM</th><th>Storage</th><th>Grade</th>
+          <th class="ps-2 stock-sticky-col">Model Name</th><th>Lot No</th>
+          <th>Brand</th><th>Device Type</th><th>Grade</th><th>Colour</th>
+          <th>CPU</th><th>CPU Make</th><th>Generation</th>
+          <th>RAM</th><th>RAM Type</th><th>Total RAM</th>
+          <th>Storage</th><th>Total Storage</th><th>Screen</th><th>Battery</th>
+          <th>Display Scratch</th><th>Display Dent</th><th>Display Broken</th>
+          <th>Bezel Scratch</th><th>Base Scratch</th><th>Palmrest Scratch</th>
+          <th>Screen Dot</th><th>Screen Line</th><th>Screen Scratch</th>
+          <th>Touch Screen</th><th>Hinge</th><th>Keyboard</th><th>Touchpad</th>
+          <th>Speaker</th><th>Webcam</th>
         </tr>
       </thead>
       <tbody>
         {% for s in lot_stock %}
         <tr data-lot-id="{{ s.lot_id }}">
-          <td class="ps-2 fw-semibold">{{ s.model }}</td>
+          <td class="ps-2 fw-semibold stock-sticky-col">{{ s.model }}</td>
           <td class="font-monospace text-muted">{{ s.lot_number }}</td>
-          <td><span class="badge bg-info text-dark">{{ s.qty }}</span></td>
+          <td>{{ s.brand }}</td>
+          <td>{{ s.device_type }}</td>
+          <td><span class="badge bg-secondary">{{ s.grade }}</span></td>
+          <td>{{ s.color }}</td>
           <td>{{ s.cpu }}</td>
+          <td>{{ s.cpu_make }}</td>
           <td>{{ s.generation }}</td>
           <td>{{ s.ram }}</td>
+          <td>{{ s.ram_type }}</td>
+          <td>{{ s.total_ram_size }}</td>
           <td>{{ s.storage }}</td>
-          <td>{{ s.grade }}</td>
+          <td>{{ s.total_hdd_size }}</td>
+          <td>{{ s.screen_size }}</td>
+          <td>{{ s.battery_health }}</td>
+          <td>{{ s.display_scratch }}</td>
+          <td>{{ s.display_dent }}</td>
+          <td>{{ s.display_broken }}</td>
+          <td>{{ s.bezel_scratch }}</td>
+          <td>{{ s.base_scratch }}</td>
+          <td>{{ s.palmrest_scratch }}</td>
+          <td>{{ s.screen_dot }}</td>
+          <td>{{ s.screen_line }}</td>
+          <td>{{ s.screen_scratch }}</td>
+          <td>{{ s.touch_screen }}</td>
+          <td>{{ s.hinge }}</td>
+          <td>{{ s.keyboard }}</td>
+          <td>{{ s.touchpad }}</td>
+          <td>{{ s.speaker }}</td>
+          <td>{{ s.webcam }}</td>
         </tr>
         {% endfor %}
         <tr class="d-none" id="stockNoMatch">
-          <td colspan="8" class="text-center text-muted py-4">No stock in this lot.</td>
+          <td colspan="31" class="text-center text-muted py-4">No stock in this lot.</td>
         </tr>
       </tbody>
     </table>
@@ -181,88 +216,7 @@
 </div>
 {% endif %}
 
-<div class="d-flex justify-content-between align-items-center mb-2">
-  <h6 class="fw-bold mb-0">Published Listings</h6>
-  <span class="badge bg-primary">{{ listings | length }}</span>
-</div>
-
-{% if not listings %}
-<div class="text-center text-muted py-5">
-  <i class="bi bi-tags fs-1 d-block mb-2"></i>
-  No listings matching your filters.<br>
-  <small>Check back soon — new lots are added daily.</small>
-</div>
-{% endif %}
-
-<div class="row g-3">
-  {% for l in listings %}
-  {% set type_labels = {'finished_goods': 'Finished Goods', 'bulk_lot': 'Bulk Lot',
-                        'functional_ok': 'Functional OK', 'as_is': 'As-Is'} %}
-  {% set a = ageing.get(l.id|string) %}
-  {% set b = bids.get(l.id|string) %}
-  <div class="col-12">
-    <a href="/partner/listings/{{ l.id }}" class="text-decoration-none text-dark">
-      <div class="card listing-card">
-        <div class="card-body py-3">
-          <div class="d-flex justify-content-between align-items-start">
-            <div>
-              <span class="badge bg-light text-dark border mb-1">{{ type_labels.get(l.listing_type, l.listing_type) }}</span>
-              {% if a and a.tag == 'fresh' %}<span class="badge bg-success-subtle text-success border mb-1">New</span>{% endif %}
-              {% if a and a.tag in ('discount','liquidation') %}<span class="badge bg-danger-subtle text-danger border mb-1">Deal</span>{% endif %}
-              <div class="fw-semibold">{{ l.title }}</div>
-              <div class="small text-muted">
-                {% if l.brand %}{{ l.brand }} · {% endif %}
-                {% if l.grade_summary %}Grade {{ l.grade_summary }} · {% endif %}
-                {{ l.qty_available }} units{% if l.moq > 1 %} · MOQ {{ l.moq }}{% endif %}
-              </div>
-            </div>
-            <div class="text-end">
-              <div class="fw-bold text-primary">₹{{ "{:,.0f}".format(l.dealer_price) }}</div>
-              <small class="text-muted">per unit</small>
-              <div class="small text-success fw-semibold mt-1">Token ₹{{ "{:,.0f}".format(l.token_amount) }}/unit</div>
-              {% if b and b.highest %}
-              <div class="small mt-1">
-                <span class="text-muted">Highest bid</span>
-                <span class="fw-semibold">₹{{ "{:,.0f}".format(b.highest) }}</span>
-              </div>
-              {% endif %}
-            </div>
-          </div>
-        </div>
-      </div>
-    </a>
-    {# Bid controls sit OUTSIDE the card's <a>: a form nested inside an anchor
-       has the anchor swallow the click, so the buttons would navigate to the
-       listing instead of submitting. #}
-    <div class="card border-top-0 rounded-top-0">
-      <div class="card-body py-2">
-        <div class="d-flex flex-wrap align-items-center gap-2">
-          {% if b and b.mine %}
-          <span class="badge {{ 'bg-success' if b.leading else 'bg-secondary' }}">
-            Your bid ₹{{ "{:,.0f}".format(b.mine.bid_amount) }}{{ ' — leading' if b.leading else ' — outbid' }}
-          </span>
-          {% endif %}
-          <form method="post" action="/partner/listings/{{ l.id }}/bid"
-                class="d-flex align-items-center gap-2 flex-grow-1">
-            <input type="hidden" name="csrf_token" value="{{ partner_csrf }}">
-            <span class="small text-muted text-nowrap">Min ₹{{ "{:,.0f}".format(b.min_next) }}</span>
-            <input type="number" name="amount" step="1" min="{{ b.min_next }}"
-                   value="{{ b.min_next }}" class="form-control form-control-sm"
-                   style="max-width:150px" required>
-            <button class="btn btn-sm btn-primary text-nowrap">
-              <i class="bi bi-hammer me-1"></i>Place Bid
-            </button>
-          </form>
-          <a href="/partner/listings/{{ l.id }}" class="btn btn-sm btn-outline-secondary text-nowrap">
-            Custom price
-          </a>
-        </div>
-      </div>
-    </div>
-  </div>
-  {% endfor %}
-</div>
-</div></div>{# /cat-right /row #}
+</div></div></div>{# /cat-pane /cat-right /row #}
 
 
 <!-- Place a bid on a lot -->
@@ -344,6 +298,27 @@
   var stockNone = document.getElementById('stockNoMatch');
   var activeLot = null;
 
+  var selCountEl = document.getElementById('stockSelCount');
+
+  /* Pin the two panes to the space actually left in the viewport, so the page
+     itself never scrolls and both columns finish level. Measured rather than
+     hardcoded: the portal has a top bar AND a fixed bottom nav, and body
+     carries its own bottom padding for that bar. Below 920px the media query
+     drops the fixed height and the page scrolls normally, which is the right
+     behaviour on a phone. */
+  function sizeCatRow() {
+    var row = document.querySelector('.cat-row');
+    if (!row) return;
+    var nav = document.querySelector('.tp-bottomnav');
+    var top = row.getBoundingClientRect().top + window.pageYOffset;
+    var avail = window.innerHeight - top - (nav ? nav.offsetHeight : 0) - 12;
+    // Floor it: on a very short window a tiny pane is worse than a little scroll.
+    row.style.setProperty('--cat-h', Math.max(320, Math.round(avail)) + 'px');
+  }
+  sizeCatRow();
+  window.addEventListener('resize', sizeCatRow);
+  window.addEventListener('orientationchange', sizeCatRow);
+
   function applyStockFilter() {
     var shown = 0;
     stockRows.forEach(function (tr) {
@@ -352,6 +327,9 @@
       if (hit) shown++;
     });
     if (stockNone) stockNone.classList.toggle('d-none', shown > 0);
+    // Left half of the pill tracks the visible selection; the right half is the
+    // total across every lot and is rendered server-side, so it never changes.
+    if (selCountEl) selCountEl.textContent = shown;
   }
 
   function selectLot(lotId, lotNumber){

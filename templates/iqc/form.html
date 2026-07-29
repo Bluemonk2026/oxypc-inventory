@@ -90,6 +90,59 @@
             </div>
           </div>
 
+          <!-- ── Storage Health (SMART) modal ──
+               Per-drive SMART / NVMe counters read through the local agent's
+               /smart endpoint: identity, wear, temperature, power-on hours and
+               error counts. "Use This Reading" writes the WORST drive's health
+               into Storage Health (%) — a machine is only as good as its weakest
+               disk, so averaging would hide a failing drive behind a healthy one. -->
+          <div class="modal fade" id="smartModal" tabindex="-1">
+            <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h6 class="modal-title"><i class="bi bi-hdd-stack me-2"></i>Storage Health — SMART Report</h6>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  <div id="smartLoading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <div class="small text-muted mt-2">Reading SMART data from this station…</div>
+                  </div>
+                  <div id="smartError" class="alert alert-warning py-2 small d-none"></div>
+                  <div id="smartBody" class="d-none">
+                    <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+                      <span class="small text-muted">Overall (worst drive):</span>
+                      <span id="smartOverall" class="badge fs-6">—</span>
+                      <span id="smartDriveCount" class="small text-muted"></span>
+                    </div>
+                    <div class="table-responsive">
+                      <table class="table table-sm table-hover small align-middle mb-0">
+                        <thead class="table-light">
+                          <tr>
+                            <th>Drive</th><th>Serial</th><th>Firmware</th><th>Type</th>
+                            <th>Size</th><th>Health</th><th>Wear</th><th>Temp</th>
+                            <th>Power-On Hrs</th><th>Power Cycles</th><th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody id="smartRows"></tbody>
+                      </table>
+                    </div>
+                    <p class="small text-muted mt-2 mb-0">
+                      Blank cells mean the drive does not expose that counter, which is
+                      normal for many SATA SSDs — it is not a fault.
+                    </p>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+                  <button type="button" id="smartUseBtn" class="btn btn-sm btn-success" disabled>
+                    <i class="bi bi-check-circle me-1"></i>Use This Reading
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- ── Section 1: Identity ── -->
           <p class="fw-bold small text-uppercase mb-2 border-bottom pb-1 sec-hd">Identity</p>
           <div class="row g-3 mb-3">
@@ -286,7 +339,16 @@
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label small">Keyboard Working?</label>
+              {# Play button runs the interactive key-by-key test and writes the
+                 verdict back into this dropdown, so the technician never types it. #}
+              <label class="form-label small d-flex align-items-center gap-1">
+                Keyboard Working?
+                <button type="button" class="btn btn-link p-0 lh-1 text-success border-0"
+                        data-bs-toggle="modal" data-bs-target="#kbClickTestModal"
+                        title="Run the keyboard &amp; click test">
+                  <i class="bi bi-play-circle-fill fs-6"></i>
+                </button>
+              </label>
               <select name="keyboard_working" class="form-select form-select-sm">
                 <option value="">—</option>{% for o in yn3 %}<option>{{o}}</option>{% endfor %}
               </select>
@@ -383,7 +445,15 @@
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label small">Storage Health (%)</label>
+              {# Play button reads SMART / NVMe counters via the local agent and
+                 fills this field from the worst drive in the machine. #}
+              <label class="form-label small d-flex align-items-center gap-1">
+                Storage Health (%)
+                <button type="button" id="smartTestBtn" class="btn btn-link p-0 lh-1 text-success border-0"
+                        title="Read SMART health from the drives in this station">
+                  <i class="bi bi-play-circle-fill fs-6"></i>
+                </button>
+              </label>
               <input type="number" name="storage_health_pct" id="storage_health_pct" class="form-control form-control-sm" min="0" max="100" placeholder="—">
             </div>
             <div class="col-md-3 d-none">
@@ -427,6 +497,14 @@
             fields.forEach(function(n){
               var el = document.querySelector('select[name="'+n+'"]');
               if (el && !el.disabled) el.value = 'No';
+            });
+            /* Working-state fields, where Yes is the good answer — the opposite
+               polarity to the defect fields above, so they need their own list.
+               Setting these to 'No' would have marked a perfect device as having
+               a dead touchscreen and broken hinges. */
+            ['touch_screen','hinge_condition'].forEach(function(n){
+              var el = document.querySelector('select[name="'+n+'"]');
+              if (el && !el.disabled) el.value = 'Yes';
             });
             document.getElementById('allOkField').value = 'Yes';
             this.classList.remove('btn-outline-success');
@@ -1118,6 +1196,118 @@ function estimatePowerW(cpuName) {
   return 20;
 }
 
+/* ── Storage Health: SMART report from the local agent ──
+      Same counters a dedicated SMART tool reads, rendered in-page so the result
+      can be written straight into Storage Health (%) instead of retyped. ── */
+(function () {
+  var btn = document.getElementById('smartTestBtn');
+  if (!btn) return;
+  var modalEl = document.getElementById('smartModal');
+  var useBtn  = document.getElementById('smartUseBtn');
+  var overall = null;
+
+  function badgeClass(p) {
+    if (p == null) return 'bg-secondary';
+    if (p >= 90) return 'bg-success';
+    if (p >= 70) return 'bg-warning text-dark';
+    return 'bg-danger';
+  }
+  function cell(v, suffix) {
+    // Blank, not 0 — "no counter exposed" and "measured zero" are different facts.
+    return v == null || v === '' ? '<span class="text-muted">—</span>'
+                                 : String(v) + (suffix || '');
+  }
+
+  btn.addEventListener('click', async function () {
+    var modal = new bootstrap.Modal(modalEl);
+    document.getElementById('smartLoading').classList.remove('d-none');
+    document.getElementById('smartBody').classList.add('d-none');
+    document.getElementById('smartError').classList.add('d-none');
+    useBtn.disabled = true;
+    overall = null;
+    modal.show();
+
+    var d;
+    try {
+      var res = await fetch('http://127.0.0.1:8765/smart');
+      if (!res.ok) throw new Error('agent returned ' + res.status);
+      d = await res.json();
+    } catch (e) {
+      document.getElementById('smartLoading').classList.add('d-none');
+      var err = document.getElementById('smartError');
+      err.textContent = 'Could not reach Diagnose_Device_Agent on this station. '
+        + 'Start the agent (or download it with the button above), then try again.';
+      err.classList.remove('d-none');
+      return;
+    }
+
+    document.getElementById('smartLoading').classList.add('d-none');
+    var disks = (d && d.disks) || [];
+    if (!disks.length) {
+      var e2 = document.getElementById('smartError');
+      e2.textContent = d && d.error ? d.error : 'No internal drives reported by this station.';
+      e2.classList.remove('d-none');
+      return;
+    }
+
+    document.getElementById('smartRows').innerHTML = disks.map(function (k) {
+      return '<tr>'
+        + '<td class="fw-semibold">' + (k.name || '—') + '</td>'
+        + '<td class="font-monospace">' + cell(k.serial) + '</td>'
+        + '<td>' + cell(k.firmware) + '</td>'
+        + '<td>' + cell(k.media) + '</td>'
+        + '<td>' + cell(k.sizeGB, 'GB') + '</td>'
+        + '<td><span class="badge ' + badgeClass(k.health_pct) + '">'
+          + (k.health_pct == null ? '—' : k.health_pct + '%') + '</span></td>'
+        + '<td>' + cell(k.wear_pct, '%') + '</td>'
+        + '<td>' + cell(k.temperature_c, '&deg;C') + '</td>'
+        + '<td>' + cell(k.power_on_hours) + '</td>'
+        + '<td>' + cell(k.power_cycles) + '</td>'
+        + '<td>' + cell(k.health_status) + '</td>'
+        + '</tr>';
+    }).join('');
+
+    overall = d.overall_health_pct;
+    var ov = document.getElementById('smartOverall');
+    ov.className = 'badge fs-6 ' + badgeClass(overall);
+    ov.textContent = overall == null ? 'Unknown' : overall + '%';
+    document.getElementById('smartDriveCount').textContent =
+      disks.length + ' drive' + (disks.length === 1 ? '' : 's') + ' detected';
+    document.getElementById('smartBody').classList.remove('d-none');
+    useBtn.disabled = (overall == null);
+  });
+
+  useBtn.addEventListener('click', function () {
+    if (overall == null) return;
+    var f = document.getElementById('storage_health_pct');
+    if (f) { f.value = overall; f.dispatchEvent(new Event('change')); }
+    bootstrap.Modal.getInstance(document.getElementById('smartModal')).hide();
+  });
+})();
+
+/* ── Per-model port counts ──
+      Windows exposes no count of physical sockets on a chassis, so the agent's
+      USB-A / USB-C / Ethernet figures are a form-factor guess. When the ERP has
+      a profile for this Make + Model, its real numbers replace them. Staff can
+      add models from Master Data ("port_profile") with no code change and no
+      agent rebuild. */
+async function applyPortProfile(brand, model) {
+  if (!brand || !model) return;
+  try {
+    var res = await fetch('/api/port-profile?brand=' + encodeURIComponent(brand)
+                          + '&model=' + encodeURIComponent(model));
+    if (!res.ok) return;
+    var p = await res.json();
+    if (!p.found) return;
+    [['usb_a_ports', p.usb_a_ports], ['usb_c_ports', p.usb_c_ports],
+     ['ethernet_ports', p.ethernet_ports]].forEach(function (pair) {
+      if (pair[1] == null) return;
+      var el = document.querySelector('[name="' + pair[0] + '"]');
+      if (el) { el.value = pair[1]; el.dispatchEvent(new Event('change')); }
+    });
+  } catch (e) { /* offline or no profile — the agent's estimate stands */ }
+}
+
 /* ── "Diagnose this Device": reads THIS station's hardware via the local OxyQC
       Agent (http://127.0.0.1:8765) — 127.0.0.1 in the browser is always the
       machine the technician is using, so it never reads the server's specs. ── */
@@ -1247,6 +1437,9 @@ function estimatePowerW(cpuName) {
     }
     // Touchpad logicboard
     setSelect('touchpad_logicboard', d.touchpad_logicboard || '');
+    // Last, so the per-model figures overwrite the agent's estimates rather
+    // than the other way round.
+    applyPortProfile(d.brand, d.model);
   }
 
   btn.addEventListener('click', function(){

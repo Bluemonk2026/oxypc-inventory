@@ -30,6 +30,7 @@ from models.partner import (
 from decimal import Decimal, InvalidOperation
 from models.lot import Lot
 from models.device import Device
+from models.iqc_inspection import IQCInspection
 from auth.dependencies import verify_password
 from auth.partner_auth import (
     get_current_partner, verify_partner_csrf, create_partner_token,
@@ -276,31 +277,64 @@ async def catalog(
     # of the grouping key now that rows from different lots share one table:
     # without it, two lots holding the same model+spec would collapse into a
     # single row and the dealer could not tell which lot to bid on.
+    # One row PER DEVICE, not per model group. Cosmetic condition is recorded
+    # per unit (a scratch on one lid says nothing about the next), so it cannot
+    # be aggregated — grouping would have to drop those columns entirely. The
+    # table scrolls in both directions to carry the width and the depth.
     lot_stock = []
     if vis_rows:
         lot_no = {l.id: l.lot_number for l in vis_rows}
         srows = (await db.execute(
-            select(Device.lot_id, Device.model, Device.cpu, Device.generation,
-                   Device.ram_gb, Device.storage_gb, Device.storage_type,
-                   Device.grade, func.count(Device.id).label("qty"))
-            .where(Device.lot_id.in_(lot_ids), Device.is_active == True)  # noqa: E712
-            .group_by(Device.lot_id, Device.model, Device.cpu, Device.generation,
-                      Device.ram_gb, Device.storage_gb, Device.storage_type,
-                      Device.grade)
-            .order_by(func.count(Device.id).desc())
+            select(Device, IQCInspection)
+            .join(IQCInspection, IQCInspection.device_id == Device.id, isouter=True)
+            .where(Device.lot_id.in_(lot_ids), Device.is_active == True,  # noqa: E712
+                   Device.is_trashed == False)  # noqa: E712
+            .order_by(Device.lot_id, Device.model, Device.barcode)
         )).all()
-        lot_stock = [{
-            "model": r.model or "—",
-            "lot_id": str(r.lot_id),
-            "lot_number": lot_no.get(r.lot_id, "—"),
-            "qty": r.qty,
-            "cpu": r.cpu or "—",
-            "generation": r.generation or "—",
-            "ram": f"{r.ram_gb}GB" if r.ram_gb else "—",
-            "storage": (f"{r.storage_gb}GB {r.storage_type or ''}".strip()
-                        if r.storage_gb else "—"),
-            "grade": getattr(r.grade, "value", r.grade) or "—",
-        } for r in srows]
+
+        def _v(x):
+            """Blank cells read as 'not recorded'; '—' is the table's empty mark."""
+            return x if x not in (None, "") else "—"
+
+        for dev, iqc in srows:
+            lot_stock.append({
+                "lot_id": str(dev.lot_id),
+                "lot_number": lot_no.get(dev.lot_id, "—"),
+                # Hardware specification
+                "model": _v(dev.model),
+                "brand": _v(dev.brand),
+                "device_type": _v(dev.device_type),
+                "cpu": _v(dev.cpu),
+                "cpu_make": _v(dev.cpu_make),
+                "generation": _v(dev.generation),
+                "ram": f"{dev.ram_gb}GB" if dev.ram_gb else "—",
+                "ram_type": _v(dev.ram_type),
+                "total_ram_size": _v(dev.total_ram_size),
+                "storage": (f"{dev.storage_gb}GB {dev.storage_type or ''}".strip()
+                            if dev.storage_gb else "—"),
+                "total_hdd_size": _v(dev.total_hdd_size),
+                "screen_size": _v(dev.screen_size),
+                "battery_health": (f"{dev.battery_health_pct}%"
+                                   if dev.battery_health_pct is not None else "—"),
+                "color": _v(dev.color),
+                "grade": getattr(dev.grade, "value", dev.grade) or "—",
+                # Cosmetics, straight off the IQC inspection
+                "display_scratch":  _v(getattr(iqc, "panel_a_scratch", None)),
+                "display_dent":     _v(getattr(iqc, "panel_a_dent", None)),
+                "display_broken":   _v(getattr(iqc, "panel_a_broken", None)),
+                "bezel_scratch":    _v(getattr(iqc, "panel_c_scratch", None)),
+                "base_scratch":     _v(getattr(iqc, "panel_b_scratch", None)),
+                "palmrest_scratch": _v(getattr(iqc, "panel_d_scratch", None)),
+                "screen_dot":       _v(getattr(iqc, "screen_dot", None)),
+                "screen_line":      _v(getattr(iqc, "screen_line", None)),
+                "screen_scratch":   _v(getattr(iqc, "screen_scratch", None)),
+                "touch_screen":     _v(getattr(iqc, "touch_screen", None)),
+                "hinge":            _v(getattr(iqc, "hinge_condition", None)),
+                "keyboard":         _v(getattr(iqc, "keyboard_working", None)),
+                "touchpad":         _v(getattr(iqc, "touchpad_working", None)),
+                "speaker":          _v(getattr(iqc, "speaker_status", None)),
+                "webcam":           _v(getattr(iqc, "webcam_status", None)),
+            })
 
     return templates.TemplateResponse("partner/catalog.html", {
         "request": request, "dealer": dealer, "listings": listings,

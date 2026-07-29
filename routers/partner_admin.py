@@ -1639,6 +1639,30 @@ async def po_preview(
                             if li.storage_gb else "-"),
                 "qty": li.qty or 0,
             })
+
+        # Most lots have no line items at all — they are stocked through IQC/GRN,
+        # which creates devices, not LotLineItem rows. Those lots showed an empty
+        # PO. Fall back to the devices actually in the lot, grouped by spec, which
+        # is what the PO should list for a lot of refurbished units anyway.
+        if not items:
+            drows = (await db.execute(
+                select(Device.model, Device.cpu, Device.generation, Device.ram_gb,
+                       Device.storage_gb, Device.storage_type,
+                       func.count(Device.id).label("qty"))
+                .where(Device.lot_id == bid.lot_id,
+                       Device.is_active == True, Device.is_trashed == False)  # noqa: E712
+                .group_by(Device.model, Device.cpu, Device.generation, Device.ram_gb,
+                          Device.storage_gb, Device.storage_type)
+                .order_by(func.count(Device.id).desc())
+            )).all()
+            items = [{
+                "model": d.model or "-",
+                "cpu": " ".join(x for x in [d.cpu, d.generation] if x) or "-",
+                "ram": f"{d.ram_gb}GB" if d.ram_gb else "-",
+                "storage": (f"{d.storage_gb}GB {d.storage_type or ''}".strip()
+                            if d.storage_gb else "-"),
+                "qty": d.qty,
+            } for d in drows]
     return JSONResponse({
         "bid_number": bid.bid_number,
         "lot_number": r["lot_number"],

@@ -111,7 +111,14 @@
           {% else %}{{ r.bid.bid_number }}{% endif %}
         </td>
         <td class="font-monospace small">
-          {% if r.lot_id %}
+          {# In Marked Won the lot number opens the per-lot bid modal — the same
+             behaviour as Total Bids Created above — so a PO can be generated
+             without navigating away. Active and Lost keep the plain link to the
+             lot page, where opening a bid modal would serve no purpose. #}
+          {% if mode == 'won' and r.lot_number %}
+          <a href="#" class="text-decoration-none fw-semibold lot-bids-link"
+             data-lot-number="{{ r.lot_number }}">{{ r.lot_number }}</a>
+          {% elif r.lot_id %}
           <a href="/lots/{{ r.lot_id }}" class="text-decoration-none">{{ r.lot_number }}</a>
           {% else %}{{ r.lot_number }}{% endif %}
         </td>

@@ -91,6 +91,9 @@ async def ready_to_sale_parts(request: Request, db: AsyncSession = Depends(get_d
             "status": lr.status if lr else "",
             "can_sell": bool(approved_open.get(str(p.id))) and stock > 0,
             "pending": bool(lr and lr.status == "pending"),
+            # Quantity from the latest request, so the page shows what was
+            # actually asked for rather than only that a request exists.
+            "requested_qty": (lr.qty_requested if lr else None),
         })
     makes = sorted({p.make for p in parts if p.make})
     models = sorted({p.model for p in parts if p.model})

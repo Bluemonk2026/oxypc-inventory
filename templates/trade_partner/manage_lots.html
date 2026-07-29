@@ -20,6 +20,22 @@
     </span>
     <div class="d-flex align-items-center gap-2">
       <span class="small text-muted" id="selCount">0 selected</span>
+      {# Restricted limits a lot to the dealers granted it; open lots are
+         visible to every partner account. #}
+      <form method="post" action="/trade-partner/manage-lots/set-restricted"
+            class="d-inline" id="restrictForm">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+        <input type="hidden" name="restricted" id="restrictValue" value="1">
+        <div id="restrictLotInputs"></div>
+        <button type="submit" class="btn btn-sm btn-outline-warning bulk-sel-btn" disabled
+                onclick="document.getElementById('restrictValue').value='1'">
+          <i class="bi bi-lock me-1"></i>Mark Restricted
+        </button>
+        <button type="submit" class="btn btn-sm btn-outline-secondary bulk-sel-btn" disabled
+                onclick="document.getElementById('restrictValue').value='0'">
+          <i class="bi bi-unlock me-1"></i>Open to All
+        </button>
+      </form>
       <button type="button" class="btn btn-sm btn-primary" id="bulkAssignBtn" disabled>
         <i class="bi bi-eye me-1"></i>Assign Visibility to Selected
       </button>
@@ -35,7 +51,7 @@
             </th>
             <th>Lot Number</th><th>Purchase Date</th><th>Available Quantity</th>
             {% if can_view_pricing(current_user) %}<th>Base Price</th><th>Target Selling Price</th>{% endif %}
-            <th>Visible to</th><th style="width:150px">Action</th>
+            <th>Catalog Access</th><th>Visible to</th><th style="width:150px">Action</th>
           </tr>
         </thead>
         <tbody>
@@ -60,6 +76,16 @@
             </td>
             {% endif %}
             <td>
+              {% if lot.is_restricted %}
+              <span class="badge bg-warning text-dark" title="Only dealers granted below can see this lot">
+                <i class="bi bi-lock me-1"></i>Restricted
+              </span>
+              {% else %}
+              <span class="badge bg-success-subtle text-success-emphasis border"
+                    title="Visible to every partner account">All Partners</span>
+              {% endif %}
+            </td>
+            <td>
               {# Names in the tooltip: with bulk assign the operator needs to see
                  what a lot already carries, not just a count to go and look up. #}
               <span class="badge bg-{{ 'success' if vis_map.get(lid, 0) else 'secondary' }}"
@@ -76,7 +102,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="{{ 8 if can_view_pricing(current_user) else 6 }}"
+          <tr><td colspan="{{ 9 if can_view_pricing(current_user) else 7 }}"
                   class="text-center text-muted py-4">No lots found.</td></tr>
           {% endfor %}
         </tbody>
@@ -146,6 +172,16 @@
     var n = selected().length;
     selCount.textContent = n + ' selected';
     bulkBtn.disabled = n === 0;
+    // Restrict / Open act on the same selection, and carry it as hidden
+    // lot_ids so the form posts exactly what is ticked.
+    Array.prototype.forEach.call(document.querySelectorAll('.bulk-sel-btn'),
+      function (b) { b.disabled = n === 0; });
+    var holder = document.getElementById('restrictLotInputs');
+    if (holder) {
+      holder.innerHTML = selected().map(function (c) {
+        return '<input type="hidden" name="lot_ids" value="' + c.value + '">';
+      }).join('');
+    }
     if (selAll) {
       selAll.checked = n > 0 && n === checks.length;
       // Distinct from both states so "some selected" cannot be mistaken for none.

@@ -1316,6 +1316,47 @@ async def assign_lot_visibility_bulk(
     return await _grant_lot_visibility(db, lot_ids, dealer_ids, current_user, request)
 
 
+@router.post("/manage-lots/set-restricted")
+async def set_lots_restricted(
+    request: Request,
+    lot_ids: list[str] = Form(default=[]),
+    restricted: str = Form("1"),
+    _csrf=Depends(verify_csrf),
+    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Flag any number of lots Restricted (or open them back up).
+
+    Restricted lots appear in the partner catalog only for dealers granted
+    them via Assign Visibility; open lots are visible to every partner.
+    """
+    ids = []
+    for v in lot_ids:
+        try:
+            ids.append(uuid_mod.UUID(str(v)))
+        except (ValueError, AttributeError):
+            pass
+    if not ids:
+        return RedirectResponse(
+            url="/trade-partner/manage-lots?error=Select+at+least+one+lot",
+            status_code=302)
+
+    want = str(restricted) in ("1", "true", "True", "on", "yes")
+    lots = (await db.execute(select(Lot).where(Lot.id.in_(ids)))).scalars().all()
+    for lot in lots:
+        lot.is_restricted = want
+    await audit(db, action="LOT_RESTRICTED_SET", user=current_user,
+                table_name="lots",
+                record_id=str(lots[0].id) if len(lots) == 1 else "bulk",
+                new_value={"lots": [l.lot_number for l in lots], "restricted": want},
+                request=request)
+    await db.commit()
+    verb = "restricted" if want else "opened to all partners"
+    return RedirectResponse(
+        url=f"/trade-partner/manage-lots?success={quote_plus(f'{len(lots)} lot(s) {verb}')}",
+        status_code=302)
+
+
 @router.post("/manage-lots/{lot_id}/assign-visibility")
 async def assign_lot_visibility(
     lot_id: str,

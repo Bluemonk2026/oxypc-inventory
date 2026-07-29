@@ -45,6 +45,10 @@ class Lot(Base):
     created_by = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=app_now)
     is_trashed = Column(Boolean, nullable=False, default=False, server_default='false')
+    # Partner catalog visibility. Lots are open to every partner account by
+    # default; flagging one Restricted limits it to the dealers explicitly
+    # granted it in LotDealerVisibility (Manage Lots -> Assign Visibility).
+    is_restricted = Column(Boolean, nullable=False, default=False, server_default='false')
     trashed_at = Column(DateTime, nullable=True)
 
     devices = relationship("Device", back_populates="lot", lazy="select")

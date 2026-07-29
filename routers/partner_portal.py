@@ -227,12 +227,19 @@ async def catalog(
     # deliberate, instructed exception to the no-cost-to-dealers rule at the top
     # of this file — the base IS the offer. lot.selling_price (Target Selling
     # Price) stays internal, as do supplier_name and every other cost field.
-    # Every available lot is now offered to every partner account — the
-    # per-dealer LotDealerVisibility grant no longer gates the catalog. The
-    # table is retained for other callers; only this listing is unrestricted.
-    vis_rows = (await db.execute(
-        select(Lot).order_by(Lot.purchase_date.desc())
-    )).scalars().all()
+    # Lots are open to every partner account by default. A lot flagged
+    # Restricted is the exception: it appears only for dealers explicitly
+    # granted it in LotDealerVisibility (Manage Lots -> Assign Visibility).
+    granted_ids = {r for (r,) in (await db.execute(
+        select(LotDealerVisibility.lot_id)
+        .where(LotDealerVisibility.dealer_id == dealer.id)
+    )).all()}
+    vis_rows = [
+        l for l in (await db.execute(
+            select(Lot).order_by(Lot.purchase_date.desc())
+        )).scalars().all()
+        if not getattr(l, "is_restricted", False) or l.id in granted_ids
+    ]
     visible_lots = []
     if vis_rows:
         lot_ids = [l.id for l in vis_rows]
@@ -594,18 +601,27 @@ async def request_custom_price(
 
 
 async def _visible_lot_or_none(db: AsyncSession, lot_id: str, dealer_id):
-    """The Lot if it can be acted on.
+    """The Lot, but only if this dealer may act on it.
 
-    Every available lot is now offered to every partner account, so this no
-    longer consults LotDealerVisibility — it exists to keep the id-validity
-    check (and the single choke point, should per-dealer gating return).
+    Open lots are available to everyone. A Restricted lot is limited to the
+    dealers granted it — re-checked here, not just hidden in the catalog, so a
+    dealer who learns a restricted lot's id still cannot bid or book on it.
     """
     try:
-        return (await db.execute(
+        lot = (await db.execute(
             select(Lot).where(Lot.id == lot_id)
         )).scalar_one_or_none()
     except Exception:
         return None
+    if not lot:
+        return None
+    if not getattr(lot, "is_restricted", False):
+        return lot
+    granted = (await db.execute(select(LotDealerVisibility).where(
+        LotDealerVisibility.lot_id == lot.id,
+        LotDealerVisibility.dealer_id == dealer_id,
+    ))).scalar_one_or_none()
+    return lot if granted else None
 
 
 async def _below_base_bid_used(db: AsyncSession, lot_id, dealer_id) -> bool:

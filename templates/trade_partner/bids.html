@@ -10,8 +10,61 @@
 <div class="alert alert-danger py-2"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
 {% endif %}
 
+{# ── Total Bids Created — one row per lot ───────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
+    <span class="fw-semibold"><i class="bi bi-list-columns me-2 text-primary"></i>Total Bids Created</span>
+    <span class="badge bg-primary">{{ summary | length }}</span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0" id="summaryTable">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-2">Lot No</th><th>Total Bids</th><th>Highest Bid</th><th>Lowest Bid</th>
+            <th>Account Manager</th><th>Account Name</th><th>Download</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in summary %}
+          <tr>
+            <td class="ps-2 font-monospace">
+              {# Opens the per-lot bid modal, from which a PO can be generated. #}
+              <a href="#" class="text-decoration-none fw-semibold lot-bids-link"
+                 data-lot-number="{{ s.lot_number }}">{{ s.lot_number }}</a>
+            </td>
+            <td><span class="badge bg-secondary">{{ s.total_bids }}</span></td>
+            <td class="fw-bold text-success">₹{{ "{:,.0f}".format(s.highest) }}</td>
+            <td class="text-muted">₹{{ "{:,.0f}".format(s.lowest) }}</td>
+            <td>{{ s.manager_name }}</td>
+            <td>{{ s.account_name }}</td>
+            <td class="text-nowrap">
+              {% for d in s.documents %}
+              <a href="/trade-partner/bids/document/{{ d.id }}"
+                 class="btn btn-sm btn-outline-secondary py-0 px-1 mb-1"
+                 title="{{ d.original_name or d.filename }}">
+                <i class="bi bi-download"></i> {{ d.doc_type | upper }}
+              </a>
+              {% else %}<span class="text-muted small">—</span>{% endfor %}
+            </td>
+            <td class="text-nowrap">
+              <form method="post" action="/trade-partner/bids/{{ s.top_bid.id }}/mark-won"
+                    onsubmit="return confirm('Mark the highest bid (₹{{ '{:,.0f}'.format(s.highest) }} by {{ s.account_name }}) as won for lot {{ s.lot_number }}?\n\nAll other live bids on this lot become lost.');">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+                <button class="btn btn-sm btn-success py-0 px-2"><i class="bi bi-trophy me-1"></i>Mark Won</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8" class="text-center text-muted py-3">No live bids yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 {% macro bid_table(rows, table_id, mode) %}
-{# mode: 'active' -> Mark Won action | 'won' -> who/when | 'lost' -> why #}
 <div class="table-responsive">
   <table class="table table-sm table-hover align-middle mb-0" id="{{ table_id }}">
     <thead class="table-light">
@@ -23,6 +76,7 @@
         <th>Account Contact</th>
         <th>Account Category</th>
         <th>Manager Name</th>
+        {% if mode == 'won' %}<th>Payment Status</th>{% endif %}
         <th>Download</th>
         <th>{{ 'Actions' if mode == 'active' else ('Won' if mode == 'won' else 'Lost') }}</th>
       </tr>
@@ -35,8 +89,6 @@
           {% if r.bid.bid_type == 'custom' %}
           <span class="badge bg-info-subtle text-info-emphasis border ms-1">custom</span>
           {% endif %}
-          {# Uplift over the base this bid opened against. base_amount is
-             snapshotted on the bid, so it stays truthful after a reprice. #}
           {% if r.base_amount %}
           <div class="small text-muted" style="font-size:.72rem">
             Base ₹{{ "{:,.0f}".format(r.base_amount) }}
@@ -51,18 +103,25 @@
           <div class="small text-muted fst-italic" style="font-size:.72rem">No base set</div>
           {% endif %}
         </td>
-        <td class="font-monospace small">{{ r.bid.bid_number }}</td>
+        <td class="font-monospace small">
+          {% if mode == 'won' %}
+          {# Clickable: shows what the partner submitted and its verification state. #}
+          <a href="#" class="text-decoration-none payment-link"
+             data-bid-id="{{ r.bid.id }}">{{ r.bid.bid_number }}</a>
+          {% else %}{{ r.bid.bid_number }}{% endif %}
+        </td>
         <td class="font-monospace small">
           {% if r.lot_id %}
           <a href="/lots/{{ r.lot_id }}" class="text-decoration-none">{{ r.lot_number }}</a>
-          {% else %}
-          {{ r.lot_number }}
-          {% endif %}
+          {% else %}{{ r.lot_number }}{% endif %}
         </td>
         <td>{{ r.account_name }}</td>
         <td>{{ r.account_contact }}</td>
         <td>{{ r.account_category | replace('_',' ') | title }}</td>
         <td>{{ r.manager_name }}</td>
+        {% if mode == 'won' %}
+        <td><span class="badge {{ r.payment_badge }}">{{ r.payment_status }}</span></td>
+        {% endif %}
         <td class="text-nowrap">
           {% for d in r.documents %}
           <a href="/trade-partner/bids/document/{{ d.id }}"
@@ -70,9 +129,7 @@
              title="{{ d.original_name or d.filename }}">
             <i class="bi bi-download"></i> {{ d.doc_type | upper }}
           </a>
-          {% else %}
-          <span class="text-muted small">—</span>
-          {% endfor %}
+          {% else %}<span class="text-muted small">—</span>{% endfor %}
           <button type="button" class="btn btn-sm btn-outline-primary py-0 px-1 mb-1"
                   data-bs-toggle="modal" data-bs-target="#uploadDocModal"
                   data-bid-id="{{ r.bid.id }}" data-bid-number="{{ r.bid.bid_number }}">
@@ -81,8 +138,6 @@
         </td>
         <td class="text-nowrap">
           {% if mode == 'active' %}
-          {# Confirm inline: Mark Won also marks every other live bid on the
-             same listing lost, which is not obvious from the button alone. #}
           <form method="post" action="/trade-partner/bids/{{ r.bid.id }}/mark-won"
                 onsubmit="return confirm('Mark {{ r.bid.bid_number }} as won?\n\nThis creates a Buyer Deal and marks all other live bids on the same lot as lost.');">
             <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
@@ -96,58 +151,172 @@
             {% if r.bid.won_at %}{{ r.bid.won_at.strftime('%d %b %Y %H:%M') }}{% endif %}
           </div>
           {% else %}
-          {# A bid goes lost only as the losing side of a Mark Won, so the
-             useful fact is that the lot went elsewhere, not a timestamp. #}
           <span class="badge bg-danger-subtle text-danger-emphasis border">Outbid</span>
           {% endif %}
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="9" class="text-center text-muted py-3">No bids here yet.</td></tr>
+      <tr><td colspan="{{ 10 if mode == 'won' else 9 }}" class="text-center text-muted py-3">No bids here yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 {% endmacro %}
 
-<div class="card border-0 shadow-sm mb-4">
-  <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
-    <span class="fw-semibold"><i class="bi bi-hammer me-2 text-primary"></i>Bids Captured</span>
-    <span class="badge bg-primary">{{ captured | length }}</span>
-  </div>
-  <div class="card-body p-0">
+{# ── OPEN / WON / LOST tabs ─────────────────────────────────────────────── #}
+<ul class="nav nav-tabs" id="bidTabs" role="tablist">
+  <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#openTab" type="button">
+    <i class="bi bi-hammer me-1"></i>Open <span class="badge bg-primary ms-1">{{ captured | length }}</span>
+  </button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#wonTab" type="button">
+    <i class="bi bi-trophy me-1"></i>Won <span class="badge bg-success ms-1">{{ won | length }}</span>
+  </button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#lostTab" type="button">
+    <i class="bi bi-x-circle me-1"></i>Lost <span class="badge bg-danger ms-1">{{ lost | length }}</span>
+  </button></li>
+</ul>
+<div class="tab-content border border-top-0 rounded-bottom bg-white">
+  <div class="tab-pane fade show active" id="openTab">
     {{ bid_table(captured, 'capturedTable', 'active') }}
+    <div class="p-2 small text-muted border-top">
+      Sorted by highest bid amount. Includes custom-price requests, which are not held to the 10% step.
+    </div>
   </div>
-  <div class="card-footer bg-white border-0 small text-muted">
-    Sorted by highest bid amount. Includes custom-price requests, which are not
-    held to the 10% step.
-  </div>
-</div>
-
-<div class="card border-0 shadow-sm mb-4">
-  <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
-    <span class="fw-semibold"><i class="bi bi-trophy me-2 text-success"></i>Marked Won</span>
-    <span class="badge bg-success">{{ won | length }}</span>
-  </div>
-  <div class="card-body p-0">
+  <div class="tab-pane fade" id="wonTab">
     {{ bid_table(won, 'wonTable', 'won') }}
+    <div class="p-2 small text-muted border-top">
+      Each of these created a Buyer Deal. Click a Bid ID to see the partner's payment details.
+    </div>
   </div>
-  <div class="card-footer bg-white border-0 small text-muted">
-    Each of these created a Buyer Deal under Sales Opportunities.
+  <div class="tab-pane fade" id="lostTab">
+    {{ bid_table(lost, 'lostTable', 'lost') }}
+    <div class="p-2 small text-muted border-top">
+      Runner-up bids on lots already awarded — the prices to fall back on if a won deal does not complete.
+    </div>
   </div>
 </div>
 
-<div class="card border-0 shadow-sm mb-4">
-  <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
-    <span class="fw-semibold"><i class="bi bi-x-circle me-2 text-danger"></i>Marked Lost</span>
-    <span class="badge bg-danger">{{ lost | length }}</span>
+<!-- Per-lot bids modal (from a Lot Number) -->
+<div class="modal fade" id="lotBidsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title"><i class="bi bi-hammer me-2"></i>Bids Captured — <span id="lbLotNumber" class="font-monospace"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0 align-middle">
+            <thead class="table-light">
+              <tr><th class="ps-3">Bid Amount</th><th>Bid ID</th><th>Account Name</th>
+                  <th>Manager</th><th>Action</th></tr>
+            </thead>
+            <tbody id="lotBidsBody"><tr><td colspan="5" class="text-center text-muted py-3">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
-  <div class="card-body p-0">
-    {{ bid_table(lost, 'lostTable', 'lost') }}
+</div>
+
+<!-- PO Preview modal -->
+<div class="modal fade" id="poPreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <form method="post" id="poForm" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+      <div class="modal-header py-2">
+        <h5 class="modal-title"><i class="bi bi-file-earmark-text me-2"></i>PO Preview — <span id="poBidNumber" class="font-monospace"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <div class="border rounded p-2 h-100">
+              <div class="fw-semibold small text-primary mb-2">Account Details</div>
+              <div class="small"><span class="text-muted">Account:</span> <span id="poAccount" class="fw-semibold"></span></div>
+              <div class="small"><span class="text-muted">Contact:</span> <span id="poContact"></span></div>
+              <div class="small"><span class="text-muted">Manager:</span> <span id="poManager"></span></div>
+              <div class="small"><span class="text-muted">Lot:</span> <span id="poLot" class="font-monospace"></span></div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="border rounded p-2 h-100">
+              <div class="fw-semibold small text-primary mb-2">Company Details</div>
+              <select name="company_id" id="poCompany" class="form-select form-select-sm mb-2">
+                {% for c in companies %}
+                <option value="{{ c.id }}"
+                        data-address="{{ c.company_address or '' }}"
+                        data-gstin="{{ c.company_gstin or '' }}"
+                        data-state="{{ c.company_state or '' }}"
+                        data-phone="{{ c.company_phone or '' }}">{{ c.company_name }}</option>
+                {% else %}
+                <option value="">No company configured — add one under Settings</option>
+                {% endfor %}
+              </select>
+              <div class="small text-muted" id="poCompanyDetails"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="table-responsive mb-2">
+          <table class="table table-sm table-bordered mb-0">
+            <thead class="table-light">
+              <tr><th>Model Name</th><th>CPU</th><th>RAM</th><th>Storage</th><th class="text-end">Quantity</th></tr>
+            </thead>
+            <tbody id="poItemsBody"></tbody>
+          </table>
+        </div>
+        {# Per-row prices are deliberately omitted — only the won total is shown. #}
+        <div class="d-flex justify-content-end mb-3">
+          <div class="border rounded px-3 py-2 bg-light">
+            <span class="text-muted small me-2">Total Bid Won Price</span>
+            <span class="fs-5 fw-bold text-success" id="poTotal"></span>
+          </div>
+        </div>
+
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold">Payment Terms</label>
+            <select name="payment_term_id" id="poPayTerm" class="form-select form-select-sm">
+              <option value="">— None —</option>
+              {% for t in terms_by_type.get('payment', []) %}
+              <option value="{{ t.id }}" data-content="{{ t.content }}">{{ t.title }}</option>
+              {% endfor %}
+            </select>
+            <div class="small text-muted border rounded p-2 mt-1" id="poPayPreview" style="min-height:52px"></div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold">Delivery Terms</label>
+            <select name="delivery_term_id" id="poDelTerm" class="form-select form-select-sm">
+              <option value="">— None —</option>
+              {% for t in terms_by_type.get('delivery', []) %}
+              <option value="{{ t.id }}" data-content="{{ t.content }}">{{ t.title }}</option>
+              {% endfor %}
+            </select>
+            <div class="small text-muted border rounded p-2 mt-1" id="poDelPreview" style="min-height:52px"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary">
+          <i class="bi bi-file-earmark-arrow-down me-1"></i>Generate and attach this PO
+        </button>
+      </div>
+    </form>
   </div>
-  <div class="card-footer bg-white border-0 small text-muted">
-    Runner-up bids on lots already awarded — the prices to fall back on if a
-    won deal does not complete. Highest first.
+</div>
+
+<!-- Payment details modal -->
+<div class="modal fade" id="paymentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title"><i class="bi bi-cash-coin me-2"></i>Payment — <span id="pmBidNumber" class="font-monospace"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="pmBody"><div class="text-muted">Loading…</div></div>
+    </div>
   </div>
 </div>
 
@@ -164,9 +333,7 @@
         <div class="mb-2">
           <label class="form-label small fw-semibold mb-1">Document Type</label>
           <select name="doc_type" class="form-select form-select-sm" required>
-            {% for t in doc_types %}
-            <option value="{{ t }}">{{ t | upper }}</option>
-            {% endfor %}
+            {% for t in doc_types %}<option value="{{ t }}">{{ t | upper }}</option>{% endfor %}
           </select>
         </div>
         <input type="file" name="file" class="form-control" required>
@@ -182,20 +349,139 @@
 {% endblock %}
 {% block scripts %}
 <script>
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function inr(n){ return '₹' + Number(n || 0).toLocaleString('en-IN', {maximumFractionDigits:0}); }
+
 document.getElementById('uploadDocModal').addEventListener('show.bs.modal', function(ev){
-  // One modal shared by every row: point its action at whichever bid was clicked.
   var btn = ev.relatedTarget;
   if (!btn) return;
   document.getElementById('uploadDocForm').action =
     '/trade-partner/bids/' + btn.getAttribute('data-bid-id') + '/upload';
-  document.getElementById('docBidNumber').textContent =
-    btn.getAttribute('data-bid-number');
+  document.getElementById('docBidNumber').textContent = btn.getAttribute('data-bid-number');
+});
+
+// Lot Number -> bids for that lot, each with a Generate PO action.
+document.querySelectorAll('.lot-bids-link').forEach(function(a){
+  a.addEventListener('click', function(e){
+    e.preventDefault();
+    var lot = this.dataset.lotNumber;
+    document.getElementById('lbLotNumber').textContent = lot;
+    document.getElementById('lotBidsBody').innerHTML =
+      '<tr><td colspan="5" class="text-center text-muted py-3">Loading…</td></tr>';
+    new bootstrap.Modal(document.getElementById('lotBidsModal')).show();
+    fetch('/trade-partner/bids/lot-captured?lot_number=' + encodeURIComponent(lot))
+      .then(r => r.json())
+      .then(d => {
+        var body = document.getElementById('lotBidsBody');
+        if (!d.bids || !d.bids.length){
+          body.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">No live bids for this lot.</td></tr>';
+          return;
+        }
+        body.innerHTML = d.bids.map(b => `
+          <tr>
+            <td class="ps-3 fw-bold text-success">${inr(b.amount)}</td>
+            <td class="font-monospace small">${esc(b.bid_number)}</td>
+            <td>${esc(b.account_name)}</td>
+            <td>${esc(b.manager_name)}</td>
+            <td><button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 gen-po-btn"
+                        data-bid-id="${esc(b.bid_id)}">
+              <i class="bi bi-file-earmark-text me-1"></i>Generate PO</button></td>
+          </tr>`).join('');
+        body.querySelectorAll('.gen-po-btn').forEach(function(btn){
+          btn.addEventListener('click', function(){ openPoPreview(this.dataset.bidId); });
+        });
+      })
+      .catch(() => {
+        document.getElementById('lotBidsBody').innerHTML =
+          '<tr><td colspan="5" class="text-center text-danger py-3">Could not load bids.</td></tr>';
+      });
+  });
+});
+
+function renderCompanyDetails(){
+  var opt = document.getElementById('poCompany').selectedOptions[0];
+  var el = document.getElementById('poCompanyDetails');
+  if (!opt || !opt.value){ el.textContent = ''; return; }
+  el.innerHTML = [
+    opt.dataset.address ? esc(opt.dataset.address) : '',
+    opt.dataset.gstin ? 'GSTIN: ' + esc(opt.dataset.gstin) : '',
+    opt.dataset.state ? esc(opt.dataset.state) : '',
+    opt.dataset.phone ? esc(opt.dataset.phone) : ''
+  ].filter(Boolean).join('<br>');
+}
+document.getElementById('poCompany').addEventListener('change', renderCompanyDetails);
+
+function termPreview(selId, outId){
+  var opt = document.getElementById(selId).selectedOptions[0];
+  document.getElementById(outId).textContent = (opt && opt.dataset.content) ? opt.dataset.content : '';
+}
+document.getElementById('poPayTerm').addEventListener('change', function(){ termPreview('poPayTerm','poPayPreview'); });
+document.getElementById('poDelTerm').addEventListener('change', function(){ termPreview('poDelTerm','poDelPreview'); });
+
+function openPoPreview(bidId){
+  fetch('/trade-partner/bids/' + bidId + '/po-preview')
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('poForm').action = '/trade-partner/bids/' + bidId + '/generate-po';
+      document.getElementById('poBidNumber').textContent = d.bid_number || '';
+      document.getElementById('poAccount').textContent = d.account_name || '';
+      document.getElementById('poContact').textContent = d.account_contact || '';
+      document.getElementById('poManager').textContent = d.manager_name || '';
+      document.getElementById('poLot').textContent = d.lot_number || '';
+      document.getElementById('poTotal').textContent = inr(d.total);
+      var body = document.getElementById('poItemsBody');
+      body.innerHTML = (d.items && d.items.length)
+        ? d.items.map(i => `<tr><td>${esc(i.model)}</td><td>${esc(i.cpu)}</td>
+             <td>${esc(i.ram)}</td><td>${esc(i.storage)}</td>
+             <td class="text-end">${esc(i.qty)}</td></tr>`).join('')
+        : '<tr><td colspan="5" class="text-center text-muted py-2">No line items on this lot.</td></tr>';
+      renderCompanyDetails();
+      termPreview('poPayTerm','poPayPreview');
+      termPreview('poDelTerm','poDelPreview');
+      var lm = bootstrap.Modal.getInstance(document.getElementById('lotBidsModal'));
+      if (lm) lm.hide();
+      new bootstrap.Modal(document.getElementById('poPreviewModal')).show();
+    })
+    .catch(() => alert('Could not load PO preview.'));
+}
+
+// BID ID -> payment details
+document.querySelectorAll('.payment-link').forEach(function(a){
+  a.addEventListener('click', function(e){
+    e.preventDefault();
+    var id = this.dataset.bidId;
+    document.getElementById('pmBody').innerHTML = '<div class="text-muted">Loading…</div>';
+    new bootstrap.Modal(document.getElementById('paymentModal')).show();
+    fetch('/trade-partner/bids/' + id + '/payment')
+      .then(r => r.json())
+      .then(d => {
+        document.getElementById('pmBidNumber').textContent = d.bid_number || '';
+        if (!d.has_payment){
+          document.getElementById('pmBody').innerHTML =
+            '<div class="alert alert-warning mb-0"><i class="bi bi-hourglass me-2"></i>' + esc(d.message) + '</div>';
+          return;
+        }
+        document.getElementById('pmBody').innerHTML = `
+          <div class="mb-2"><span class="badge ${d.verified ? 'bg-success' : 'bg-info text-dark'}">${esc(d.status_text)}</span></div>
+          <table class="table table-sm mb-0">
+            <tr><th class="text-muted" style="width:45%">Payment Date</th><td>${esc(d.payment_date)}</td></tr>
+            <tr><th class="text-muted">Payment Mode</th><td>${esc(d.payment_mode)}</td></tr>
+            <tr><th class="text-muted">UTR / Reference</th><td class="font-monospace">${esc(d.payment_utr)}</td></tr>
+            <tr><th class="text-muted">Amount</th><td class="fw-bold">${inr(d.payment_amount)}</td></tr>
+            <tr><th class="text-muted">Submitted</th><td>${esc(d.submitted_at)}</td></tr>
+            ${d.verified ? `<tr><th class="text-muted">Verified By</th><td>${esc(d.verified_by)} · ${esc(d.verified_at)}</td></tr>` : ''}
+          </table>`;
+      })
+      .catch(() => {
+        document.getElementById('pmBody').innerHTML =
+          '<div class="alert alert-danger mb-0">Could not load payment details.</div>';
+      });
+  });
 });
 
 $(document).ready(function(){
-  // order:[] keeps the server's sort (amount DESC) as the initial view - the
-  // whole point of the page is that the best offer is row one.
-  ['#capturedTable', '#wonTable', '#lostTable'].forEach(function(sel){
+  ['#summaryTable', '#capturedTable', '#wonTable', '#lostTable'].forEach(function(sel){
     if ($(sel + ' tbody tr').length && !$(sel + ' tbody td[colspan]').length) {
       $(sel).DataTable({ order: [], pageLength: 25, lengthChange: false });
     }

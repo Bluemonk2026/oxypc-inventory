@@ -161,6 +161,7 @@ from routers.crm_price_matrix import router as crm_price_matrix_router
 from routers.invoices import router as invoices_router
 from routers.gate_pass import router as gate_pass_router
 from routers.part_sales import router as part_sales_router
+from routers.partner_payments import router as partner_payments_router
 from routers.crm_purchase_orders import router as crm_purchase_orders_router
 from routers.accounts import router as accounts_router
 from routers.crm_reports import router as crm_reports_router
@@ -237,6 +238,7 @@ app.include_router(crm_price_matrix_router)
 app.include_router(invoices_router)
 app.include_router(gate_pass_router)
 app.include_router(part_sales_router)
+app.include_router(partner_payments_router)
 app.include_router(crm_purchase_orders_router)
 app.include_router(accounts_router)
 app.include_router(crm_reports_router)

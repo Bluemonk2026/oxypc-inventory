@@ -104,6 +104,7 @@ NAV_PAGE_TITLES = [
     ("finance",              "Accounts",                      "Accounts",                      "/accounts"),
     ("finance_supplier",     "Supplier Payments",             "Supplier Payments",             "/accounts/supplier-payments"),
     ("finance_customer",     "Customer Receipts",             "Customer Receipts",             "/accounts/customer-receipts"),
+    ("partner_payments",     "Partner Payments",              "Partner Payments",              "/partner-payments"),
     ("locations",            "Location Map",                  "Location Map",                  "/locations/dashboard"),
     ("location_gaps",        "Gap Alerts",                    "Gap Alerts",                    "/locations/gaps"),
     ("location_audit",       "Physical Audit",                "Physical Audit",                "/locations/audit"),

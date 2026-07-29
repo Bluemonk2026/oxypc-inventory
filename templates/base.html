@@ -432,6 +432,11 @@
         <i class="bi bi-arrow-down-circle me-2"></i> {{ sidebar_label('finance_customer', 'Customer Receipts') }}
       </a></li>
       {% endif %}
+      {% if has_perm(role,'partner_payments','enable') %}
+      <li><a href="/partner-payments" class="nav-link {% if '/partner-payments' in request.url.path %}active{% endif %}">
+        <i class="bi bi-cash-coin me-2"></i> {{ sidebar_label('partner_payments', 'Partner Payments') }}
+      </a></li>
+      {% endif %}
       {% if role == 'admin' %}
       <li><a href="/settings" class="nav-link {% if request.url.path == '/settings' %}active{% endif %}">
         <i class="bi bi-gear me-2"></i> Company Setting

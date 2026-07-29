@@ -40,7 +40,9 @@
   {% endif %}
 </nav>
 
-<main class="container-fluid px-3 py-3" style="max-width: 720px; margin: 0 auto;">
+{# Content width is per-page: My Bookings / My Bids / Profile cap at 1080px,
+   while the Catalog overrides this to run full width for its two-column layout. #}
+<main class="container-fluid px-3 py-3" style="max-width: {% block main_max %}1080px{% endblock %}; margin: 0 auto;">
   {% block content %}{% endblock %}
 </main>
 

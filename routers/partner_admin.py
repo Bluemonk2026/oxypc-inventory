@@ -31,6 +31,12 @@ from models.partner import (
     LotDealerVisibility, LotBookingRequest,
     PartnerBid, PartnerBidDocument, BID_DOC_TYPES,
 )
+from models.partner_payment import (
+    PartnerBidPayment, payment_status, PAYMENT_STATUS_BADGE,
+)
+from models.lot import LotLineItem
+from models.company import Company
+from models.terms import TermsCondition
 from models.crm import CRMSalesOpportunity
 from auth.dependencies import (
     get_current_user, verify_csrf, hash_password, require_module_perm,
@@ -1420,8 +1426,63 @@ async def _bid_rows(db: AsyncSession, bids):
             "manager_name": owners.get(dealer.sales_owner_username, "-")
                             if dealer and dealer.sales_owner_username else "-",
             "documents": docs.get(str(b.id), []),
+            "contact": contact,
         })
     return rows
+
+
+async def _payment_map(db: AsyncSession, bid_ids):
+    """bid_id -> latest PartnerBidPayment (only one is expected per bid)."""
+    if not bid_ids:
+        return {}
+    out = {}
+    for p in (await db.execute(
+        select(PartnerBidPayment)
+        .where(PartnerBidPayment.bid_id.in_(bid_ids))
+        .order_by(PartnerBidPayment.submitted_at.desc())
+    )).scalars().all():
+        out.setdefault(str(p.bid_id), p)
+    return out
+
+
+def _decorate_payments(rows, payments):
+    """Attach the derived four-state payment label to won rows."""
+    for r in rows:
+        has_po = any(d.doc_type == "po" for d in r["documents"])
+        pay = payments.get(str(r["bid"].id))
+        r["payment"] = pay
+        r["payment_status"] = payment_status(has_po, pay)
+        r["payment_badge"] = PAYMENT_STATUS_BADGE.get(r["payment_status"], "bg-secondary")
+        r["has_po"] = has_po
+    return rows
+
+
+def _summarise_by_lot(rows):
+    """'Total Bids Created' — one row per lot, aggregating its live bids.
+
+    Account Manager / Account Name describe the CURRENT highest bidder, since
+    that is who Mark Won would award the lot to.
+    """
+    groups = {}
+    for r in rows:
+        key = r["lot_number"]
+        g = groups.setdefault(key, {
+            "lot_number": key, "lot_id": r["lot_id"], "bids": [],
+        })
+        g["bids"].append(r)
+    out = []
+    for g in groups.values():
+        amounts = [Decimal(str(b["bid"].bid_amount)) for b in g["bids"]]
+        top = max(g["bids"], key=lambda b: Decimal(str(b["bid"].bid_amount)))
+        out.append({
+            "lot_number": g["lot_number"], "lot_id": g["lot_id"],
+            "total_bids": len(g["bids"]),
+            "highest": max(amounts), "lowest": min(amounts),
+            "manager_name": top["manager_name"], "account_name": top["account_name"],
+            "top_bid": top["bid"], "documents": top["documents"],
+        })
+    out.sort(key=lambda x: x["highest"], reverse=True)
+    return out
 
 
 @router.get("/bids", response_class=HTMLResponse)
@@ -1454,14 +1515,235 @@ async def bids_created(
         .order_by(PartnerBid.bid_amount.desc())
     )).scalars().all()
 
+    captured_rows = await _bid_rows(db, captured)
+    won_rows = await _bid_rows(db, won)
+    won_rows = _decorate_payments(won_rows, await _payment_map(db, [b.id for b in won]))
+
+    companies = (await db.execute(
+        select(Company).where(Company.is_active.is_(True)).order_by(Company.company_name)
+    )).scalars().all()
+    terms = (await db.execute(
+        select(TermsCondition).where(TermsCondition.is_active.is_(True))
+        .order_by(TermsCondition.display_order, TermsCondition.title)
+    )).scalars().all()
+    terms_by_type = {}
+    for t in terms:
+        terms_by_type.setdefault(t.term_type, []).append(t)
+
     return templates.TemplateResponse("trade_partner/bids.html", {
         "request": request, "current_user": current_user,
-        "captured": await _bid_rows(db, captured),
-        "won": await _bid_rows(db, won),
+        "captured": captured_rows,
+        "summary": _summarise_by_lot(captured_rows),
+        "won": won_rows,
         "lost": await _bid_rows(db, lost),
         "doc_types": BID_DOC_TYPES,
+        "companies": companies,
+        "terms_by_type": terms_by_type,
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
+    })
+
+
+@router.get("/bids/lot-captured")
+async def lot_captured_bids(
+    lot_number: str,
+    current_user: User = Depends(require_module_perm("trade_partner")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Live bids for one lot — feeds the modal opened from a Lot Number."""
+    rows = await _bid_rows(db, (await db.execute(
+        select(PartnerBid).where(PartnerBid.status == "active")
+        .order_by(PartnerBid.bid_amount.desc())
+    )).scalars().all())
+    rows = [r for r in rows if r["lot_number"] == lot_number]
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"lot_number": lot_number, "bids": [{
+        "bid_id": str(r["bid"].id), "bid_number": r["bid"].bid_number,
+        "amount": float(r["bid"].bid_amount),
+        "account_name": r["account_name"], "manager_name": r["manager_name"],
+        "account_contact": r["account_contact"],
+    } for r in rows]})
+
+
+@router.get("/bids/{bid_id}/po-preview")
+async def po_preview(
+    bid_id: str,
+    current_user: User = Depends(require_module_perm("trade_partner")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Account details + line items for the PO Preview modal."""
+    from fastapi.responses import JSONResponse
+    try:
+        bid = (await db.execute(
+            select(PartnerBid).where(PartnerBid.id == uuid_mod.UUID(bid_id))
+        )).scalar_one_or_none()
+    except (ValueError, AttributeError):
+        raise HTTPException(404)
+    if not bid:
+        raise HTTPException(404, "Bid not found")
+    rows = await _bid_rows(db, [bid])
+    r = rows[0]
+
+    items = []
+    if bid.lot_id:
+        for li in (await db.execute(
+            select(LotLineItem).where(LotLineItem.lot_id == bid.lot_id)
+            .order_by(LotLineItem.sub_category, LotLineItem.model)
+        )).scalars().all():
+            items.append({
+                "model": li.model or li.sub_category or "-",
+                "cpu": " ".join(x for x in [li.cpu, li.generation] if x) or "-",
+                "ram": f"{li.ram_gb}GB" if li.ram_gb else "-",
+                "storage": (f"{li.storage_gb}GB {li.storage_type or ''}".strip()
+                            if li.storage_gb else "-"),
+                "qty": li.qty or 0,
+            })
+    return JSONResponse({
+        "bid_number": bid.bid_number,
+        "lot_number": r["lot_number"],
+        "account_name": r["account_name"],
+        "account_contact": r["account_contact"],
+        "manager_name": r["manager_name"],
+        "total": float(bid.bid_amount),
+        "items": items,
+    })
+
+
+@router.post("/bids/{bid_id}/generate-po")
+async def generate_bid_po(
+    bid_id: str, request: Request,
+    company_id: str = Form(""),
+    payment_term_id: str = Form(""),
+    delivery_term_id: str = Form(""),
+    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate the PO PDF and ATTACH it to the bid (doc_type 'po').
+
+    Unlike the CRM sourcing PO — which streams a one-off download — this one is
+    persisted, because the partner has to be able to download it from My Bids
+    and because an attached PO is what moves the bid to "Payment Pending".
+    """
+    from services.po_pdf import build_po_pdf
+    from routers.settings import get_company_settings
+    try:
+        bid = (await db.execute(
+            select(PartnerBid).where(PartnerBid.id == uuid_mod.UUID(bid_id))
+        )).scalar_one_or_none()
+    except (ValueError, AttributeError):
+        raise HTTPException(404)
+    if not bid:
+        raise HTTPException(404, "Bid not found")
+
+    rows = await _bid_rows(db, [bid])
+    r = rows[0]
+    company = await get_company_settings(db, (company_id or "").strip())
+
+    async def _term(tid):
+        if not tid:
+            return []
+        try:
+            t = (await db.execute(
+                select(TermsCondition).where(TermsCondition.id == uuid_mod.UUID(tid))
+            )).scalar_one_or_none()
+        except (ValueError, AttributeError):
+            return []
+        return [t] if t else []
+
+    class _Item:
+        """Duck-typed for build_po_pdf. Per-row prices are deliberately blank —
+        the PO shows only the total bid-won value."""
+        def __init__(self, name, desc, qty):
+            self.item_name = name
+            self.description = desc
+            self.quantity = qty
+            self.unit_price = None
+            self.total_price = None
+
+    items = []
+    if bid.lot_id:
+        for li in (await db.execute(
+            select(LotLineItem).where(LotLineItem.lot_id == bid.lot_id)
+            .order_by(LotLineItem.sub_category, LotLineItem.model)
+        )).scalars().all():
+            desc = " | ".join(x for x in [
+                " ".join(y for y in [li.cpu, li.generation] if y),
+                f"{li.ram_gb}GB RAM" if li.ram_gb else None,
+                (f"{li.storage_gb}GB {li.storage_type or ''}".strip()
+                 if li.storage_gb else None),
+            ] if x)
+            items.append(_Item(li.model or li.sub_category or "Item", desc, li.qty or 0))
+
+    pdf_bytes = build_po_pdf(
+        po_number=f"PO-{bid.bid_number}",
+        po_date=app_now().strftime("%d-%b-%Y"),
+        company=company, contact=r.get("contact"),
+        line_items=items,
+        payment_terms=await _term(payment_term_id),
+        delivery_terms=await _term(delivery_term_id),
+        disclaimers=[],
+        sections={"account": True, "company": True, "items": True,
+                  "payment": bool(payment_term_id), "delivery": bool(delivery_term_id),
+                  "conditions": False},
+        total_amount=float(bid.bid_amount),
+        doc_title="PURCHASE ORDER",
+        account_label="Account Details (Buyer)",
+    )
+
+    os.makedirs(BIDS_DIR, exist_ok=True)
+    fname = f"PO-{bid.bid_number}-{uuid_mod.uuid4().hex[:8]}.pdf"
+    with open(os.path.join(BIDS_DIR, fname), "wb") as fh:
+        fh.write(pdf_bytes)
+    db.add(PartnerBidDocument(
+        bid_id=bid.id, doc_type="po", filename=fname,
+        original_name=f"PO-{bid.bid_number}.pdf",
+        uploaded_by=current_user.username,
+    ))
+    await audit(db, user=current_user, action="BID_PO_GENERATED",
+                table_name="partner_bids", record_id=str(bid.id),
+                new_value={"bid": bid.bid_number, "file": fname}, request=request)
+    await db.commit()
+    return RedirectResponse(
+        url=f"/trade-partner/bids?success=PO+generated+and+attached+to+{bid.bid_number}",
+        status_code=302)
+
+
+@router.get("/bids/{bid_id}/payment")
+async def bid_payment_details(
+    bid_id: str,
+    current_user: User = Depends(require_module_perm("trade_partner")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Payment details behind a clickable BID ID."""
+    from fastapi.responses import JSONResponse
+    try:
+        bid_uuid = uuid_mod.UUID(bid_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(404)
+    bid = (await db.execute(
+        select(PartnerBid).where(PartnerBid.id == bid_uuid)
+    )).scalar_one_or_none()
+    if not bid:
+        raise HTTPException(404, "Bid not found")
+    pay = (await db.execute(
+        select(PartnerBidPayment).where(PartnerBidPayment.bid_id == bid_uuid)
+        .order_by(PartnerBidPayment.submitted_at.desc())
+    )).scalars().first()
+    if not pay:
+        return JSONResponse({"bid_number": bid.bid_number, "has_payment": False,
+                             "message": "Payment not received yet."})
+    return JSONResponse({
+        "bid_number": bid.bid_number, "has_payment": True,
+        "payment_date": pay.payment_date.strftime("%d-%b-%Y") if pay.payment_date else "-",
+        "payment_mode": (pay.payment_mode or "-").replace("_", " ").title(),
+        "payment_utr": pay.payment_utr or "-",
+        "payment_amount": float(pay.payment_amount or 0),
+        "submitted_at": pay.submitted_at.strftime("%d-%b-%Y %H:%M") if pay.submitted_at else "-",
+        "verified": bool(pay.verified),
+        "status_text": ("Verified" if pay.verified
+                        else "Verification Pending at Finance team"),
+        "verified_by": pay.verified_by or "",
+        "verified_at": pay.verified_at.strftime("%d-%b-%Y %H:%M") if pay.verified_at else "",
     })
 
 

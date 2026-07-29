@@ -9,9 +9,9 @@ import os
 import secrets
 import time
 import uuid as uuid_mod
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, Form, Request, UploadFile, File
+from fastapi import APIRouter, Depends, Form, Request, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
@@ -227,10 +227,11 @@ async def catalog(
     # deliberate, instructed exception to the no-cost-to-dealers rule at the top
     # of this file — the base IS the offer. lot.selling_price (Target Selling
     # Price) stays internal, as do supplier_name and every other cost field.
+    # Every available lot is now offered to every partner account — the
+    # per-dealer LotDealerVisibility grant no longer gates the catalog. The
+    # table is retained for other callers; only this listing is unrestricted.
     vis_rows = (await db.execute(
-        select(Lot).join(LotDealerVisibility, LotDealerVisibility.lot_id == Lot.id)
-        .where(LotDealerVisibility.dealer_id == dealer.id)
-        .order_by(Lot.purchase_date.desc())
+        select(Lot).order_by(Lot.purchase_date.desc())
     )).scalars().all()
     visible_lots = []
     if vis_rows:
@@ -423,20 +424,42 @@ async def _lot_bid_state(db: AsyncSession, lots, dealer_id):
     )).scalars().all():
         mine.setdefault(str(b.lot_id), b)
 
+    # How many bids this dealer has already placed BELOW the base price — a
+    # dealer gets exactly one of those, but unlimited bids at or above base.
+    below_counts = {}
+    for b in (await db.execute(
+        select(PartnerBid).where(
+            PartnerBid.lot_id.in_(ids), PartnerBid.dealer_id == dealer_id,
+            PartnerBid.status.in_(("active", "won", "lost")),
+        )
+    )).scalars().all():
+        key = str(b.lot_id)
+        base_at_bid = b.base_amount
+        if base_at_bid and Decimal(str(b.bid_amount)) < Decimal(str(base_at_bid)):
+            below_counts[key] = below_counts.get(key, 0) + 1
+
     out = {}
     for l in lots:
         lid = str(l["id"] if isinstance(l, dict) else l.id)
         base = l["price"] if isinstance(l, dict) else l.buying_price
         top = highest.get(lid)
+        # Competitive position is withheld while the standing high is below the
+        # base price: a partner must not learn that the lot is currently going
+        # for less than the asking price.
+        reveal = bool(top is not None and base and Decimal(str(top)) >= Decimal(str(base)))
+        if top is not None and not base:
+            reveal = True          # no base set = nothing to protect
         out[lid] = {
-            "highest": top,
+            "highest": top if reveal else None,
+            "highest_hidden": bool(top is not None and not reveal),
             "base": base,
             # No reserve when neither a base price nor a standing bid exists —
             # any positive amount is then a valid opening bid.
             "min_next": (min_next_bid(base or 0, top) if (base or top) else None),
             "mine": mine.get(lid),
-            "leading": bool(top is not None and mine.get(lid) is not None
+            "leading": bool(reveal and top is not None and mine.get(lid) is not None
                             and mine[lid].bid_amount == top),
+            "below_base_used": below_counts.get(lid, 0) > 0,
         }
     return out
 
@@ -571,18 +594,33 @@ async def request_custom_price(
 
 
 async def _visible_lot_or_none(db: AsyncSession, lot_id: str, dealer_id):
-    """The Lot, but only if this dealer has been granted visibility on it.
+    """The Lot if it can be acted on.
 
-    Every lot route re-checks this. A dealer who learns another lot's id must
-    not be able to bid on stock that was never offered to them.
+    Every available lot is now offered to every partner account, so this no
+    longer consults LotDealerVisibility — it exists to keep the id-validity
+    check (and the single choke point, should per-dealer gating return).
     """
-    visible = (await db.execute(select(LotDealerVisibility).where(
-        LotDealerVisibility.lot_id == lot_id,
-        LotDealerVisibility.dealer_id == dealer_id,
-    ))).scalar_one_or_none()
-    if not visible:
+    try:
+        return (await db.execute(
+            select(Lot).where(Lot.id == lot_id)
+        )).scalar_one_or_none()
+    except Exception:
         return None
-    return (await db.execute(select(Lot).where(Lot.id == lot_id))).scalar_one_or_none()
+
+
+async def _below_base_bid_used(db: AsyncSession, lot_id, dealer_id) -> bool:
+    """Has this dealer already used its single below-base-price bid on this lot?
+
+    A partner may bid under the base price once. Above or at base, there is no
+    limit — that is the normal competitive ladder.
+    """
+    for b in (await db.execute(select(PartnerBid).where(
+        PartnerBid.lot_id == lot_id, PartnerBid.dealer_id == dealer_id,
+        PartnerBid.status.in_(("active", "won", "lost")),
+    ))).scalars().all():
+        if b.base_amount and Decimal(str(b.bid_amount)) < Decimal(str(b.base_amount)):
+            return True
+    return False
 
 
 @router.get("/lots/{lot_id}/models")
@@ -713,6 +751,15 @@ async def request_lot_custom_price(
     if amt is None:
         return RedirectResponse(url=f"{back}?error=Enter+a+valid+amount",
                                 status_code=302)
+
+    # One below-base offer per dealer per lot; at or above base is unlimited.
+    base = lot.buying_price
+    if base and amt < Decimal(str(base)):
+        if await _below_base_bid_used(db, lot.id, dealer.id):
+            return RedirectResponse(
+                url=f"{back}?error=You+have+already+placed+one+bid+below+the+base+price+"
+                    f"for+this+lot.+Further+bids+must+be+at+or+above+Rs+{Decimal(str(base)):.0f}",
+                status_code=302)
 
     bid = PartnerBid(
         bid_number=await _next_bid_number(db),
@@ -918,11 +965,134 @@ async def my_bids_analysis(
                          Decimal("0")),
     }
 
+    # Won rows carry the payment leg: the derived status, any attached PO for
+    # download, and whatever payment the dealer has already submitted.
+    from models.partner import PartnerBidDocument
+    from models.partner_payment import (PartnerBidPayment, payment_status,
+                                        PAYMENT_STATUS_BADGE)
+    won_ids = [r["bid"].id for r in won]
+    docs, pays = {}, {}
+    if won_ids:
+        for d in (await db.execute(
+            select(PartnerBidDocument).where(PartnerBidDocument.bid_id.in_(won_ids))
+        )).scalars().all():
+            docs.setdefault(str(d.bid_id), []).append(d)
+        for p in (await db.execute(
+            select(PartnerBidPayment).where(PartnerBidPayment.bid_id.in_(won_ids))
+            .order_by(PartnerBidPayment.submitted_at.desc())
+        )).scalars().all():
+            pays.setdefault(str(p.bid_id), p)
+    for r in won:
+        bid_key = str(r["bid"].id)
+        r["documents"] = docs.get(bid_key, [])
+        r["has_po"] = any(d.doc_type == "po" for d in r["documents"])
+        r["payment"] = pays.get(bid_key)
+        r["payment_status"] = payment_status(r["has_po"], r["payment"])
+        r["payment_badge"] = PAYMENT_STATUS_BADGE.get(r["payment_status"], "bg-secondary")
+
     return templates.TemplateResponse("partner/bids.html", {
         "request": request, "dealer": dealer,
         "won": won, "lost": lost, "stats": stats,
         "partner_csrf": request.cookies.get(PARTNER_CSRF_COOKIE, ""),
+        "success": request.query_params.get("success"),
+        "error": request.query_params.get("error"),
     })
+
+
+@router.get("/bids/{bid_id}/document/{doc_id}")
+async def partner_bid_document(
+    bid_id: str, doc_id: str,
+    dealer: Dealer = Depends(get_current_partner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download a document (typically the PO) attached to the dealer's own bid."""
+    from fastapi.responses import FileResponse
+    from models.partner import PartnerBidDocument
+    from config import UPLOADS_DIR
+    try:
+        bid = (await db.execute(select(PartnerBid).where(
+            PartnerBid.id == uuid_mod.UUID(bid_id),
+            PartnerBid.dealer_id == dealer.id,      # scoped: never another dealer's
+        ))).scalar_one_or_none()
+        doc = (await db.execute(select(PartnerBidDocument).where(
+            PartnerBidDocument.id == uuid_mod.UUID(doc_id)
+        ))).scalar_one_or_none()
+    except (ValueError, AttributeError):
+        raise HTTPException(404)
+    if not bid or not doc or str(doc.bid_id) != str(bid.id):
+        raise HTTPException(404, "Document not found")
+    path = os.path.join(UPLOADS_DIR, "partner", "bids", doc.filename)
+    if not os.path.exists(path):
+        raise HTTPException(404, "File missing")
+    return FileResponse(path, filename=doc.original_name or doc.filename,
+                        media_type="application/pdf")
+
+
+@router.post("/bids/{bid_id}/payment")
+async def submit_bid_payment(
+    request: Request, bid_id: str,
+    payment_date: str = Form(""),
+    payment_mode: str = Form("bank_transfer"),
+    payment_utr: str = Form(""),
+    payment_amount: str = Form(""),
+    _csrf=Depends(verify_partner_csrf),
+    dealer: Dealer = Depends(get_current_partner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark Paid — the dealer submits payment details against a won bid.
+
+    This moves the bid to "Payment Verifying" on both this page and the staff
+    side; finance confirms it on Partner Payments to reach "Payment Done".
+    """
+    from models.partner_payment import PartnerBidPayment
+    back = "/partner/bids"
+    try:
+        bid = (await db.execute(select(PartnerBid).where(
+            PartnerBid.id == uuid_mod.UUID(bid_id),
+            PartnerBid.dealer_id == dealer.id,
+            PartnerBid.status == "won",
+        ))).scalar_one_or_none()
+    except (ValueError, AttributeError):
+        raise HTTPException(404)
+    if not bid:
+        return RedirectResponse(url=f"{back}?error=Bid+not+found", status_code=302)
+
+    existing = (await db.execute(
+        select(PartnerBidPayment).where(PartnerBidPayment.bid_id == bid.id)
+        .order_by(PartnerBidPayment.submitted_at.desc())
+    )).scalars().first()
+    if existing and existing.verified:
+        return RedirectResponse(
+            url=f"{back}?error=This+payment+has+already+been+verified", status_code=302)
+
+    amt = _parse_amount(payment_amount)
+    pdate = None
+    if payment_date:
+        try:
+            pdate = datetime.strptime(payment_date, "%Y-%m-%d")
+        except ValueError:
+            pdate = None
+    mode = payment_mode if payment_mode in ("bank_transfer", "upi") else "bank_transfer"
+
+    # Re-submitting before verification updates in place rather than stacking
+    # rows, so finance always reviews one current set of details.
+    target = existing or PartnerBidPayment(bid_id=bid.id)
+    target.payment_date = pdate
+    target.payment_mode = mode
+    target.payment_utr = (payment_utr or "").strip()[:100] or None
+    target.payment_amount = amt
+    target.submitted_by = dealer.business_name
+    target.submitted_at = app_now()
+    if existing is None:
+        db.add(target)
+    await audit(db, action="PARTNER_PAYMENT_SUBMITTED",
+                table_name="partner_bid_payments", record_id=str(bid.id),
+                new_value={"bid": bid.bid_number, "utr": target.payment_utr,
+                           "amount": str(amt) if amt is not None else None},
+                notes=f"dealer:{dealer.business_name}", request=request)
+    await db.commit()
+    return RedirectResponse(
+        url=f"{back}?success=Payment+details+submitted+for+{bid.bid_number}", status_code=302)
 
 
 @router.get("/bookings/{booking_id}", response_class=HTMLResponse)

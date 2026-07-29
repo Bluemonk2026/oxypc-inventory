@@ -92,62 +92,21 @@
           <th class="d-none">Lot</th>
           <th>Grade</th>{% if can_view_pricing(current_user) %}<th>Cost/Unit</th><th>Price</th><th>Margin</th>{% endif %}
           <th class="d-none">Customer</th>
-          <th>Payment</th><th>By</th><th>Download</th><th></th>
+          <th>Payment</th><th>By</th><th>Sales Person</th><th>Download</th><th></th>
         </tr>
       </thead>
-      <tbody>
-        {% set ns = namespace(total=0) %}
-        {% for row in sales %}
-        {% set ns.total = ns.total + (row.Sale.sale_price | float) %}
-        <tr>
-          <td><input type="checkbox" class="row-check" value="{{ row.Sale.id }}"></td>
-          <td class="fw-semibold">
-            <a href="/sales/{{ row.Sale.id }}" class="text-decoration-none">{{ row.Sale.sale_number }}</a>
-          </td>
-          <td>{{ row.Sale.sold_at.strftime('%d-%m-%Y') }}</td>
-          <td><a href="/devices/{{ row.barcode }}" class="text-decoration-none"><code>{{ row.barcode }}</code></a></td>
-          <td class="d-none">{{ row.brand }} {{ row.model }}</td>
-          <td class="d-none"><a href="/devices?lot={{ row.lot_number }}" class="text-decoration-none">
-            <span class="badge bg-info text-dark">{{ row.lot_number }}</span></a>
-          </td>
-          <td>{{ row.grade.value if row.grade else '—' }}</td>
-          {% if can_view_pricing(current_user) %}
-          {% set cost_unit = (row.buying_price / row.qty) | float | round(0) if row.buying_price and row.qty and row.qty > 0 else 0 %}
-          <td class="text-muted">{% if cost_unit %}₹{{ "{:,.0f}".format(cost_unit) }}{% else %}—{% endif %}</td>
-          <td class="fw-semibold text-success">₹{{ "{:,.0f}".format(row.Sale.sale_price) }}</td>
-          {% set margin = (row.Sale.sale_price | float) - cost_unit %}
-          <td class="fw-semibold {% if margin > 0 %}text-success{% elif margin < 0 %}text-danger{% else %}text-muted{% endif %}">
-            {% if cost_unit %}{% if margin >= 0 %}+{% endif %}₹{{ "{:,.0f}".format(margin) }}{% else %}—{% endif %}
-          </td>
-          {% endif %}
-          <td class="d-none">{{ row.Sale.customer_name or '—' }}</td>
-          <td><span class="badge bg-secondary">{{ row.Sale.payment_mode or '—' }}</span></td>
-          <td class="text-muted">{{ row.Sale.sold_by }}</td>
-          <td>{% if row.Sale.invoice_file %}<a href="/sales/{{ row.Sale.id }}/download-invoice" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Download Invoice"><i class="bi bi-download"></i></a>{% else %}<span class="text-muted small">—</span>{% endif %}</td>
-          <td>
-            <div class="d-flex gap-1">
-              <a href="/sales/{{ row.Sale.id }}" class="btn btn-outline-info btn-sm py-0 px-1" title="View Detail"><i class="bi bi-eye"></i></a>
-              <a href="/invoices/print/{{ row.Sale.id }}" target="_blank" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Invoice"><i class="bi bi-receipt"></i></a>
-              <a href="/invoices/waybill/{{ row.Sale.id }}" target="_blank" class="btn btn-outline-primary btn-sm py-0 px-1" title="Waybill"><i class="bi bi-truck"></i></a>
-            </div>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="15" class="text-center text-muted py-4">No sales match your filters.</td></tr>
-        {% endfor %}
-      </tbody>
-      {% if sales %}
+      {# Rows are supplied by /sales/data (DataTables server-side). Rendering
+         them here produced a 17 MB response once the sales table passed 9,000
+         rows, which hung the browser. #}
+      <tbody></tbody>
+      {% if can_view_pricing(current_user) %}
+      {# Total covers every row the filters match, not just the page on screen —
+         it is set from the ajax response, not summed from rendered rows. #}
       <tfoot class="table-light">
         <tr>
-          <td></td><td></td><td></td><td></td>
-          <td class="d-none"></td><td class="d-none"></td>
-          <td></td>
-          {% if can_view_pricing(current_user) %}
-          <td class="text-end fw-semibold small">Total Revenue:</td>
-          <td class="fw-bold text-success">₹{{ "{:,.0f}".format(ns.total) }}</td>
-          <td></td>
-          {% endif %}
-          <td class="d-none"></td><td></td><td></td><td></td><td></td>
+          <td colspan="7" class="text-end fw-semibold small">Total Revenue (all filtered rows):</td>
+          <td class="fw-bold text-success" id="salesTotalRevenue">—</td>
+          <td colspan="8"></td>
         </tr>
       </tfoot>
       {% endif %}
@@ -204,14 +163,51 @@ function exportSelected() {
   document.getElementById('exportForm').submit();
 }
 
-// ── DataTable ───────────────────────────────────────────────────────────────
+// ── DataTable (server-side) ─────────────────────────────────────────────────
+// Rows come from /sales/data a page at a time. The table previously rendered
+// every sale into the HTML, which reached 17 MB once the sales table passed
+// 9,000 rows. Search and paging still reach EVERY record — they are simply
+// answered by the server instead of by the browser, so nothing is hidden.
 $(document).ready(function() {
-  $('#salesTable').DataTable({
-    pageLength: 12,
-    order: [[1, 'desc']],
+  var showPricing = {{ 'true' if can_view_pricing(current_user) else 'false' }};
+  // Column indices shift when pricing columns are hidden from the role.
+  var lastTwo = showPricing ? [14, 15] : [11, 12];
+
+  var dt = $('#salesTable').DataTable({
+    serverSide: true,
+    processing: true,
+    pageLength: 25,
+    lengthMenu: [[25, 50, 100, 250], [25, 50, 100, 250]],
+    order: [[2, 'desc']],          // sale date, newest first
+    searchDelay: 400,              // don't fire a query per keystroke
+    ajax: {
+      url: '/sales/data',
+      data: function (d) {
+        // Carry the page's own filter bar through to the server so the table
+        // and the filter form always describe the same set of rows.
+        var p = new URLSearchParams(window.location.search);
+        ['q', 'sale_no', 'sold_by_filter', 'customer', 'grade', 'lot_id']
+          .forEach(function (k) { d[k] = p.get(k) || ''; });
+      },
+      dataSrc: function (json) {
+        var el = document.getElementById('salesTotalRevenue');
+        if (el && json.revenueFiltered != null) {
+          el.textContent = '₹' + Math.round(json.revenueFiltered).toLocaleString('en-IN');
+        }
+        return json.data;
+      },
+    },
     columnDefs: [
-      { orderable: false, targets: [0, 13, 14] }  // checkbox, download and actions not sortable
-    ]
+      { orderable: false, targets: [0].concat(lastTwo) },
+      { orderable: false, targets: showPricing ? [7, 9] : [] },  // cost & margin are computed
+    ],
+    // Re-apply the header checkbox state after every draw: server-side paging
+    // replaces the rows, so anything ticked on the previous page is gone.
+    drawCallback: function () {
+      var sa = document.getElementById('selectAll');
+      if (sa) sa.checked = false;
+      if (typeof updateExportBtn === 'function') updateExportBtn();
+    },
   });
 });
 </script>

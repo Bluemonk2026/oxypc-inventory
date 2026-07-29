@@ -581,6 +581,185 @@ async def parse_invoice_pdf(
     return JSONResponse(result)
 
 
+# NOTE: /sales/data MUST stay above /sales/{sale_id}. FastAPI matches in
+# registration order, so the parameterised route would otherwise capture
+# "data" as a sale id and 404.
+def _sales_filters(q, sale_no, sold_by_filter, customer, grade, lot_id):
+    """Filter clauses shared by the Sales list page and its data endpoint, so the
+    two can never disagree about what the filters mean."""
+    from sqlalchemy import or_ as _or
+    w = []
+    if q:
+        like = f"%{q}%"
+        w.append(_or(Device.barcode.ilike(like), Device.brand.ilike(like),
+                     Device.model.ilike(like)))
+    if sale_no:
+        w.append(Sale.sale_number.ilike(f"%{sale_no}%"))
+    if sold_by_filter:
+        w.append(Sale.sold_by == sold_by_filter)
+    if customer:
+        w.append(Sale.customer_name.ilike(f"%{customer}%"))
+    if grade:
+        w.append(Device.grade == grade)
+    if lot_id:
+        w.append(Device.lot_id == lot_id)
+    return w
+
+
+@router.get("/sales/data")
+async def sales_list_data(
+    request: Request,
+    draw: int = Query(default=1),
+    start: int = Query(default=0),
+    length: int = Query(default=25),
+    q: str = Query(default=""),
+    sale_no: str = Query(default=""),
+    sold_by_filter: str = Query(default=""),
+    customer: str = Query(default=""),
+    grade: str = Query(default=""),
+    lot_id: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """DataTables server-side feed for the Sales list.
+
+    The page used to render every sale into the HTML. At ~1,000 sales that was
+    fine; after the July backfill took it to ~9,900 the response reached 17 MB
+    and would hang a browser tab. Paging over the wire instead keeps the
+    response a few tens of KB.
+
+    This deliberately does NOT reintroduce the problem fixed on 2026-07-07,
+    where server-side paging hid records behind a page cap: DataTables' own
+    search and paging drive this endpoint, so every record is still reachable
+    from the table — the difference is only how much travels per request.
+    """
+    from sqlalchemy import or_ as _or, desc as _desc, asc as _asc
+    from models.role_permissions import can_view_pricing as _cvp
+
+    role = getattr(current_user.role, "value", current_user.role)
+    show_pricing = _cvp(role)
+
+    base_join = (
+        select(Sale, Device.barcode, Device.brand, Device.model, Device.grade,
+               Lot.lot_number, Lot.buying_price, Lot.qty)
+        .join(Device, Sale.device_id == Device.id)
+        .join(Lot, Device.lot_id == Lot.id)
+    )
+    count_join = (
+        select(func.count())
+        .select_from(Sale)
+        .join(Device, Sale.device_id == Device.id)
+        .join(Lot, Device.lot_id == Lot.id)
+    )
+    revenue_join = (
+        select(func.coalesce(func.sum(Sale.sale_price), 0))
+        .select_from(Sale)
+        .join(Device, Sale.device_id == Device.id)
+        .join(Lot, Device.lot_id == Lot.id)
+    )
+
+    page_filters = _sales_filters(q, sale_no, sold_by_filter, customer, grade, lot_id)
+
+    # DataTables' own search box, on top of the page's filter bar.
+    search = (request.query_params.get("search[value]") or "").strip()
+    search_filters = []
+    if search:
+        like = f"%{search}%"
+        search_filters.append(_or(
+            Device.barcode.ilike(like), Device.brand.ilike(like),
+            Device.model.ilike(like), Sale.sale_number.ilike(like),
+            Sale.customer_name.ilike(like), Sale.sales_person.ilike(like),
+            Sale.sold_by.ilike(like), Lot.lot_number.ilike(like),
+        ))
+
+    total = (await db.execute(count_join.where(*page_filters))).scalar() or 0
+    filtered = (await db.execute(
+        count_join.where(*page_filters, *search_filters))).scalar() or 0
+    revenue = float((await db.execute(
+        revenue_join.where(*page_filters, *search_filters))).scalar() or 0)
+
+    # Sorting. Only columns with a real SQL expression are sortable; anything
+    # else falls back to sale date so an unmapped index cannot 500 the table.
+    col_map = {1: Sale.sale_number, 2: Sale.sold_at, 3: Device.barcode,
+               6: Device.grade, 11: Sale.payment_mode, 12: Sale.sold_by}
+    if show_pricing:
+        col_map[8] = Sale.sale_price
+        col_map[13] = Sale.sales_person
+    else:
+        col_map[10] = Sale.sales_person
+    try:
+        order_col = int(request.query_params.get("order[0][column]", 2))
+    except ValueError:
+        order_col = 2
+    order_dir = request.query_params.get("order[0][dir]", "desc")
+    sort_expr = col_map.get(order_col, Sale.sold_at)
+    order_by = _asc(sort_expr) if order_dir == "asc" else _desc(sort_expr)
+
+    rows = (await db.execute(
+        base_join.where(*page_filters, *search_filters)
+        .order_by(order_by, Sale.sale_number)   # tie-break, so paging is stable
+        .offset(max(0, start)).limit(min(max(1, length), 500))
+    )).all()
+
+    def esc(v):
+        from html import escape
+        return escape(str(v)) if v is not None else ""
+
+    data = []
+    for r in rows:
+        s = r.Sale
+        gv = getattr(r.grade, "value", r.grade) or "—"
+        cells = [
+            f'<input type="checkbox" class="row-check" value="{s.id}">',
+            f'<a href="/sales/{s.id}" class="text-decoration-none fw-semibold">{esc(s.sale_number)}</a>',
+            s.sold_at.strftime("%d-%m-%Y") if s.sold_at else "—",
+            f'<a href="/devices/{esc(r.barcode)}" class="text-decoration-none"><code>{esc(r.barcode)}</code></a>',
+            esc(f"{r.brand or ''} {r.model or ''}".strip()),
+            f'<a href="/devices?lot={esc(r.lot_number)}" class="text-decoration-none">'
+            f'<span class="badge bg-info text-dark">{esc(r.lot_number)}</span></a>',
+            esc(gv),
+        ]
+        if show_pricing:
+            cost_unit = 0.0
+            if r.buying_price and r.qty and r.qty > 0:
+                cost_unit = round(float(r.buying_price) / r.qty)
+            price = float(s.sale_price or 0)
+            margin = price - cost_unit
+            mcls = "text-success" if margin > 0 else ("text-danger" if margin < 0 else "text-muted")
+            cells += [
+                f'<span class="text-muted">₹{cost_unit:,.0f}</span>' if cost_unit else '<span class="text-muted">—</span>',
+                f'<span class="fw-semibold text-success">₹{price:,.0f}</span>',
+                (f'<span class="fw-semibold {mcls}">{"+" if margin >= 0 else ""}₹{margin:,.0f}</span>'
+                 if cost_unit else '<span class="text-muted">—</span>'),
+            ]
+        cells += [
+            esc(s.customer_name or "—"),
+            f'<span class="badge bg-secondary">{esc(s.payment_mode or "—")}</span>',
+            f'<span class="text-muted">{esc(s.sold_by or "—")}</span>',
+            esc(s.sales_person or "—"),
+            (f'<a href="/sales/{s.id}/download-invoice" class="btn btn-outline-secondary btn-sm py-0 px-1" '
+             f'title="Download Invoice"><i class="bi bi-download"></i></a>'
+             if s.invoice_file_path else '<span class="text-muted small">—</span>'),
+            (f'<div class="d-flex gap-1">'
+             f'<a href="/sales/{s.id}" class="btn btn-outline-info btn-sm py-0 px-1" title="View Detail"><i class="bi bi-eye"></i></a>'
+             f'<a href="/invoices/print/{s.id}" target="_blank" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Invoice"><i class="bi bi-receipt"></i></a>'
+             f'<a href="/invoices/waybill/{s.id}" target="_blank" class="btn btn-outline-primary btn-sm py-0 px-1" title="Waybill"><i class="bi bi-truck"></i></a>'
+             f'</div>'),
+        ]
+        data.append(cells)
+
+    return JSONResponse({
+        "draw": draw,
+        "recordsTotal": total,
+        "recordsFiltered": filtered,
+        "data": data,
+        # Revenue for everything the filters match, not just this page — the
+        # footer total would otherwise only add up the 25 rows on screen.
+        "revenueFiltered": revenue,
+        "showPricing": show_pricing,
+    })
+
+
 @router.get("/sales/{sale_id}", response_class=HTMLResponse)
 async def sale_detail(
     sale_id: str,
@@ -653,9 +832,18 @@ async def sales_list(
     if lot_id:
         base_q = base_q.where(Device.lot_id == lot_id)
 
-    result = await db.execute(base_q.order_by(Sale.sold_at.desc()))
-    sales = result.all()
-    total = len(sales)
+    # Rows are fetched by /sales/data (DataTables server-side), not here. This
+    # page previously rendered all ~9,900 sales inline, producing a 17 MB
+    # response that hung the browser. Only the count is needed now, for the
+    # header stat.
+    total = (await db.execute(
+        select(func.count())
+        .select_from(Sale)
+        .join(Device, Sale.device_id == Device.id)
+        .join(Lot, Device.lot_id == Lot.id)
+        .where(*_sales_filters(q, sale_no, sold_by_filter, customer, grade, lot_id))
+    )).scalar() or 0
+    sales = []
 
     # ── Registered device stats (single query) ───────────────────────────────
     dev_stats = (await db.execute(

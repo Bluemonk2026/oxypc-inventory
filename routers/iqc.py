@@ -497,7 +497,10 @@ async def usb_import(current_user: User = Depends(allowed)):
 async def iqc_list(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(allowed),
+    # Open to every signed-in user: the "Add New Asset" button lives on this
+    # page, so gating it behind the built-in allow-list blocked roles that do
+    # IQC entry day to day (trc_manager among them) from reaching the form.
+    current_user: User = Depends(get_current_user),
     q: str = Query(default=""),
     stage: str = Query(default=""),
     grade: str = Query(default=""),
@@ -831,11 +834,14 @@ async def iqc_export_csv(
 @router.get("/new", response_class=HTMLResponse)
 async def iqc_new_form(request: Request, db: AsyncSession = Depends(get_db),
                        current_user: User = Depends(get_current_user),
-                       lot_id: str = Query(default=""), grn_number: str = Query(default="")):
+                       lot_id: str = Query(default=""), grn_number: str = Query(default=""),
+                       error: str = Query(default="")):
     lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
     lots = lots_result.scalars().all()
     return templates.TemplateResponse("iqc/form.html", {
-        "request": request, "lots": lots, "current_user": current_user, "error": None,
+        # `error` also arrives as a query param when a save failed and we
+        # redirected back here — surface it instead of silently dropping it.
+        "request": request, "lots": lots, "current_user": current_user, "error": error or None,
         "prefill_lot_id": lot_id, "prefill_grn": grn_number,
     })
 
@@ -1069,7 +1075,18 @@ async def iqc_create(
             pass  # silently ignore non-numeric input
 
     db.add(device)
-    await db.flush()
+    try:
+        # Flush surfaces bad enum values / constraint violations here rather
+        # than as an opaque 500 at commit time.
+        await db.flush()
+    except Exception as exc:
+        await db.rollback()
+        lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
+        lots = lots_result.scalars().all()
+        return templates.TemplateResponse("iqc/form.html", {
+            "request": request, "lots": lots, "current_user": current_user,
+            "error": f"Could not save this device: {str(exc)[:200]}",
+        })
 
     # Save physical inspection data
     def _v(s): return s or None

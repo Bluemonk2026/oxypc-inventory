@@ -480,13 +480,17 @@ async def create_lot(
 
 
 @router.get("/lots/{lot_id}/edit", response_class=HTMLResponse)
-async def edit_lot_form(lot_id: str, request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(allowed)):
+async def edit_lot_form(lot_id: str, request: Request, db: AsyncSession = Depends(get_db),
+                        current_user: User = Depends(allowed), error: str = Query(default="")):
     result = await db.execute(select(Lot).where(Lot.id == lot_id))
     lot = result.scalar_one_or_none()
     if not lot:
         raise HTTPException(404)
     return templates.TemplateResponse("lots/form.html", {
-        "request": request, "lot": lot, "next_lot_number": None, "current_user": current_user, "error": None,
+        # `error` arrives as a query param when a save was rejected (e.g. a
+        # duplicate Lot Number) and we redirected back here.
+        "request": request, "lot": lot, "next_lot_number": None,
+        "current_user": current_user, "error": error or None,
     })
 
 
@@ -522,6 +526,18 @@ async def edit_lot(
     lot = result.scalar_one_or_none()
     if not lot:
         raise HTTPException(404)
+    # Lot Number is editable on this page — reject a rename that collides with
+    # another lot rather than letting the unique constraint surface as a 500.
+    lot_number = (lot_number or "").strip()
+    if lot_number != lot.lot_number:
+        clash = (await db.execute(
+            select(Lot.id).where(Lot.lot_number == lot_number, Lot.id != lot.id)
+        )).scalar_one_or_none()
+        if clash:
+            from urllib.parse import quote
+            return RedirectResponse(
+                url=f"/lots/{lot_id}/edit?error={quote(f'Lot Number {lot_number} already exists')}",
+                status_code=302)
     lot.lot_number = lot_number
     lot.supplier_name = supplier_name
     lot.buying_price = float(buying_price) if buying_price.strip() else 0

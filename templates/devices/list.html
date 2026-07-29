@@ -2,7 +2,6 @@
 {% block title %}Inventory Search — OxyPC{% endblock %}
 {% block page_title %}Inventory Search{% endblock %}
 {% block content %}
-{% include "_date_range_filter.html" %}
 
 <!-- Filter Bar -->
 <form method="get" action="/devices" class="card border-0 shadow-sm mb-3">
@@ -53,6 +52,7 @@
           {% endfor %}
         </select>
       </div>
+      {% include "_date_range_fields.html" %}
       <div class="col-md-2 d-flex gap-2">
         <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
           <i class="bi bi-search me-1"></i>Search
@@ -383,114 +383,7 @@
   </div>
 </div>
 
-<!-- Customise (bulk Apply Grade / Device Type / Move to Stage) modal — shared by
-     the Tag Number table (barcodes) and the Lot Based Summary table (lot_numbers).
-     Same fields/backend as the Product IQC Customise modal. -->
-<div class="modal fade" id="customiseModal" tabindex="-1">
-  <div class="modal-dialog">
-    <form id="customiseForm" method="post" action="/iqc/bulk-apply-grade-type">
-      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
-      <input type="hidden" name="return_to" value="/devices">
-      <div id="customiseHiddenBarcodes"></div>
-      <div class="modal-content">
-        <div class="modal-header py-2">
-          <h6 class="modal-title fw-semibold"><i class="bi bi-sliders me-2"></i>Apply Grade / Device Type</h6>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          <p class="small text-muted mb-3"><span id="customiseModalCount">0</span> item(s) selected. Leave a field blank to leave it unchanged.</p>
-          <div class="mb-3">
-            <label class="form-label small">Device Type</label>
-            <select name="device_type" class="form-select form-select-sm">
-              <option value="">— Leave unchanged —</option>
-              {% for dt in device_type_options %}
-              <option value="{{ dt }}">{{ dt }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="mb-3">
-            <label class="form-label small">Grade</label>
-            <select name="grade" class="form-select form-select-sm">
-              <option value="">— Leave unchanged —</option>
-              <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="scrap">Scrap</option>
-            </select>
-          </div>
-          <!-- Row 1: CPU | CPU Make | Generation (mirrors the IQC form grouping) -->
-          <div class="row g-2 mb-2">
-            <div class="col">
-              <label class="form-label small">CPU</label>
-              <input type="text" name="cpu" class="form-control form-control-sm" placeholder="Leave blank">
-            </div>
-            <div class="col">
-              <label class="form-label small">CPU Make</label>
-              <input type="text" name="cpu_make" class="form-control form-control-sm" placeholder="Intel / AMD / Apple">
-            </div>
-            <div class="col">
-              <label class="form-label small">Generation</label>
-              <input type="text" name="generation" class="form-control form-control-sm" placeholder="e.g. 10th Gen">
-            </div>
-          </div>
-          <!-- Row 2: Total RAM Count | Total RAM Size | RAM (GB) -->
-          <div class="row g-2 mb-2">
-            <div class="col">
-              <label class="form-label small">Total RAM Count</label>
-              <input type="text" name="total_ram_count" class="form-control form-control-sm" placeholder="e.g. 2">
-            </div>
-            <div class="col">
-              <label class="form-label small">Total RAM Size</label>
-              <input type="text" name="total_ram_size" class="form-control form-control-sm" placeholder="e.g. 16GB">
-            </div>
-            <div class="col">
-              <label class="form-label small">RAM (GB)</label>
-              <input type="text" name="ram_gb" class="form-control form-control-sm" placeholder="e.g. 16">
-            </div>
-          </div>
-          <!-- Row 3: Total Hard Drive Count | Total Hard Drive Size | Hard Drive -->
-          <div class="row g-2 mb-2">
-            <div class="col">
-              <label class="form-label small">Total Hard Drive Count</label>
-              <input type="text" name="total_hdd_count" class="form-control form-control-sm" placeholder="e.g. 1">
-            </div>
-            <div class="col">
-              <label class="form-label small">Total Hard Drive Size</label>
-              <input type="text" name="total_hdd_size" class="form-control form-control-sm" placeholder="e.g. 512GB">
-            </div>
-            <div class="col">
-              <label class="form-label small">Hard Drive</label>
-              <input type="text" name="hdd_summary" class="form-control form-control-sm" placeholder="512GB_SSD_7400_Samsung">
-            </div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label small">Storage (GB)</label>
-            <input type="text" name="storage_gb" class="form-control form-control-sm" placeholder="e.g. 512">
-          </div>
-          <div class="mb-3">
-            <label class="form-label small">Invoice Number</label>
-            <input type="text" name="invoice_number" class="form-control form-control-sm" placeholder="Leave blank to leave unchanged">
-          </div>
-          <div class="mb-3">
-            <label class="form-label small">PO Number</label>
-            <input type="text" name="po_number" class="form-control form-control-sm" placeholder="Leave blank to leave unchanged">
-          </div>
-          <div class="mb-2">
-            <label class="form-label small">Move to Stage</label>
-            <select name="to_stage" class="form-select form-select-sm">
-              <option value="">— No change —</option>
-              {% for value, label in stage_options %}
-              <option value="{{ value }}">{{ label }}</option>
-              {% endfor %}
-            </select>
-            <div class="form-text">Moves all selected items to this stage (subject to allowed transitions).</div>
-          </div>
-        </div>
-        <div class="modal-footer py-2">
-          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check-lg me-1"></i>Apply</button>
-        </div>
-      </div>
-    </form>
-  </div>
-</div>
+{% include "_customise_modal.html" %}
 
 <!-- Movement table — bucket-level overview, mirrors Inventory Manager / Production Manager -->
 <div class="d-flex justify-content-between align-items-center mt-4 mb-2">

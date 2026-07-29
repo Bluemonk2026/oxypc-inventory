@@ -98,6 +98,27 @@
               <input type="text" name="barcode" id="iqcBarcode" maxlength="100" class="form-control barcode-field font-monospace" placeholder="Scan or type" autofocus required>
               <div id="iqcBarcodeErr" class="invalid-feedback d-block text-danger small d-none">Duplicate Tag Number — this tag already exists.</div>
             </div>
+            <div class="col-md-3 d-none">
+              <label class="form-label">Lot Line Item <small class="text-muted">(auto-fills specs)</small></label>
+              <select name="lot_line_item_id" id="lot_line_item_id" class="form-select">
+                <option value="">-- Select line item (optional) --</option>
+              </select>
+            </div>
+            <div class="col-md-3 d-none">
+              <label class="form-label">Sub-Category</label>
+              <select name="sub_category" class="form-select">
+                <option value="">-- Select --</option>
+                <option>Laptop</option><option>Desktop</option><option>TFT / Monitor</option>
+                <option>All-in-One</option><option>Workstation</option><option>Mini PC</option><option>Tablet</option>
+              </select>
+            </div>
+          </div>
+
+          {# Lot / GRN / Invoice / Colour sit on their own row directly under the
+             Tag Number. Scanning a tag selects the Lot from the tag's first four
+             characters, and the Lot in turn fills GRN + Invoice from the GRN
+             wired to it — both stay editable when nothing is wired. #}
+          <div class="row g-3 mb-3">
             <div class="col-md-3">
               <label class="form-label fw-semibold">Lot</label>
               <select name="lot_id" id="lot_id" class="form-select">
@@ -107,27 +128,21 @@
                 {% endfor %}
               </select>
             </div>
-            <div class="col-md-3 d-none">
-              <label class="form-label">Lot Line Item <small class="text-muted">(auto-fills specs)</small></label>
-              <select name="lot_line_item_id" id="lot_line_item_id" class="form-select">
-                <option value="">-- Select line item (optional) --</option>
-              </select>
+            <div class="col-md-3">
+              <label class="form-label">GRN Number</label>
+              <input type="text" name="grn_number" id="grn_number" class="form-control font-monospace"
+                     value="{{ prefill_grn if prefill_grn is defined and prefill_grn else (device.grn_number if device and device.grn_number else '') }}"
+                     placeholder="Auto-fills from Lot">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Invoice Number</label>
+              <input type="text" name="invoice_number" id="invoice_number" class="form-control"
+                     value="{{ device.invoice_number if device and device.invoice_number else '' }}"
+                     placeholder="Auto-fills from Lot">
             </div>
             <div class="col-md-3">
               <label class="form-label">Color</label>
               <input type="text" name="color" class="form-control" placeholder="Black / Silver / Dark Grey">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Invoice Number</label>
-              <input type="text" name="invoice_number" class="form-control" value="{{ device.invoice_number if device and device.invoice_number else '' }}" placeholder="e.g. INV-2026-0142">
-            </div>
-            <div class="col-md-3 d-none">
-              <label class="form-label">Sub-Category</label>
-              <select name="sub_category" class="form-select">
-                <option value="">-- Select --</option>
-                <option>Laptop</option><option>Desktop</option><option>TFT / Monitor</option>
-                <option>All-in-One</option><option>Workstation</option><option>Mini PC</option><option>Tablet</option>
-              </select>
             </div>
           </div>
 
@@ -425,15 +440,18 @@
               <p class="small fw-semibold text-uppercase mb-2 text-primary">Display Panel</p>
               <div class="row g-2">
                 <div class="col-md-2">
+                  {# Display Panel grades severity on the same No / Minor / Major
+                     scale as the rest of the cosmetic sections, rather than its
+                     own "Minor Scratch" / "Major Broken" wording. #}
                   <label class="form-label small">Scratch</label>
                   <select name="panel_a_scratch" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in sev_opts %}<option>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Broken / Crack</label>
                   <select name="panel_a_broken" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in broken_opts %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in sev_opts %}<option>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
@@ -445,7 +463,7 @@
                 <div class="col-md-2">
                   <label class="form-label small">Dent</label>
                   <select name="panel_a_dent" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in dent_opts %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in sev_opts %}<option>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
@@ -879,6 +897,69 @@ document.querySelector('[name="barcode"]').addEventListener('change', function()
 </script>
 
 <script>
+/* ── Tag Number → Lot, and Lot → GRN + Invoice ──
+   The first four characters of a Tag Number encode its lot, so scanning a tag
+   picks the Lot without the operator touching the dropdown. Selecting a Lot
+   (either way) then pulls the GRN and Invoice wired to it. Both text fields
+   stay editable: an unwired lot leaves whatever the operator typed alone
+   rather than clearing it. */
+(function () {
+  var lotSel  = document.getElementById('lot_id');
+  var grnEl   = document.getElementById('grn_number');
+  var invEl   = document.getElementById('invoice_number');
+  var tagEl   = document.getElementById('iqcBarcode');
+  var lastPrefix = '';
+
+  function setLotValue(v) {
+    // Tom Select mirrors the <select> into its own control; assigning .value
+    // alone would update the DOM but not what the operator sees.
+    if (window.lotSelect && typeof lotSelect.setValue === 'function') {
+      lotSelect.setValue(v, true);   // true = silent, we fire 'change' ourselves
+    }
+    lotSel.value = v;
+    lotSel.dispatchEvent(new Event('change'));
+  }
+
+  async function fillFromLot(lotId) {
+    if (!lotId) return;
+    try {
+      var res = await fetch('/api/lot-meta?lot_id=' + encodeURIComponent(lotId));
+      if (!res.ok) return;
+      var d = await res.json();
+      if (!d.found) return;
+      if (d.grn_number && grnEl) grnEl.value = d.grn_number;
+      if (d.invoice_number && invEl) invEl.value = d.invoice_number;
+    } catch (e) { /* offline / transient — leave the fields as typed */ }
+  }
+
+  lotSel.addEventListener('change', function () { fillFromLot(this.value); });
+
+  if (tagEl) {
+    var t;
+    tagEl.addEventListener('input', function () {
+      clearTimeout(t);
+      t = setTimeout(async function () {
+        var pfx = (tagEl.value || '').trim().slice(0, 4);
+        // Only look up once per distinct prefix — a scanner types the whole tag
+        // character by character and would otherwise fire a request per keystroke.
+        if (pfx.length < 4 || pfx === lastPrefix) return;
+        lastPrefix = pfx;
+        // Never override a lot the operator chose deliberately.
+        if (lotSel.value) return;
+        try {
+          var res = await fetch('/api/lot-meta?tag_prefix=' + encodeURIComponent(pfx));
+          if (!res.ok) return;
+          var d = await res.json();
+          if (d.found && d.lot_id) setLotValue(d.lot_id);
+        } catch (e) {}
+      }, 300);
+    });
+  }
+
+  // Prefilled lot (e.g. arriving from a lot page) should fill GRN/Invoice too.
+  if (lotSel.value) fillFromLot(lotSel.value);
+})();
+
 /* ── Lot → load line items ── */
 document.getElementById('lot_id').addEventListener('change', async function() {
   const lotId = this.value;

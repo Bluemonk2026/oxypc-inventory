@@ -9,7 +9,7 @@ from utils.timezone import app_now
 from utils.master_data import master_values
 from database import get_db
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, StageMovement
+from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.lot import Lot, LotLineItem
 from models.crm import CRMSourcingDeal
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
@@ -945,6 +945,8 @@ async def stock_in_list(
         "total": total,
         "device_type": device_type,
         "device_type_options": await master_values(db, "device_type"),
+        # Consumed by the shared _customise_modal.html "Move to Stage" dropdown.
+        "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
         "lot_number": lot_number,
         "lot_number_options": lot_number_options,
         "zone_options": [

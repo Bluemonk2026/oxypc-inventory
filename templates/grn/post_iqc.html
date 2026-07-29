@@ -57,7 +57,7 @@
         <thead class="table-dark">
           <tr>
             <th class="ps-3">GRN</th><th>Lot Number</th><th>Invoice Number</th><th>Date of Invoice</th>
-            <th>Vendor Name</th><th>Quantity</th><th>Amount</th><th>Download</th><th>Action</th>
+            <th>Vendor Name</th><th>Quantity</th><th>Stocked</th><th>Amount</th><th>Download</th><th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -69,6 +69,12 @@
             <td>{{ g.invoice_date or '—' }}</td>
             <td>{{ g.sender_name or '—' }}</td>
             <td>{{ g.quantity if g.quantity is not none else '—' }}</td>
+            {# Stocked = tag numbers wired to this GRN (counted from the devices
+               themselves, so mapping a tag updates it with no extra bookkeeping). #}
+            {% set _st = stocked.get(g.grn_number, 0) if stocked is defined else 0 %}
+            <td class="grn-stocked" data-stocked="{{ _st }}" data-qty="{{ g.quantity if g.quantity is not none else 0 }}">
+              <span class="badge bg-{{ 'success' if g.quantity and _st >= g.quantity else ('warning text-dark' if _st else 'secondary') }}">{{ _st }}</span>
+            </td>
             <td>{% if g.amount is not none %}₹{{ "{:,.2f}".format(g.amount) }}{% else %}—{% endif %}</td>
             <td>
               {% if g.file_path %}
@@ -96,7 +102,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="9" class="text-center text-muted py-4">No GRN imports yet. Upload an invoice to begin.</td></tr>
+          <tr><td colspan="10" class="text-center text-muted py-4">No GRN imports yet. Upload an invoice to begin.</td></tr>
           {% endfor %}
         </tbody>
       </table>

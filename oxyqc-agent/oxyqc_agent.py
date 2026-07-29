@@ -35,7 +35,7 @@ PORT = 8765
 # Bump this whenever detect()/probe logic changes materially. Lets a freshly
 # downloaded exe recognise a stale already-running instance and replace it
 # (see _shutdown_running_instance) instead of silently no-op'ing behind it.
-AGENT_VERSION = "2026-07-28.1"
+AGENT_VERSION = "2026-07-29.1"
 IS_WINDOWS = platform.system() == "Windows"
 IS_MAC = platform.system() == "Darwin"
 
@@ -147,7 +147,12 @@ $os=Get-CimInstance Win32_OperatingSystem
 $encl=Get-CimInstance Win32_SystemEnclosure|Select-Object -First 1
 $batt=Get-CimInstance Win32_Battery|Select-Object -First 1
 $gpu=Get-CimInstance Win32_VideoController|Where-Object {$_.Name -notmatch 'Basic|Remote|Meta|Mirror|DisplayLink|USB'}|Select-Object -First 1
-$pd=@(Get-PhysicalDisk|Where-Object {$_.BusType -ne 'USB' -and $_.Size -gt 8GB}|ForEach-Object{[ordered]@{type="$($_.MediaType)";sizeGB=[math]::Round($_.Size/1GB);make="$($_.FriendlyName)".Trim();rpm=$_.SpindleSpeed}})
+# sizeGB is DECIMAL GB (bytes/1e9), i.e. the capacity printed on the drive.
+# Dividing by 1GB (2^30) reports 477 for a 512GB SSD and 238 for a 256GB one,
+# which is what the technician sees on the IQC form and calls wrong.
+# Removable buses are excluded so an attached USB stick / SD card never counts
+# as onboard storage.
+$pd=@(Get-PhysicalDisk|Where-Object {$_.BusType -notin @('USB','SD','MMC','Virtual','File Backed Virtual') -and "$($_.FriendlyName)" -notmatch 'USB|Card ?Reader' -and $_.Size -gt 8GB}|ForEach-Object{[ordered]@{type="$($_.MediaType)";sizeGB=[math]::Round($_.Size/1e9);make="$($_.FriendlyName)".Trim();rpm=$_.SpindleSpeed}})
 $ram=@(Get-CimInstance Win32_PhysicalMemory -EA SilentlyContinue|ForEach-Object{[ordered]@{capacityGB=[math]::Round($_.Capacity/1GB);speed=$_.Speed;make="$($_.Manufacturer)".Trim();memType=$_.SMBIOSMemoryType}})
 $bh=$null
 $full=(Get-CimInstance -Namespace root\wmi -ClassName BatteryFullChargedCapacity -EA SilentlyContinue|Select-Object -First 1).FullChargedCapacity
@@ -208,7 +213,30 @@ try{$allFans=@(Get-CimInstance -Namespace root\wmi -ClassName Win32_Fan -EA Sile
 if(-not $fan_working){try{$fd=@(Get-CimInstance Win32_PnPEntity -EA SilentlyContinue|Where-Object{$_.DeviceID -match 'ACPI\\PNP0C0B'});if($fd.Count -gt 0){$ok=$fd|Where-Object{$_.ConfigManagerErrorCode -eq 0 -or $_.ConfigManagerErrorCode -eq $null};$fan_working=if($ok){'Yes'}else{'No'}}}catch{}}
 $scr=$null
 $mons=@(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorBasicDisplayParams -EA SilentlyContinue)
+# Preferred source: raw EDID, whose first detailed-timing descriptor carries the
+# active image size in MILLIMETRES. WmiMonitorBasicDisplayParams reports the same
+# thing in whole CENTIMETRES, so a 13.3" panel (294x165mm) arrives as 29x17cm and
+# computes to ~13.8" — close enough to snap onto the 14.0" option. Only monitors
+# WmiMonitorID reports are enumerated, so a previously-attached external screen
+# left behind in the registry cannot poison the reading.
+try{
+  foreach($mid in @(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -EA SilentlyContinue)){
+    if(-not $mid.InstanceName){continue}
+    $rp='HKLM:\SYSTEM\CurrentControlSet\Enum\'+($mid.InstanceName -replace '_\d+$','')+'\Device Parameters'
+    $e=(Get-ItemProperty $rp -Name EDID -EA SilentlyContinue).EDID
+    if($e -and $e.Length -ge 69){
+      $hmm=[int]$e[66]+(((([int]$e[68]) -band 0xF0) -shr 4) -shl 8)
+      $vmm=[int]$e[67]+((([int]$e[68]) -band 0x0F) -shl 8)
+      if($hmm -gt 0 -and $vmm -gt 0){
+        $dd=[math]::Round([math]::Sqrt(($hmm*$hmm)+($vmm*$vmm))/25.4,1)
+        if($dd -gt 5 -and $dd -lt 40){if(-not $scr -or $dd -lt $scr){$scr=$dd}}
+      }
+    }
+  }
+}catch{}
+if(-not $scr){
 foreach($mn in $mons){if($mn.MaxHorizontalImageSize -gt 0 -and $mn.MaxVerticalImageSize -gt 0){$dd=[math]::Round([math]::Sqrt(($mn.MaxHorizontalImageSize*$mn.MaxHorizontalImageSize)+($mn.MaxVerticalImageSize*$mn.MaxVerticalImageSize))/2.54,1);if($dd -gt 5 -and $dd -lt 40){if(-not $scr -or $dd -lt $scr){$scr=$dd}}}}
+}
 # device presence + working state: 'ok' | 'error' | 'absent'
 function st($q){ if(-not $q -or $q.Count -eq 0){return 'absent'}; $bad=$q|Where-Object {$_.ConfigManagerErrorCode -ne $null -and $_.ConfigManagerErrorCode -ne 0}; if($bad){return 'error'}; return 'ok' }
 $kbd=@(Get-CimInstance Win32_Keyboard)
@@ -234,7 +262,8 @@ $onAC=$true; if($batt -and $batt.BatteryStatus -eq 1){$onAC=$false}
 } | ConvertTo-Json -Depth 5 -Compress
 '''
 
-_STD_CAPACITIES = [32, 64, 120, 128, 240, 256, 320, 480, 500, 512, 640, 750, 1000, 1024, 2000, 2048, 4000, 4096]
+_STD_CAPACITIES = [32, 64, 120, 128, 240, 256, 320, 480, 500, 512, 640, 750, 1000, 1024,
+                   2000, 2048, 3000, 4000, 4096, 6000, 8000]
 
 
 def _snap_capacity(gb):
@@ -242,7 +271,13 @@ def _snap_capacity(gb):
         gb = int(gb)
     except (TypeError, ValueError):
         return None
-    return min(_STD_CAPACITIES, key=lambda s: abs(s - gb)) if gb > 0 else None
+    if gb <= 0:
+        return None
+    best = min(_STD_CAPACITIES, key=lambda s: abs(s - gb))
+    # Snap only when the drive is genuinely close to a standard capacity.
+    # Unconditional nearest-match mis-sizes anything off-list: a 3TB drive sits
+    # nearer 2048 than 4096 in absolute terms and would be reported as 2TB.
+    return best if abs(best - gb) <= max(8, gb * 0.10) else gb
 
 
 def _intel_gen(cpu):
@@ -328,7 +363,11 @@ def _snap_screen(d):
     except (TypeError, ValueError):
         return None
     best = min(_SCREEN_MAP, key=lambda s: abs(s - d))
-    if abs(best - d) > 2.0:   # far from any standard panel (likely an external monitor)
+    # Tight tolerance: the EDID reading is millimetre-accurate, so anything more
+    # than ~0.8" from a standard panel is not one of the sizes the form offers.
+    # A loose window used to drag odd readings onto the nearest option and
+    # mislabel 13.3" panels as 14.0".
+    if abs(best - d) > 0.8:
         return None
     return _SCREEN_MAP[best]
 
@@ -520,7 +559,7 @@ def _mac_physical_disks():
         size_bytes = data.get("TotalSize") or data.get("Size")
         if not size_bytes:
             continue
-        gb = round(int(size_bytes) / (1024 ** 3))
+        gb = round(int(size_bytes) / 1e9)   # decimal GB = the capacity on the label
         if gb <= 30:
             continue
         is_ssd = data.get("SolidState")
@@ -653,7 +692,7 @@ def _probe_mac():
                     size_bytes = drive.get("size_in_bytes")
                 if not size_bytes:
                     continue
-                gb = round(int(size_bytes) / (1024 ** 3))
+                gb = round(int(size_bytes) / 1e9)   # decimal GB, matches the label
                 if gb <= 30:
                     continue
                 medium = str(drive.get("medium_type") or "").lower()
@@ -801,6 +840,14 @@ def detect():
     disks = info.get("disks") or []
     if isinstance(disks, dict):
         disks = [disks]
+    # Normalise every drive to its marketing capacity ONCE, here, so the
+    # per-drive summary, the summed total and the primary-drive field can never
+    # disagree — previously only the primary was snapped and the summary showed
+    # the raw figure.
+    for _d in disks:
+        _snapped = _snap_capacity(_d.get("sizeGB"))
+        if _snapped:
+            _d["sizeGB"] = _snapped
     ssd = [d for d in disks if str(d.get("type", "")).upper().startswith("SSD")]
     hdd = [d for d in disks if str(d.get("type", "")).upper().startswith("HDD")]
 

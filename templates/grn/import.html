@@ -48,6 +48,30 @@
   </div>
 </div>
 
+{# Count cards sit under the filter bar and are derived from the rows the filter
+   leaves visible, so they always describe the same slice of data as the table
+   below rather than the whole dataset. #}
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-4">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-3 fw-bold text-primary" id="cardTotalQty">0</div>
+      <div class="small text-muted">Total GRN Quantities</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-4">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-3 fw-bold text-success" id="cardDevicesAdded">0</div>
+      <div class="small text-muted">Total Devices Added</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-4">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-3 fw-bold text-warning" id="cardDevicesPending">0</div>
+      <div class="small text-muted">Total Devices Pending</div>
+    </div>
+  </div>
+</div>
+
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -55,7 +79,7 @@
         <thead class="table-dark">
           <tr>
             <th class="ps-3">GRN</th><th>Lot Number</th><th>Invoice Number</th><th>Date of Invoice</th>
-            <th>Vendor Name</th><th>Quantity</th><th>Amount</th><th>Download</th><th>Action</th>
+            <th>Vendor Name</th><th>Quantity</th><th>Stocked</th><th>Amount</th><th>Download</th><th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -68,6 +92,13 @@
             <td>{{ g.invoice_date or '—' }}</td>
             <td>{{ g.sender_name or '—' }}</td>
             <td>{{ g.quantity if g.quantity is not none else '—' }}</td>
+            {# Stocked = tag numbers actually wired to this GRN. Amber while it
+               falls short of the invoiced quantity so a part-stocked GRN is
+               visible without opening it. #}
+            {% set _st = stocked.get(g.grn_number, 0) if stocked is defined else 0 %}
+            <td class="grn-stocked" data-stocked="{{ _st }}" data-qty="{{ g.quantity if g.quantity is not none else 0 }}">
+              <span class="badge bg-{{ 'success' if g.quantity and _st >= g.quantity else ('warning text-dark' if _st else 'secondary') }}">{{ _st }}</span>
+            </td>
             <td>{% if g.amount is not none %}₹{{ "{:,.2f}".format(g.amount) }}{% else %}—{% endif %}</td>
             <td>
               {% if g.file_path %}
@@ -100,7 +131,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="9" class="text-center text-muted py-4">No GRN imports yet. Upload an invoice to begin.</td></tr>
+          <tr><td colspan="10" class="text-center text-muted py-4">No GRN imports yet. Upload an invoice to begin.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -184,8 +215,33 @@
 <script>
 $(document).ready(function(){
   var dt = null;
+
+  // Cards are recomputed from the rows that survive the current filter, not from
+  // a server-side total — one code path keeps cards and table in agreement.
+  function refreshCards(rows) {
+    var qty = 0, added = 0;
+    rows.forEach(function (tr) {
+      var cell = tr.querySelector ? tr.querySelector('.grn-stocked') : null;
+      if (!cell) return;
+      qty   += parseInt(cell.getAttribute('data-qty'), 10) || 0;
+      added += parseInt(cell.getAttribute('data-stocked'), 10) || 0;
+    });
+    document.getElementById('cardTotalQty').textContent = qty;
+    document.getElementById('cardDevicesAdded').textContent = added;
+    // Never show a negative pending count when a GRN is over-stocked.
+    document.getElementById('cardDevicesPending').textContent = Math.max(0, qty - added);
+  }
+
   if ($('#grnTable tbody tr td').length > 1) {
     dt = $('#grnTable').DataTable({pageLength: 12, lengthChange:false, order:[]});
+    dt.on('draw.dt', function () {
+      refreshCards(dt.rows({search: 'applied'}).nodes().toArray());
+    });
+    refreshCards(dt.rows({search: 'applied'}).nodes().toArray());
+  } else {
+    refreshCards([]);
+  }
+  if (dt) {
 
     // Date-range custom filter on the "Date of Invoice" column (index 2, ISO yyyy-mm-dd)
     $.fn.dataTable.ext.search.push(function(settings, data){

@@ -1,0 +1,20 @@
+{# Date Range as two plain grid columns, meant to sit INSIDE a page's existing
+   filter row (a `.row.g-2.align-items-end` in a GET form) rather than as its own
+   floating form above the page. That keeps one Filter button for everything, so
+   the operator never has to apply two filters separately.
+
+   The enclosing form must submit by GET to the page's own URL; the parent form's
+   Filter/Reset carry these two fields along with the rest.
+
+   Use `_date_range_filter.html` instead when a page has no filter form of its
+   own to host the fields. #}
+<div class="col-md-2">
+  <label class="form-label small fw-semibold mb-1">Date From</label>
+  <input type="date" name="date_from" class="form-control form-control-sm"
+         value="{{ request.query_params.get('date_from', '') }}">
+</div>
+<div class="col-md-2">
+  <label class="form-label small fw-semibold mb-1">Date To</label>
+  <input type="date" name="date_to" class="form-control form-control-sm"
+         value="{{ request.query_params.get('date_to', '') }}">
+</div>

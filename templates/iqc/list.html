@@ -2,7 +2,6 @@
 {% block title %}IQC List — OxyPC{% endblock %}
 {% block page_title %}IQC Inspection{% endblock %}
 {% block content %}
-{% include "_date_range_filter.html" %}
 <form method="get" action="/iqc" class="card border-0 shadow-sm mb-3">
   <div class="card-body py-2">
     <div class="row g-2 align-items-end">
@@ -47,7 +46,8 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-1 d-flex gap-2">
+      {% include "_date_range_fields.html" %}
+      <div class="col-md-2 d-flex gap-2">
         <button type="submit" class="btn btn-primary btn-sm flex-grow-1"><i class="bi bi-search me-1"></i></button>
         <a href="/iqc" class="btn btn-outline-secondary btn-sm">Reset</a>
       </div>

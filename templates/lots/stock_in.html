@@ -2,7 +2,6 @@
 {% block title %}Stock In — OxyPC{% endblock %}
 {% block page_title %}Stock In{% endblock %}
 {% block content %}
-{% include "_date_range_filter.html" %}
 <!-- Analytics count cards (#17) -->
 {% if analytics is defined %}
 <div class="row g-3 mb-3">
@@ -36,7 +35,15 @@
 <form method="get" action="/stock" class="card border-0 shadow-sm mb-3">
   <div class="card-body py-2">
     <div class="row g-2 align-items-end">
+      {# One box covering GRN / Invoice / Tag Number / Model, sitting ahead of
+         Device Type. Filters client-side against the Inventory Stock table
+         (including its two hidden columns) so it needs no page reload. #}
       <div class="col-md-3">
+        <label class="form-label small fw-semibold mb-1">Search</label>
+        <input type="text" id="stockQuickSearch" class="form-control form-control-sm"
+               placeholder="GRN / Invoice / Tag Number / Model" autocomplete="off">
+      </div>
+      <div class="col-md-2">
         <label class="form-label small fw-semibold mb-1">Device Type</label>
         <select name="device_type" class="form-select form-select-sm">
           <option value="">All Device Types</option>
@@ -54,7 +61,8 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-2 d-flex gap-2">
+      {% include "_date_range_fields.html" %}
+      <div class="col-md-3 d-flex gap-2">
         <button type="submit" class="btn btn-primary btn-sm flex-grow-1"><i class="bi bi-search me-1"></i>Filter</button>
         <a href="/stock" class="btn btn-outline-secondary btn-sm">Reset</a>
       </div>
@@ -69,13 +77,19 @@
 <div class="card border-0 shadow-sm">
   <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span class="fw-semibold"><i class="bi bi-archive me-2"></i>Inventory Stock</span>
-    <input type="text" id="stockScanInput" class="form-control form-control-sm font-monospace"
-           placeholder="Scan Tag/Serial, or comma-separated Tag Numbers to select multiple…" style="width:340px" autocomplete="off">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <button type="button" id="customiseBtn" class="btn btn-outline-primary btn-sm d-none text-nowrap"
+              onclick="openCustomiseModal('stock')">
+        <i class="bi bi-sliders me-1"></i>Customise (<span id="customiseCount">0</span>)
+      </button>
+      <input type="text" id="stockScanInput" class="form-control form-control-sm font-monospace"
+             placeholder="Scan Tag/Serial, or comma-separated Tag Numbers to select multiple…" style="width:340px" autocomplete="off">
+    </div>
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
       <table id="stockTable" class="table table-hover mb-0 small">
-        <thead class="table-dark"><tr><th style="width:32px"><input type="checkbox" id="selectAllStock" class="form-check-input"></th><th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Device Type</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Inside Bucket</th><th>Assigned User</th><th>Action</th></tr></thead>
+        <thead class="table-dark"><tr><th style="width:32px"><input type="checkbox" id="selectAllStock" class="form-check-input"></th><th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Device Type</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Inside Bucket</th><th>Assigned User</th><th>Action</th>{# GRN and Invoice are not shown but are searchable — the single search box above spans them. #}<th class="d-none">GRN</th><th class="d-none">Invoice</th></tr></thead>
         <tbody>
           {% for device, lot_number in devices %}
           <tr id="stock-row-{{ device.barcode }}" data-barcode="{{ device.barcode }}" data-serial="{{ device.serial_no or '' }}">
@@ -97,6 +111,8 @@
                 <button type="submit" class="btn btn-sm btn-outline-info py-0 px-2"><i class="bi bi-cpu"></i> Move to Production</button>
               </form>
             </td>
+            <td class="d-none">{{ device.grn_number or '' }}</td>
+            <td class="d-none">{{ device.invoice_number or '' }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -106,6 +122,9 @@
 </div>
 
 <p class="text-center text-muted small mt-2">{{ total }} device(s) in stage</p>
+
+{% set customise_return_to = '/stock' %}
+{% include "_customise_modal.html" %}
 <!-- Bucket / Carton table -->
 <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
   <h6 class="fw-bold mb-0"><i class="bi bi-box me-2"></i>Buckets / Cartons</h6>
@@ -359,13 +378,49 @@ $(document).ready(function(){
   // updated by the existing updateStockSel(), triggered via the dispatched
   // 'change' event below.
   initTagScanAutocheck({ inputId: 'stockScanInput', tableSelector: '#stockTable', rowTagAttr: 'data-barcode', rowCheckboxSelector: '.stockChk' });
+
+  // ── Single search box: GRN / Invoice / Tag Number / Model ──
+  // A targeted filter rather than DataTables' global search, which would also
+  // match Lot, Brand, Grade and the Action column's button text.
+  // Columns: 1=Tag Number, 4=Model, 12=GRN (hidden), 13=Invoice (hidden).
+  var quickVal = '';
+  $.fn.dataTable.ext.search.push(function(settings, data){
+    if (settings.nTable.id !== 'stockTable' || !quickVal) return true;
+    var term = quickVal.toLowerCase();
+    return [1, 4, 12, 13].some(function(i){
+      return (data[i] || '').toLowerCase().indexOf(term) !== -1;
+    });
+  });
+  var quickBox = document.getElementById('stockQuickSearch');
+  if (quickBox) {
+    quickBox.addEventListener('input', function(){
+      quickVal = this.value.trim();
+      dtStock.draw();
+    });
+  }
 });
+
+// ── Customise: bulk-edit the ticked Inventory Stock rows ──
+// Shares #customiseModal / #customiseForm with All Inventory via
+// _customise_modal.html, so the two pages cannot drift apart.
+function openCustomiseModal(){
+  var barcodes = selectedStockBarcodes();
+  if (!barcodes.length) return;
+  $('#customiseHiddenBarcodes').empty();
+  barcodes.forEach(function(bc){
+    $('<input>').attr({ type:'hidden', name:'barcodes', value:bc }).appendTo('#customiseHiddenBarcodes');
+  });
+  $('#customiseModalCount').text(barcodes.length);
+  new bootstrap.Modal(document.getElementById('customiseModal')).show();
+}
 
 function selectedStockBarcodes(){ return Array.from(document.querySelectorAll('.stockChk:checked')).map(function(c){return c.value;}); }
 function updateStockSel(){
   var n = selectedStockBarcodes().length;
   $('#bktSelCount').text(n);
   $('#assignBucketBtn').prop('disabled', n === 0);
+  $('#customiseCount').text(n);
+  $('#customiseBtn').toggleClass('d-none', n === 0);
 }
 $('#stockTable').on('change', '#selectAllStock', function(){
   var ck = this.checked;

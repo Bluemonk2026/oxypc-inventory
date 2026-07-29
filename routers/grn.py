@@ -55,6 +55,25 @@ async def _next_grn_12(db: AsyncSession) -> str:
     return str(n).zfill(12)
 
 
+async def _stocked_map(db: AsyncSession, grns) -> dict:
+    """{grn_number: number of tag numbers wired to it}.
+
+    Counted from Device.grn_number rather than stored on GRNImport so the figure
+    can never drift out of step with the tags that were actually mapped.
+    Trashed / deactivated tags are excluded — they are no longer stock.
+    """
+    numbers = [g.grn_number for g in grns if g.grn_number]
+    if not numbers:
+        return {}
+    rows = (await db.execute(
+        select(Device.grn_number, func.count(Device.id))
+        .where(Device.grn_number.in_(numbers),
+               Device.is_active == True, Device.is_trashed == False)
+        .group_by(Device.grn_number)
+    )).all()
+    return {n: c for n, c in rows}
+
+
 # ── GRN invoice import (the GRN nav page) ──────────────────────────────────────
 
 @router.get("", response_class=HTMLResponse)
@@ -70,6 +89,7 @@ async def grn_import_list(request: Request, db: AsyncSession = Depends(get_db),
     )).scalars().all()
     return templates.TemplateResponse("grn/import.html", {
         "request": request, "grns": rows, "current_user": current_user,
+        "stocked": await _stocked_map(db, rows),
         "error": error, "success": success,
     })
 
@@ -95,6 +115,7 @@ async def grn_post_iqc(request: Request, db: AsyncSession = Depends(get_db),
     )).scalars().all()
     return templates.TemplateResponse("grn/post_iqc.html", {
         "request": request, "grns": grns, "pending": pending,
+        "stocked": await _stocked_map(db, grns),
         "current_user": current_user, "error": error, "success": success,
         "highlight_tag": highlight_tag,
         "device_type_options": ["Laptop", "Desktop", "AIO", "Workstation", "Mini PC", "Server", "Tablet"],

@@ -2,7 +2,19 @@
 {% block title %}Devices in Production — OxyPC{% endblock %}
 {% block page_title %}Devices in Production{% endblock %}
 {% block content %}
-{% include "_date_range_filter.html" %}
+{# This page has no other server-side filters, so the date range gets its own
+   filter row card — same shape as every other page's filter bar. #}
+<form method="get" action="/trc-production" class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-end">
+      {% include "_date_range_fields.html" %}
+      <div class="col-md-3 d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-funnel me-1"></i>Filter</button>
+        <a href="/trc-production" class="btn btn-outline-secondary btn-sm">Reset</a>
+      </div>
+    </div>
+  </div>
+</form>
 {% if request.query_params.get('success') %}
 <div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success')|replace('+',' ') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
 {% endif %}

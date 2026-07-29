@@ -16,7 +16,15 @@
        a top bar PLUS an always-visible fixed bottom bar and any hardcoded
        figure drifts the moment either changes. The calc() is only a fallback
        for the instant before the script runs. */
-    .cat-row { height: var(--cat-h, calc(100vh - 13rem)); overflow: hidden; }
+    /* nowrap is load-bearing, not tidiness. Bootstrap's .row is flex-wrap:wrap,
+       and a wrapped flex line sizes to its tallest item and NEVER shrinks below
+       it — align-content:stretch only grows lines into spare space. With wrap on,
+       both columns sized to their full table height, overflowed this fixed-height
+       row, got clipped by overflow:hidden, and .cat-scroll was never shorter than
+       its own table, so overflow-y:auto had nothing to scroll. Forcing one line
+       gives the columns a definite cross size to stretch into, which is what lets
+       min-height:0 below actually shrink them. */
+    .cat-row { height: var(--cat-h, calc(100vh - 13rem)); overflow: hidden; flex-wrap: nowrap; }
     .cat-left, .cat-right { display: flex; flex-direction: column; min-height: 0; }
     /* min-height:0 matters: a flex child defaults to min-height:auto, which
        refuses to shrink below its content and would push the scroll back onto
@@ -311,9 +319,25 @@
     if (!row) return;
     var nav = document.querySelector('.tp-bottomnav');
     var top = row.getBoundingClientRect().top + window.pageYOffset;
-    var avail = window.innerHeight - top - (nav ? nav.offsetHeight : 0) - 12;
+    // Reserve whichever is LARGER: the fixed bottom nav's own height, or the
+    // bottom padding body sets aside for it. They are not the same number —
+    // body reserves 70px for a nav that measures less — and subtracting only
+    // the nav left the page scrollable by the difference.
+    var padBottom = parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
+    var reserve = Math.max(nav ? nav.offsetHeight : 0, padBottom);
+    var avail = window.innerHeight - top - reserve - 12;
     // Floor it: on a very short window a tiny pane is worse than a little scroll.
-    row.style.setProperty('--cat-h', Math.max(320, Math.round(avail)) + 'px');
+    var h = Math.max(320, Math.round(avail));
+    row.style.setProperty('--cat-h', h + 'px');
+
+    // Then measure and correct. Enumerating every bit of chrome below the row
+    // is a losing game — main's own bottom padding sat under it and left the
+    // page scrollable by exactly that much. Reading the leftover overflow back
+    // off the document is immune to whatever the chrome turns out to be.
+    var over = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+    if (over > 0 && h - over >= 320) {
+      row.style.setProperty('--cat-h', (h - over) + 'px');
+    }
   }
   sizeCatRow();
   window.addEventListener('resize', sizeCatRow);
@@ -359,11 +383,18 @@
     });
   });
 
-  // Default view: the first lot in the table is pre-selected, so Available
-  // Stock opens showing that lot's models rather than every lot at once.
+  // Default view: pre-select the first lot that ACTUALLY HAS STOCK, so Available
+  // Stock opens on one lot rather than every lot at once. Taking the first lot
+  // blindly opened the page on an empty table whenever that lot held no devices
+  // — which is common, and reads as the feature being broken.
   (function(){
-    var first = document.querySelector('.lot-stock-link');
+    var stocked = {};
+    stockRows.forEach(function (tr) { stocked[tr.dataset.lotId] = true; });
+    var links = Array.prototype.slice.call(document.querySelectorAll('.lot-stock-link'));
+    var first = links.filter(function (a) { return stocked[a.dataset.lotId]; })[0];
+    // Every visible lot empty → leave unfiltered, showing the full list.
     if (first) selectLot(first.dataset.lotId, first.dataset.lotNumber);
+    else applyStockFilter();
   })();
 
   // ── Bid modal ────────────────────────────────────────────────────────────

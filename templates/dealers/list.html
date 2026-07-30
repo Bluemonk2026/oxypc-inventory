@@ -215,138 +215,8 @@
             <th>Action</th>
           </tr>
         </thead>
-        <tbody>
-          {# Keys are the canonical outcome keys from utils/call_outcomes.py —
-             the same ones the cards above count, so badge and card agree. #}
-          {% set oc_colors = {
-            'interested': 'success',
-            'not_interested': 'danger',
-            'details_sent': 'info',
-            'callback': 'warning',
-            'not_connected': 'secondary',
-            'no_requirement': 'dark',
-            'language_barrier': 'dark',
-            'busy': 'secondary',
-            'order_placed': 'primary',
-            'followup': 'info'
-          } %}
-          {% for d in dealers %}
-          {% set rc = recent_call_map.get(d.id|string, {}) %}
-          {% set row_data = {
-            'id': d.id|string,
-            'dealer_code': d.dealer_code,
-            'business_name': d.business_name,
-            'dealer_type': d.dealer_type,
-            'contact_person': d.contact_person or '',
-            'phone': d.phone or '',
-            'email': d.email or '',
-            'address': d.address or '',
-            'gstin': d.gstin or '',
-            'status': d.status,
-            'call_id': rc.get('call_id', ''),
-            'call_date': rc.get('call_date').strftime('%d-%m-%Y %H:%M') if rc.get('call_date') else '',
-            'qty': rc.get('qty'),
-            'items_discussed': rc.get('items_text', ''),
-            'calling_remark': rc.get('calling_remark', ''),
-            'notes': rc.get('notes', ''),
-            'purchase_quantity': rc.get('purchase_quantity'),
-            'sale_quantity': rc.get('sale_quantity'),
-            'deals_in': rc.get('deals_in', ''),
-            'whom_to_sell': rc.get('whom_to_sell', ''),
-            'call_mode': rc.get('call_mode', ''),
-            'call_type': rc.get('call_type', ''),
-            'next_followup_date': rc.get('next_followup_date').strftime('%Y-%m-%d') if rc.get('next_followup_date') else '',
-            'outcome': rc.get('outcome', ''),
-            'assigned_to': d.assigned_to or '',
-          } %}
-          <tr>
-            {% if can_manage_dealers %}
-            <td><input type="checkbox" class="form-check-input dealerChk" value="{{ d.id }}"></td>
-            {% endif %}
-            <td><code>{{ d.dealer_code }}</code></td>
-            <td>
-              {% if rc.get('outcome') %}
-              <span class="badge bg-{{ oc_colors.get(rc.outcome, 'secondary') }} bg-opacity-75">
-                {{ outcome_labels.get(rc.outcome, rc.outcome | replace('_', ' ') | title) }}
-              </span>
-              {% else %}<span class="text-muted small">—</span>{% endif %}
-            </td>
-            <td><a href="/dealers/{{ d.id }}" class="fw-semibold text-decoration-none">{{ d.business_name }}</a></td>
-            <td><span class="badge bg-secondary">{{ d.dealer_type | title }}</span></td>
-            <td class="small">{{ d.contact_person or '—' }}</td>
-            <td class="small">{{ d.phone or '—' }}</td>
-            <td class="small">{{ d.email or '—' }}</td>
-            <td class="small">{{ d.address[:30] ~ '…' if d.address and d.address|length > 30 else (d.address or '—') }}</td>
-            <td class="small">{{ rc.get('call_date').strftime('%d-%m-%Y') if rc.get('call_date') else '—' }}</td>
-            <td class="small">{{ rc.get('qty') if rc.get('qty') is not none else '—' }}</td>
-            <td class="small">{{ rc.get('items_text')[:30] ~ '…' if rc.get('items_text') and rc.get('items_text')|length > 30 else (rc.get('items_text') or '—') }}</td>
-            <td class="small">{{ rc.get('calling_remark')[:30] ~ '…' if rc.get('calling_remark') and rc.get('calling_remark')|length > 30 else (rc.get('calling_remark') or '—') }}</td>
-            <td class="small">{{ rc.get('notes')[:30] ~ '…' if rc.get('notes') and rc.get('notes')|length > 30 else (rc.get('notes') or '—') }}</td>
-            <td class="small">{{ rc.get('purchase_quantity') if rc.get('purchase_quantity') is not none else '—' }}</td>
-            <td class="small">{{ rc.get('sale_quantity') if rc.get('sale_quantity') is not none else '—' }}</td>
-            <td class="small">{{ rc.get('deals_in') or '—' }}</td>
-            <td class="small">{{ rc.get('whom_to_sell') or '—' }}</td>
-            <td class="small">
-              {% set fu = rc.get('next_followup_date') %}
-              {% if fu %}
-              <span class="badge {% if fu.date() <= today %}bg-danger{% else %}bg-info text-dark{% endif %}">
-                {{ fu.strftime('%d-%m-%Y') }}
-              </span>
-              {% else %}
-              <span class="text-muted">—</span>
-              {% endif %}
-            </td>
-            <td class="small">
-              {% if d.assigned_to %}{{ assignee_name_map.get(d.assigned_to, d.assigned_to) }}
-              {% else %}<span class="text-muted">Unassigned</span>{% endif %}
-            </td>
-            <td>
-              <div class="btn-group btn-group-sm">
-                <button type="button" class="btn btn-outline-primary" title="View" onclick='openDealerViewModal({{ row_data | tojson }})'>
-                  <i class="bi bi-eye"></i>
-                </button>
-                <a href="/dealers/{{ d.id }}/call" class="btn btn-outline-success" title="Log Call">
-                  <i class="bi bi-telephone-plus"></i>
-                </a>
-                {# WhatsApp integration removed — button disabled
-                <a href="/whatsapp/compose?dealer_id={{ d.id }}" class="btn btn-outline-dark" title="WhatsApp">
-                  <i class="bi bi-whatsapp"></i>
-                </a>
-                #}
-                <button type="button" class="btn btn-outline-secondary" title="Edit" onclick='openDealerEditModal({{ row_data | tojson }})'>
-                  <i class="bi bi-pencil"></i>
-                </button>
-                <button type="button" class="btn btn-outline-info" title="Quotation" onclick='openQuotationModal({{ row_data | tojson }})'>
-                  <i class="bi bi-file-earmark-text"></i>
-                </button>
-                {% if can_manage_dealers %}
-                {# The dealer name goes in a data attribute, never inside a JS
-                   string literal in the attribute itself: a name like
-                   "GNAANI'S COMPUTER WORLD" renders as GNAANI&#39;S, the browser
-                   decodes it to a bare apostrophe before parsing the handler as
-                   JS, the handler then fails to compile — and a handler that
-                   fails to compile is never installed, so the form submitted
-                   with NO confirmation prompt at all. #}
-                <form action="/dealers/{{ d.id }}/delete" method="post" class="d-inline"
-                      data-dealer-name="{{ d.business_name }}"
-                      onsubmit="return confirmDealerDelete(this)">
-                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-                  <button type="submit" class="btn btn-outline-danger" title="Delete">
-                    <i class="bi bi-trash"></i>
-                  </button>
-                </form>
-                {% endif %}
-              </div>
-            </td>
-          </tr>
-          {% else %}
-          <tr>
-            <td colspan="{{ 21 if can_manage_dealers else 20 }}" class="text-center text-muted py-4">
-              No dealers found. <a href="#" onclick="openDealerAddModal(); return false;">Add your first dealer</a>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
+        <!-- rows come from /dealers/data via DataTables serverSide -->
+        <tbody></tbody>
       </table>
     </div>
   </div>
@@ -600,18 +470,32 @@ function openDealerAddModal(){
 }
 
 {% set _has_chk = can_manage_dealers %}
-if ($('#dealersTable tbody tr').length > 1 && $.fn.DataTable) {
-  $('#dealersTable').DataTable({
-    pageLength: 12,
-    order: [],
-    // With the select column present every index shifts +1 (checkbox col 0
-    // non-orderable, Assigned col 19); without it, Assigned stays at 18.
-    columnDefs: [{ orderable: false, targets: {{ '[0, 19]' if _has_chk else '[18]' }} }],
-  });
-}
+// Filters submit as a normal GET (dealerFilterForm reloads the page), so the
+// current querystring already has every filter this page was rendered with —
+// forwarding it to /dealers/data keeps the table and the count cards above it
+// looking at the exact same filtered set.
+var dealersDt = $('#dealersTable').DataTable({
+  serverSide: true,
+  processing: true,
+  pageLength: 12,
+  lengthMenu: [[12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000],
+               [12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]],
+  order: [],
+  searchDelay: 400,
+  ajax: { url: '/dealers/data' + window.location.search },
+  // With the select column present every index shifts +1 (checkbox col 0
+  // non-orderable, Assigned col 19); without it, Assigned stays at 18.
+  columnDefs: [{ orderable: false, targets: {{ '[0, 19]' if _has_chk else '[18]' }} }],
+  drawCallback: function () {
+    {% if _has_chk %}dealerSyncSelCount();{% endif %}
+  },
+});
 
 {% if _has_chk %}
 // ── Dealer bulk soft-delete (Trash) ────────────────────────────────────────
+// Selection is page-scoped (checked rows currently on screen) rather than a
+// persistent cross-page Set — bulk-delete is a deliberate, rare action here,
+// unlike Ready to Sale's Multi-Sell which needed every matching row reachable.
 function dealerSyncSelCount() {
   var n = document.querySelectorAll('.dealerChk:checked').length;
   var cnt = document.getElementById('dealerSelCount');
@@ -621,7 +505,7 @@ function dealerSyncSelCount() {
 }
 document.addEventListener('change', function(e) {
   if (e.target && e.target.id === 'dealerCheckAll') {
-    document.querySelectorAll('.dealerChk').forEach(function(c) { c.checked = e.target.checked; });
+    document.querySelectorAll('#dealersTable tbody .dealerChk').forEach(function(c) { c.checked = e.target.checked; });
     dealerSyncSelCount();
   } else if (e.target && e.target.classList && e.target.classList.contains('dealerChk')) {
     dealerSyncSelCount();

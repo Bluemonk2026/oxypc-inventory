@@ -3,10 +3,12 @@ from datetime import datetime, date
 from utils.timezone import app_now
 import csv
 import io
+import json
 import math
+from html import escape as esc
 from decimal import Decimal
 from fastapi import APIRouter, Depends, Form, Request, Query
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, Integer, delete as sa_delete, text as sa_text
 from sqlalchemy.orm import selectinload
@@ -167,25 +169,17 @@ async def _recent_quotations(db: AsyncSession) -> list:
     return result.scalars().all()
 
 
-@router.get("", response_class=HTMLResponse)
-async def list_dealers(
-    request: Request,
-    q: str = Query(default=""),
-    status: str = Query(default=""),
-    assigned: str = Query(default=""),
-    city: str = Query(default=""),
-    calling_date_from: str = Query(default=""),
-    calling_date_to: str = Query(default=""),
-    filter_qty: str = Query(default=""),
-    filter_purchase_qty: str = Query(default=""),
-    filter_sale_qty: str = Query(default=""),
-    filter_whom_to_sell: str = Query(default=""),
-    filter_deals_in: str = Query(default=""),
-    followup_from: str = Query(default=""),
-    followup_to: str = Query(default=""),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_sales),
+def _dealer_base_query(
+    current_user: User,
+    q: str = "", status: str = "", assigned: str = "", city: str = "",
+    calling_date_from: str = "", calling_date_to: str = "",
+    filter_qty: str = "", filter_purchase_qty: str = "", filter_sale_qty: str = "",
+    filter_whom_to_sell: str = "", filter_deals_in: str = "",
+    followup_from: str = "", followup_to: str = "",
 ):
+    """Builds the filtered Dealer select — shared by the page (for its count
+    cards) and /dealers/data (for the paginated rows), so the two can never
+    disagree about which dealers match the current filters."""
     from sqlalchemy import or_
     base_query = select(Dealer).where(Dealer.trashed_at.is_(None))  # exclude soft-deleted
     if q:
@@ -275,44 +269,13 @@ async def list_dealers(
                 pass
         base_query = base_query.where(Dealer.id.in_(fu_subq))
 
-    # Total count
-    count_result = await db.execute(select(func.count()).select_from(base_query.subquery()))
-    total_count = count_result.scalar() or 0
+    return base_query
 
-    # Active count
-    active_q = base_query.where(Dealer.status == "active")
-    active_result = await db.execute(select(func.count()).select_from(active_q.subquery()))
-    active_count = active_result.scalar() or 0
 
-    # Subquery of filtered dealer IDs — shared by followup_count, outstanding, outcome_stats.
-    # Select the id OFF THE SUBQUERY, not off Dealer. `select(Dealer.id)
-    # .select_from(base_query.subquery())` compiles to
-    # "FROM (…filtered…) AS anon_1, dealers" — an implicit cross join whose
-    # result is every dealer id in the table, so the cards silently ignored the
-    # page's filters and the trashed-dealer exclusion.
-    _filtered_dealers = base_query.subquery()
-    filtered_ids_subq = select(_filtered_dealers.c.id)
-
-    today = app_now().date()
-
-    # All matching dealer rows (client-side DataTables pagination)
-    dealers = (await db.execute(
-        base_query.order_by(Dealer.business_name)
-    )).scalars().all()
-
-    dealer_ids = [d.id for d in dealers]
-
-    # Username -> full name, for the "Assigned" column (built regardless of
-    # viewer role — display-only, not a permission surface).
-    assignee_usernames = {d.assigned_to for d in dealers if d.assigned_to}
-    assignee_name_map: dict = {}
-    if assignee_usernames:
-        au_result = await db.execute(
-            select(User.username, User.full_name).where(User.username.in_(assignee_usernames))
-        )
-        assignee_name_map = {row.username: row.full_name for row in au_result.all()}
-
-    # Most recent call outcome + items per dealer (for pills) using window function
+async def _recent_call_map(db: AsyncSession, dealer_ids: list) -> dict:
+    """Most recent call outcome + items per dealer (for pills), scoped to the
+    given dealer_ids — the page's count cards and /dealers/data's current
+    page of rows call this with different id sets."""
     recent_call_map: dict = {}
     if dealer_ids:
         rn_col = func.row_number().over(
@@ -368,6 +331,65 @@ async def list_dealers(
             }
             for r in rc_rows
         }
+    return recent_call_map
+
+
+async def _assignee_name_map(db: AsyncSession, dealers: list) -> dict:
+    """Username -> full name, for the "Assigned" column (built regardless of
+    viewer role — display-only, not a permission surface)."""
+    assignee_usernames = {d.assigned_to for d in dealers if d.assigned_to}
+    if not assignee_usernames:
+        return {}
+    au_result = await db.execute(
+        select(User.username, User.full_name).where(User.username.in_(assignee_usernames))
+    )
+    return {row.username: row.full_name for row in au_result.all()}
+
+
+@router.get("", response_class=HTMLResponse)
+async def list_dealers(
+    request: Request,
+    q: str = Query(default=""),
+    status: str = Query(default=""),
+    assigned: str = Query(default=""),
+    city: str = Query(default=""),
+    calling_date_from: str = Query(default=""),
+    calling_date_to: str = Query(default=""),
+    filter_qty: str = Query(default=""),
+    filter_purchase_qty: str = Query(default=""),
+    filter_sale_qty: str = Query(default=""),
+    filter_whom_to_sell: str = Query(default=""),
+    filter_deals_in: str = Query(default=""),
+    followup_from: str = Query(default=""),
+    followup_to: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_sales),
+):
+    base_query = _dealer_base_query(
+        current_user, q, status, assigned, city, calling_date_from, calling_date_to,
+        filter_qty, filter_purchase_qty, filter_sale_qty, filter_whom_to_sell,
+        filter_deals_in, followup_from, followup_to,
+    )
+
+    # Total count
+    count_result = await db.execute(select(func.count()).select_from(base_query.subquery()))
+    total_count = count_result.scalar() or 0
+
+    # Active count
+    active_q = base_query.where(Dealer.status == "active")
+    active_result = await db.execute(select(func.count()).select_from(active_q.subquery()))
+    active_count = active_result.scalar() or 0
+
+    # Subquery of filtered dealer IDs — shared by followup_count, outstanding, outcome_stats.
+    # Select the id OFF THE SUBQUERY, not off Dealer. `select(Dealer.id)
+    # .select_from(base_query.subquery())` compiles to
+    # "FROM (…filtered…) AS anon_1, dealers" — an implicit cross join whose
+    # result is every dealer id in the table, so the cards silently ignored the
+    # page's filters and the trashed-dealer exclusion.
+    _filtered_dealers = base_query.subquery()
+    filtered_ids_subq = select(_filtered_dealers.c.id)
+
+    today = app_now().date()
 
     # ── Outcome distribution (respects the list's own filters, all roles) ────
     ranked_calls_inner = _ranked_calls_subq(filtered_ids_subq)
@@ -461,7 +483,6 @@ async def list_dealers(
     return templates.TemplateResponse("dealers/list.html", {
         "request": request,
         "current_user": current_user,
-        "dealers": dealers,
         "q": q,
         "status": status,
         "assigned": assigned,
@@ -480,20 +501,162 @@ async def list_dealers(
         "followup_count": followup_count,
         "today_followup_count": today_followup_count,
         "outstanding": f"{outstanding:,}",
-        "recent_call_map": recent_call_map,
         "outcome_stats": card_stats,
         "outcome_labels": OUTCOME_LABELS,
         "can_manage_dealers": can_manage_dealers,
         "sales_users": sales_users,
-        "assignee_name_map": assignee_name_map,
         "per_page": PER_PAGE,
-        "today": today,
         "whom_to_sell_options": tc_options["whom_to_sell"],
         "deals_in_options": tc_options["deals_in"],
         "call_mode_options": await master_values(db, "call_mode"),
         "call_type_options": await master_values(db, "call_type"),
         "quotations": await _recent_quotations(db),
         "company_settings": await get_company_settings(db),
+    })
+
+
+_OC_COLORS = {
+    "interested": "success", "not_interested": "danger", "details_sent": "info",
+    "callback": "warning", "not_connected": "secondary", "no_requirement": "dark",
+    "language_barrier": "dark", "busy": "secondary", "order_placed": "primary",
+    "followup": "info",
+}
+
+
+def _truncate(s: str, n: int = 30) -> str:
+    s = s or ""
+    return (s[:n] + "…") if len(s) > n else s
+
+
+@router.get("/data")
+async def dealers_data(
+    request: Request,
+    draw: int = Query(1), start: int = Query(0), length: int = Query(25),
+    q: str = Query(default=""), status: str = Query(default=""),
+    assigned: str = Query(default=""), city: str = Query(default=""),
+    calling_date_from: str = Query(default=""), calling_date_to: str = Query(default=""),
+    filter_qty: str = Query(default=""), filter_purchase_qty: str = Query(default=""),
+    filter_sale_qty: str = Query(default=""), filter_whom_to_sell: str = Query(default=""),
+    filter_deals_in: str = Query(default=""),
+    followup_from: str = Query(default=""), followup_to: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_sales),
+):
+    """DataTables server-side feed for the Dealers list — same filter set as
+    the page itself (see _dealer_base_query), fed the current page's slice
+    plus that page's recent-call/assignee lookups."""
+    base_query = _dealer_base_query(
+        current_user, q, status, assigned, city, calling_date_from, calling_date_to,
+        filter_qty, filter_purchase_qty, filter_sale_qty, filter_whom_to_sell,
+        filter_deals_in, followup_from, followup_to,
+    )
+    # recordsTotal ignores every filter but the mandatory role scope — reuse
+    # the same builder with no filter args so the two queries can't drift.
+    unfiltered_query = _dealer_base_query(current_user)
+
+    total = (await db.execute(
+        select(func.count()).select_from(unfiltered_query.subquery())
+    )).scalar() or 0
+    filtered = (await db.execute(
+        select(func.count()).select_from(base_query.subquery())
+    )).scalar() or 0
+
+    dealers = (await db.execute(
+        base_query.order_by(Dealer.business_name).offset(start).limit(length)
+    )).scalars().all()
+    dealer_ids = [d.id for d in dealers]
+
+    recent_call_map = await _recent_call_map(db, dealer_ids)
+    assignee_name_map = await _assignee_name_map(db, dealers)
+    can_manage_dealers = await _can_manage_dealers(db, current_user, "/dealers")
+    today = app_now().date()
+
+    data = []
+    for d in dealers:
+        rc = recent_call_map.get(str(d.id), {})
+        outcome = rc.get("outcome", "")
+        call_date = rc.get("call_date")
+        next_fu = rc.get("next_followup_date")
+        row_data = {
+            "id": str(d.id), "dealer_code": d.dealer_code, "business_name": d.business_name,
+            "dealer_type": d.dealer_type, "contact_person": d.contact_person or "",
+            "phone": d.phone or "", "email": d.email or "", "address": d.address or "",
+            "gstin": d.gstin or "", "status": d.status, "call_id": rc.get("call_id", ""),
+            "call_date": call_date.strftime("%d-%m-%Y %H:%M") if call_date else "",
+            "qty": rc.get("qty"), "items_discussed": rc.get("items_text", ""),
+            "calling_remark": rc.get("calling_remark", ""), "notes": rc.get("notes", ""),
+            "purchase_quantity": rc.get("purchase_quantity"), "sale_quantity": rc.get("sale_quantity"),
+            "deals_in": rc.get("deals_in", ""), "whom_to_sell": rc.get("whom_to_sell", ""),
+            "call_mode": rc.get("call_mode", ""), "call_type": rc.get("call_type", ""),
+            "next_followup_date": next_fu.strftime("%Y-%m-%d") if next_fu else "",
+            "outcome": outcome, "assigned_to": d.assigned_to or "",
+        }
+        row_json = esc(json.dumps(row_data))
+
+        status_cell = (
+            f'<span class="badge bg-{_OC_COLORS.get(outcome, "secondary")} bg-opacity-75">'
+            f'{esc(OUTCOME_LABELS.get(outcome, (outcome or "").replace("_", " ").title()))}</span>'
+        ) if outcome else '<span class="text-muted small">—</span>'
+
+        if next_fu:
+            fu_cls = "bg-danger" if next_fu.date() <= today else "bg-info text-dark"
+            fu_cell = f'<span class="badge {fu_cls}">{next_fu.strftime("%d-%m-%Y")}</span>'
+        else:
+            fu_cell = '<span class="text-muted">—</span>'
+
+        assigned_cell = (esc(assignee_name_map.get(d.assigned_to, d.assigned_to))
+                         if d.assigned_to else '<span class="text-muted">Unassigned</span>')
+
+        actions = (
+            f'<div class="btn-group btn-group-sm">'
+            f'<button type="button" class="btn btn-outline-primary" title="View" '
+            f'onclick=\'openDealerViewModal({row_json})\'><i class="bi bi-eye"></i></button>'
+            f'<a href="/dealers/{d.id}/call" class="btn btn-outline-success" title="Log Call">'
+            f'<i class="bi bi-telephone-plus"></i></a>'
+            f'<button type="button" class="btn btn-outline-secondary" title="Edit" '
+            f'onclick=\'openDealerEditModal({row_json})\'><i class="bi bi-pencil"></i></button>'
+            f'<button type="button" class="btn btn-outline-info" title="Quotation" '
+            f'onclick=\'openQuotationModal({row_json})\'><i class="bi bi-file-earmark-text"></i></button>'
+        )
+        if can_manage_dealers:
+            actions += (
+                f'<form action="/dealers/{d.id}/delete" method="post" class="d-inline" '
+                f'data-dealer-name="{esc(d.business_name or "")}" onsubmit="return confirmDealerDelete(this)">'
+                f'<input type="hidden" name="csrf_token" value="{esc(request.cookies.get("csrf_token", ""))}">'
+                f'<button type="submit" class="btn btn-outline-danger" title="Delete">'
+                f'<i class="bi bi-trash"></i></button></form>'
+            )
+        actions += "</div>"
+
+        row = []
+        if can_manage_dealers:
+            row.append(f'<input type="checkbox" class="form-check-input dealerChk" value="{d.id}">')
+        row.extend([
+            f'<code>{esc(d.dealer_code or "")}</code>',
+            status_cell,
+            f'<a href="/dealers/{d.id}" class="fw-semibold text-decoration-none">{esc(d.business_name or "")}</a>',
+            f'<span class="badge bg-secondary">{esc((d.dealer_type or "").title())}</span>',
+            f'<span class="small">{esc(d.contact_person or "—")}</span>',
+            f'<span class="small">{esc(d.phone or "—")}</span>',
+            f'<span class="small">{esc(d.email or "—")}</span>',
+            f'<span class="small">{esc(_truncate(d.address) or "—")}</span>',
+            f'<span class="small">{call_date.strftime("%d-%m-%Y") if call_date else "—"}</span>',
+            f'<span class="small">{rc.get("qty") if rc.get("qty") is not None else "—"}</span>',
+            f'<span class="small">{esc(_truncate(rc.get("items_text", "")) or "—")}</span>',
+            f'<span class="small">{esc(_truncate(rc.get("calling_remark", "")) or "—")}</span>',
+            f'<span class="small">{esc(_truncate(rc.get("notes", "")) or "—")}</span>',
+            f'<span class="small">{rc.get("purchase_quantity") if rc.get("purchase_quantity") is not None else "—"}</span>',
+            f'<span class="small">{rc.get("sale_quantity") if rc.get("sale_quantity") is not None else "—"}</span>',
+            f'<span class="small">{esc(rc.get("deals_in") or "—")}</span>',
+            f'<span class="small">{esc(rc.get("whom_to_sell") or "—")}</span>',
+            f'<span class="small">{fu_cell}</span>',
+            f'<span class="small">{assigned_cell}</span>',
+            actions,
+        ])
+        data.append(row)
+
+    return JSONResponse({
+        "draw": draw, "recordsTotal": total, "recordsFiltered": filtered, "data": data,
     })
 
 

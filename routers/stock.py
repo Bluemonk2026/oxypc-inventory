@@ -847,6 +847,106 @@ async def lot_detail(lot_id: str, request: Request, db: AsyncSession = Depends(g
     })
 
 
+def _stock_filters(device_type, lot_number, date_from, date_to):
+    from utils.date_filter import apply_date_range
+    w = [Device.current_stage == DeviceStage.stock_in, Device.is_active == True]
+    if device_type:
+        w.append(Device.device_type == device_type)
+    if lot_number:
+        w.append(Lot.lot_number == lot_number)
+    apply_date_range(w, Device.created_at, date_from, date_to)
+    return w
+
+
+@router.get("/stock/data")
+async def stock_in_data(
+    request: Request,
+    draw: int = 1, start: int = 0, length: int = 25,
+    device_type: str = "", lot_number: str = "", date_from: str = "", date_to: str = "",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """DataTables server-side feed for Inventory Manager's Inventory Stock table.
+
+    Only ~50 rows in production today, so this page was never close to
+    freezing — converted for consistency with the other 7 pages and so it
+    picks up the same Show Entries options. GRN/Invoice were hidden with a
+    d-none class on both header and cell; that pairing is fragile the moment
+    rows stop being rendered inline (it is exactly what broke the Sales list),
+    so both columns now hide via DataTables' own columnDefs instead.
+    """
+    from sqlalchemy import desc as _desc, asc as _asc
+    from html import escape
+
+    page_filters = _stock_filters(device_type, lot_number, date_from, date_to)
+    base = select(Device, Lot.lot_number).join(Lot, Device.lot_id == Lot.id).where(*page_filters)
+    count_base = select(func.count()).select_from(Device).join(Lot, Device.lot_id == Lot.id).where(*page_filters)
+
+    search = (request.query_params.get("search[value]") or "").strip()
+    search_filters = []
+    if search:
+        like = f"%{search}%"
+        search_filters.append(or_(
+            Device.barcode.ilike(like), Device.serial_no.ilike(like), Device.brand.ilike(like),
+            Device.model.ilike(like), Lot.lot_number.ilike(like),
+            Device.grn_number.ilike(like), Device.invoice_number.ilike(like),
+        ))
+
+    total = (await db.execute(count_base)).scalar() or 0
+    filtered = (await db.execute(count_base.where(*search_filters))).scalar() or 0
+
+    col_map = {1: Device.barcode, 2: Lot.lot_number, 3: Device.brand, 4: Device.model,
+               5: Device.device_type, 8: Device.grade}
+    try:
+        order_col = int(request.query_params.get("order[0][column]", 0))
+    except ValueError:
+        order_col = 0
+    order_dir = request.query_params.get("order[0][dir]", "asc")
+    sort_expr = col_map.get(order_col, Device.updated_at)
+    order_by = _asc(sort_expr) if order_dir == "asc" else _desc(sort_expr)
+
+    rows = (await db.execute(
+        base.where(*search_filters).order_by(order_by, Device.barcode)
+        .offset(max(0, start)).limit(min(max(1, length), 5000))
+    )).all()
+
+    device_ids = [d.id for d, _ in rows]
+    assigned_dept_map = {}
+    if device_ids:
+        for did, dept in (await db.execute(
+            select(StockTransfer.device_id, StockTransfer.department)
+            .where(StockTransfer.device_id.in_(device_ids), StockTransfer.department != None)
+            .order_by(StockTransfer.transfer_date.desc())
+        )).all():
+            assigned_dept_map.setdefault(str(did), dept)
+
+    def esc(v):
+        return escape(str(v)) if v is not None else ""
+
+    data = []
+    for d, lot_number_val in rows:
+        ram = f"{d.ram_gb}GB" if d.ram_gb else "—"
+        storage = f"{d.storage_gb}GB" if d.storage_gb else "—"
+        dept = assigned_dept_map.get(str(d.id))
+        data.append([
+            f'<input type="checkbox" class="form-check-input stockChk" value="{esc(d.barcode)}">',
+            f'<a href="/devices/{esc(d.barcode)}" class="font-monospace text-decoration-none"><code>{esc(d.barcode)}</code></a>',
+            f'<span class="badge bg-info text-dark">{esc(lot_number_val)}</span>',
+            esc(d.brand or "—"), esc(d.model or "—"), esc(d.device_type or "—"),
+            ram, storage, esc(d.grade or "—"),
+            f'<span class="bkt-cell" data-barcode="{esc(d.barcode)}"><span class="text-muted">—</span></span>',
+            (f'<span class="badge bg-secondary">{esc(dept)}</span>' if dept else '<span class="text-muted">—</span>'),
+            (f'<form method="post" action="/stock/move-to-trc" class="d-inline">'
+             f'<input type="hidden" name="csrf_token" value="{esc(request.cookies.get("csrf_token", ""))}">'
+             f'<input type="hidden" name="barcode" value="{esc(d.barcode)}">'
+             f'<button type="submit" class="btn btn-sm btn-outline-info py-0 px-2"><i class="bi bi-cpu"></i> Move to Production</button>'
+             f'</form>'),
+            esc(d.grn_number or ""), esc(d.invoice_number or ""),
+        ])
+
+    return {"draw": draw, "recordsTotal": total, "recordsFiltered": filtered, "data": data}
+
+
 @router.get("/stock", response_class=HTMLResponse)
 async def stock_in_list(
     request: Request,
@@ -857,26 +957,16 @@ async def stock_in_list(
     date_from: str = Query(default=""),
     date_to: str = Query(default=""),
 ):
-    from utils.date_filter import apply_date_range
-    # Full dataset (no server-side page cap) so the scan/search box can match
-    # against every stock-in device, not just the current page; pagination is
-    # client-side (DataTable, 12/page) — see stock_in.html.
-    stock_filters = [Device.current_stage == DeviceStage.stock_in, Device.is_active == True]
-    if device_type:
-        stock_filters.append(Device.device_type == device_type)
-    if lot_number:
-        stock_filters.append(Lot.lot_number == lot_number)
-    apply_date_range(stock_filters, Device.created_at, date_from, date_to)
-
-    base_stmt = (
-        select(Device, Lot.lot_number)
+    # Rows for the Inventory Stock table come from /stock/data (DataTables
+    # server-side); only the count is needed here.
+    stock_filters = _stock_filters(device_type, lot_number, date_from, date_to)
+    count_stmt = (
+        select(func.count())
+        .select_from(Device)
         .join(Lot, Device.lot_id == Lot.id)
         .where(*stock_filters)
     )
-
-    result = await db.execute(base_stmt.order_by(Device.updated_at.desc()))
-    devices = result.all()
-    total = len(devices)
+    total = (await db.execute(count_stmt)).scalar() or 0
 
     # ── Analytics count cards (#17) ──────────────────────────────────────────
     count_rows = (await db.execute(
@@ -899,30 +989,11 @@ async def stock_in_list(
         "ready": _c(DeviceStage.ready_to_sale),
     }
 
-    # ── Assigned department per device (latest stock transfer) for #1 column ──
-    device_ids = [d.id for d, _ in devices]
-    assigned_dept_map = {}
-    if device_ids:
-        st_rows = (await db.execute(
-            select(StockTransfer.device_id, StockTransfer.department)
-            .where(StockTransfer.device_id.in_(device_ids), StockTransfer.department != None)
-            .order_by(StockTransfer.transfer_date.desc())
-        )).all()
-        for did, dept in st_rows:
-            key = str(did)
-            if key not in assigned_dept_map and dept:
-                assigned_dept_map[key] = dept
-
-    # ── Cost & Parts table data (Batch D Task 1) ─────────────────────────────
-    cost_parts_map = await build_cost_parts_map(db, device_ids)
-    location_map = {}
-    if device_ids:
-        loc_ids = {d.location_id for d, _ in devices if d.location_id}
-        if loc_ids:
-            loc_rows = (await db.execute(
-                select(StorageLocation).where(StorageLocation.id.in_(loc_ids))
-            )).scalars().all()
-            location_map = {l.id: l for l in loc_rows}
+    # Assigned department, Cost & Parts and Location maps used to be built here
+    # from a full device fetch, purely to feed the old inline table's cells.
+    # /stock/data now builds the department map itself, per page; Cost & Parts
+    # and its Movement table were removed from this page previously and
+    # nothing in the template reads cost_parts_map or location_map any more.
 
     # Lot Number filter options — every lot that still has stock-in devices,
     # independent of the currently applied filters so the dropdown never
@@ -938,10 +1009,9 @@ async def stock_in_list(
     ]
 
     return templates.TemplateResponse("lots/stock_in.html", {
-        "request": request, "devices": devices, "current_user": current_user,
-        "analytics": analytics, "assigned_dept_map": assigned_dept_map,
+        "request": request, "current_user": current_user,
+        "analytics": analytics,
         "departments": STOCK_DEPARTMENTS,
-        "cost_parts_map": cost_parts_map, "location_map": location_map,
         "total": total,
         "device_type": device_type,
         "device_type_options": await master_values(db, "device_type"),

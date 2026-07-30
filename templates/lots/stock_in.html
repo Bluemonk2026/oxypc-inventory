@@ -89,33 +89,12 @@
   <div class="card-body p-0">
     <div class="table-responsive">
       <table id="stockTable" class="table table-hover mb-0 small">
-        <thead class="table-dark"><tr><th style="width:32px"><input type="checkbox" id="selectAllStock" class="form-check-input"></th><th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Device Type</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Inside Bucket</th><th>Assigned User</th><th>Action</th>{# GRN and Invoice are not shown but are searchable — the single search box above spans them. #}<th class="d-none">GRN</th><th class="d-none">Invoice</th></tr></thead>
-        <tbody>
-          {% for device, lot_number in devices %}
-          <tr id="stock-row-{{ device.barcode }}" data-barcode="{{ device.barcode }}" data-serial="{{ device.serial_no or '' }}">
-            <td><input type="checkbox" class="form-check-input stockChk" value="{{ device.barcode }}"></td>
-            <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none"><code>{{ device.barcode }}</code></a></td>
-            <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
-            <td>{{ device.brand or '—' }}</td>
-            <td>{{ device.model or '—' }}</td>
-            <td>{{ device.device_type or '—' }}</td>
-            <td>{{ (device.ram_gb|string ~ 'GB') if device.ram_gb else '—' }}</td>
-            <td>{{ (device.storage_gb|string ~ 'GB') if device.storage_gb else '—' }}</td>
-            <td>{{ device.grade or '—' }}</td>
-            <td class="bkt-cell" data-barcode="{{ device.barcode }}"><span class="text-muted">—</span></td>
-            <td>{% set dept = assigned_dept_map.get(device.id|string) if assigned_dept_map is defined else None %}{% if dept %}<span class="badge bg-secondary">{{ dept }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-            <td class="text-nowrap">
-              <form method="post" action="/stock/move-to-trc" class="d-inline">
-                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-                <input type="hidden" name="barcode" value="{{ device.barcode }}">
-                <button type="submit" class="btn btn-sm btn-outline-info py-0 px-2"><i class="bi bi-cpu"></i> Move to Production</button>
-              </form>
-            </td>
-            <td class="d-none">{{ device.grn_number or '' }}</td>
-            <td class="d-none">{{ device.invoice_number or '' }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
+        <thead class="table-dark"><tr><th style="width:32px"><input type="checkbox" id="selectAllStock" class="form-check-input"></th><th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Device Type</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Inside Bucket</th><th>Assigned User</th><th>Action</th><th>GRN</th><th>Invoice</th></tr></thead>
+        {# Rows are supplied by /stock/data (DataTables server-side). GRN and
+           Invoice are hidden via DataTables' columnDefs (visible:false) below,
+           not a d-none class — that pairing broke the moment rows stopped being
+           rendered inline on the Sales list, so it is not repeated here. #}
+        <tbody></tbody>
       </table>
     </div>
   </div>
@@ -332,72 +311,85 @@
 function getCsrf(){ var c=document.cookie.split('; ').find(function(r){return r.startsWith('csrf_token=');}); return c ? c.split('=')[1] : ''; }
 
 $(document).ready(function(){
-  // ── Device table: 8 per page, Assign Bucket button on left of search row ──
+  // ── Device table, server-side: rows come from /stock/data a page at a time.
+  // Search used to run as two separate client-side ext.search predicates over
+  // rows already in the DOM (a scan box matching data-barcode/data-serial, and
+  // a "quick search" matching Tag/Model/GRN/Invoice). Both are folded into the
+  // same server-side search now, since /stock/data already matches barcode,
+  // serial, brand, model, lot, GRN and invoice in one query. ──
   var dtStock = $('#stockTable').DataTable({
-    pageLength: 12,
-    lengthChange: false,
-    dom: '<"d-flex align-items-center justify-content-between px-3 py-2 border-bottom"<"#stkBtnArea">f>t<"d-flex align-items-center justify-content-between px-3 py-2"ip>',
-    language: { search: '', searchPlaceholder: 'Search…' }
+    serverSide: true,
+    processing: true,
+    pageLength: 25,
+    lengthMenu: [[12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000],
+                 [12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]],
+    order: [[1, 'asc']],
+    searchDelay: 400,
+    {# 'l' (length menu) is in the dom string on purpose: the original omitted it
+       via lengthChange:false, which is exactly what would have hidden the Show
+       Entries dropdown this conversion is required to expose. #}
+    dom: '<"d-flex align-items-center justify-content-between px-3 py-2 border-bottom"<"#stkBtnArea">f>t<"d-flex align-items-center justify-content-between px-3 py-2"lip>',
+    language: { search: '', searchPlaceholder: 'Search…' },
+    ajax: {
+      url: '/stock/data',
+      data: function (d) {
+        var p = new URLSearchParams(window.location.search);
+        ['device_type', 'lot_number', 'date_from', 'date_to']
+          .forEach(function (k) { d[k] = p.get(k) || ''; });
+      },
+      dataSrc: function (json) { return json.data; },
+    },
+    columnDefs: [{ orderable: false, targets: [0, 9, 11] }, { visible: false, targets: [12, 13] }],
+    drawCallback: function () {
+      document.getElementById('selectAllStock').checked = false;
+      updateStockSel();
+      loadBucketMap();
+    },
   });
   // Move hidden Assign button into the DT toolbar slot
   $('#stkBtnArea').append($('#assignBucketBtn').removeClass('d-none'));
 
-  // Scan tag/serial number -> filter to + auto-select that row (Inventory Stock).
-  // Matches against data-barcode/data-serial (not just visible column text) so
-  // a serial-number scan works even though Serial isn't a displayed column.
-  // A comma-separated list (multiple tags scanned/pasted at once) switches to
-  // check-all-matches mode instead of filtering to a single term, via the
-  // shared tag-scan-autocheck component.
-  var stockScanVal = '';
-  $.fn.dataTable.ext.search.push(function(settings, data, dataIndex, rowData, counter){
-    if (settings.nTable.id !== 'stockTable' || !stockScanVal || stockScanVal.indexOf(',') !== -1) return true;
-    var row = settings.aoData[dataIndex].nTr;
-    var bc = (row.getAttribute('data-barcode') || '').toLowerCase();
-    var sn = (row.getAttribute('data-serial') || '').toLowerCase();
-    var term = stockScanVal.toLowerCase();
-    return bc.indexOf(term) !== -1 || sn.indexOf(term) !== -1;
-  });
+  // Scan a single tag/serial -> the ajax search narrows to that one row (which
+  // then IS the current page), so it can be auto-selected and scrolled to
+  // regardless of which page it used to sit on. A comma-separated list keeps
+  // using the shared tag-scan-autocheck component, which — like Export
+  // Selected elsewhere — only reaches rows already rendered on the current
+  // page; that is an accepted limitation of paginating a selectable table.
   var stockScan = document.getElementById('stockScanInput');
   if (stockScan) {
-    stockScan.addEventListener('input', function(){
-      stockScanVal = this.value.trim();
-      dtStock.draw();
-      if (!stockScanVal || stockScanVal.indexOf(',') !== -1) return;
-      setTimeout(function(){
-        var row = document.querySelector('#stockTable tbody tr[data-barcode="' + stockScanVal + '"], #stockTable tbody tr[data-serial="' + stockScanVal + '"]');
+    stockScan.addEventListener('input', function () {
+      var val = this.value.trim();
+      if (!val || val.indexOf(',') !== -1) { dtStock.search(val.indexOf(',') !== -1 ? '' : val).draw(); return; }
+      dtStock.search(val).draw();
+      setTimeout(function () {
+        var row = document.querySelector('#stockTable tbody tr[data-barcode="' + val + '"], #stockTable tbody tr[data-serial="' + val + '"]');
         if (row) {
           var chk = row.querySelector('.stockChk');
           if (chk) { chk.checked = true; updateStockSel(); }
           row.scrollIntoView({behavior:'smooth', block:'center'});
         }
-      }, 50);
+      }, 500);   // after the ajax redraw
     });
   }
-  // Multiple tag numbers, comma-separated -> check every matching row (any
-  // page) and keep the Assign Bucket count in sync — the count element is
-  // updated by the existing updateStockSel(), triggered via the dispatched
-  // 'change' event below.
   initTagScanAutocheck({ inputId: 'stockScanInput', tableSelector: '#stockTable', rowTagAttr: 'data-barcode', rowCheckboxSelector: '.stockChk' });
 
-  // ── Single search box: GRN / Invoice / Tag Number / Model ──
-  // A targeted filter rather than DataTables' global search, which would also
-  // match Lot, Brand, Grade and the Action column's button text.
-  // Columns: 1=Tag Number, 4=Model, 12=GRN (hidden), 13=Invoice (hidden).
-  var quickVal = '';
-  $.fn.dataTable.ext.search.push(function(settings, data){
-    if (settings.nTable.id !== 'stockTable' || !quickVal) return true;
-    var term = quickVal.toLowerCase();
-    return [1, 4, 12, 13].some(function(i){
-      return (data[i] || '').toLowerCase().indexOf(term) !== -1;
-    });
-  });
   var quickBox = document.getElementById('stockQuickSearch');
   if (quickBox) {
-    quickBox.addEventListener('input', function(){
-      quickVal = this.value.trim();
-      dtStock.draw();
+    quickBox.addEventListener('input', function () { dtStock.search(this.value.trim()).draw(); });
+  }
+
+  // "Inside Bucket" column: filled in after each draw via a separate lookup,
+  // same as the original page did on initial load — now it also has to run
+  // per page, since server-side paging replaces the rows.
+  function loadBucketMap() {
+    fetch('/api/buckets/device-map?status=stock_in').then(function(r){return r.json();}).then(function(map){
+      document.querySelectorAll('.bkt-cell').forEach(function(cell){
+        var bc = cell.dataset.barcode;
+        cell.innerHTML = map[bc] ? '<span class="badge bg-warning text-dark">'+map[bc]+'</span>' : '<span class="text-muted">—</span>';
+      });
     });
   }
+  window._loadBucketMap = loadBucketMap;
 });
 
 // ── Customise: bulk-edit the ticked Inventory Stock rows ──
@@ -451,13 +443,9 @@ fetch('/api/bucket-warehouses').then(function(r){return r.json();}).then(functio
 // Bootstrap tooltips (Location hover — Batch D Task 1); base.html has no shared init, so init here
 document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el){ new bootstrap.Tooltip(el); });
 
-// Populate "Inside Bucket" column on load
-fetch('/api/buckets/device-map?status=stock_in').then(function(r){return r.json();}).then(function(map){
-  document.querySelectorAll('.bkt-cell').forEach(function(cell){
-    var bc = cell.dataset.barcode;
-    if(map[bc]){ cell.innerHTML = '<span class="badge bg-warning text-dark">'+map[bc]+'</span>'; }
-  });
-});
+// "Inside Bucket" is populated by loadBucketMap() in the DataTable's own
+// drawCallback above, which also covers this initial load (server-side
+// DataTables draws once on init) — no separate fetch needed here.
 
 // Delegated event listeners for bucket table (survive DataTable rebuild)
 $(document).on('click', '.view-bkt-tags', function(e){
@@ -514,11 +502,7 @@ $(document).on('click', '.move-bkt-trc', function(){
       if(d.ok){
         loadBucketTable();
         loadAllocationTable();
-        fetch('/api/buckets/device-map?status=stock_in').then(function(r){return r.json();}).then(function(map){
-          document.querySelectorAll('.bkt-cell').forEach(function(cell){
-            if(!map[cell.dataset.barcode]) cell.innerHTML='<span class="text-muted">—</span>';
-          });
-        });
+        if (window._loadBucketMap) window._loadBucketMap();
       }
     });
 });

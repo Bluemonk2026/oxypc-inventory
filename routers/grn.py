@@ -96,6 +96,89 @@ async def grn_import_list(request: Request, db: AsyncSession = Depends(get_db),
 
 # ── GRN post IQC (item 14): same import/validate/edit, plus Map-to-Tag ─────────
 
+@router.get("/post-iqc/data")
+async def grn_post_iqc_data(
+    request: Request,
+    draw: int = 1, start: int = 0, length: int = 25,
+    device_type: str = "", pend_invoice: str = "", pend_po: str = "",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """DataTables server-side feed for the GRN in TRC pending-devices table.
+
+    'pending' is every IQC-stage device with no GRN number yet — effectively
+    the whole IQC backlog (~3,900 devices with no filter). Rendering all of
+    them into the HTML on every load froze the page; rows now come a page at
+    a time. Invoice/PO are still hidden via DataTables' own columnDefs
+    (visible:false), not a d-none class, so header and cell hide together.
+    """
+    from sqlalchemy import desc as _desc, asc as _asc
+    from html import escape
+
+    base_filters = [Device.current_stage == DeviceStage.iqc,
+                    or_(Device.grn_number.is_(None), Device.grn_number == ""),
+                    Device.is_active == True, Device.is_trashed == False]
+    if device_type:
+        base_filters.append(Device.device_type == device_type)
+    # Matches the old client-side rule: with either term present, a row must
+    # hit invoice OR po (not both) to survive — replicated exactly rather than
+    # simplified to an AND, which would change what the filter selects.
+    if pend_invoice or pend_po:
+        ors = []
+        if pend_invoice:
+            ors.append(Device.invoice_number.ilike(f"%{pend_invoice}%"))
+        if pend_po:
+            ors.append(Device.po_number.ilike(f"%{pend_po}%"))
+        base_filters.append(or_(*ors))
+
+    count_q = select(func.count()).select_from(Device).where(*base_filters)
+    total = (await db.execute(count_q)).scalar() or 0
+
+    search = (request.query_params.get("search[value]") or "").strip()
+    search_filters = []
+    if search:
+        like = f"%{search}%"
+        search_filters.append(or_(
+            Device.barcode.ilike(like), Device.brand.ilike(like),
+            Device.model.ilike(like), Device.device_type.ilike(like),
+        ))
+    filtered = (await db.execute(count_q.where(*search_filters))).scalar() or 0
+
+    col_map = {1: Device.barcode, 2: Device.brand, 3: Device.model,
+               4: Device.device_type, 5: Device.ram_gb, 6: Device.storage_gb,
+               8: Device.invoice_number, 9: Device.po_number}
+    try:
+        order_col = int(request.query_params.get("order[0][column]", 0))
+    except ValueError:
+        order_col = 0
+    order_dir = request.query_params.get("order[0][dir]", "desc")
+    sort_expr = col_map.get(order_col, Device.created_at)
+    order_by = _asc(sort_expr) if order_dir == "asc" else _desc(sort_expr)
+
+    rows = (await db.execute(
+        select(Device).where(*base_filters, *search_filters)
+        .order_by(order_by, Device.barcode)
+        .offset(max(0, start)).limit(min(max(1, length), 5000))
+    )).scalars().all()
+
+    def esc(v):
+        return escape(str(v)) if v is not None else ""
+
+    data = []
+    for d in rows:
+        data.append([
+            f'<input type="checkbox" class="pendChk" name="device_ids" value="{d.id}" data-barcode="{esc(d.barcode)}">',
+            f'<a href="/devices/{esc(d.barcode)}" class="font-monospace text-decoration-none">{esc(d.barcode)}</a>',
+            esc(d.brand or "—"), esc(d.model or "—"), esc(d.device_type or "—"),
+            f"{d.ram_gb} GB" if d.ram_gb else "—",
+            f"{d.storage_gb} GB" if d.storage_gb else "—",
+            f'<span class="badge bg-{d.stage_color}">{esc(d.stage_label)}</span>',
+            esc(d.invoice_number or ""), esc(d.po_number or ""),
+        ])
+
+    return {"draw": draw, "recordsTotal": total, "recordsFiltered": filtered, "data": data}
+
+
 @router.get("/post-iqc", response_class=HTMLResponse)
 async def grn_post_iqc(request: Request, db: AsyncSession = Depends(get_db),
                        current_user: User = Depends(allowed),
@@ -105,16 +188,18 @@ async def grn_post_iqc(request: Request, db: AsyncSession = Depends(get_db),
                                 GRNImport.is_deleted == False)
         .order_by(GRNImport.created_at.desc())
     )).scalars().all()
-    # Pending = devices currently in IQC stage whose GRN field is still empty
-    pending = (await db.execute(
-        select(Device).where(
+    # Pending = devices currently in IQC stage whose GRN field is still empty.
+    # Rows for that table now come from /grn/post-iqc/data (DataTables
+    # server-side) — only the count is needed here, for the header badge.
+    pending_count = (await db.execute(
+        select(func.count()).select_from(Device).where(
             Device.current_stage == DeviceStage.iqc,
             or_(Device.grn_number.is_(None), Device.grn_number == ""),
             Device.is_active == True, Device.is_trashed == False,
-        ).order_by(Device.created_at.desc())
-    )).scalars().all()
+        )
+    )).scalar() or 0
     return templates.TemplateResponse("grn/post_iqc.html", {
-        "request": request, "grns": grns, "pending": pending,
+        "request": request, "grns": grns, "pending_count": pending_count,
         "stocked": await _stocked_map(db, grns),
         "current_user": current_user, "error": error, "success": success,
         "highlight_tag": highlight_tag,

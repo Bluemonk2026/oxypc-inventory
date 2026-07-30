@@ -115,87 +115,22 @@
             <th></th>
           </tr>
         </thead>
-        <tbody>
-          {% for device, lot_number in devices %}
-          <tr>
-            <td><input type="checkbox" class="form-check-input rowChk" value="{{ device.barcode }}"></td>
-            <td class="text-nowrap"><a href="/devices/{{ device.barcode }}" class="text-decoration-none"><code class="small fw-bold">{{ device.barcode }}</code></a>
-              <span class="badge rounded-pill bg-secondary ms-1" title="Quantity">{{ device.qty or 1 }}</span></td>
-            <td><a href="/devices?lot={{ lot_number }}" class="btn btn-sm py-0 px-2 small text-decoration-none" style="background-color:#ffffff;border:1px solid #6C757D;color:#6C757D;">{{ lot_number }}</a></td>
-            <td class="small">{{ device.brand or '—' }}</td>
-            <td class="small">{{ device.model or '—' }}</td>
-            <td class="small">{{ device.device_type or '—' }}</td>
-            <td class="text-muted small">{{ device.cpu or '—' }}</td>
-            <td class="small">{{ device.ram_summary or (device.ram_gb ~ 'GB' if device.ram_gb else '—') }}</td>
-            <td class="small">
-              {% if device.hdd_summary %}
-                {{ device.hdd_summary }}
-              {% elif device.storage_gb %}
-                {{ device.storage_gb }}GB {{ device.storage_type or '' }}
-              {% else %}—{% endif %}
-            </td>
-            <td>
-              {% if device.grade %}
-              {% set g = device.grade.value if device.grade.value is defined else device.grade | string %}
-              <span class="badge bg-{{ 'success' if g == 'A' else 'warning text-dark' if g == 'B' else 'secondary' if g == 'C' else 'danger' if g in ['D','scrap'] else 'light text-dark' }}">
-                {{ g }}
-              </span>
-              {% else %}—{% endif %}
-            </td>
-            {% if can_view_pricing(current_user) %}
-            <td class="small">{% set sp = stock_price_map.get(device.id|string) if stock_price_map is defined else None %}{% if sp is not none %}₹{{ "{:,.0f}".format(sp) }}{% else %}—{% endif %}</td>
-            <td class="small">{% set salep = sale_price_map.get(device.id|string) if sale_price_map is defined else None %}{% if salep is not none %}₹{{ "{:,.0f}".format(salep) }}{% else %}—{% endif %}</td>
-            {% endif %}
-            <td>
-              {% set s = device.current_stage %}
-              {% if s.value in ['iqc'] %}
-                <span class="badge bg-secondary">{{ stage_labels.get(s, s.value) }}</span>
-              {% elif s.value in ['stock_in'] %}
-                <span class="badge bg-info text-dark">{{ stage_labels.get(s, s.value) }}</span>
-              {% elif s.value in ['l1','l2','l3'] %}
-                <span class="badge bg-warning text-dark">{{ stage_labels.get(s, s.value) }}</span>
-              {% elif s.value in ['qc_check','final_qc'] %}
-                <span class="badge bg-primary">{{ stage_labels.get(s, s.value) }}</span>
-              {% elif s.value == 'ready_to_sale' %}
-                <span class="badge bg-success">{{ stage_labels.get(s, s.value) }}</span>
-              {% elif s.value == 'sold' %}
-                <span class="badge bg-dark">{{ stage_labels.get(s, s.value) }}</span>
-              {% elif s.value == 'returned' %}
-                <span class="badge bg-danger">{{ stage_labels.get(s, s.value) }}</span>
-              {% elif s.value in ['cleaning','dry_sanding','masking','painting','water_sanding'] %}
-                <span class="badge bg-purple" style="background:#6f42c1">{{ stage_labels.get(s, s.value) }}</span>
-              {% else %}
-                <span class="badge bg-light text-dark">{{ stage_labels.get(s, s.value) }}</span>
-              {% endif %}
-            </td>
-            <td class="small text-muted">
-              {{ device.updated_at.strftime('%d-%m-%Y') if device.updated_at else '—' }}
-            </td>
-            <td class="text-nowrap">
-              <a href="/devices/{{ device.barcode }}" class="btn btn-xs btn-outline-primary py-0 px-1 small" title="View">
-                <i class="bi bi-eye"></i>
-              </a>
-              <a href="/devices/{{ device.barcode }}/edit" class="btn btn-xs btn-outline-warning py-0 px-1 small" title="Edit">
-                <i class="bi bi-pencil"></i>
-              </a>
-              <button class="btn btn-xs btn-outline-danger py-0 px-1 small"
-                      onclick="if(confirm('Move {{ device.barcode }} to Trash?')) { document.getElementById('trashDev_{{ loop.index }}').submit(); }"
-                      title="Move to Trash">
-                <i class="bi bi-trash3"></i>
-              </button>
-              <form id="trashDev_{{ loop.index }}" method="post" action="/trash/devices/{{ device.barcode }}" style="display:none">
-                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
-              </form>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
+        {# Rows are supplied by /devices/data (DataTables server-side). Rendering
+           all matching devices here — up to ~19,000 with no filter — produced a
+           multi-megabyte response that hung the browser before the page became
+           interactive, the same problem fixed for the Sales list. #}
+        <tbody></tbody>
       </table>
     </div>
   </div>
 </div>
 
 <form id="bulkTrashForm" method="post" action="/trash/bulk/devices" style="display:none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+</form>
+{# Single reusable form for the per-row Trash button: rows are server-rendered
+   now, so there is no per-row {{ loop.index }} to build one form per device. #}
+<form id="trashOneForm" method="post" action="" style="display:none">
   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
 </form>
 
@@ -519,10 +454,28 @@ document.querySelectorAll('.replace-scrap-btn').forEach(function(btn){
 
 $(document).ready(function() {
   var dt = $('#devicesTable').DataTable({
-    pageLength: 12,
-    order: [],
+    serverSide: true,
+    processing: true,
+    pageLength: 25,
+    lengthMenu: [[12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000],
+                 [12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]],
+    order: [[13, 'desc']],
+    searchDelay: 400,
+    ajax: {
+      url: '/devices/data',
+      data: function (d) {
+        var p = new URLSearchParams(window.location.search);
+        ['q', 'stage', 'lot', 'grade', 'category', 'device_type', 'date_from', 'date_to']
+          .forEach(function (k) { d[k] = p.get(k) || ''; });
+      },
+      dataSrc: function (json) { return json.data; },
+    },
     columnDefs: [{ orderable: false, targets: [0, -1] }],
     dom: '<"d-flex justify-content-between align-items-center mb-2"lf>t<"d-flex justify-content-between"ip>',
+    drawCallback: function () {
+      $('#selectAllChk').prop('checked', false);
+      updateSel();
+    },
   });
   window._dtDevices = dt;
 
@@ -540,8 +493,16 @@ $(document).ready(function() {
     updateSel();
   });
   $('#devicesTable').on('change', '.rowChk', updateSel);
-  // Keep select-all box in sync when paging
-  dt.on('draw', function(){ $('#selectAllChk').prop('checked', false); updateSel(); });
+
+  // Single-device trash: rows are server-rendered, so this button carries the
+  // barcode in a data attribute rather than a per-row hidden form + loop index.
+  $('#devicesTable').on('click', '.trash-one-btn', function () {
+    var bc = $(this).data('barcode');
+    if (!confirm('Move ' + bc + ' to Trash? It can be restored from the Trash page.')) return;
+    var f = document.getElementById('trashOneForm');
+    f.action = '/trash/devices/' + encodeURIComponent(bc);
+    f.submit();
+  });
 
   // Model Based table — paginated + Model Names search box
   var dtModel = $('#modelSummaryTable').DataTable({

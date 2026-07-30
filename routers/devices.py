@@ -149,6 +149,158 @@ async def _get_device_or_404(barcode: str, db: AsyncSession) -> Device:
     return device
 
 
+def _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to):
+    """Filter clauses shared by the Inventory Search page and its data endpoint."""
+    from utils.date_filter import apply_date_range
+    w = []
+    if q:
+        q_like = f"%{q}%"
+        w.append(or_(
+            Device.barcode.ilike(q_like), Device.brand.ilike(q_like),
+            Device.model.ilike(q_like), Device.serial_no.ilike(q_like),
+            Device.cpu.ilike(q_like), Device.grn_number.ilike(q_like),
+        ))
+    if stage:
+        try:
+            w.append(Device.current_stage == DeviceStage(stage))
+        except ValueError:
+            pass
+    if lot:
+        w.append(Lot.lot_number.ilike(f"%{lot}%"))
+    if grade:
+        w.append(Device.grade == grade)
+    if category:
+        w.append(Device.sub_category == category)
+    if device_type:
+        w.append(Device.device_type == device_type)
+    apply_date_range(w, Device.created_at, date_from, date_to)
+    return w
+
+
+_STAGE_BADGE = {
+    "iqc": "secondary", "stock_in": "info text-dark", "l1": "warning text-dark",
+    "l2": "warning text-dark", "l3": "warning text-dark", "qc_check": "primary",
+    "final_qc": "primary", "ready_to_sale": "success", "sold": "dark",
+    "returned": "danger", "cleaning": "purple", "dry_sanding": "purple",
+    "masking": "purple", "painting": "purple", "water_sanding": "purple",
+}
+
+
+@router.get("/data")
+async def device_search_data(
+    request: Request,
+    draw: int = 1, start: int = 0, length: int = 25,
+    q: str = "", stage: str = "", lot: str = "", grade: str = "",
+    category: str = "", device_type: str = "", date_from: str = "", date_to: str = "",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(view_allowed),
+):
+    """DataTables server-side feed for Inventory Search.
+
+    Same reasoning as the Sales list conversion: at ~11,000 devices this table
+    rendered every row into the HTML on every page load — the page would hang
+    the browser for several seconds before becoming interactive, and grew
+    steadily worse as devices accumulated (19,000+ by 2026-07-30). Rows now come
+    a page at a time; search, sort and paging still reach every device.
+    """
+    from sqlalchemy import desc as _desc, asc as _asc
+    from models.role_permissions import can_view_pricing as _cvp
+    from html import escape
+
+    role = getattr(current_user.role, "value", current_user.role)
+    show_pricing = _cvp(role)
+
+    page_filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to)
+    base = select(Device, Lot.lot_number).join(Lot, Device.lot_id == Lot.id).where(Device.is_trashed == False)
+    count_base = select(func.count()).select_from(Device).join(Lot, Device.lot_id == Lot.id).where(Device.is_trashed == False)
+
+    search = (request.query_params.get("search[value]") or "").strip()
+    search_filters = []
+    if search:
+        like = f"%{search}%"
+        search_filters.append(or_(
+            Device.barcode.ilike(like), Device.brand.ilike(like), Device.model.ilike(like),
+            Device.cpu.ilike(like), Device.serial_no.ilike(like), Lot.lot_number.ilike(like),
+            Device.device_type.ilike(like),
+        ))
+
+    total = (await db.execute(count_base.where(*page_filters))).scalar() or 0
+    filtered = (await db.execute(count_base.where(*page_filters, *search_filters))).scalar() or 0
+
+    col_map = {1: Device.barcode, 2: Lot.lot_number, 3: Device.brand, 4: Device.model,
+               5: Device.device_type, 6: Device.cpu, 9: Device.grade, 13: Device.updated_at}
+    try:
+        order_col = int(request.query_params.get("order[0][column]", 13))
+    except ValueError:
+        order_col = 13
+    order_dir = request.query_params.get("order[0][dir]", "desc")
+    sort_expr = col_map.get(order_col, Device.updated_at)
+    order_by = _asc(sort_expr) if order_dir == "asc" else _desc(sort_expr)
+
+    rows = (await db.execute(
+        base.where(*page_filters, *search_filters)
+        .order_by(order_by, Device.barcode)
+        .offset(max(0, start)).limit(min(max(1, length), 5000))
+    )).all()
+
+    device_ids = [d.id for d, _ in rows]
+    stock_price_map, sale_price_map = {}, {}
+    if show_pricing and device_ids:
+        for c in (await db.execute(select(DeviceCosting).where(DeviceCosting.device_id.in_(device_ids)))).scalars().all():
+            stock_price_map[str(c.device_id)] = c.total_cost
+        for d, _ in rows:
+            did = str(d.id)
+            if did not in stock_price_map and d.device_price:
+                stock_price_map[did] = d.device_price * (d.qty or 1)
+        for did, sp in (await db.execute(
+            select(Sale.device_id, func.max(Sale.sale_price))
+            .where(Sale.device_id.in_(device_ids)).group_by(Sale.device_id)
+        )).all():
+            sale_price_map[str(did)] = sp
+
+    def esc(v):
+        return escape(str(v)) if v is not None else ""
+
+    data = []
+    for d, lot_number in rows:
+        g = getattr(d.grade, "value", d.grade) if d.grade else None
+        gcls = ("success" if g == "A" else "warning text-dark" if g == "B" else
+                "secondary" if g == "C" else "danger" if g in ("D", "scrap") else "light text-dark")
+        stage_val = getattr(d.current_stage, "value", d.current_stage)
+        stage_lbl = STAGE_LABELS.get(d.current_stage, stage_val)
+        ram = d.ram_summary or (f"{d.ram_gb}GB" if d.ram_gb else "—")
+        storage = d.hdd_summary or (f"{d.storage_gb}GB {d.storage_type or ''}".strip() if d.storage_gb else "—")
+        cells = [
+            f'<input type="checkbox" class="form-check-input rowChk" value="{esc(d.barcode)}">',
+            (f'<a href="/devices/{esc(d.barcode)}" class="text-decoration-none">'
+             f'<code class="small fw-bold">{esc(d.barcode)}</code></a>'
+             f'<span class="badge rounded-pill bg-secondary ms-1" title="Quantity">{d.qty or 1}</span>'),
+            (f'<a href="/devices?lot={esc(lot_number)}" class="btn btn-sm py-0 px-2 small text-decoration-none" '
+             f'style="background-color:#ffffff;border:1px solid #6C757D;color:#6C757D;">{esc(lot_number)}</a>'),
+            esc(d.brand or "—"), esc(d.model or "—"), esc(d.device_type or "—"), esc(d.cpu or "—"),
+            esc(ram), esc(storage),
+            (f'<span class="badge bg-{gcls}">{esc(g)}</span>' if g else "—"),
+        ]
+        if show_pricing:
+            sp = stock_price_map.get(str(d.id))
+            salep = sale_price_map.get(str(d.id))
+            cells.append(f'₹{float(sp):,.0f}' if sp is not None else "—")
+            cells.append(f'₹{float(salep):,.0f}' if salep is not None else "—")
+        cells += [
+            f'<span class="badge bg-{_STAGE_BADGE.get(stage_val, "light text-dark")}">{esc(stage_lbl)}</span>',
+            d.updated_at.strftime("%d-%m-%Y") if d.updated_at else "—",
+            (f'<div class="d-flex gap-1">'
+             f'<a href="/devices/{esc(d.barcode)}" class="btn btn-xs btn-outline-primary py-0 px-1" title="View"><i class="bi bi-eye"></i></a>'
+             f'<a href="/devices/{esc(d.barcode)}/edit" class="btn btn-xs btn-outline-warning py-0 px-1" title="Edit"><i class="bi bi-pencil"></i></a>'
+             f'<button type="button" class="btn btn-xs btn-outline-danger py-0 px-1 trash-one-btn" data-barcode="{esc(d.barcode)}" title="Move to Trash"><i class="bi bi-trash3"></i></button>'
+             f'</div>'),
+        ]
+        data.append(cells)
+
+    return {"draw": draw, "recordsTotal": total, "recordsFiltered": filtered,
+            "data": data, "showPricing": show_pricing}
+
+
 # ── 1. INVENTORY SEARCH ──────────────────────────────────────────────────────
 
 @router.get("", response_class=HTMLResponse)
@@ -165,72 +317,31 @@ async def device_search(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(view_allowed),
 ):
-    """Global inventory browser — search across all stages."""
-    from utils.date_filter import apply_date_range
-    query = (
-        select(Device, Lot.lot_number)
+    """Global inventory browser — search across all stages.
+
+    Rows for the main table come from /devices/data (DataTables server-side).
+    This handler used to fetch every matching device — up to ~19,000 with no
+    filter applied — just to render them and to build location_map /
+    stock_price_map / sale_price_map, which existed solely to feed cells in
+    that table. Those maps are now built per-page inside /devices/data instead,
+    so fetching the full result set here would cost real query time and memory
+    for output nothing on the page uses.
+    """
+    filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to)
+
+    count_query = (
+        select(func.count())
+        .select_from(Device)
         .join(Lot, Device.lot_id == Lot.id)
         .where(Device.is_trashed == False)
     )
-
-    filters = []
-    if q:
-        q_like = f"%{q}%"
-        filters.append(or_(
-            Device.barcode.ilike(q_like),
-            Device.brand.ilike(q_like),
-            Device.model.ilike(q_like),
-            Device.serial_no.ilike(q_like),
-            Device.cpu.ilike(q_like),
-            Device.grn_number.ilike(q_like),
-        ))
-    if stage:
-        try:
-            filters.append(Device.current_stage == DeviceStage(stage))
-        except ValueError:
-            pass
-    if lot:
-        filters.append(Lot.lot_number.ilike(f"%{lot}%"))
-    if grade:
-        filters.append(Device.grade == grade)
-    if category:
-        filters.append(Device.sub_category == category)
-    if device_type:
-        filters.append(Device.device_type == device_type)
-    apply_date_range(filters, Device.created_at, date_from, date_to)
-
     for f in filters:
-        query = query.where(f)
-
-    query = query.order_by(Device.updated_at.desc())
-    result = await db.execute(query)
-    devices = result.all()
+        count_query = count_query.where(f)
+    total = (await db.execute(count_query)).scalar() or 0
 
     # Lot list for filter dropdown
     lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
     lots = lots_result.scalars().all()
-
-    # Current location per device (single batch query)
-    device_ids = [d.id for d, _ in devices]  # UUID objects
-    location_map = await _build_location_map(db, device_ids)
-
-    # Stock Price (P&L total cost) + Sale Price (from Sales) per device
-    stock_price_map, sale_price_map = {}, {}
-    if device_ids:
-        for c in (await db.execute(
-            select(DeviceCosting).where(DeviceCosting.device_id.in_(device_ids))
-        )).scalars().all():
-            stock_price_map[str(c.device_id)] = c.total_cost
-        for d, _ in devices:
-            did = str(d.id)
-            if did not in stock_price_map and d.device_price:
-                stock_price_map[did] = d.device_price * (d.qty or 1)
-        sale_rows = (await db.execute(
-            select(Sale.device_id, func.max(Sale.sale_price))
-            .where(Sale.device_id.in_(device_ids)).group_by(Sale.device_id)
-        )).all()
-        for did, sp in sale_rows:
-            sale_price_map[str(did)] = sp
 
     model_summary = await _build_model_summary(db, filters)
     lot_summary = await _build_lot_summary(db)
@@ -246,15 +357,13 @@ async def device_search(
 
     return templates.TemplateResponse("devices/list.html", {
         "request": request, "current_user": current_user,
-        "devices": devices, "lots": lots,
+        "lots": lots,
         "stages": DeviceStage, "stage_labels": STAGE_LABELS,
         "q": q, "stage": stage, "lot": lot, "grade": grade, "category": category,
         "device_type": device_type,
         "device_type_options": await master_values(db, "device_type"),
         "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
-        "total": len(devices),
-        "location_map": location_map,
-        "stock_price_map": stock_price_map, "sale_price_map": sale_price_map,
+        "total": total,
         "model_summary": model_summary,
         "lot_summary": lot_summary,
         "scrap_devices": scrap_devices,

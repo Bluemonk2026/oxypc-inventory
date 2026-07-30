@@ -493,6 +493,117 @@ async def usb_import(current_user: User = Depends(allowed)):
     return {"source": str(f), "data": data}
 
 
+def _iqc_filters(stage, device_type, grade, lot, q, date_from, date_to):
+    """Filter clauses shared by the Product IQC page and its data endpoint."""
+    from utils.date_filter import apply_date_range
+    w = [Device.is_active.is_(True), Device.is_trashed == False]
+    if stage:
+        try:
+            w.append(Device.current_stage == DeviceStage(stage))
+        except ValueError:
+            w.append(Device.current_stage == DeviceStage.iqc)
+    else:
+        w.append(Device.current_stage == DeviceStage.iqc)
+    if device_type:
+        w.append(Device.device_type == device_type)
+    if grade:
+        w.append(Device.grade == grade)
+    if lot:
+        w.append(Lot.lot_number == lot)
+    if q:
+        q_like = f"%{q}%"
+        w.append(or_(Device.barcode.ilike(q_like), Device.brand.ilike(q_like),
+                     Device.model.ilike(q_like), Device.serial_no.ilike(q_like)))
+    apply_date_range(w, Device.created_at, date_from, date_to)
+    return w
+
+
+@router.get("/data")
+async def iqc_list_data(
+    request: Request,
+    draw: int = 1, start: int = 0, length: int = 25,
+    q: str = "", stage: str = "", grade: str = "", lot: str = "",
+    device_type: str = "", date_from: str = "", date_to: str = "",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """DataTables server-side feed for Product IQC.
+
+    Same fix as Inventory Search: at ~3,900 devices this table rendered every
+    matching row into the HTML on every load. Column layout mirrors the
+    template exactly, including Floor/Added staying present but hidden via
+    DataTables' own columnDefs (visible:false) — that mechanism hides header
+    and cell together and was already correct here, unlike the d-none class
+    that caused a misalignment bug on the Sales list.
+    """
+    from sqlalchemy import desc as _desc, asc as _asc
+    from html import escape
+
+    page_filters = _iqc_filters(stage, device_type, grade, lot, q, date_from, date_to)
+    base = select(Device, Lot.lot_number).join(Lot, Device.lot_id == Lot.id).where(*page_filters)
+    count_base = select(func.count()).select_from(Device).join(Lot, Device.lot_id == Lot.id).where(*page_filters)
+
+    search = (request.query_params.get("search[value]") or "").strip()
+    search_filters = []
+    if search:
+        like = f"%{search}%"
+        search_filters.append(or_(
+            Device.barcode.ilike(like), Device.serial_no.ilike(like), Device.brand.ilike(like),
+            Device.model.ilike(like), Device.cpu.ilike(like), Lot.lot_number.ilike(like),
+        ))
+
+    total = (await db.execute(count_base)).scalar() or 0
+    filtered = (await db.execute(count_base.where(*search_filters))).scalar() or 0
+
+    col_map = {1: Device.serial_no, 2: Device.barcode, 3: Lot.lot_number,
+               4: Device.current_stage, 5: Device.brand, 6: Device.model,
+               7: Device.device_type, 8: Device.cpu, 11: Device.grade,
+               12: Device.floor, 13: Device.created_at}
+    try:
+        order_col = int(request.query_params.get("order[0][column]", 13))
+    except ValueError:
+        order_col = 13
+    order_dir = request.query_params.get("order[0][dir]", "desc")
+    sort_expr = col_map.get(order_col, Device.created_at)
+    order_by = _asc(sort_expr) if order_dir == "asc" else _desc(sort_expr)
+
+    rows = (await db.execute(
+        base.where(*search_filters).order_by(order_by, Device.barcode)
+        .offset(max(0, start)).limit(min(max(1, length), 5000))
+    )).all()
+
+    def esc(v):
+        return escape(str(v)) if v is not None else ""
+
+    data = []
+    for d, lot_number in rows:
+        stage_val = getattr(d.current_stage, "value", d.current_stage)
+        g = getattr(d.grade, "value", d.grade) if d.grade else None
+        gcls = "success" if g == "A" else "warning" if g == "B" else "danger"
+        ram = d.ram_summary or (f"{d.ram_gb}GB" if d.ram_gb else "—")
+        storage = d.hdd_summary or (f"{d.storage_gb}GB {d.storage_type or ''}" if d.storage_gb else "—")
+        data.append([
+            f'<input type="checkbox" class="form-check-input iqcRowChk" value="{esc(d.barcode)}">',
+            f'<span class="font-monospace small">{esc(d.serial_no or "—")}</span>',
+            f'<a href="/devices/{esc(d.barcode)}" class="text-decoration-none"><code>{esc(d.barcode)}</code></a>',
+            (f'<a href="/devices?lot={esc(lot_number)}" class="text-decoration-none">'
+             f'<span class="badge bg-info text-dark">{esc(lot_number)}</span></a>'),
+            f'<span class="badge bg-secondary">{esc(STAGE_LABELS.get(d.current_stage, stage_val))}</span>',
+            esc(d.brand or "—"), esc(d.model or "—"), esc(d.device_type or "—"),
+            f'<span class="text-muted small">{esc(d.cpu or "—")}</span>',
+            esc(ram), esc(storage),
+            (f'<span class="badge bg-{gcls}">{esc(g)}</span>' if g else "—"),
+            esc(d.floor or "—"),
+            d.created_at.strftime("%d-%m-%Y") if d.created_at else "—",
+            (f'<div class="d-flex gap-1">'
+             f'<a href="/devices/{esc(d.barcode)}/edit" class="btn btn-sm btn-outline-primary py-0 px-2" title="Edit"><i class="bi bi-pencil"></i></a>'
+             f'<button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 trash-one-btn" data-barcode="{esc(d.barcode)}" title="Move to Trash"><i class="bi bi-trash3"></i></button>'
+             f'</div>'),
+        ])
+
+    return {"draw": draw, "recordsTotal": total, "recordsFiltered": filtered, "data": data}
+
+
 @router.get("", response_class=HTMLResponse)
 async def iqc_list(
     request: Request,
@@ -509,44 +620,23 @@ async def iqc_list(
     date_from: str = Query(default=""),
     date_to: str = Query(default=""),
 ):
-    from utils.date_filter import apply_date_range
     # Stage defaults to IQC (this page's usual purpose) unless the user
     # explicitly picks a different stage from the new Stage filter — lets
     # this page double as a broader device search without changing its
-    # default behavior for anyone who doesn't touch the filter.
-    base_filters = [Device.is_active.is_(True), Device.is_trashed == False]
+    # default behavior for anyone who doesn't touch the filter. Blank out an
+    # invalid stage value the same way the old inline code did.
     if stage:
         try:
-            base_filters.append(Device.current_stage == DeviceStage(stage))
+            DeviceStage(stage)
         except ValueError:
             stage = ""
-            base_filters.append(Device.current_stage == DeviceStage.iqc)
-    else:
-        base_filters.append(Device.current_stage == DeviceStage.iqc)
-    if device_type:
-        base_filters.append(Device.device_type == device_type)
-    if grade:
-        base_filters.append(Device.grade == grade)
-    if lot:
-        base_filters.append(Lot.lot_number == lot)
-    if q:
-        q_like = f"%{q}%"
-        base_filters.append(or_(
-            Device.barcode.ilike(q_like),
-            Device.brand.ilike(q_like),
-            Device.model.ilike(q_like),
-            Device.serial_no.ilike(q_like),
-        ))
-    apply_date_range(base_filters, Device.created_at, date_from, date_to)
+    base_filters = _iqc_filters(stage, device_type, grade, lot, q, date_from, date_to)
 
-    base_q = (
-        select(Device, Lot.lot_number)
-        .join(Lot, Device.lot_id == Lot.id)
-        .where(*base_filters)
-    )
-    result = await db.execute(base_q.order_by(Device.created_at.desc()))
-    devices = result.all()
-    total = len(devices)
+    # Rows for the main table come from /iqc/data (DataTables server-side); the
+    # full fetch this handler used to do — up to ~3,900 devices — existed only
+    # to render them and to compute `total`, which a COUNT does far cheaper.
+    count_q = select(func.count()).select_from(Device).join(Lot, Device.lot_id == Lot.id).where(*base_filters)
+    total = (await db.execute(count_q)).scalar() or 0
     lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
     lots = lots_result.scalars().all()
     # Product Lots table — same rows and counts as Lot Management, so the two
@@ -560,7 +650,7 @@ async def iqc_list(
     # this page's currently-filtered device set (reuses base_filters as-is).
     model_summary = await _build_model_summary(db, base_filters)
     return templates.TemplateResponse("iqc/list.html", {
-        "request": request, "devices": devices, "lots": lots, "current_user": current_user,
+        "request": request, "lots": lots, "current_user": current_user,
         "total": total,
         "q": q, "stage": stage, "grade": grade, "lot": lot,
         "device_type": device_type, "device_type_options": await master_values(db, "device_type"),

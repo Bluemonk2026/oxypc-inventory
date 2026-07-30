@@ -88,50 +88,20 @@
             <th>Serial Number</th><th>Tag Number</th><th>Lot</th><th>Stage</th><th>Brand</th><th>Model</th><th>Device Type</th><th>CPU</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Floor</th><th>Added</th><th>Action</th>
           </tr>
         </thead>
-        <tbody>
-          {% for device, lot_number in devices %}
-          <tr data-tag="{{ device.barcode }}">
-            <td><input type="checkbox" class="form-check-input iqcRowChk" value="{{ device.barcode }}"></td>
-            <td class="font-monospace small">{{ device.serial_no or '—' }}</td>
-            <td><a href="/devices/{{ device.barcode }}" class="text-decoration-none"><code>{{ device.barcode }}</code></a></td>
-            <td><a href="/devices?lot={{ lot_number }}" class="text-decoration-none"><span class="badge bg-info text-dark">{{ lot_number }}</span></a></td>
-            <td><span class="badge bg-secondary">{{ stage_labels.get(device.current_stage, device.current_stage.value if device.current_stage else '—') }}</span></td>
-            <td>{{ device.brand or '—' }}</td>
-            <td>{{ device.model or '—' }}</td>
-            <td>{{ device.device_type or '—' }}</td>
-            <td class="text-muted small">{{ device.cpu or '—' }}</td>
-            <td>{{ device.ram_summary or (device.ram_gb ~ 'GB' if device.ram_gb else '—') }}</td>
-            <td>{{ device.hdd_summary or ((device.storage_gb|string ~ 'GB ' ~ (device.storage_type or '')) if device.storage_gb else '—') }}</td>
-            <td>
-              {% if device.grade %}
-              <span class="badge bg-{{ 'success' if device.grade == 'A' else 'warning' if device.grade == 'B' else 'danger' }}">{{ device.grade }}</span>
-              {% else %}—{% endif %}
-            </td>
-            <td>{{ device.floor or '—' }}</td>
-            <td class="text-muted small">{{ device.created_at.strftime('%d-%m-%Y') }}</td>
-            <td class="text-nowrap">
-              <a href="/devices/{{ device.barcode }}/edit" class="btn btn-sm btn-outline-primary py-0 px-2 me-1">
-                <i class="bi bi-pencil me-1"></i>Edit
-              </a>
-              {# "Move to Inventory" removed from this Action column on request.
-                 The /stock/move-to-stock route is untouched and still reachable
-                 from the stock pages — only the button here is gone. #}
-              <button class="btn btn-sm btn-outline-danger py-0 px-1 ms-1"
-                      onclick="if(confirm('Move {{ device.barcode }} to Trash?')) { document.getElementById('trashIQC_{{ loop.index }}').submit(); }"
-                      title="Move to Trash">
-                <i class="bi bi-trash3"></i>
-              </button>
-              <form id="trashIQC_{{ loop.index }}" method="post" action="/trash/devices/{{ device.barcode }}" style="display:none">
-                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
-              </form>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
+        {# Rows are supplied by /iqc/data (DataTables server-side) — rendering
+           every matching device here (up to ~3,900 with no filter) shipped a
+           multi-megabyte page that hung the browser before it became usable. #}
+        <tbody></tbody>
       </table>
     </div>
   </div>
 </div>
+
+{# Single reusable form for the per-row Trash button: rows are server-rendered,
+   so there is no per-row {{ loop.index }} to build one form per device. #}
+<form id="trashOneForm" method="post" action="" style="display:none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+</form>
 
 <!-- Model Based Summary — scoped to the currently-filtered IQC device set,
      with its own Customise modal (same fields/backend as the main table's). -->
@@ -437,12 +407,31 @@
 <script>
 $(document).ready(function(){
   var dt = $('#iqcTable').DataTable({
-    pageLength: 12,
+    serverSide: true,
+    processing: true,
+    pageLength: 25,
+    lengthMenu: [[12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000],
+                 [12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]],
+    order: [[13, 'desc']],
+    searchDelay: 400,
+    ajax: {
+      url: '/iqc/data',
+      data: function (d) {
+        var p = new URLSearchParams(window.location.search);
+        ['q', 'stage', 'grade', 'lot', 'device_type', 'date_from', 'date_to']
+          .forEach(function (k) { d[k] = p.get(k) || ''; });
+      },
+      dataSrc: function (json) { return json.data; },
+    },
     // Stage column inserted at index 4 shifted the previously-hidden Floor/Added
     // columns from 11,12 to 12,13. Stage itself is sortable (default, not listed
     // as orderable:false) so the new filters have a meaningful, sortable column
     // to display/sort by when Stage is broadened beyond the IQC default.
     columnDefs:[{visible:false, targets:[12,13]}, {orderable:false, targets:[0,-1]}],
+    drawCallback: function () {
+      $('#iqcSelectAllChk').prop('checked', false);
+      updateSel();
+    },
   });
   window._dtIqc = dt;
 
@@ -459,7 +448,14 @@ $(document).ready(function(){
     updateSel();
   });
   $('#iqcTable').on('change', '.iqcRowChk', updateSel);
-  dt.on('draw', function(){ $('#iqcSelectAllChk').prop('checked', false); updateSel(); });
+  $('#iqcTable').on('click', '.trash-one-btn', function () {
+    var bc = $(this).data('barcode');
+    if (!confirm('Move ' + bc + ' to Trash?')) return;
+    var f = document.getElementById('trashOneForm');
+    f.action = '/trash/devices/' + encodeURIComponent(bc);
+    f.submit();
+  });
+  // Select-all reset + updateSel() now run from drawCallback in the init above.
 
   initTagScanAutocheck({ inputId: 'iqcTagScan', tableSelector: '#iqcTable', rowCheckboxSelector: '.iqcRowChk' });
 

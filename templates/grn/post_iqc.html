@@ -117,7 +117,7 @@
   <div class="card border-0 shadow-sm">
     <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
       <span class="fw-semibold"><i class="bi bi-upc me-2"></i>GRN Pending for these Tag Numbers
-        <span class="badge bg-secondary ms-1">{{ pending|length }}</span></span>
+        <span class="badge bg-secondary ms-1">{{ pending_count }}</span></span>
       <div class="d-flex align-items-center gap-2">
         <span class="badge bg-success" id="pendSelCount">0 selected</span>
         <input type="text" id="pendScan" class="form-control form-control-sm font-monospace"
@@ -156,25 +156,10 @@
             <th>Tag Number</th><th>Brand</th><th>Model</th><th>Device Type</th><th>RAM</th><th>Storage</th><th>Stage</th>
             <th class="d-none">Invoice</th><th class="d-none">PO</th>
           </tr></thead>
-          <tbody>
-            {% for d in pending %}
-            {% set _hl = highlight_tag is defined and highlight_tag and highlight_tag == d.barcode %}
-            <tr id="pend-{{ d.barcode }}" data-tag="{{ d.barcode }}" class="{{ 'table-warning' if _hl else '' }}">
-              <td class="ps-3"><input type="checkbox" class="pendChk" name="device_ids" value="{{ d.id }}" data-barcode="{{ d.barcode }}" {{ 'checked' if _hl else '' }}></td>
-              <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
-              <td>{{ d.brand or '—' }}</td>
-              <td>{{ d.model or '—' }}</td>
-              <td>{{ d.device_type or '—' }}</td>
-              <td>{{ (d.ram_gb|string ~ ' GB') if d.ram_gb else '—' }}</td>
-              <td>{{ (d.storage_gb|string ~ ' GB') if d.storage_gb else '—' }}</td>
-              <td><span class="badge bg-{{ d.stage_color }}">{{ d.stage_label }}</span></td>
-              <td class="d-none">{{ d.invoice_number or '' }}</td>
-              <td class="d-none">{{ d.po_number or '' }}</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="9" class="text-center text-muted py-4">No tag numbers pending a GRN.</td></tr>
-            {% endfor %}
-          </tbody>
+        {# Rows are supplied by /grn/post-iqc/data (DataTables server-side) —
+           'pending' is effectively the whole IQC backlog (~3,900 devices with
+           no filter), and rendering all of it into the HTML froze the page. #}
+          <tbody></tbody>
         </table>
       </div>
     </div>
@@ -280,35 +265,43 @@ $(document).ready(function(){
       dt.column(0).search('').column(2).search('').column(4).search('').draw();
     });
   }
-  if ($('#pendingTable tbody tr td').length > 1) {
-    var dtPend = $('#pendingTable').DataTable({
-      pageLength: 12, order:[],
-      columnDefs:[{orderable:false, targets:0}, {visible:false, targets:[8,9]}],
-    });
-    $.fn.dataTable.ext.search.push(function(settings, data){
-      if (settings.nTable.id !== 'pendingTable') return true;
-      var invTerm = document.getElementById('fPendInvoice').value.trim().toLowerCase();
-      var poTerm = document.getElementById('fPendPo').value.trim().toLowerCase();
-      var dtypeTerm = document.getElementById('fPendDeviceType').value;
-      if (dtypeTerm && (data[4] || '') !== dtypeTerm) return false;
-      if (!invTerm && !poTerm) return true;
-      var invVal = (data[8] || '').toLowerCase();
-      var poVal = (data[9] || '').toLowerCase();
-      var matchInv = invTerm && invVal.indexOf(invTerm) !== -1;
-      var matchPo = poTerm && poVal.indexOf(poTerm) !== -1;
-      return !!(matchInv || matchPo);
-    });
-    ['fPendInvoice','fPendPo'].forEach(function(id){
-      document.getElementById(id).addEventListener('input', function(){ dtPend.draw(); });
-    });
-    document.getElementById('fPendDeviceType').addEventListener('change', function(){ dtPend.draw(); });
-    document.getElementById('fPendReset').addEventListener('click', function(){
-      document.getElementById('fPendInvoice').value = '';
-      document.getElementById('fPendPo').value = '';
-      document.getElementById('fPendDeviceType').value = '';
-      dtPend.draw();
-    });
-  }
+  // Server-side: the Invoice/PO/Device Type filters used to run as a
+  // client-side ext.search predicate over rows already in the DOM. They now
+  // travel to /grn/post-iqc/data as query params instead, since the row set
+  // itself is fetched a page at a time rather than filtered after the fact.
+  var dtPend = $('#pendingTable').DataTable({
+    serverSide: true,
+    processing: true,
+    pageLength: 25,
+    lengthMenu: [[12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000],
+                 [12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]],
+    order: [],
+    searchDelay: 400,
+    ajax: {
+      url: '/grn/post-iqc/data',
+      data: function (d) {
+        d.device_type = document.getElementById('fPendDeviceType').value || '';
+        d.pend_invoice = document.getElementById('fPendInvoice').value || '';
+        d.pend_po = document.getElementById('fPendPo').value || '';
+      },
+      dataSrc: function (json) { return json.data; },
+    },
+    columnDefs:[{orderable:false, targets:0}, {visible:false, targets:[8,9]}],
+    drawCallback: function () {
+      document.getElementById('checkAll').checked = false;
+      updatePendCount();
+    },
+  });
+  ['fPendInvoice','fPendPo'].forEach(function(id){
+    document.getElementById(id).addEventListener('input', function(){ dtPend.draw(); });
+  });
+  document.getElementById('fPendDeviceType').addEventListener('change', function(){ dtPend.draw(); });
+  document.getElementById('fPendReset').addEventListener('click', function(){
+    document.getElementById('fPendInvoice').value = '';
+    document.getElementById('fPendPo').value = '';
+    document.getElementById('fPendDeviceType').value = '';
+    dtPend.draw();
+  });
 });
 
 // Scroll to + flash the highlighted tag (from "Assign GRN" on IQC Line Items)

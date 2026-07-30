@@ -93,33 +93,13 @@
     </form>
   </div>
   <div class="card-body p-0">
-    <table class="table table-hover mb-0 small">
+    <table class="table table-hover mb-0 small" id="receiptsTable">
       <thead class="table-dark"><tr><th>Date</th><th>Contact</th><th>Dealer</th><th>Mode</th><th>Ref</th><th>Amount</th><th>Document</th><th>By</th></tr></thead>
-      <tbody>
-        {% for r in receipts %}
-        <tr>
-          <td>{{ r.receipt_date.strftime('%d-%m-%Y') if r.receipt_date else '&mdash;' }}</td>
-          <td>{{ r.contact.company_name if r.contact else '&mdash;' }}</td>
-          <td>{{ r.dealer.business_name if r.dealer else '&mdash;' }}</td>
-          <td><span class="badge bg-secondary">{{ r.payment_mode or '&mdash;' }}</span></td>
-          <td class="font-monospace small">{{ r.reference_no or '&mdash;' }}</td>
-          <td class="fw-semibold text-success">&#8377;{{ "{:,.0f}".format(r.amount) }}</td>
-          <td class="text-nowrap">
-            {% if r.invoice_path %}<a href="/uploads/accounts/{{ r.invoice_path }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Invoice"><i class="bi bi-file-earmark-pdf"></i></a>{% endif %}
-            {% if r.payment_photo_path %}<a href="/uploads/accounts/{{ r.payment_photo_path }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Payment Photo"><i class="bi bi-image"></i></a>{% endif %}
-            {% if not r.invoice_path and not r.payment_photo_path %}&mdash;{% endif %}
-          </td>
-          <td class="text-muted">{{ r.created_by or '&mdash;' }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="8" class="text-center text-muted py-4">No receipts recorded.</td></tr>
-        {% endfor %}
-      </tbody>
-      {% if receipts %}
+      <!-- rows come from /accounts/customer-receipts/data via DataTables serverSide -->
+      <tbody></tbody>
       <tfoot class="table-light">
         <tr><td colspan="5" class="text-end fw-bold">Total:</td><td class="fw-bold text-success">&#8377;{{ "{:,.0f}".format(total) }}</td><td colspan="2"></td></tr>
       </tfoot>
-      {% endif %}
     </table>
   </div>
 </div>
@@ -128,7 +108,7 @@
 <div class="card border-0 shadow-sm mt-4">
   <div class="card-header bg-transparent fw-semibold"><i class="bi bi-file-earmark-text me-2"></i>List of Quotes Sent</div>
   <div class="card-body p-0">
-    <table class="table table-hover mb-0 small">
+    <table class="table table-hover mb-0 small" id="quotesTable">
       <thead class="table-dark"><tr><th>Quote Number</th><th>Contact</th><th>Date</th><th>Amount</th><th>Payment Status</th><th>Document</th><th>Action</th></tr></thead>
       <tbody>
         {% for q in quotes %}
@@ -201,6 +181,25 @@
 {% endblock %}
 {% block scripts %}
 <script>
+var _lenMenu = [[12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000],
+                [12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]];
+$('#receiptsTable').DataTable({
+  serverSide: true,
+  processing: true,
+  pageLength: 25,
+  lengthMenu: _lenMenu,
+  order: [],
+  searchDelay: 400,
+  ajax: { url: '/accounts/customer-receipts/data' + window.location.search },
+  columnDefs: [{ orderable: false, targets: [5, 6] }],
+});
+// Quotes list is capped at 100 rows server-side already — plain client-side
+// paging is enough, just needs the same Show Entries values as every other
+// table in this batch.
+if ($('#quotesTable tbody tr').length > 1) {
+  $('#quotesTable').DataTable({ pageLength: 25, lengthMenu: _lenMenu, order: [] });
+}
+
 var _qcp = document.getElementById('quoteCompletePaymentModal');
 if (_qcp) {
   _qcp.addEventListener('show.bs.modal', function (e) {

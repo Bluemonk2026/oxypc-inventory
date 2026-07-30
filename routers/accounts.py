@@ -5,9 +5,10 @@ import os
 import uuid as _uuid
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from html import escape as esc
 from uuid import UUID
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -89,6 +90,15 @@ async def accounts_index(
     })
 
 
+def _supplier_payments_query(contact_id: str = ""):
+    q = (select(SupplierPayment)
+         .options(selectinload(SupplierPayment.contact), selectinload(SupplierPayment.lot))
+         .order_by(SupplierPayment.payment_date.desc()))
+    if contact_id:
+        q = q.where(SupplierPayment.contact_id == contact_id)
+    return q
+
+
 @router.get("/supplier-payments", response_class=HTMLResponse)
 async def supplier_payments(
     request: Request,
@@ -98,12 +108,10 @@ async def supplier_payments(
 ):
     if current_user.role not in FINANCE_ROLES:
         return RedirectResponse(url="/?error=Access+denied", status_code=302)
-    q = (select(SupplierPayment)
-         .options(selectinload(SupplierPayment.contact), selectinload(SupplierPayment.lot))
-         .order_by(SupplierPayment.payment_date.desc()))
-    if contact_id:
-        q = q.where(SupplierPayment.contact_id == contact_id)
-    payments = (await db.execute(q)).scalars().all()
+    total = (await db.execute(
+        select(func.coalesce(func.sum(SupplierPayment.amount), 0))
+        .select_from(_supplier_payments_query(contact_id).subquery())
+    )).scalar() or 0
     suppliers = (await db.execute(
         select(CRMContact)
         .where(CRMContact.contact_type.in_(["supplier", "both"]))
@@ -120,14 +128,61 @@ async def supplier_payments(
         select(CRMPurchaseOrder).options(selectinload(CRMPurchaseOrder.contact))
         .order_by(CRMPurchaseOrder.created_at.desc()).limit(100)
     )).scalars().all()
-    total = sum(float(p.amount) for p in payments)
     return templates.TemplateResponse("accounts/supplier_payments.html", {
         "request": request, "current_user": current_user,
-        "payments": payments, "suppliers": suppliers, "lots": lots,
+        "suppliers": suppliers, "lots": lots,
         "sourcing_deals": sourcing_deals, "purchase_orders": purchase_orders,
-        "total": total, "sel_contact": contact_id,
+        "total": float(total), "sel_contact": contact_id,
         "payment_modes": PAYMENT_MODES,
         "can_edit": current_user.role in FINANCE_ROLES,
+    })
+
+
+@router.get("/supplier-payments/data")
+async def supplier_payments_data(
+    draw: int = Query(1), start: int = Query(0), length: int = Query(25),
+    contact_id: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """DataTables server-side feed for the Payment History table — this list
+    only grows, so it was rendered in full on every page load."""
+    if current_user.role not in FINANCE_ROLES:
+        return JSONResponse({"error": "Access denied"}, status_code=403)
+    q = _supplier_payments_query(contact_id)
+    total = (await db.execute(
+        select(func.count()).select_from(_supplier_payments_query().subquery())
+    )).scalar() or 0
+    filtered = (await db.execute(
+        select(func.count()).select_from(q.subquery())
+    )).scalar() or 0
+    payments = (await db.execute(q.offset(start).limit(length))).scalars().all()
+
+    data = []
+    for p in payments:
+        doc_links = []
+        if p.invoice_path:
+            doc_links.append(f'<a href="/uploads/accounts/{esc(p.invoice_path)}" target="_blank" '
+                             f'class="btn btn-sm btn-outline-secondary py-0 px-1" title="Invoice">'
+                             f'<i class="bi bi-file-earmark-pdf"></i></a>')
+        if p.payment_photo_path:
+            doc_links.append(f'<a href="/uploads/accounts/{esc(p.payment_photo_path)}" target="_blank" '
+                             f'class="btn btn-sm btn-outline-secondary py-0 px-1" title="Payment Photo">'
+                             f'<i class="bi bi-image"></i></a>')
+        data.append([
+            p.payment_date.strftime("%d-%m-%Y") if p.payment_date else "—",
+            esc(p.contact.company_name) if p.contact else "—",
+            esc(p.lot.lot_number) if p.lot else "—",
+            f'<span class="badge bg-secondary">{esc(p.payment_mode or "—")}</span>',
+            f'<span class="font-monospace small">{esc(p.reference_no or "—")}</span>',
+            ('<span class="badge bg-warning text-dark">Advance</span>' if p.is_advance else "—"),
+            f'<span class="fw-semibold text-danger">₹{p.amount:,.0f}</span>',
+            (f'<div class="text-nowrap">{"".join(doc_links)}</div>' if doc_links else "—"),
+            esc(p.created_by or "—"),
+        ])
+
+    return JSONResponse({
+        "draw": draw, "recordsTotal": total, "recordsFiltered": filtered, "data": data,
     })
 
 
@@ -193,6 +248,15 @@ async def create_supplier_payment(
     return RedirectResponse(url="/accounts/supplier-payments?success=Payment+recorded", status_code=302)
 
 
+def _customer_receipts_query(dealer_id: str = ""):
+    q = (select(CustomerReceipt)
+         .options(selectinload(CustomerReceipt.contact), selectinload(CustomerReceipt.dealer))
+         .order_by(CustomerReceipt.receipt_date.desc()))
+    if dealer_id:
+        q = q.where(CustomerReceipt.dealer_id == dealer_id)
+    return q
+
+
 @router.get("/customer-receipts", response_class=HTMLResponse)
 async def customer_receipts(
     request: Request,
@@ -202,12 +266,10 @@ async def customer_receipts(
 ):
     if current_user.role not in FINANCE_ROLES:
         return RedirectResponse(url="/?error=Access+denied", status_code=302)
-    q = (select(CustomerReceipt)
-         .options(selectinload(CustomerReceipt.contact), selectinload(CustomerReceipt.dealer))
-         .order_by(CustomerReceipt.receipt_date.desc()))
-    if dealer_id:
-        q = q.where(CustomerReceipt.dealer_id == dealer_id)
-    receipts = (await db.execute(q)).scalars().all()
+    total = (await db.execute(
+        select(func.coalesce(func.sum(CustomerReceipt.amount), 0))
+        .select_from(_customer_receipts_query(dealer_id).subquery())
+    )).scalar() or 0
     dealers = (await db.execute(
         select(Dealer).where(Dealer.status == "active").order_by(Dealer.business_name)
     )).scalars().all()
@@ -218,14 +280,59 @@ async def customer_receipts(
         select(CRMQuote).options(selectinload(CRMQuote.contact))
         .order_by(CRMQuote.created_at.desc()).limit(100)
     )).scalars().all()
-    total = sum(float(r.amount) for r in receipts)
     return templates.TemplateResponse("accounts/customer_receipts.html", {
         "request": request, "current_user": current_user,
-        "receipts": receipts, "dealers": dealers,
+        "dealers": dealers,
         "opportunities": opportunities, "quotes": quotes,
-        "total": total, "sel_dealer": dealer_id,
+        "total": float(total), "sel_dealer": dealer_id,
         "payment_modes": PAYMENT_MODES,
         "can_edit": current_user.role in FINANCE_ROLES,
+    })
+
+
+@router.get("/customer-receipts/data")
+async def customer_receipts_data(
+    draw: int = Query(1), start: int = Query(0), length: int = Query(25),
+    dealer_id: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """DataTables server-side feed for the Receipt History table."""
+    if current_user.role not in FINANCE_ROLES:
+        return JSONResponse({"error": "Access denied"}, status_code=403)
+    q = _customer_receipts_query(dealer_id)
+    total = (await db.execute(
+        select(func.count()).select_from(_customer_receipts_query().subquery())
+    )).scalar() or 0
+    filtered = (await db.execute(
+        select(func.count()).select_from(q.subquery())
+    )).scalar() or 0
+    receipts = (await db.execute(q.offset(start).limit(length))).scalars().all()
+
+    data = []
+    for r in receipts:
+        doc_links = []
+        if r.invoice_path:
+            doc_links.append(f'<a href="/uploads/accounts/{esc(r.invoice_path)}" target="_blank" '
+                             f'class="btn btn-sm btn-outline-secondary py-0 px-1" title="Invoice">'
+                             f'<i class="bi bi-file-earmark-pdf"></i></a>')
+        if r.payment_photo_path:
+            doc_links.append(f'<a href="/uploads/accounts/{esc(r.payment_photo_path)}" target="_blank" '
+                             f'class="btn btn-sm btn-outline-secondary py-0 px-1" title="Payment Photo">'
+                             f'<i class="bi bi-image"></i></a>')
+        data.append([
+            r.receipt_date.strftime("%d-%m-%Y") if r.receipt_date else "—",
+            esc(r.contact.company_name) if r.contact else "—",
+            esc(r.dealer.business_name) if r.dealer else "—",
+            f'<span class="badge bg-secondary">{esc(r.payment_mode or "—")}</span>',
+            f'<span class="font-monospace small">{esc(r.reference_no or "—")}</span>',
+            f'<span class="fw-semibold text-success">₹{r.amount:,.0f}</span>',
+            (f'<div class="text-nowrap">{"".join(doc_links)}</div>' if doc_links else "—"),
+            esc(r.created_by or "—"),
+        ])
+
+    return JSONResponse({
+        "draw": draw, "recordsTotal": total, "recordsFiltered": filtered, "data": data,
     })
 
 

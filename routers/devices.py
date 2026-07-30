@@ -6,8 +6,9 @@ from templates_config import templates
 import csv, io, uuid as uuid_module
 from datetime import datetime
 from utils.timezone import app_now
-from fastapi import APIRouter, Depends, Form, Request, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from utils.csv_decode import decode_csv_bytes
+from fastapi import APIRouter, Depends, Form, Request, HTTPException, UploadFile, File
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func, and_, update
 from database import get_db
@@ -299,6 +300,71 @@ async def device_search_data(
 
     return {"draw": draw, "recordsTotal": total, "recordsFiltered": filtered,
             "data": data, "showPricing": show_pricing}
+
+
+@router.get("/barcodes")
+async def device_barcodes(
+    q: str = "", stage: str = "", lot: str = "", grade: str = "",
+    category: str = "", device_type: str = "", date_from: str = "", date_to: str = "",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(view_allowed),
+):
+    """Every barcode matching the current filters — powers "Select All" across
+    every page and the tag-upload bulk-select feature below. Neither can rely
+    on DataTables' serverSide rows() API, which only reaches the currently
+    rendered page."""
+    page_filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to)
+    barcodes = (await db.execute(
+        select(Device.barcode).join(Lot, Device.lot_id == Lot.id)
+        .where(Device.is_trashed == False, *page_filters)
+    )).scalars().all()
+    return {"barcodes": barcodes}
+
+
+@router.post("/upload-tags")
+async def device_upload_tags(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(view_allowed),
+):
+    """Bulk Upload Tags on All Inventory — reads a single-column CSV of tag
+    numbers and reports which exist, so the page can tick the matching rows
+    (including rows on pages never rendered) ahead of a Customise bulk action.
+    Read-only: selects nothing, changes nothing."""
+    content = await file.read()
+    text_data = decode_csv_bytes(content)
+    reader = csv.DictReader(io.StringIO(text_data))
+
+    field_map = {(f or "").strip().lower(): f for f in (reader.fieldnames or [])}
+    key = field_map.get("tag_number") or field_map.get("barcode")
+    if not key:
+        return JSONResponse(
+            {"error": "CSV must have a 'tag_number' (or 'barcode') column header"},
+            status_code=400,
+        )
+
+    tags, errors = [], []
+    seen = set()
+    for i, row in enumerate(reader, start=2):
+        tag = (row.get(key) or "").strip()
+        if not tag:
+            errors.append(f"Row {i}: tag_number is empty")
+            continue
+        if tag in seen:
+            continue
+        seen.add(tag)
+        tags.append(tag)
+
+    if not tags:
+        return JSONResponse({"found": [], "not_found": [], "errors": errors})
+
+    existing = set((await db.execute(
+        select(Device.barcode).where(Device.barcode.in_(tags), Device.is_trashed == False)
+    )).scalars().all())
+    found = [t for t in tags if t in existing]
+    not_found = [t for t in tags if t not in existing]
+
+    return JSONResponse({"found": found, "not_found": not_found, "errors": errors})
 
 
 # ── 1. INVENTORY SEARCH ──────────────────────────────────────────────────────

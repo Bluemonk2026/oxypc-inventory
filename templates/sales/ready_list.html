@@ -66,83 +66,10 @@
           <th>Action</th>
         </tr>
       </thead>
-      <tbody>
-        {% for device, lot_number, buying_price, lot_qty, selling_price in devices %}
-        {# Unit cost: device-level price from P&L (device_price) takes priority over avg lot cost #}
-        {% if device.device_price %}
-          {% set unit_cost = device.device_price %}
-          {% set cost_source = 'device' %}
-        {% elif lot_qty %}
-          {% set unit_cost = buying_price / lot_qty %}
-          {% set cost_source = 'lot' %}
-        {% else %}
-          {% set unit_cost = 0 %}
-          {% set cost_source = 'none' %}
-        {% endif %}
-        {% set _approved = approved_ids is defined and (device.id|string in approved_ids) %}
-        {% set _requested = requested_ids is defined and (device.id|string in requested_ids) %}
-        {% set _rejected_notes = (rejected_notes_map.get(device.id|string) if rejected_notes_map is defined else None) %}
-        <tr data-barcode="{{ device.barcode }}" data-serial="{{ device.serial_no or '' }}">
-          {# Checkbox is always rendered — a row already requested or approved is
-             still a valid target for a bulk action, and hiding the box made those
-             rows silently unselectable (Select All appeared to miss them). #}
-          <td><input type="checkbox" class="form-check-input readyChk" value="{{ device.barcode }}"></td>
-          <td class="text-nowrap"><a href="/devices/{{ device.barcode }}" class="text-decoration-none"><code class="fw-bold">{{ device.barcode }}</code></a>
-            <span class="badge rounded-pill bg-secondary ms-1" title="Quantity">{{ device.qty or 1 }}</span></td>
-          <td><a href="/devices?lot={{ lot_number }}" class="btn btn-sm py-0 px-2 small text-decoration-none" style="background-color:#ffffff;border:1px solid #6C757D;color:#6C757D;">{{ lot_number }}</a></td>
-          <td>{{ device.brand or '—' }}</td>
-          <td>{{ device.model or '—' }}</td>
-          <td>{{ (device.ram_gb|string ~ 'GB') if device.ram_gb else '—' }}</td>
-          <td>{{ (device.storage_gb|string ~ 'GB') if device.storage_gb else '—' }}</td>
-          <td>
-            {% set gv = device.grade.value if device.grade else '' %}
-            <span class="badge bg-{{ 'success' if gv == 'A' else 'warning text-dark' if gv == 'B' else 'danger' if gv in ['C','D','scrap'] else 'secondary' }}">
-              {{ gv or '—' }}
-            </span>
-          </td>
-          {% if can_view_pricing(current_user) %}
-          <td class="fw-semibold">
-            {% if cost_source == 'none' %}
-            <span class="text-muted">—</span>
-            {% else %}
-            ₹{{ "{:,.0f}".format(unit_cost) }}
-            {% if cost_source == 'lot' %}
-            <span class="text-muted ms-1" style="font-size:.7rem" title="Avg lot cost (no device-specific price set)">avg</span>
-            {% endif %}
-            {% endif %}
-          </td>
-          {% endif %}
-          <td class="small">
-            {% set _w = warranty_map.get(device.id|string) if warranty_map is defined else None %}
-            {% if _w %}
-              <span class="badge bg-{{ 'success' if _w.status == 'active' else 'secondary' }}">{{ _w.label }}</span>
-            {% else %}
-              <span class="text-muted">—</span>
-            {% endif %}
-          </td>
-          <td>
-            <div class="d-flex gap-1 flex-wrap">
-              {% if _approved %}
-              <a href="/sales/new?barcodes={{ device.barcode }}&qty=1" class="btn btn-sm btn-success">Sell</a>
-              {% else %}
-              <button class="btn btn-sm btn-success" disabled title="Needs telecaller request approval">Sell</button>
-              {% endif %}
-              {% if _approved %}
-              <span class="badge bg-success align-self-center">Approved</span>
-              {% elif _requested %}
-              <span class="badge bg-warning text-dark align-self-center">Requested</span>
-              {% else %}
-              {% if _rejected_notes is not none %}
-              <span class="badge bg-danger align-self-center" title="{{ _rejected_notes }}">Rejected</span>
-              {% endif %}
-              <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#dispatchModal"
-                      data-barcode="{{ device.barcode }}" data-model="{{ device.brand or '' }} {{ device.model or '' }}">Request</button>
-              {% endif %}
-            </div>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
+      {# Rows are supplied by /sales/ready/data (DataTables server-side) —
+         rendering all matching devices here (up to ~4,500 with no filter)
+         shipped a page that hung the browser before it became interactive. #}
+      <tbody></tbody>
     </table>
   </div>
 </div>
@@ -322,8 +249,35 @@
 {% block scripts %}
 <script>
 var readyDt;
+// Selected barcodes persist here rather than being read off checkbox state in
+// the DOM. With server-side paging only the current page's rows exist in the
+// DOM at all — a client-side DataTable used to keep every row present (just
+// visually paginated), which is what let Select All and Multi-Sell/Multi-
+// Request reach devices on pages the user never viewed. A Set survives every
+// page change and redraw; drawCallback re-checks boxes against it below.
+var readySelected = new Set();
+
 $(document).ready(function(){
-  readyDt = $('#readyTable').DataTable({pageLength:12, columnDefs:[{orderable:false, targets:0}]});
+  readyDt = $('#readyTable').DataTable({
+    serverSide: true,
+    processing: true,
+    pageLength: 25,
+    lengthMenu: [[12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000],
+                 [12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]],
+    order: [],
+    searchDelay: 400,
+    ajax: {
+      url: '/sales/ready/data',
+      dataSrc: function (json) { return json.data; },
+    },
+    columnDefs: [{ orderable: false, targets: [0, -1] }],
+    drawCallback: function () {
+      document.querySelectorAll('#readyTable tbody .readyChk').forEach(function (c) {
+        c.checked = readySelected.has(c.value);
+      });
+      updateReadySel();
+    },
+  });
 });
 var _dm = document.getElementById('dispatchModal');
 if (_dm) {
@@ -335,35 +289,33 @@ if (_dm) {
   });
 }
 
-// ── Scan tag/serial to auto-select the matching row (across all pages) ──
-var readyScanVal = '';
-$.fn.dataTable.ext.search.push(function(settings, data, dataIndex){
-  if (settings.nTable.id !== 'readyTable' || !readyScanVal) return true;
-  var row = settings.aoData[dataIndex].nTr;
-  var bc = (row.getAttribute('data-barcode') || '').toLowerCase();
-  var sn = (row.getAttribute('data-serial') || '').toLowerCase();
-  return bc.indexOf(readyScanVal) !== -1 || sn.indexOf(readyScanVal) !== -1;
-});
+// ── Scan tag/serial to find + select the matching row ──
+// Server-side search narrows to the match (which becomes page 1 of the
+// filtered set, wherever it used to sit), then the checkbox — not the <tr> —
+// carries the barcode/serial, since server-rendered rows are plain DataTables
+// arrays with no attributes of their own to query.
 document.getElementById('readyScanInput').addEventListener('input', function(){
-  readyScanVal = this.value.trim().toLowerCase();
-  readyDt.draw();
-  if (!readyScanVal) return;
+  var val = this.value.trim();
+  readyDt.search(val).draw();
+  if (!val) return;
   setTimeout(function(){
-    var row = document.querySelector('#readyTable tbody tr[data-barcode], #readyTable tbody tr[data-serial]');
-    if (row) {
-      var chk = row.querySelector('.readyChk');
-      if (chk) { chk.checked = true; updateReadySel(); }
-      row.scrollIntoView({block:'center'});
+    var chk = document.querySelector(
+      '#readyTable tbody .readyChk[value="' + val + '"], #readyTable tbody .readyChk[data-serial="' + val + '"]');
+    if (chk) {
+      chk.checked = true;
+      readySelected.add(chk.value);
+      updateReadySel();
+      chk.closest('tr').scrollIntoView({block:'center'});
     }
-  }, 50);
+  }, 500);   // after the ajax redraw
 });
 
 // ── Multi-select + Multi-Request ──
-// readyDt.$() reaches rows on every page, not just the rendered one — a bulk
-// upload can tick tags that DataTables has paged out of the DOM.
-function selectedReadyBarcodes(){ return readyDt.$('.readyChk:checked').toArray().map(function(c){ return c.value; }); }
+// selectedReadyBarcodes() reads the persistent Set, not DOM checkbox state —
+// see readySelected above.
+function selectedReadyBarcodes(){ return Array.from(readySelected); }
 function updateReadySel(){
-  var n = selectedReadyBarcodes().length;
+  var n = readySelected.size;
   $('#readySelCount').text(n);
   $('#readySelCount2').text(n);
   $('#multiRequestBtn').prop('disabled', n === 0);
@@ -383,10 +335,22 @@ document.getElementById('multiSellBtn').addEventListener('click', function(){
                   + '&qty=' + bcs.length;
 });
 
-$('#readyTable').on('change', '.readyChk', updateReadySel);
-document.getElementById('readySelectAll').addEventListener('change', function(){
+$('#readyTable').on('change', '.readyChk', function(){
+  if (this.checked) readySelected.add(this.value); else readySelected.delete(this.value);
+  updateReadySel();
+});
+// "Select All" means every ready-to-sale device, not just the page in view —
+// fetch the full barcode list rather than only ticking on-screen checkboxes.
+document.getElementById('readySelectAll').addEventListener('change', async function(){
   var ck = this.checked;
-  document.querySelectorAll('.readyChk').forEach(function(c){ c.checked = ck; });
+  if (ck) {
+    var r = await fetch('/sales/ready/barcodes');
+    var d = await r.json();
+    (d.barcodes || []).forEach(function(bc){ readySelected.add(bc); });
+  } else {
+    readySelected.clear();
+  }
+  document.querySelectorAll('#readyTable tbody .readyChk').forEach(function(c){ c.checked = ck; });
   updateReadySel();
 });
 document.getElementById('multiRequestBtn').addEventListener('click', function(){
@@ -463,16 +427,15 @@ document.getElementById('bulkTagBtn').addEventListener('click', async function()
     var r = await fetch('/sales/ready/upload-tags', {method:'POST', body: fd});
     var d = await r.json();
     if (d.error) { status.innerHTML = '<span class="text-danger">' + d.error + '</span>'; return; }
-    var chkByBarcode = {};
-    readyDt.$('.readyChk').toArray().forEach(function(c){ chkByBarcode[c.value] = c; });
-    var selected = [], noCheckbox = [];
-    (d.found || []).forEach(function(bc){
-      if (chkByBarcode[bc]) { chkByBarcode[bc].checked = true; selected.push(bc); }
-      else noCheckbox.push(bc);
+    // d.found barcodes may sit on any page — add straight to the persistent
+    // Set, then let drawCallback re-check whichever checkboxes are on screen.
+    var selected = [];
+    (d.found || []).forEach(function(bc){ readySelected.add(bc); selected.push(bc); });
+    document.querySelectorAll('#readyTable tbody .readyChk').forEach(function(c){
+      if (readySelected.has(c.value)) c.checked = true;
     });
     updateReadySel();
     var parts = [selected.length + ' selected'];
-    if (noCheckbox.length) parts.push(noCheckbox.length + ' not selectable (already approved/requested)');
     if ((d.not_found || []).length) parts.push(d.not_found.length + ' not found');
     if ((d.not_ready || []).length) parts.push(d.not_ready.length + ' not ready to sale');
     var detail = '';

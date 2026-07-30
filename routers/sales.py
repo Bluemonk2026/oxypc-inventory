@@ -50,6 +50,166 @@ async def _next_sale_number(db: AsyncSession) -> str:
     return f"SALE-{seq:04d}"
 
 
+@router.get("/sales/ready/barcodes")
+async def ready_list_barcodes(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(ready_allowed),
+):
+    """Every ready-to-sale barcode, for "Select All" on the Ready to Sale table.
+
+    With client-side DataTables every row existed in the DOM regardless of
+    page, so ticking Select All selected every ready-to-sale device, not just
+    the one page on screen. Server-side paging renders only the current page,
+    so that behaviour needs the full barcode list from here instead — kept
+    deliberately cheap (barcodes only) rather than reusing /data, which builds
+    full row HTML per device.
+    """
+    barcodes = (await db.execute(
+        select(Device.barcode).where(Device.current_stage == DeviceStage.ready_to_sale)
+    )).scalars().all()
+    return {"barcodes": [b for b in barcodes if b]}
+
+
+@router.get("/sales/ready/data")
+async def ready_list_data(
+    request: Request,
+    draw: int = 1, start: int = 0, length: int = 25,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(ready_allowed),
+):
+    """DataTables server-side feed for Ready to Sale.
+
+    At ~4,500 ready-to-sale devices this table rendered every row into the
+    HTML on every load. Rows now come a page at a time.
+
+    Multi-Sell/Multi-Request select across ALL pages, not just the one on
+    screen — a bulk tag upload can tick devices that server-side paging never
+    renders. That selection is tracked client-side in a Set of barcodes rather
+    than by reading checkbox state from the DOM, so it survives every page
+    change; see readySelected in the template's script block.
+    """
+    from sqlalchemy import desc as _desc, asc as _asc
+    from html import escape
+    from models.role_permissions import can_view_pricing as _cvp
+
+    role = getattr(current_user.role, "value", current_user.role)
+    show_pricing = _cvp(role)
+
+    base = (
+        select(Device, Lot.lot_number, Lot.buying_price, Lot.qty, Lot.selling_price)
+        .join(Lot, Device.lot_id == Lot.id)
+        .where(Device.current_stage == DeviceStage.ready_to_sale)
+    )
+    count_q = select(func.count()).select_from(Device).where(Device.current_stage == DeviceStage.ready_to_sale)
+    total = (await db.execute(count_q)).scalar() or 0
+
+    search = (request.query_params.get("search[value]") or "").strip()
+    search_filters = []
+    if search:
+        like = f"%{search}%"
+        search_filters.append(or_(
+            Device.barcode.ilike(like), Device.brand.ilike(like), Device.model.ilike(like),
+        ))
+    filtered_q = (
+        select(func.count()).select_from(Device).join(Lot, Device.lot_id == Lot.id)
+        .where(Device.current_stage == DeviceStage.ready_to_sale, *search_filters)
+    )
+    filtered = (await db.execute(filtered_q)).scalar() or 0
+
+    col_map = {1: Device.barcode, 2: Lot.lot_number, 3: Device.brand, 4: Device.model, 7: Device.grade}
+    try:
+        order_col = int(request.query_params.get("order[0][column]", 0))
+    except ValueError:
+        order_col = 0
+    order_dir = request.query_params.get("order[0][dir]", "desc")
+    sort_expr = col_map.get(order_col, Device.updated_at)
+    order_by = _desc(sort_expr) if order_dir != "asc" else _asc(sort_expr)
+    if order_col == 0:
+        order_by = Device.updated_at.desc()
+
+    rows = (await db.execute(
+        base.where(*search_filters).order_by(order_by, Device.barcode)
+        .offset(max(0, start)).limit(min(max(1, length), 5000))
+    )).all()
+
+    device_ids = [d.id for d, *_ in rows]
+    approved_ids, requested_ids, rejected_notes_map = set(), set(), {}
+    if device_ids:
+        for did, st, notes in (await db.execute(
+            select(TelecallerDispatchRequest.device_id, TelecallerDispatchRequest.status,
+                   TelecallerDispatchRequest.rejected_notes)
+            .where(TelecallerDispatchRequest.device_id.in_(device_ids))
+        )).all():
+            if st == "approved":
+                approved_ids.add(str(did))
+            elif st == "requested":
+                requested_ids.add(str(did))
+            elif st == "rejected":
+                rejected_notes_map[str(did)] = notes or ""
+    sold_map = await latest_sold_at_map(db, device_ids)
+    warranty_map = {}
+    for did, sold_at in sold_map.items():
+        w = warranty_from_sold_at(sold_at)
+        if w:
+            warranty_map[did] = w
+
+    def esc(v):
+        return escape(str(v)) if v is not None else ""
+
+    data = []
+    for d, lot_number, buying_price, lot_qty, selling_price in rows:
+        did = str(d.id)
+        if d.device_price:
+            unit_cost, cost_source = float(d.device_price), "device"
+        elif lot_qty:
+            unit_cost, cost_source = float(buying_price or 0) / lot_qty, "lot"
+        else:
+            unit_cost, cost_source = 0.0, "none"
+        gv = getattr(d.grade, "value", d.grade) if d.grade else ""
+        gcls = ("success" if gv == "A" else "warning text-dark" if gv == "B" else
+                "danger" if gv in ("C", "D", "scrap") else "secondary")
+        approved, requested = did in approved_ids, did in requested_ids
+        rejected_notes = rejected_notes_map.get(did)
+        w = warranty_map.get(did)
+
+        cells = [
+            (f'<input type="checkbox" class="form-check-input readyChk" value="{esc(d.barcode)}" '
+             f'data-serial="{esc(d.serial_no or "")}">'),
+            (f'<a href="/devices/{esc(d.barcode)}" class="text-decoration-none"><code class="fw-bold">{esc(d.barcode)}</code></a>'
+             f'<span class="badge rounded-pill bg-secondary ms-1" title="Quantity">{d.qty or 1}</span>'),
+            (f'<a href="/devices?lot={esc(lot_number)}" class="btn btn-sm py-0 px-2 small text-decoration-none" '
+             f'style="background-color:#ffffff;border:1px solid #6C757D;color:#6C757D;">{esc(lot_number)}</a>'),
+            esc(d.brand or "—"), esc(d.model or "—"),
+            f"{d.ram_gb}GB" if d.ram_gb else "—", f"{d.storage_gb}GB" if d.storage_gb else "—",
+            f'<span class="badge bg-{gcls}">{esc(gv) or "—"}</span>',
+        ]
+        if show_pricing:
+            if cost_source == "none":
+                cells.append('<span class="text-muted">—</span>')
+            else:
+                avg = ' <span class="text-muted ms-1" style="font-size:.7rem">avg</span>' if cost_source == "lot" else ""
+                cells.append(f'<span class="fw-semibold">₹{unit_cost:,.0f}{avg}</span>')
+        cells.append(
+            f'<span class="badge bg-{"success" if w["status"] == "active" else "secondary"}">{esc(w["label"])}</span>'
+            if w else '<span class="text-muted">—</span>'
+        )
+        if approved:
+            action = f'<a href="/sales/new?barcodes={esc(d.barcode)}&qty=1" class="btn btn-sm btn-success">Sell</a><span class="badge bg-success align-self-center ms-1">Approved</span>'
+        else:
+            action = '<button class="btn btn-sm btn-success" disabled title="Needs telecaller request approval">Sell</button>'
+            if requested:
+                action += '<span class="badge bg-warning text-dark align-self-center ms-1">Requested</span>'
+            else:
+                if rejected_notes is not None:
+                    action += f'<span class="badge bg-danger align-self-center ms-1" title="{esc(rejected_notes)}">Rejected</span>'
+                action += (f'<button class="btn btn-sm btn-outline-primary ms-1" data-bs-toggle="modal" data-bs-target="#dispatchModal" '
+                          f'data-barcode="{esc(d.barcode)}" data-model="{esc((d.brand or "") + " " + (d.model or ""))}">Request</button>')
+        cells.append(f'<div class="d-flex gap-1 flex-wrap">{action}</div>')
+        data.append(cells)
+
+    return {"draw": draw, "recordsTotal": total, "recordsFiltered": filtered, "data": data}
+
+
 @router.get("/sales/ready", response_class=HTMLResponse)
 async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
                      current_user: User = Depends(ready_allowed)):
@@ -99,31 +259,11 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
     for g in model_summary_ready:
         g["total_sold"] = sold_count_by_model.get((g["model"], g["make"]), 0)
 
-    # ── Dispatch-request state (#21): Sell enabled only after approval ───────
+    # Dispatch-request state (approved/requested/rejected) and warranty used to
+    # be computed here for every ready-to-sale device (~4,500 with no filter),
+    # purely to feed the old inline table's rows. Both now live in
+    # /sales/ready/data, built per page instead of for the whole set.
     device_ids = [d.id for d, *_ in devices]
-    approved_ids, requested_ids = set(), set()
-    rejected_notes_map = {}
-    if device_ids:
-        drs = (await db.execute(
-            select(TelecallerDispatchRequest.device_id, TelecallerDispatchRequest.status,
-                   TelecallerDispatchRequest.rejected_notes)
-            .where(TelecallerDispatchRequest.device_id.in_(device_ids))
-        )).all()
-        for did, st, notes in drs:
-            if st == "approved":
-                approved_ids.add(str(did))
-            elif st == "requested":
-                requested_ids.add(str(did))
-            elif st == "rejected":
-                rejected_notes_map[str(did)] = notes or ""
-
-    # ── Warranty (item 1): 30 days from most recent sale of this device ──────
-    sold_map = await latest_sold_at_map(db, device_ids)
-    warranty_map = {}
-    for did, sold_at in sold_map.items():
-        w = warranty_from_sold_at(sold_at)
-        if w:
-            warranty_map[did] = w
 
     # ── Interested dealers banner: open CRM sales opps matching ready device types ──
     ready_device_types = {d.device_type for d, *_ in devices if d.device_type}
@@ -161,9 +301,7 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
     return templates.TemplateResponse("sales/ready_list.html", {
         "request": request, "devices": devices, "current_user": current_user,
         "interested_dealers": interested_dealers,
-        "approved_ids": approved_ids, "requested_ids": requested_ids,
-        "rejected_notes_map": rejected_notes_map,
-        "warranty_map": warranty_map, "model_summary_ready": model_summary_ready,
+        "model_summary_ready": model_summary_ready,
         "lot_overview": lot_overview,
     })
 

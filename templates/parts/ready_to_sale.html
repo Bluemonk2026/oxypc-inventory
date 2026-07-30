@@ -51,50 +51,8 @@
             <th>In Stock</th><th>Requested Quantity</th><th>Action</th>
           </tr>
         </thead>
-        <tbody>
-          {% for row in rows %}
-          {% set p = row.part %}
-          <tr>
-            <td class="ps-3 font-monospace fw-bold">{{ p.part_code }}</td>
-            <td>{{ p.name }}</td>
-            <td>{{ p.make or '—' }}</td>
-            <td>{{ p.model or '—' }}</td>
-            <td>
-              {% if row.stock <= 0 %}<span class="badge bg-danger">0</span>
-              {% elif row.stock <= (p.min_stock_alert or 0) %}<span class="badge bg-warning text-dark">{{ row.stock }}</span>
-              {% else %}<span class="badge bg-success">{{ row.stock }}</span>{% endif %}
-            </td>
-            {# Quantity from the latest request for this part; blank until one is raised. #}
-            <td>{% if row.requested_qty %}<span class="badge bg-primary">{{ row.requested_qty }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-            <td class="text-nowrap">
-              {# Both buttons are always visible. Request is disabled at zero stock
-                 or while one is already pending; Sell stays disabled until a
-                 request for this part has been approved. #}
-              {# Opens the quantity modal rather than posting immediately: the
-                 handler has always accepted a qty, but the form never sent one,
-                 so every request silently defaulted to 1. #}
-              <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 req-btn"
-                      data-part-id="{{ p.id }}" data-part-name="{{ p.name }}"
-                      data-part-code="{{ p.part_code }}" data-stock="{{ row.stock }}"
-                      {% if row.stock <= 0 or row.pending %}disabled{% endif %}
-                      title="{% if row.stock <= 0 %}Out of stock{% elif row.pending %}A request is already pending{% else %}Raise a sale request{% endif %}">
-                <i class="bi bi-send me-1"></i>Request
-              </button>
-              <a href="/part-sales/new?part_id={{ p.id }}"
-                 class="btn btn-sm btn-success py-0 px-2 {% if not row.can_sell %}disabled{% endif %}"
-                 {% if not row.can_sell %}tabindex="-1" aria-disabled="true"{% endif %}
-                 title="{% if row.stock <= 0 %}Out of stock{% elif not row.can_sell %}Needs an approved sale request{% else %}Sell this part{% endif %}">
-                <i class="bi bi-cart-check me-1"></i>Sell
-              </a>
-              {% if row.status == 'pending' %}<span class="badge bg-warning text-dark ms-1">Pending</span>
-              {% elif row.status == 'approved' and row.can_sell %}<span class="badge bg-success ms-1">Approved</span>
-              {% elif row.status == 'rejected' %}<span class="badge bg-danger ms-1">Rejected</span>{% endif %}
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="7" class="text-center text-muted py-4">No spare parts added as New yet.</td></tr>
-          {% endfor %}
-        </tbody>
+        <!-- rows come from /ready-to-sale-parts/data via DataTables serverSide -->
+        <tbody></tbody>
       </table>
     </div>
   </div>
@@ -133,20 +91,37 @@
 {% block scripts %}
 <script>
 $(document).ready(function(){
-  if ($('#rtsTable tbody tr td').length > 1) {
-    var dt = $('#rtsTable').DataTable({pageLength: 25, lengthChange: false, order: []});
-    // Columns: 0=Code, 1=Name, 2=Make, 3=Model
-    document.getElementById('fCode').addEventListener('input', function(){ dt.column(0).search(this.value).draw(); });
-    document.getElementById('fName').addEventListener('input', function(){ dt.column(1).search(this.value).draw(); });
-    document.getElementById('fMake').addEventListener('change', function(){ dt.column(2).search(this.value, false, false).draw(); });
-    document.getElementById('fModel').addEventListener('change', function(){ dt.column(3).search(this.value, false, false).draw(); });
-    document.getElementById('fReset').addEventListener('click', function(){
-      ['fCode','fName','fMake','fModel'].forEach(function(id){ document.getElementById(id).value=''; });
-      dt.column(0).search('').column(1).search('').column(2).search('').column(3).search('').draw();
-    });
-  }
+  var dt = $('#rtsTable').DataTable({
+    serverSide: true,
+    processing: true,
+    pageLength: 25,
+    lengthMenu: [[12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000],
+                 [12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]],
+    order: [],
+    searchDelay: 400,
+    ajax: {
+      url: '/ready-to-sale-parts/data',
+      data: function (d) {
+        d.code = document.getElementById('fCode').value;
+        d.name = document.getElementById('fName').value;
+        d.make = document.getElementById('fMake').value;
+        d.model = document.getElementById('fModel').value;
+      },
+    },
+    columnDefs: [{ orderable: false, targets: -1 }],
+  });
+  document.getElementById('fCode').addEventListener('input', function(){ dt.draw(); });
+  document.getElementById('fName').addEventListener('input', function(){ dt.draw(); });
+  document.getElementById('fMake').addEventListener('change', function(){ dt.draw(); });
+  document.getElementById('fModel').addEventListener('change', function(){ dt.draw(); });
+  document.getElementById('fReset').addEventListener('click', function(){
+    ['fCode','fName','fMake','fModel'].forEach(function(id){ document.getElementById(id).value=''; });
+    dt.draw();
+  });
 
   // ── Request quantity modal ──
+  // Delegated: rows come from the server on every draw, so the button never
+  // exists at page-load time for a listener to attach to directly.
   var reqModalEl = document.getElementById('reqQtyModal');
   if (reqModalEl) {
     var reqModal = new bootstrap.Modal(reqModalEl);
@@ -165,19 +140,18 @@ $(document).ready(function(){
       submitEl.disabled = bad;
     }
 
-    document.querySelectorAll('.req-btn').forEach(function (b) {
-      b.addEventListener('click', function () {
-        maxStock = parseInt(b.dataset.stock, 10) || 0;
-        document.getElementById('reqQtyForm').action =
-          '/ready-to-sale-parts/' + b.dataset.partId + '/request';
-        document.getElementById('rqName').textContent = b.dataset.partName || '—';
-        document.getElementById('rqCode').textContent = b.dataset.partCode || '—';
-        stockEl.textContent = maxStock;
-        qtyInput.value = 1;
-        qtyInput.max = maxStock;
-        validate();
-        reqModal.show();
-      });
+    $('#rtsTable').on('click', '.req-btn', function () {
+      var b = this;
+      maxStock = parseInt(b.dataset.stock, 10) || 0;
+      document.getElementById('reqQtyForm').action =
+        '/ready-to-sale-parts/' + b.dataset.partId + '/request';
+      document.getElementById('rqName').textContent = b.dataset.partName || '—';
+      document.getElementById('rqCode').textContent = b.dataset.partCode || '—';
+      stockEl.textContent = maxStock;
+      qtyInput.value = 1;
+      qtyInput.max = maxStock;
+      validate();
+      reqModal.show();
     });
     qtyInput.addEventListener('input', validate);
   }

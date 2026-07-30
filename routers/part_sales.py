@@ -16,10 +16,12 @@ from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy import select, func, text
 from sqlalchemy.exc import ProgrammingError, DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from html import escape as esc
 
 from templates_config import templates
 from database import get_db
@@ -61,10 +63,10 @@ def _stock_of(part, consumed_map) -> int:
 
 
 # ── Ready to Sale Parts ───────────────────────────────────────────────────────
-@router.get("/ready-to-sale-parts", response_class=HTMLResponse)
-async def ready_to_sale_parts(request: Request, db: AsyncSession = Depends(get_db),
-                              current_user: User = Depends(allowed)):
-    # "Only Added As New" — harvested parts are not offered for resale here.
+async def _ready_parts_rows(db: AsyncSession):
+    """Shared by the page (filter dropdowns) and the /data feed (everything else).
+    Small dataset (parts "Added As New"), but built once so both endpoints
+    agree on stock/status logic — no drift between the two."""
     parts = (await db.execute(
         select(SparePart)
         .where(SparePart.source == "new", SparePart.is_trashed.is_(False))
@@ -95,11 +97,101 @@ async def ready_to_sale_parts(request: Request, db: AsyncSession = Depends(get_d
             # actually asked for rather than only that a request exists.
             "requested_qty": (lr.qty_requested if lr else None),
         })
-    makes = sorted({p.make for p in parts if p.make})
-    models = sorted({p.model for p in parts if p.model})
+    return rows
+
+
+@router.get("/ready-to-sale-parts", response_class=HTMLResponse)
+async def ready_to_sale_parts(request: Request, db: AsyncSession = Depends(get_db),
+                              current_user: User = Depends(allowed)):
+    rows = await _ready_parts_rows(db)
+    makes = sorted({row["part"].make for row in rows if row["part"].make})
+    models = sorted({row["part"].model for row in rows if row["part"].model})
     return templates.TemplateResponse("parts/ready_to_sale.html", {
         "request": request, "current_user": current_user,
-        "rows": rows, "makes": makes, "models": models,
+        "makes": makes, "models": models,
+    })
+
+
+@router.get("/ready-to-sale-parts/data")
+async def ready_to_sale_parts_data(request: Request,
+                                   draw: int = Query(1), start: int = Query(0), length: int = Query(25),
+                                   code: str = Query(""), name: str = Query(""),
+                                   make: str = Query(""), model: str = Query(""),
+                                   db: AsyncSession = Depends(get_db),
+                                   current_user: User = Depends(allowed)):
+    """DataTables server-side feed for Ready to Sale Parts."""
+    rows = await _ready_parts_rows(db)
+
+    def matches(row):
+        p = row["part"]
+        if code and code.lower() not in (p.part_code or "").lower():
+            return False
+        if name and name.lower() not in (p.name or "").lower():
+            return False
+        if make and (p.make or "") != make:
+            return False
+        if model and (p.model or "") != model:
+            return False
+        return True
+
+    filtered = [r for r in rows if matches(r)]
+    total = len(rows)
+    page = filtered[start:start + length]
+
+    def stock_badge(row):
+        p = row["part"]
+        if row["stock"] <= 0:
+            return f'<span class="badge bg-danger">0</span>'
+        if row["stock"] <= (p.min_stock_alert or 0):
+            return f'<span class="badge bg-warning text-dark">{row["stock"]}</span>'
+        return f'<span class="badge bg-success">{row["stock"]}</span>'
+
+    def action_cell(row):
+        p = row["part"]
+        req_disabled = row["stock"] <= 0 or row["pending"]
+        req_title = ("Out of stock" if row["stock"] <= 0
+                     else "A request is already pending" if row["pending"]
+                     else "Raise a sale request")
+        sell_disabled = not row["can_sell"]
+        sell_title = ("Out of stock" if row["stock"] <= 0
+                      else "Needs an approved sale request" if not row["can_sell"]
+                      else "Sell this part")
+        status_badge = ""
+        if row["status"] == "pending":
+            status_badge = '<span class="badge bg-warning text-dark ms-1">Pending</span>'
+        elif row["status"] == "approved" and row["can_sell"]:
+            status_badge = '<span class="badge bg-success ms-1">Approved</span>'
+        elif row["status"] == "rejected":
+            status_badge = '<span class="badge bg-danger ms-1">Rejected</span>'
+        return (
+            f'<div class="text-nowrap">'
+            f'<button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 req-btn" '
+            f'data-part-id="{p.id}" data-part-name="{esc(p.name or "")}" '
+            f'data-part-code="{esc(p.part_code or "")}" data-stock="{row["stock"]}" '
+            f'{"disabled" if req_disabled else ""} title="{esc(req_title)}">'
+            f'<i class="bi bi-send me-1"></i>Request</button> '
+            f'<a href="/part-sales/new?part_id={p.id}" '
+            f'class="btn btn-sm btn-success py-0 px-2{" disabled" if sell_disabled else ""}" '
+            f'{"tabindex=\"-1\" aria-disabled=\"true\"" if sell_disabled else ""} title="{esc(sell_title)}">'
+            f'<i class="bi bi-cart-check me-1"></i>Sell</a>{status_badge}</div>'
+        )
+
+    data = []
+    for row in page:
+        p = row["part"]
+        data.append([
+            f'<span class="font-monospace fw-bold">{esc(p.part_code or "")}</span>',
+            esc(p.name or ""),
+            esc(p.make or "—"),
+            esc(p.model or "—"),
+            stock_badge(row),
+            (f'<span class="badge bg-primary">{row["requested_qty"]}</span>'
+             if row["requested_qty"] else '<span class="text-muted">—</span>'),
+            action_cell(row),
+        ])
+
+    return JSONResponse({
+        "draw": draw, "recordsTotal": total, "recordsFiltered": len(filtered), "data": data,
     })
 
 

@@ -18,7 +18,7 @@ def _pdf_text(path: str) -> str:
 
 def _find(patterns, text):
     for p in patterns:
-        m = re.search(p, text, re.I)
+        m = re.search(p, text, re.I | re.M)
         if m:
             return m.group(1).strip()
     return None
@@ -78,16 +78,45 @@ def extract_invoice_fields(path: str) -> dict:
     ], text)
 
     sender = _find([
-        r"(?:sold\s*by|seller|supplier|vendor|from)\s*[:\-]?\s*([A-Za-z0-9 .,&'\-]{3,60})",
+        # Label must anchor at line start — a bare "from" mid-sentence (e.g.
+        # "Invoice #: From Renew Circuits10 Invoice Date: ...", a template
+        # where the invoice-number field was left blank) matched "From" and
+        # ran on into the next field, producing garbage like "Renew
+        # Circuits10 Invoice Date". Requiring line-start plus a real label
+        # word avoids that false match.
+        r"^\s*(?:sold\s*by|billed\s*by|invoice\s*from|seller|supplier|vendor|consignor|shipper)\s*[:\-]?\s*([A-Za-z0-9 .,&'\-]{3,60})",
+        r"^\s*from\s*[:\-]\s*([A-Za-z0-9 .,&'\-]{3,60})",
     ], text)
     if not sender:
+        # Header/address noise to skip — GSTIN, phone/mobile, email, website,
+        # PIN-coded address lines, and common form-field labels that aren't a
+        # company name themselves (buyer/customer/shipping details belong to
+        # the recipient, not the vendor).
+        _skip_words = (
+            "invoice", "tax ", "gst", "date", "page", "bill", "original",
+            "state name", "gstin", "pan ", "mobile", "phone", "email", "website",
+            "reference", "delivery", "buyer", "customer", "shipping", "billing",
+            "address", "dispatch", "consignee", "ship to", "sold to", "hsn",
+        )
+        _gstin_re = re.compile(r"\b\d{2}[A-Z]{5}\d{4}[A-Z]\d[A-Z0-9]Z[A-Z0-9]\b")
+        _pin_re = re.compile(r"\b\d{6}\b")
+        _contact_re = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+|www\.|\+?\d[\d -]{8,}\d")
         for line in text.splitlines():
             s = line.strip()
             low = s.lower()
-            if len(s) >= 3 and not low.startswith((
-                    "invoice", "tax", "gst", "date", "page", "bill", "original")):
-                sender = s[:60]
-                break
+            if len(s) < 3 or len(s) > 80:
+                continue
+            if low.startswith(_skip_words):
+                continue
+            if _gstin_re.search(s) or _pin_re.search(s) or _contact_re.search(s):
+                continue
+            # A company name is mostly letters, not a wall of numbers —
+            # require most characters to be alphabetic or spacing/punctuation.
+            letters = sum(c.isalpha() for c in s)
+            if letters < max(3, len(s) * 0.5):
+                continue
+            sender = s[:60]
+            break
 
     return {
         "invoice_number": invoice_number,

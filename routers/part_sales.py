@@ -163,6 +163,7 @@ async def ready_to_sale_parts_data(request: Request,
             status_badge = '<span class="badge bg-success ms-1">Approved</span>'
         elif row["status"] == "rejected":
             status_badge = '<span class="badge bg-danger ms-1">Rejected</span>'
+        sell_disabled_attrs = 'tabindex="-1" aria-disabled="true"' if sell_disabled else ""
         return (
             f'<div class="text-nowrap">'
             f'<button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 req-btn" '
@@ -172,7 +173,7 @@ async def ready_to_sale_parts_data(request: Request,
             f'<i class="bi bi-send me-1"></i>Request</button> '
             f'<a href="/part-sales/new?part_id={p.id}" '
             f'class="btn btn-sm btn-success py-0 px-2{" disabled" if sell_disabled else ""}" '
-            f'{"tabindex=\"-1\" aria-disabled=\"true\"" if sell_disabled else ""} title="{esc(sell_title)}">'
+            f'{sell_disabled_attrs} title="{esc(sell_title)}">'
             f'<i class="bi bi-cart-check me-1"></i>Sell</a>{status_badge}</div>'
         )
 

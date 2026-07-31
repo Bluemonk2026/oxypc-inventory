@@ -849,7 +849,11 @@ async def lot_detail(lot_id: str, request: Request, db: AsyncSession = Depends(g
 
 def _stock_filters(device_type, lot_number, date_from, date_to):
     from utils.date_filter import apply_date_range
-    w = [Device.current_stage == DeviceStage.stock_in, Device.is_active == True]
+    # Filtering on stage == stock_in meant a device that got its GRN number
+    # straight from Add IQC (before it ever clears IQC/repair) was invisible
+    # here until it eventually reached Stock In — the actual requirement is
+    # "has a GRN", not "is at this specific stage".
+    w = [Device.grn_number.isnot(None), Device.is_active == True]
     if device_type:
         w.append(Device.device_type == device_type)
     if lot_number:
@@ -936,11 +940,17 @@ async def stock_in_data(
             ram, storage, esc(d.grade or "—"),
             f'<span class="bkt-cell" data-barcode="{esc(d.barcode)}"><span class="text-muted">—</span></span>',
             (f'<span class="badge bg-secondary">{esc(dept)}</span>' if dept else '<span class="text-muted">—</span>'),
+            # Rows now include devices anywhere in the pipeline (any device
+            # with a GRN, not just ones already at Stock In) — Move to
+            # Production only makes sense, and is only offered, for a device
+            # actually at that stage; skipping straight to TRC Production
+            # from IQC/repair would bypass the stages in between.
             (f'<form method="post" action="/stock/move-to-trc" class="d-inline">'
              f'<input type="hidden" name="csrf_token" value="{esc(request.cookies.get("csrf_token", ""))}">'
              f'<input type="hidden" name="barcode" value="{esc(d.barcode)}">'
              f'<button type="submit" class="btn btn-sm btn-outline-info py-0 px-2"><i class="bi bi-cpu"></i> Move to Production</button>'
-             f'</form>'),
+             f'</form>') if d.current_stage == DeviceStage.stock_in else
+            f'<span class="badge bg-light text-dark">{esc(STAGE_LABELS.get(d.current_stage, d.current_stage.value if d.current_stage else "—"))}</span>',
             esc(d.grn_number or ""), esc(d.invoice_number or ""),
         ])
 
@@ -1146,6 +1156,13 @@ async def move_to_trc(
     device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
     if not device:
         raise HTTPException(404, "Device not found")
+    if device.current_stage != DeviceStage.stock_in:
+        # Inventory Manager now also lists devices elsewhere in the pipeline
+        # (any device with a GRN, per _stock_filters) — this action is only
+        # valid for one actually at Stock In; anything else would skip the
+        # stages in between rather than bypass them one at a time.
+        return RedirectResponse(
+            url="/stock?error=Device+is+not+at+Stock+In+stage", status_code=302)
     prev_stage = device.current_stage
     prev_mv = (await db.execute(
         select(StageMovement).where(

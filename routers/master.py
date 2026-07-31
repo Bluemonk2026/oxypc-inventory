@@ -119,6 +119,12 @@ PERM_MODULES = [
     ("repair_l1",            "L1 Repair"),
     ("repair_l2",            "L2 Repair"),
     ("repair_l3",            "L3 Repair"),
+    # repair_l3 above is still the permission key gating the sidebar's L3/L4
+    # link (has_perm(role,'repair_l3','enable')) — this entry is the label
+    # key that link's sidebar_label() call actually reads, which had no
+    # PERM_MODULES row at all, so it could never be renamed from Sidebar
+    # Config or shown on Module Page Titles.
+    ("repair_l3l4",          "L3/L4 Repair"),
     ("qc_check",             "Stress Test"),
     # ── COSMETIC REFURB ────────────────────────────────────────────
     ("cosmetic",             "Cosmetic & Paint"),
@@ -137,6 +143,10 @@ PERM_MODULES = [
     ("crm_sourcing",         "Sourcing Deals"),
     ("crm_sales_opp",        "Sales Opportunities"),
     ("crm_price_matrix",     "Price Matrix"),
+    # Gated on crm_sales_opp in the sidebar (quotes hang off Buyer Deals and
+    # share their access) rather than its own permission — this entry exists
+    # purely so Sidebar Config / Module Page Titles have a row for its label.
+    ("crm_quotes",           "Quotes"),
     ("crm_purchase_orders",  "Purchase Orders"),
     ("crm_analytics",        "CRM Analytics"),
     ("crm_assign_leads",     "Assign Social Leads"),

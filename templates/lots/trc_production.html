@@ -18,12 +18,18 @@
 {% if request.query_params.get('success') %}
 <div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success')|replace('+',' ') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
 {% endif %}
-<!-- Bucket Allocation section -->
-<div class="d-flex justify-content-between align-items-center mb-2">
-  <h6 class="fw-bold mb-0"><i class="bi bi-box me-2"></i>Bucket Allocation</h6>
-</div>
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-body p-0">
+<!-- Bucket Allocation / Tag Number Allocation tabs -->
+<ul class="nav nav-tabs" id="prodTabs" role="tablist">
+  <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#bucketAllocTab" type="button">
+    <i class="bi bi-box me-1"></i>Bucket Allocation
+  </button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tagAllocTab" type="button">
+    <i class="bi bi-upc-scan me-1"></i>Tag Number Allocation
+    <span class="badge bg-secondary ms-1">{{ total }}</span>
+  </button></li>
+</ul>
+<div class="tab-content border border-top-0 rounded-bottom bg-white mb-3">
+  <div class="tab-pane fade show active p-0" id="bucketAllocTab">
     <div class="table-responsive">
       <table class="table table-hover mb-0 small">
         <thead class="table-secondary">
@@ -35,14 +41,7 @@
       </table>
     </div>
   </div>
-</div>
-
-<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
-  <h6 class="fw-bold mb-0"><i class="bi bi-upc-scan me-2"></i>Assigned Tag Number</h6>
-  <span class="text-muted small">{{ total }} device(s) in Production</span>
-</div>
-<div class="card border-0 shadow-sm">
-  <div class="card-body p-0">
+  <div class="tab-pane fade p-0" id="tagAllocTab">
     <div class="table-responsive">
       <table id="trcTable" class="table table-hover mb-0 small">
         <thead class="table-dark"><tr>
@@ -116,10 +115,10 @@
     <div class="table-responsive">
       <table id="prodAllocationTable" class="table table-hover mb-0 small">
         <thead class="table-secondary">
-          <tr><th>Bucket ID</th><th>Location ID</th><th>Total Pass</th><th>Total Fail</th><th>Count of Tag Numbers</th><th>Stage</th><th>Assigned To</th><th>Action</th></tr>
+          <tr><th>Bucket Name</th><th>Bucket ID</th><th>Location ID</th><th>Total Pass</th><th>Total Fail</th><th>Count of Tag Numbers</th><th>Stage</th><th>Assigned To</th><th>Action</th></tr>
         </thead>
         <tbody id="prodAllocationTbody">
-          <tr><td colspan="8" class="text-center text-muted py-3">Loading…</td></tr>
+          <tr><td colspan="9" class="text-center text-muted py-3">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -219,7 +218,16 @@
 {% endblock %}
 {% block scripts %}
 <script>
-$(document).ready(function(){ if ($('#trcTable tbody tr td').length > 1) $('#trcTable').DataTable({}); });
+$(document).ready(function(){
+  // #trcTable now lives in a tab-pane that starts hidden, so DataTables
+  // would measure a 0-width table if initialised immediately — the classic
+  // "columns collapse until you resize the window" bug. Initialise once,
+  // then re-measure whenever the tab is actually shown.
+  var trcDt = ($('#trcTable tbody tr td').length > 1) ? $('#trcTable').DataTable({}) : null;
+  document.querySelector('[data-bs-target="#tagAllocTab"]').addEventListener('shown.bs.tab', function(){
+    if (trcDt) trcDt.columns.adjust();
+  });
+});
 
 // ── Bucket Allocation ────────────────────────────────────────────────────────
 
@@ -372,11 +380,12 @@ function loadProdAllocationTable(){
     var tbody = document.getElementById('prodAllocationTbody');
     var relevant = buckets.filter(function(b){ return b.assigned_to_production; });
     if(!relevant.length){
-      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No buckets allocated to L1/L2 Engineer yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">No buckets allocated to L1/L2 Engineer yet.</td></tr>';
       return;
     }
     tbody.innerHTML = relevant.map(function(b){
       return '<tr>'+
+        '<td>'+(b.name || '—')+'</td>'+
         '<td><span class="badge bg-secondary">'+b.bucket_number+'</span></td>'+
         '<td>'+(b.location_unit_id||'—')+'</td>'+
         '<td><span class="badge bg-success">'+b.total_pass+'</span></td>'+

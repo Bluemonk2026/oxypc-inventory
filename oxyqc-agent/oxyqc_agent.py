@@ -425,6 +425,15 @@ def _snap_screen(d):
         d = float(d)
     except (TypeError, ValueError):
         return None
+    # 13.3" panels are tightly spec'd and measure almost exactly 13.3" in
+    # practice. "14-inch" panels vary more — real measured diagonals commonly
+    # come in anywhere from ~13.8" to 14.0" depending on the model. The plain
+    # nearest-neighbour midpoint (13.65") pulled some genuinely-14" panels
+    # (measuring ~13.6-13.7") onto 13.3" instead. Move that one boundary down
+    # to 13.5" rather than shifting every pair uniformly, since 13.3" panels
+    # themselves don't measure that far from spec.
+    if 13.3 < d < 14.0:
+        return _SCREEN_MAP[14.0] if d >= 13.5 else _SCREEN_MAP[13.3]
     best = min(_SCREEN_MAP, key=lambda s: abs(s - d))
     # Tight tolerance: the EDID reading is millimetre-accurate, so anything more
     # than ~0.8" from a standard panel is not one of the sizes the form offers.
@@ -486,7 +495,9 @@ def format_ram_summary(sticks):
 
 def format_hdd_summary(drives):
     """drives: list of dicts with keys sizeGB, type ('SSD'/'HDD'), rpm, make.
-    Produces e.g. "520GB_SSD_5400RPM_Samsung, 1TB_SSD_7200RPM_Seagate".
+    Produces e.g. "520GB_SSD_5400_Samsung, 1TB_SSD_7200_Seagate" — same
+    packed-string format as routers/iqc.py's duplicate _format_hdd_summary
+    and the Customise modal's own placeholder text.
     Size is expressed in GB unless >=1000GB, then shown as whole TB (matches
     the spec's own "1TB_SSD_..." example)."""
     parts = []
@@ -976,9 +987,18 @@ def detect():
         # Dell BIOSes sometimes report the SKU (short code like "0A30") in
         # Win32_ComputerSystem.Model — fall back to SystemFamily ("Latitude
         # 5420") when the model looks like a SKU, not a marketing name.
+        #
+        # The old test (any 3-6 char hex string) also matched real Latitude
+        # E-series model codes — "E5470", "E7450", "E6440" are all valid hex
+        # digits — so a genuinely specific model number was getting thrown
+        # away in favour of the generic family name. Dell's SKU codes are
+        # specifically a leading zero followed by hex digits (the "0A30"
+        # style in the comment above); real model codes start with a letter.
+        # Anchoring on the leading zero keeps the SKU fallback working while
+        # no longer misfiring on legitimate E-series codes.
         fam = str(info.get("sysfamily") or "").strip()
         if fam and "dell" in str(info.get("manufacturer") or "").lower() \
-                and re.fullmatch(r"[0-9A-Fa-f]{3,6}", model_raw):
+                and re.fullmatch(r"0[0-9A-Fa-f]{2,5}", model_raw):
             model_raw = fam
         f["model"] = model_raw
     serial = str(info.get("serial") or "").strip()

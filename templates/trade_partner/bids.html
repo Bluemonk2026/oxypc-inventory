@@ -79,6 +79,7 @@
         {% if mode == 'won' %}<th>Payment Status</th>{% endif %}
         <th>Download</th>
         <th>{{ 'Actions' if mode == 'active' else ('Won' if mode == 'won' else 'Lost') }}</th>
+        {% if mode == 'won' %}<th>Action</th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -161,9 +162,16 @@
           <span class="badge bg-danger-subtle text-danger-emphasis border">Outbid</span>
           {% endif %}
         </td>
+        {% if mode == 'won' %}
+        <td class="text-nowrap">
+          <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 gen-po-btn"
+                  data-bid-id="{{ r.bid.id }}">
+            <i class="bi bi-file-earmark-text me-1"></i>Generate PO</button>
+        </td>
+        {% endif %}
       </tr>
       {% else %}
-      <tr><td colspan="{{ 10 if mode == 'won' else 9 }}" class="text-center text-muted py-3">No bids here yet.</td></tr>
+      <tr><td colspan="{{ 11 if mode == 'won' else 9 }}" class="text-center text-muted py-3">No bids here yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -366,6 +374,13 @@ document.getElementById('uploadDocModal').addEventListener('show.bs.modal', func
   document.getElementById('uploadDocForm').action =
     '/trade-partner/bids/' + btn.getAttribute('data-bid-id') + '/upload';
   document.getElementById('docBidNumber').textContent = btn.getAttribute('data-bid-number');
+});
+
+// Marked Won table: Generate PO straight from the row — the winning bid is
+// already known here, unlike Total Bids Created where the lot can still
+// have several live bids and the lot-bids modal picks one.
+document.querySelectorAll('#wonTable .gen-po-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){ openPoPreview(this.dataset.bidId); });
 });
 
 // Lot Number -> bids for that lot, each with a Generate PO action.

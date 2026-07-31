@@ -681,10 +681,33 @@ async def dashboard(
     except Exception:
         today_followups = 0
 
+    # ── Pending for IQC — Lot No / Category / Qty breakdown ───────────────────
+    # The "Pending for IQC" count on this dashboard has always been a single
+    # number; there was no way to see which lots it was made up of. Sums
+    # Device rows still at the IQC stage, grouped by lot and category, so a
+    # lot with a stuck-in-IQC backlog is visible at a glance rather than
+    # requiring a trip to Product IQC and manual filtering per lot.
+    try:
+        iqc_pending_rows = (await db.execute(
+            select(Lot.lot_number, Device.sub_category, func.count(Device.id))
+            .join(Lot, Device.lot_id == Lot.id)
+            .where(Device.current_stage == DeviceStage.iqc)
+            .group_by(Lot.lot_number, Device.sub_category)
+            .order_by(Lot.lot_number)
+        )).all()
+        iqc_pending_by_lot = [
+            {"lot_number": lot_number, "category": category or "—", "qty": qty}
+            for lot_number, category, qty in iqc_pending_rows
+        ]
+    except Exception:
+        _log.exception("iqc_pending_by_lot failed")
+        iqc_pending_by_lot = []
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "current_user": current_user,
         "now": app_now(),
+        "iqc_pending_by_lot": iqc_pending_by_lot,
         "work_queue_devices": work_queue_devices,
         "stage_counts": filtered_stage_counts,
         "stage_filter": stage_filter,

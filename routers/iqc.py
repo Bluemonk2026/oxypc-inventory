@@ -729,7 +729,7 @@ async def iqc_create_lot_from_selection(
     return RedirectResponse(url=f"/iqc?success=Lot+{lot.lot_number}+created+with+{len(devices)}+device(s)", status_code=302)
 
 
-_CUSTOMISE_RETURN_PATHS = {"/iqc", "/devices"}
+_CUSTOMISE_RETURN_PATHS = {"/iqc", "/devices", "/stock"}
 
 
 @router.post("/bulk-apply-grade-type")

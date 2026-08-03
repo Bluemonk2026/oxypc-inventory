@@ -1,9 +1,12 @@
 // OxyPC Inventory — General JS
 
-// Auto-dismiss alerts after 4 seconds
+// Auto-dismiss alerts after 4 seconds — excludes .no-autohide, used by
+// persistent status banners (e.g. Attendance's Check-In/Check-Out card)
+// that happen to reuse alert-success/alert-info styling but aren't a
+// transient toast message.
 document.addEventListener('DOMContentLoaded', function () {
   setTimeout(function () {
-    document.querySelectorAll('.alert.alert-success, .alert.alert-info').forEach(function (el) {
+    document.querySelectorAll('.alert.alert-success:not(.no-autohide), .alert.alert-info:not(.no-autohide)').forEach(function (el) {
       var bsAlert = bootstrap.Alert.getOrCreateInstance(el);
       if (bsAlert) bsAlert.close();
     });

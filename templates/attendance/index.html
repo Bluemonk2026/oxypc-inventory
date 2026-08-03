@@ -26,7 +26,7 @@
 
 <!-- My Status Card -->
 {% if own_record %}
-<div class="alert {% if own_record.check_in and own_record.check_out %}alert-success{% elif own_record.check_in %}alert-info{% else %}alert-secondary{% endif %} border-0 shadow-sm mb-4 py-3">
+<div class="alert no-autohide {% if own_record.check_in and own_record.check_out %}alert-success{% elif own_record.check_in %}alert-info{% else %}alert-secondary{% endif %} border-0 shadow-sm mb-4 py-3">
   <div class="d-flex flex-wrap align-items-center gap-3">
     <i class="bi bi-person-check fs-2"></i>
     <div>

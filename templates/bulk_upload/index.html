@@ -3,6 +3,13 @@
 {% block page_title %}Bulk Upload{% endblock %}
 {% block content %}
 
+<div class="alert alert-info no-autohide border-0 shadow-sm py-2 mb-3">
+  <i class="bi bi-info-circle me-2"></i>
+  <strong>Before you upload:</strong> use the matching template for each section below (column order matters),
+  duplicate barcodes / lot numbers / part codes are skipped rather than overwritten, and rows with errors are
+  skipped while valid rows still get inserted. Uploads cannot be undone — double-check your CSV first.
+</div>
+
 {# ── Back links based on entry point ────────────────────────────── #}
 <div class="mb-3 d-flex gap-2 flex-wrap">
   <a href="/lots" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Back to Lots</a>

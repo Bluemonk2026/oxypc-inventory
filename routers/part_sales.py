@@ -12,7 +12,7 @@ Sell is gated on an APPROVED, not-yet-consumed PartSaleRequest, so one
 approval authorises exactly one sale.
 """
 from collections import defaultdict
-from datetime import timedelta
+from datetime import timedelta, datetime
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
@@ -25,7 +25,7 @@ from html import escape as esc
 
 from templates_config import templates
 from database import get_db
-from utils.timezone import app_now
+from utils.timezone import app_now, app_today
 from models.user import User, UserRole
 from models.spare_parts import SparePart
 from models.part_request import PartRequest, PartSourcingRequest
@@ -337,6 +337,7 @@ async def part_sale_new_form(request: Request, db: AsyncSession = Depends(get_db
         "sales_person_options": await sales_person_options(db),
         "options": options, "prefill_part_id": part_id,
         "next_sale_number": await _next_part_sale_number(db),
+        "today": app_today().isoformat(),
     })
 
 
@@ -352,6 +353,7 @@ async def create_part_sale(request: Request,
                            invoice_no: str = Form(""),
                            payment_mode: str = Form("cash"),
                            notes: str = Form(""),
+                           sale_date: str = Form(""),
                            db: AsyncSession = Depends(get_db),
                            current_user: User = Depends(allowed)):
     part = (await db.execute(
@@ -392,6 +394,18 @@ async def create_part_sale(request: Request,
 
     stock_unit = Decimal(str(part.unit_price or 0))
     total = unit * q
+
+    # Sale Date defaults to now; a selected date keeps the current time-of-day
+    # so ordering within a day still makes sense for a backdated entry.
+    now_dt = app_now()
+    resolved_sold_at = now_dt
+    if sale_date:
+        try:
+            resolved_sold_at = datetime.combine(
+                datetime.strptime(sale_date, "%Y-%m-%d").date(), now_dt.time())
+        except ValueError:
+            pass
+
     sale = PartSale(
         sale_number=await _next_part_sale_number(db),
         part_id=part.id, request_id=approval.id,
@@ -402,7 +416,7 @@ async def create_part_sale(request: Request,
         customer_state=customer_state or None, invoice_no=invoice_no or None,
         payment_mode=payment_mode or None, notes=notes or None,
         sold_by=current_user.username, sales_person=sales_person.strip() or None,
-        sold_at=app_now(),
+        sold_at=resolved_sold_at,
     )
     db.add(sale)
     part.sold_qty = int(part.sold_qty or 0) + q      # feeds Part Master's Sold column

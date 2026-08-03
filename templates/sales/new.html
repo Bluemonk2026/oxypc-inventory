@@ -44,6 +44,11 @@
           {% endif %}
           <div class="row g-3">
             <div class="col-md-4">
+              <label class="form-label fw-semibold">Sale Date</label>
+              <input type="date" name="sale_date" class="form-control" value="{{ today }}" max="{{ today }}">
+              <div class="form-text small text-muted">Defaults to today</div>
+            </div>
+            <div class="col-md-4">
               <label class="form-label fw-semibold">Sale Price (₹) <span class="text-danger">*</span></label>
               <div class="input-group">
                 <span class="input-group-text">₹</span>

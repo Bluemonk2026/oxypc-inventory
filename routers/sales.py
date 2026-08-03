@@ -9,7 +9,7 @@ import shutil
 import time
 from datetime import datetime
 from pathlib import Path
-from utils.timezone import app_now
+from utils.timezone import app_now, app_today
 from decimal import Decimal
 from fastapi import APIRouter, Depends, Form, File, Request, HTTPException, Query, BackgroundTasks, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
@@ -428,7 +428,7 @@ async def sale_new_form(request: Request, barcode: str = None,
         "error": stage_error, "approved_qty": approved_qty,
         "stock_price": stock_price, "prefill_barcode": prefill_barcode,
         "prefill_qty": prefill_qty, "multi_count": multi_count,
-        "embed": bool(embed),
+        "embed": bool(embed), "today": app_today().isoformat(),
     })
 
 
@@ -448,6 +448,7 @@ async def create_sale(
     qty: int = Form(1),
     invoice_file_path: str = Form(""),
     warranty_type: str = Form("none"),
+    sale_date: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("sales", "add")),
@@ -465,6 +466,7 @@ async def create_sale(
             "request": request, "device": device, "lot": lot,
             "next_sale_number": await _next_sale_number(db),
             "current_user": current_user, "error": message,
+            "today": app_today().isoformat(),
         })
 
     # ── Multi-sale support: barcode field may be a comma-separated tag list ──
@@ -484,6 +486,18 @@ async def create_sale(
         return await _fail("Invalid sale price — please enter a valid number")
 
     wtype = warranty_type if warranty_type in ("none", "30_days", "6_months", "1_year") else "none"
+
+    # Sale Date defaults to now; a selected date keeps the current time-of-day
+    # so ordering within a day and warranty-expiry math both still make sense
+    # for a backdated entry.
+    now_dt = app_now()
+    resolved_sold_at = now_dt
+    if sale_date:
+        try:
+            resolved_sold_at = datetime.combine(
+                datetime.strptime(sale_date, "%Y-%m-%d").date(), now_dt.time())
+        except ValueError:
+            pass
 
     # ── Resolve the whole batch up front (set-based, not per device) ──────────
     # This loop used to issue ~10 sequential round trips PER DEVICE. Against a
@@ -557,7 +571,7 @@ async def create_sale(
 
         sale_num = sale_numbers[_num_idx]
         _num_idx += 1
-        sold_at = app_now()
+        sold_at = resolved_sold_at
         warranty_expires_at = compute_warranty_expiry(sold_at, wtype)
         sale = Sale(
             sale_number=sale_num, device_id=device.id,

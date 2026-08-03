@@ -1627,42 +1627,45 @@ async def po_preview(
 
     items = []
     if bid.lot_id:
-        for li in (await db.execute(
-            select(LotLineItem).where(LotLineItem.lot_id == bid.lot_id)
-            .order_by(LotLineItem.sub_category, LotLineItem.model)
-        )).scalars().all():
-            items.append({
-                "model": li.model or li.sub_category or "-",
-                "cpu": " ".join(x for x in [li.cpu, li.generation] if x) or "-",
-                "ram": f"{li.ram_gb}GB" if li.ram_gb else "-",
-                "storage": (f"{li.storage_gb}GB {li.storage_type or ''}".strip()
-                            if li.storage_gb else "-"),
-                "qty": li.qty or 0,
-            })
+        # Show every Model added under this Lot, across ALL stages (no
+        # Device.current_stage filter) — the Line Item table previously only
+        # showed LotLineItem rows (invoice-entry data), missing models that
+        # only exist as stocked Device rows in later stages (L1/L2/stock_in/
+        # sold/etc). Device-based grouping is now the primary source.
+        drows = (await db.execute(
+            select(Device.model, Device.cpu, Device.generation, Device.ram_gb,
+                   Device.storage_gb, Device.storage_type,
+                   func.count(Device.id).label("qty"))
+            .where(Device.lot_id == bid.lot_id,
+                   Device.is_active == True, Device.is_trashed == False)  # noqa: E712
+            .group_by(Device.model, Device.cpu, Device.generation, Device.ram_gb,
+                      Device.storage_gb, Device.storage_type)
+            .order_by(func.count(Device.id).desc())
+        )).all()
+        items = [{
+            "model": d.model or "-",
+            "cpu": " ".join(x for x in [d.cpu, d.generation] if x) or "-",
+            "ram": f"{d.ram_gb}GB" if d.ram_gb else "-",
+            "storage": (f"{d.storage_gb}GB {d.storage_type or ''}".strip()
+                        if d.storage_gb else "-"),
+            "qty": d.qty,
+        } for d in drows]
 
-        # Most lots have no line items at all — they are stocked through IQC/GRN,
-        # which creates devices, not LotLineItem rows. Those lots showed an empty
-        # PO. Fall back to the devices actually in the lot, grouped by spec, which
-        # is what the PO should list for a lot of refurbished units anyway.
+        # Fallback for lots stocked only via LotLineItem entries (no Device
+        # rows created yet).
         if not items:
-            drows = (await db.execute(
-                select(Device.model, Device.cpu, Device.generation, Device.ram_gb,
-                       Device.storage_gb, Device.storage_type,
-                       func.count(Device.id).label("qty"))
-                .where(Device.lot_id == bid.lot_id,
-                       Device.is_active == True, Device.is_trashed == False)  # noqa: E712
-                .group_by(Device.model, Device.cpu, Device.generation, Device.ram_gb,
-                          Device.storage_gb, Device.storage_type)
-                .order_by(func.count(Device.id).desc())
-            )).all()
-            items = [{
-                "model": d.model or "-",
-                "cpu": " ".join(x for x in [d.cpu, d.generation] if x) or "-",
-                "ram": f"{d.ram_gb}GB" if d.ram_gb else "-",
-                "storage": (f"{d.storage_gb}GB {d.storage_type or ''}".strip()
-                            if d.storage_gb else "-"),
-                "qty": d.qty,
-            } for d in drows]
+            for li in (await db.execute(
+                select(LotLineItem).where(LotLineItem.lot_id == bid.lot_id)
+                .order_by(LotLineItem.sub_category, LotLineItem.model)
+            )).scalars().all():
+                items.append({
+                    "model": li.model or li.sub_category or "-",
+                    "cpu": " ".join(x for x in [li.cpu, li.generation] if x) or "-",
+                    "ram": f"{li.ram_gb}GB" if li.ram_gb else "-",
+                    "storage": (f"{li.storage_gb}GB {li.storage_type or ''}".strip()
+                                if li.storage_gb else "-"),
+                    "qty": li.qty or 0,
+                })
     return JSONResponse({
         "bid_number": bid.bid_number,
         "lot_number": r["lot_number"],

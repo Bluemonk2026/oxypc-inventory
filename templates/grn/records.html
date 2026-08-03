@@ -2,6 +2,9 @@
 {% block title %}GRN Records — OxyPC{% endblock %}
 {% block page_title %}GRN Records{% endblock %}
 {% block content %}
+{% if success %}<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>{% endif %}
+
 {# No other server-side filters on this page, so the date range gets its own
    filter row card, matching the filter bar on every other page. #}
 <form method="get" action="/grn/records" class="card border-0 shadow-sm mb-3">
@@ -48,28 +51,91 @@
 </div>
 {% endmacro %}
 
-<div class="card border-0 shadow-sm mb-4">
-  <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <span><i class="bi bi-check2-circle me-2"></i>GRN Assigned
-      <span class="badge bg-success ms-1">{{ assigned|length }}</span>
-      <span class="text-muted small ms-2">Tag numbers that have a GRN value</span></span>
-    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="exportGrnTable('assignedTable')">
-      <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
-    </button>
-  </div>
-  <div class="card-body p-0">{{ tag_table('assignedTable', assigned, true) }}</div>
-</div>
-
 <div class="card border-0 shadow-sm">
-  <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <span><i class="bi bi-exclamation-circle me-2"></i>GRN Not Mapped
-      <span class="badge bg-danger ms-1">{{ not_mapped|length }}</span>
-      <span class="text-muted small ms-2">Tag numbers with an empty GRN value</span></span>
-    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="exportGrnTable('notMappedTable')">
-      <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
-    </button>
+  <div class="card-header bg-transparent p-0">
+    <ul class="nav nav-tabs card-header-tabs px-3 pt-2" id="grnBoardTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="assigned-tab" data-bs-toggle="tab" data-bs-target="#assignedPane" type="button">
+          GRN Assigned <span class="badge bg-success ms-1">{{ assigned|length }}</span>
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="notmapped-tab" data-bs-toggle="tab" data-bs-target="#notMappedPane" type="button">
+          GRN Not Mapped <span class="badge bg-danger ms-1">{{ not_mapped|length }}</span>
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="pendingtrc-tab" data-bs-toggle="tab" data-bs-target="#pendingTrcPane" type="button">
+          Pending for TRC <span class="badge bg-warning text-dark ms-1">{{ pending_trc|length }}</span>
+        </button>
+      </li>
+    </ul>
   </div>
-  <div class="card-body p-0">{{ tag_table('notMappedTable', not_mapped, false) }}</div>
+  <div class="tab-content">
+    <div class="tab-pane fade show active" id="assignedPane" role="tabpanel">
+      <div class="d-flex justify-content-end p-2 border-bottom">
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="exportGrnTable('assignedTable')">
+          <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
+        </button>
+      </div>
+      {{ tag_table('assignedTable', assigned, true) }}
+    </div>
+    <div class="tab-pane fade" id="notMappedPane" role="tabpanel">
+      <div class="d-flex justify-content-end p-2 border-bottom">
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="exportGrnTable('notMappedTable')">
+          <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
+        </button>
+      </div>
+      {{ tag_table('notMappedTable', not_mapped, false) }}
+    </div>
+    <div class="tab-pane fade" id="pendingTrcPane" role="tabpanel">
+      <form method="post" action="/grn/records/bulk-move-to-trc">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
+        <div class="d-flex justify-content-between align-items-center p-2 border-bottom flex-wrap gap-2">
+          <div class="small text-muted">Select tag numbers below, or upload a list, then bulk-move them into TRC Production.</div>
+          <div class="d-flex align-items-center gap-2">
+            <input type="file" id="pendingTrcCsvFile" accept=".csv,.txt" class="form-control form-control-sm" style="max-width:220px">
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="exportGrnTable('pendingTrcTable')">
+              <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
+            </button>
+            <button type="submit" id="bulkMoveToTrcBtn" class="btn btn-primary btn-sm" disabled>
+              <i class="bi bi-arrow-right-circle me-1"></i>Bulk Move to TRC <span id="pendingTrcSelCount">(0)</span>
+            </button>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table id="pendingTrcTable" class="table table-hover mb-0 small align-middle">
+            <thead class="table-dark">
+              <tr>
+                <th class="ps-3"><input type="checkbox" id="pendingTrcSelectAll" class="form-check-input"></th>
+                <th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Grade</th><th>Stage</th><th>GRN Number</th><th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for d, lot_number in pending_trc %}
+              <tr>
+                <td class="ps-3"><input type="checkbox" name="device_ids" value="{{ d.id }}" class="form-check-input pending-trc-cb" data-barcode="{{ d.barcode }}"></td>
+                <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
+                <td>{% if lot_number %}<span class="badge bg-info text-dark">{{ lot_number }}</span>{% else %}—{% endif %}</td>
+                <td>{{ d.brand or '—' }}</td>
+                <td>{{ d.model or '—' }}</td>
+                <td>
+                  {% set gv = d.grade.value if d.grade else '' %}
+                  <span class="badge bg-{{ 'success' if gv == 'A' else 'warning text-dark' if gv == 'B' else 'danger' if gv in ['C','D','scrap'] else 'secondary' }}">{{ gv or '—' }}</span>
+                </td>
+                <td><span class="badge bg-{{ d.stage_color }}">{{ d.stage_label }}</span></td>
+                <td class="font-monospace">{{ d.grn_number }}</td>
+                <td class="small text-muted">{{ d.updated_at.strftime('%d %b %Y') if d.updated_at else '—' }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="9" class="text-center text-muted py-4">No tag numbers pending for TRC.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -77,6 +143,7 @@
 $(document).ready(function(){
   if ($('#assignedTable tbody tr td').length > 1) { $('#assignedTable').DataTable({pageLength: 12, lengthChange:false, order:[]}); }
   if ($('#notMappedTable tbody tr td').length > 1) { $('#notMappedTable').DataTable({pageLength: 12, lengthChange:false, order:[]}); }
+  if ($('#pendingTrcTable tbody tr td').length > 1) { $('#pendingTrcTable').DataTable({pageLength: 12, lengthChange:false, order:[], columnDefs: [{orderable: false, targets: 0}]}); }
 });
 
 function exportGrnTable(tableId) {
@@ -99,5 +166,47 @@ function exportGrnTable(tableId) {
   a.download = tableId + '.csv';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
+
+// Pending for TRC — selection + bulk-move button count
+(function(){
+  var selectAll = document.getElementById('pendingTrcSelectAll');
+  var moveBtn = document.getElementById('bulkMoveToTrcBtn');
+  var countEl = document.getElementById('pendingTrcSelCount');
+
+  function refreshSelection() {
+    var checked = document.querySelectorAll('.pending-trc-cb:checked').length;
+    countEl.textContent = '(' + checked + ')';
+    moveBtn.disabled = checked === 0;
+  }
+  document.addEventListener('change', function(e){
+    if (e.target.classList && e.target.classList.contains('pending-trc-cb')) refreshSelection();
+  });
+  if (selectAll) {
+    selectAll.addEventListener('change', function(){
+      document.querySelectorAll('.pending-trc-cb').forEach(function(cb){ cb.checked = selectAll.checked; });
+      refreshSelection();
+    });
+  }
+
+  // Upload a list of Tag Numbers (CSV/TXT) — checks matching rows already in the table.
+  var csvFile = document.getElementById('pendingTrcCsvFile');
+  if (csvFile) {
+    csvFile.addEventListener('change', function(e){
+      var file = e.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function(ev){
+        var tags = (ev.target.result || '').split(/[\n\r,]+/).map(function(t){ return t.trim(); }).filter(Boolean);
+        var tagSet = {};
+        tags.forEach(function(t){ tagSet[t] = true; });
+        document.querySelectorAll('.pending-trc-cb').forEach(function(cb){
+          if (tagSet[cb.dataset.barcode]) cb.checked = true;
+        });
+        refreshSelection();
+      };
+      reader.readAsText(file);
+    });
+  }
+})();
 </script>
 {% endblock %}

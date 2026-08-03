@@ -64,6 +64,7 @@ NAV_PAGE_TITLES = [
     ("iqc",                  "IQC Line Items",                "IQC Line Items",                "/iqc"),
     ("grn_post_iqc",         "GRN post IQC",                  "GRN post IQC",                  "/grn/post-iqc"),
     ("grn_records",          "GRN Records",                   "GRN Records",                   "/grn/records"),
+    ("entity_movement",      "Entity Movement",               "Entity Movement",               "/entity-movement"),
     ("stock",                "Stock Inwards",                 "Stock Inwards",                 "/stock"),
     ("production_manager",   "Production Manager",            "Production Manager",            "/trc-production"),
     ("scrap_products",       "Scrap Products",                "Scrap Products",                "/scrap-products"),

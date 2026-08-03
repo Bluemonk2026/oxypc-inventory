@@ -333,7 +333,8 @@
               <td>
                 {% set r = p.request %}
                 {% if r %}
-                  {% if r.status == 'requested' %}<span class="badge bg-warning text-dark">Requested &times;{{ r.qty_requested }}</span>
+                  {% if r.status == 'requested' and r.request_type == 'downgrade' %}<span class="badge bg-warning text-dark">Requested Downgrade</span>
+                  {% elif r.status == 'requested' %}<span class="badge bg-warning text-dark">Requested &times;{{ r.qty_requested }}</span>
                   {% elif r.status == 'handed_over' %}
                     <button type="button" id="verifyBtn_{{ r.id }}" class="btn btn-sm btn-outline-primary py-0 px-2"
                             onclick="verifyPartReceived('{{ r.id }}')">

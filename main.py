@@ -141,6 +141,7 @@ from routers.m_telecalling import router as m_telecalling_router
 # WhatsApp integration removed — router import disabled (unhooked, file left on disk)
 # from routers.whatsapp import router as whatsapp_router
 from routers.grn import router as grn_router
+from routers.entity_movement import router as entity_movement_router
 from routers.parts_grn import router as parts_grn_router
 import models.parts_grn  # ensure parts_grn tables are in Base.metadata
 import models.company  # ensure companies table is in Base.metadata
@@ -222,6 +223,7 @@ app.include_router(m_telecalling_router)
 # WhatsApp integration removed — router registration disabled (routes unreachable)
 # app.include_router(whatsapp_router)
 app.include_router(grn_router)
+app.include_router(entity_movement_router)
 app.include_router(parts_grn_router)
 app.include_router(stage_control_router)
 app.include_router(market_router)

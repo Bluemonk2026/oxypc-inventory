@@ -290,10 +290,68 @@ async def grn_records(request: Request, db: AsyncSession = Depends(get_db),
         base.where(or_(Device.grn_number.is_(None), Device.grn_number == ""))
         .order_by(Device.updated_at.desc())
     )).all()
+    # Pending for TRC — GRN assigned but not yet moved into TRC Production
+    pending_trc = (await db.execute(
+        base.where(Device.grn_number.isnot(None), Device.grn_number != "",
+                   Device.current_stage == DeviceStage.stock_in)
+        .order_by(Device.updated_at.desc())
+    )).all()
     return templates.TemplateResponse("grn/records.html", {
         "request": request, "assigned": assigned, "not_mapped": not_mapped,
+        "pending_trc": pending_trc,
         "current_user": current_user,
+        "success": request.query_params.get("success"),
+        "error": request.query_params.get("error"),
     })
+
+
+@router.post("/records/bulk-move-to-trc")
+async def grn_bulk_move_to_trc(
+    request: Request,
+    device_ids: list[str] = Form(default=[]),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Pending for TRC tab — bulk-move selected tag numbers into TRC Production."""
+    import uuid as _u
+    from services.control_engine import validate_transition
+    valid_ids = []
+    for d in device_ids:
+        try:
+            valid_ids.append(_u.UUID(d))
+        except (ValueError, AttributeError):
+            pass
+    if not valid_ids:
+        return RedirectResponse(url="/grn/records?error=No+tag+numbers+selected", status_code=302)
+
+    devices = (await db.execute(select(Device).where(Device.id.in_(valid_ids)))).scalars().all()
+    is_admin = current_user.role.value == "admin"
+    now = app_now()
+    moved = 0
+    skipped = []
+    for d in devices:
+        try:
+            await validate_transition(d, DeviceStage.trc_production, db, override_admin=is_admin)
+        except HTTPException:
+            skipped.append(d.barcode)
+            continue
+        prev = d.current_stage
+        d.current_stage = DeviceStage.trc_production
+        d.updated_at = now
+        db.add(StageMovement(device_id=d.id, from_stage=prev, to_stage=DeviceStage.trc_production,
+                              moved_by=current_user.username,
+                              notes="GRN Records — Pending for TRC bulk move"))
+        moved += 1
+
+    await audit(db, user=current_user, action="GRN_BULK_MOVE_TO_TRC",
+                table_name="devices", record_id=None,
+                new_value={"moved": moved, "skipped": len(skipped)}, request=request)
+    await db.commit()
+    msg = f"{moved}+tag(s)+moved+to+TRC+Production"
+    if skipped:
+        import urllib.parse
+        msg += f"&error={urllib.parse.quote(f'{len(skipped)} tag(s) could not move (not an allowed transition): ' + ', '.join(skipped[:10]))}"
+    return RedirectResponse(url=f"/grn/records?success={msg}", status_code=302)
 
 
 @router.post("/upload")

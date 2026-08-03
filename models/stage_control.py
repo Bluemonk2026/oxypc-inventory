@@ -76,6 +76,7 @@ DEFAULT_TRANSITIONS = [
     # Stock In → L1 or directly to QC if no repair needed
     ("stock_in",      "l1"),
     ("stock_in",      "qc_check"),
+    ("stock_in",      "trc_production"),
     # Repair escalation
     ("l1",            "l2"),
     ("l1",            "qc_check"),

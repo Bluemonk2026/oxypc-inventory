@@ -74,6 +74,7 @@ CANONICAL_TRANSITIONS = [
     ("stock_in",      "l1"),
     ("stock_in",      "qc_check"),
     ("stock_in",      "scrapped"),
+    ("stock_in",      "trc_production"),
     # Repair escalation
     ("l1",            "l2"),
     ("l1",            "qc_check"),

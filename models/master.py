@@ -23,7 +23,7 @@ class MasterData(Base):
 # Seed data for initial master data setup
 MASTER_SEED = {
     "entity": [
-        "OxyPC Computers", "Renew Circuits",
+        "Deshwal", "OxyPC Computers", "Renew Circuits",
     ],
     "l34_activity": [
         "Motherboard Repair", "Chip Level Repair", "Component Replacement",

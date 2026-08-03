@@ -63,7 +63,7 @@
       {% endif %}
 
       {# ── INTAKE ──────────────────────────────────────────────────────── #}
-      {% if any_perm(role,'grn','lots','iqc','grn_post_iqc','grn_records') %}
+      {% if any_perm(role,'grn','lots','iqc','grn_post_iqc','grn_records','entity_movement') %}
       <li class="nav-section">INTAKE</li>
       {% if has_perm(role,'grn','enable') %}
       <li><a href="/grn" class="nav-link {% if request.url.path == '/grn' %}active{% endif %}">
@@ -88,6 +88,11 @@
       {% if has_perm(role,'grn_records','enable') %}
       <li><a href="/grn/records" class="nav-link {% if '/grn/records' in request.url.path %}active{% endif %}">
         <i class="bi bi-collection me-2"></i> {{ sidebar_label('grn_records', 'GRN Records') }}
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'entity_movement','enable') %}
+      <li><a href="/entity-movement" class="nav-link {% if '/entity-movement' in request.url.path %}active{% endif %}">
+        <i class="bi bi-arrow-left-right me-2"></i> {{ sidebar_label('entity_movement', 'Entity Movement') }}
       </a></li>
       {% endif %}
       {% endif %}

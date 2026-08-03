@@ -110,6 +110,7 @@ PERM_MODULES = [
     ("iqc",                  "IQC Line Items"),
     ("grn_post_iqc",         "GRN post IQC"),
     ("grn_records",          "GRN Records"),
+    ("entity_movement",      "Entity Movement"),
     # ── INVENTORY ──────────────────────────────────────────────────
     ("stock",                "Stock Inwards"),
     ("production_manager",   "Production Manager"),

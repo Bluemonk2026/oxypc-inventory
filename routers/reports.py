@@ -3,9 +3,10 @@ import csv
 import io
 from collections import defaultdict
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from utils.timezone import app_now
-from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import extract, select, func
 from database import get_db
@@ -15,7 +16,9 @@ from models.engines import RepairAttempt
 from models.lot import Lot
 from models.sales import Sale
 from models.spare_parts import SparePartConsumption
-from auth.dependencies import get_current_user, require_roles
+from models.business_pl_override import BusinessPLOverride
+from services.audit_engine import audit
+from auth.dependencies import get_current_user, require_roles, verify_csrf
 
 # Maximum rows returned by any CSV export endpoint — prevents OOM on large datasets
 MAX_EXPORT_ROWS = 5_000
@@ -314,11 +317,46 @@ async def business_pl(
     monthly_cogs = [d + p + l for d, p, l in
                     zip(monthly_device_cogs, monthly_parts_cogs, monthly_labour_cogs)]
 
+    # ── Admin manual overrides — applied on top of the computed figures ──────
+    # A null field on the override row means "no correction, keep the
+    # computed value"; only the specific component an admin edited replaces
+    # it. Applied here, before totals, so the KPI cards at the top of the
+    # page (Total Revenue / Gross Profit / Gross Margin) always agree with
+    # whatever the Monthly Breakdown table is actually showing.
+    overrides = {
+        o.month: o for o in (await db.execute(
+            select(BusinessPLOverride).where(BusinessPLOverride.year == year)
+        )).scalars().all()
+    }
+    monthly_overridden = [False] * 12
+    for idx in range(12):
+        month_num = idx + 1
+        o = overrides.get(month_num)
+        if not o:
+            continue
+        if o.revenue_override is not None:
+            monthly_rev[idx] = float(o.revenue_override)
+            monthly_overridden[idx] = True
+        if o.device_cogs_override is not None:
+            monthly_device_cogs[idx] = float(o.device_cogs_override)
+            monthly_overridden[idx] = True
+        if o.parts_cogs_override is not None:
+            monthly_parts_cogs[idx] = float(o.parts_cogs_override)
+            monthly_overridden[idx] = True
+        if o.labour_cogs_override is not None:
+            monthly_labour_cogs[idx] = float(o.labour_cogs_override)
+            monthly_overridden[idx] = True
+    # Re-derive monthly_cogs from the (possibly overridden) components so a
+    # single-field edit (e.g. just Labour Cost) still rolls up correctly.
+    monthly_cogs = [d + p + l for d, p, l in
+                    zip(monthly_device_cogs, monthly_parts_cogs, monthly_labour_cogs)]
+
     # ── Year totals ──────────────────────────────────────────────────────────
-    total_revenue = float((await db.execute(
-        select(func.coalesce(func.sum(Sale.sale_price), 0))
-        .where(extract("year", Sale.sold_at) == year)
-    )).scalar() or 0)
+    # Revenue/COGS totals are SUMS of the (possibly overridden) monthly
+    # arrays, not independent DB aggregate queries — otherwise an override
+    # would show correctly in the Monthly Breakdown table but the KPI cards
+    # above it would silently disagree.
+    total_revenue = sum(monthly_rev)
     total_sales_ct = (await db.execute(
         select(func.count(Sale.id))
         .where(extract("year", Sale.sold_at) == year)
@@ -344,6 +382,7 @@ async def business_pl(
         "monthly_labour_cogs":  monthly_labour_cogs,
         "monthly_cogs":         monthly_cogs,
         "monthly_profit":       [r - c for r, c in zip(monthly_rev, monthly_cogs)],
+        "monthly_overridden":   monthly_overridden,
         "total_revenue":        total_revenue,
         "total_cogs":           total_cogs,
         "total_device_cogs":    total_device_cogs,
@@ -355,6 +394,70 @@ async def business_pl(
         "avg_sale_price":       round(total_revenue / total_sales_ct, 0) if total_sales_ct else 0,
         "inv_value":            inv_value,
     })
+
+
+@router.post("/business-pl/override")
+async def save_business_pl_override(
+    request: Request,
+    year: int = Form(...),
+    month: int = Form(...),
+    revenue: str = Form(""),
+    device_cogs: str = Form(""),
+    parts_cogs: str = Form(""),
+    labour_cogs: str = Form(""),
+    _csrf: None = Depends(verify_csrf),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Admin-only override of one month's Business P&L row. Each field is
+    independent: leave it blank to clear that field's override (fall back to
+    the computed value); fill it in to pin that field to a specific number."""
+    if current_user.role.value != "admin":
+        return RedirectResponse(
+            url=f"/reports/business-pl?year={year}&error=Admin+access+required",
+            status_code=302)
+
+    def _parse(v: str):
+        v = (v or "").strip()
+        if not v:
+            return None
+        try:
+            return Decimal(v)
+        except InvalidOperation:
+            return None
+
+    row = (await db.execute(
+        select(BusinessPLOverride).where(
+            BusinessPLOverride.year == year, BusinessPLOverride.month == month)
+    )).scalar_one_or_none()
+    if not row:
+        row = BusinessPLOverride(year=year, month=month)
+        db.add(row)
+
+    old = {
+        "revenue": row.revenue_override, "device_cogs": row.device_cogs_override,
+        "parts_cogs": row.parts_cogs_override, "labour_cogs": row.labour_cogs_override,
+    }
+    row.revenue_override     = _parse(revenue)
+    row.device_cogs_override = _parse(device_cogs)
+    row.parts_cogs_override  = _parse(parts_cogs)
+    row.labour_cogs_override = _parse(labour_cogs)
+    row.updated_by = current_user.username
+
+    await audit(db, user=current_user, action="BUSINESS_PL_OVERRIDE_SAVED",
+                table_name="business_pl_overrides", record_id=f"{year}-{month:02d}",
+                old_value={k: str(v) if v is not None else None for k, v in old.items()},
+                new_value={
+                    "revenue": str(row.revenue_override) if row.revenue_override is not None else None,
+                    "device_cogs": str(row.device_cogs_override) if row.device_cogs_override is not None else None,
+                    "parts_cogs": str(row.parts_cogs_override) if row.parts_cogs_override is not None else None,
+                    "labour_cogs": str(row.labour_cogs_override) if row.labour_cogs_override is not None else None,
+                },
+                request=request)
+    await db.commit()
+    return RedirectResponse(
+        url=f"/reports/business-pl?year={year}&success=Row+updated",
+        status_code=302)
 
 
 @router.get("/stock-aging", response_class=HTMLResponse)

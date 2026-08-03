@@ -7,6 +7,12 @@
   <i class="bi bi-lock me-2"></i>Pricing visibility is disabled for your role. Contact an admin if you need access to this report.
 </div>
 {% else %}
+{% if request.query_params.get('success') %}
+<div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
+{% if request.query_params.get('error') %}
+<div class="alert alert-danger alert-dismissible fade show">{{ request.query_params.get('error') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+{% endif %}
 <!-- Year selector -->
 <div class="d-flex gap-2 mb-3">
   {% for y in range(year - 2, year + 3) %}
@@ -86,6 +92,7 @@
           <th>Month</th><th>Revenue</th>
           <th>Device COGS</th><th>Parts Cost</th><th>Labour Cost</th><th>Total COGS</th>
           <th>Gross Profit</th><th>Margin %</th>
+          {% if current_user.role.value == 'admin' %}<th>Action</th>{% endif %}
         </tr>
       </thead>
       <tbody>
@@ -99,7 +106,9 @@
         {% set profit = monthly_profit[i] %}
         {% set margin = (profit / rev * 100) | round(1) if rev > 0 else 0 %}
         <tr>
-          <td class="fw-semibold">{{ months[i] }} {{ year }}</td>
+          <td class="fw-semibold">{{ months[i] }} {{ year }}
+            {% if monthly_overridden[i] %}<span class="badge bg-info-subtle text-info-emphasis border ms-1" title="One or more figures on this row were manually overridden">edited</span>{% endif %}
+          </td>
           <td>₹{{ "{:,.0f}".format(rev) }}</td>
           <td>₹{{ "{:,.0f}".format(dcogs) }}</td>
           <td class="text-warning">₹{{ "{:,.0f}".format(pcogs) }}</td>
@@ -110,6 +119,16 @@
             ₹{{ "{:,.0f}".format(profit) }}
           </td>
           <td>{% if rev > 0 %}{{ margin }}%{% else %}—{% endif %}</td>
+          {% if current_user.role.value == 'admin' %}
+          <td>
+            <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 pl-edit-btn"
+                    data-month="{{ i + 1 }}" data-month-label="{{ months[i] }} {{ year }}"
+                    data-revenue="{{ rev }}" data-device-cogs="{{ dcogs }}"
+                    data-parts-cogs="{{ pcogs }}" data-labour-cogs="{{ lcogs }}">
+              <i class="bi bi-pencil"></i> Edit
+            </button>
+          </td>
+          {% endif %}
         </tr>
         {% endfor %}
       </tbody>
@@ -125,11 +144,65 @@
             ₹{{ "{:,.0f}".format(gross_profit) }}
           </td>
           <td>{{ gross_margin }}%</td>
+          {% if current_user.role.value == 'admin' %}<td></td>{% endif %}
         </tr>
       </tfoot>
     </table>
   </div>
 </div>
+
+{% if current_user.role.value == 'admin' %}
+<!-- Edit Monthly Breakdown row modal (admin only) -->
+<div class="modal fade" id="plEditModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" action="/reports/business-pl/override" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+      <input type="hidden" name="year" value="{{ year }}">
+      <input type="hidden" name="month" id="plEditMonth">
+      <div class="modal-header py-2">
+        <h6 class="modal-title fw-semibold"><i class="bi bi-pencil me-2"></i>Edit <span id="plEditMonthLabel"></span></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-3">Overrides the computed figure for this month and rolls up into Total COGS, Gross Profit and the KPI cards above. Clear a field back to blank to remove the override and go back to the computed value.</p>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">Revenue</label>
+          <input type="number" step="0.01" name="revenue" id="plEditRevenue" class="form-control form-control-sm">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">Device COGS</label>
+          <input type="number" step="0.01" name="device_cogs" id="plEditDeviceCogs" class="form-control form-control-sm">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">Parts Cost</label>
+          <input type="number" step="0.01" name="parts_cogs" id="plEditPartsCogs" class="form-control form-control-sm">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">Labour Cost</label>
+          <input type="number" step="0.01" name="labour_cogs" id="plEditLabourCogs" class="form-control form-control-sm">
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check-lg me-1"></i>Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+document.querySelectorAll('.pl-edit-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.getElementById('plEditMonth').value = this.dataset.month;
+    document.getElementById('plEditMonthLabel').textContent = this.dataset.monthLabel;
+    document.getElementById('plEditRevenue').value = this.dataset.revenue;
+    document.getElementById('plEditDeviceCogs').value = this.dataset.deviceCogs;
+    document.getElementById('plEditPartsCogs').value = this.dataset.partsCogs;
+    document.getElementById('plEditLabourCogs').value = this.dataset.labourCogs;
+    new bootstrap.Modal(document.getElementById('plEditModal')).show();
+  });
+});
+</script>
+{% endif %}
 
 <script src="/static/vendor/chartjs/chart.umd.min.js"></script>
 <script>

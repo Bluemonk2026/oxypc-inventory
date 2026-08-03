@@ -8,7 +8,7 @@ from templates_config import templates
 from datetime import datetime
 from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, File, UploadFile, Request, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -294,6 +294,28 @@ async def update_part(
         part.qty_in_stock = new_qty
     await db.commit()
     return RedirectResponse(url="/spare-parts?success=Part+updated", status_code=302)
+
+
+@router.post("/spare-parts/{part_id}/set-type")
+async def set_part_type(part_id: str, request: Request,
+                        part_type: str = Form(""),
+                        db: AsyncSession = Depends(get_db),
+                        current_user: User = Depends(allowed)):
+    """Inline Type select on Part Master (New/Replace/Upgrade/Downgrade). Called via
+    fetch() from the table row, so it returns JSON rather than redirecting."""
+    result = await db.execute(select(SparePart).where(SparePart.id == part_id))
+    part = result.scalar_one_or_none()
+    if not part:
+        return JSONResponse({"ok": False, "error": "Part not found"}, status_code=404)
+    valid = {"New", "Replace", "Upgrade", "Downgrade", ""}
+    if part_type not in valid:
+        return JSONResponse({"ok": False, "error": "Invalid type"}, status_code=400)
+    part.part_type = part_type or None
+    await audit(db, action="PART_TYPE_SET", user=current_user,
+                table_name="spare_parts", record_id=str(part.id),
+                notes=f"Type -> {part_type or '(cleared)'}")
+    await db.commit()
+    return JSONResponse({"ok": True})
 
 
 @router.post("/spare-parts/{part_id}/delete")

@@ -393,16 +393,20 @@
             </div>
 
             <!-- Tracked storage location (new system) -->
-            <div class="col-12">
-              <div class="alert alert-info py-2 small mb-0">
-                <i class="bi bi-geo-alt-fill me-1"></i>
-                <strong>Precise Location Tracking</strong> — rack/crate/shelf level is managed separately.
-                <a href="/locations/device/{{ device.id }}" class="fw-semibold ms-1">
-                  Assign or update storage location →
-                </a>
-                {% if storage_locations %}
-                <span class="text-muted ms-2">({{ storage_locations | length }} locations configured)</span>
-                {% endif %}
+            <div class="col-md-6">
+              <label class="form-label">Assign Location</label>
+              <select id="assignLocationSelect" class="form-select" data-device-id="{{ device.id }}">
+                <option value="">— {% if current_loc %}Move to{% else %}Assign{% endif %} Location —</option>
+                {% for loc in storage_locations %}
+                <option value="{{ loc.id }}" {% if current_loc and loc.id == current_loc.id %}selected{% endif %}>
+                  {{ loc.unit_id }} — {{ zone_labels[loc.zone] }}
+                  {% if loc.slot %}[{{ loc.slot }}]{% endif %}
+                </option>
+                {% endfor %}
+              </select>
+              <div class="form-text small">
+                Saved immediately (separate from this form's Save button).
+                <a href="/locations/device/{{ device.id }}" class="ms-1">Full location history →</a>
               </div>
             </div>
 
@@ -596,6 +600,32 @@ document.addEventListener('DOMContentLoaded', () => {
     Array.prototype.slice.call(el.options).forEach(function(o){ if(EXTRA.indexOf(o.text.trim())>=0) o.remove(); });
     EXTRA.forEach(function(t){ el.add(new Option(t,t)); });
     el.value = cur;
+  });
+})();
+
+// Assign Location — saves immediately via the same endpoint as the
+// Location Device Detail page, without navigating away from this form.
+(function(){
+  var sel = document.getElementById('assignLocationSelect');
+  if (!sel) return;
+  sel.addEventListener('change', function(){
+    var locationId = sel.value;
+    if (!locationId) return;
+    var deviceId = sel.dataset.deviceId;
+    var fd = new FormData();
+    fd.append('csrf_token', '{{ request.cookies.get("csrf_token", "") }}');
+    fd.append('location_id', locationId);
+    sel.disabled = true;
+    fetch('/locations/device/' + deviceId + '/assign', { method: 'POST', body: fd })
+      .then(function(r){
+        if (!r.ok && r.status !== 303 && r.status !== 302) throw new Error('Request failed');
+        sel.disabled = false;
+        alert('Location assigned.');
+      })
+      .catch(function(){
+        sel.disabled = false;
+        alert('Could not assign location — please try again.');
+      });
   });
 })();
 </script>

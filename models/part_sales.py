@@ -75,6 +75,7 @@ class PartSale(Base):
     customer_name = Column(String(100), nullable=True)
     customer_phone = Column(String(20), nullable=True)
     customer_state = Column(String(100), nullable=True)
+    customer_address = Column(Text, nullable=True)
     invoice_no = Column(String(50), nullable=True)
     payment_mode = Column(String(20), nullable=True)
     payment_reference = Column(String(100), nullable=True)

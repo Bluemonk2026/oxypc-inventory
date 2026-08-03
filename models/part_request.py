@@ -25,7 +25,11 @@ class PartRequest(Base):
     part_category = Column(String(100), nullable=True)     # selected in the New Request/Replace modal
     part_capacity = Column(String(50), nullable=True)      # e.g. 8GB, 256GB
     part_type     = Column(String(50), nullable=True)      # e.g. DDR4, SSD
-    request_type = Column(String(10), nullable=False, default="new")  # new | replace
+    request_type = Column(String(20), nullable=False, default="new")  # new | replace | downgrade
+    # normal | replace — only set when request_type == "downgrade" (Device Detail Downgrade modal)
+    downgrade_type = Column(String(20), nullable=True)
+    part_make = Column(String(100), nullable=True)   # Downgrade modal only
+    part_model = Column(String(100), nullable=True)  # Downgrade modal only
 
     requested_by = Column(String(50), nullable=True)       # engineer username
     engineer_name = Column(String(100), nullable=True)

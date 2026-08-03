@@ -25,7 +25,7 @@ ACCORDION_SECTIONS = [
     {
         "id": "device", "label": "Device & Laptop", "icon": "bi-laptop",
         "cat_keys": [
-            "brand", "sub_category", "device_type", "processor_brand", "processor_series",
+            "entity", "brand", "sub_category", "device_type", "processor_brand", "processor_series",
             "generation", "storage_type", "ram_type", "screen_size", "grade",
             "battery_health", "os_version", "color", "port_type", "cosmetic_issue", "cosmetic_grade",
         ],
@@ -241,6 +241,7 @@ ADDITIONAL_PERMS = [
 
 CATEGORIES = [
     # ── Device Identity ───────────────────────────────────────────
+    ("entity",              "Entities",                     "laptop"),
     ("brand",               "Device Brands",                "laptop"),
     ("sub_category",        "Device Sub-Categories",        "laptop"),
     ("device_type",         "Device Form Factors",          "laptop"),

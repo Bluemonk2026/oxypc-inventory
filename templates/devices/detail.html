@@ -134,11 +134,16 @@
     </div>
 
     <!-- Body Panel — cosmetic condition, mirrors the IQC "Body Panels" section -->
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-transparent fw-semibold small text-uppercase">
-        <i class="bi bi-bounding-box me-2"></i>Body Panel
-      </div>
-      <div class="card-body p-0">
+    <div class="accordion mb-3" id="bodyPanelAcc">
+      <div class="accordion-item border-0 shadow-sm">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed fw-semibold small text-uppercase" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#bodyPanelBody" aria-expanded="false">
+            <i class="bi bi-bounding-box me-2"></i>Body Panel
+          </button>
+        </h2>
+        <div id="bodyPanelBody" class="accordion-collapse collapse">
+          <div class="accordion-body p-0">
         <table class="table table-sm mb-0">
           <tbody>
             <tr class="table-light"><th colspan="2" class="ps-3 small text-uppercase text-primary">Display Panel</th></tr>
@@ -200,6 +205,8 @@
             <tr><th class="ps-3 text-muted small">Colour Fade</th><td>{{ (iqc.panel_d_colour_fade if iqc else None) or '—' }}</td></tr>
           </tbody>
         </table>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -285,38 +292,6 @@
     </div>
     {% endif %}
 
-    <!-- Work ID History -->
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-transparent fw-semibold small text-uppercase">
-        <i class="bi bi-clipboard-check me-2"></i>Work ID History
-        {% if work_orders is defined and work_orders %}<span class="badge bg-secondary ms-1">{{ work_orders|length }}</span>{% endif %}
-      </div>
-      <div class="card-body p-0">
-        <table class="table table-sm mb-0 align-middle">
-          <thead class="table-light">
-            <tr><th class="ps-3">Work ID</th><th>Stage</th><th>Assigned To</th><th>Status</th><th class="pe-3">Assigned On</th></tr>
-          </thead>
-          <tbody>
-            {% for wo in (work_orders if work_orders is defined else []) %}
-            <tr>
-              <td class="ps-3 font-monospace fw-bold"><a href="/workid-status?highlight={{ wo.work_id }}" class="text-decoration-none" title="View in WorkID Status">{{ wo.work_id }}</a></td>
-              <td><span class="badge bg-dark text-uppercase">{{ wo.stage }}</span></td>
-              <td>{{ wo.assigned_name or wo.assigned_username or '—' }}</td>
-              <td>
-                {% if wo.status == 'completed' %}<span class="badge bg-success">Completed</span>
-                {% elif wo.status == 'in_progress' %}<span class="badge bg-warning text-dark">In Progress</span>
-                {% else %}<span class="badge bg-secondary">{{ wo.status|replace('_',' ')|title }}</span>{% endif %}
-              </td>
-              <td class="pe-3 text-muted small">{{ wo.assigned_at.strftime('%d-%m-%Y %H:%M') if wo.assigned_at else '—' }}</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="5" class="text-center text-muted py-3">No Work IDs assigned yet.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
   </div>
 
   <!-- ── Right column: Timeline, Repairs, QC, Parts ── -->
@@ -382,6 +357,11 @@
                           onmouseleave="this.classList.replace('btn-outline-warning','btn-outline-secondary')"
                           onclick="openPartRequestModal('replace', 1, '{{ p.category | e }}', '{{ p.part_id }}', '{{ p.label | e }}')">
                     <i class="bi bi-arrow-repeat"></i> Replace Request</button>
+                  {% if p.label in ('RAM', 'Hard Drive') %}
+                  <button type="button" class="btn btn-sm btn-outline-dark py-0 px-2"
+                          onclick="openDowngradeModal('{{ p.label | e }}')">
+                    <i class="bi bi-arrow-down-circle"></i> Downgrade</button>
+                  {% endif %}
                 </div>
                 {% else %}<span class="text-muted">—</span>{% endif %}
               </td>
@@ -617,6 +597,84 @@
         });
       }
     </script>
+
+    <!-- Downgrade modal — RAM / Hard Drive rows only -->
+    <div class="modal fade" id="downgradePartModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <form method="post" action="/part-requests/create" id="downgradePartForm">
+          <div class="modal-content">
+            <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+            <input type="hidden" name="barcode" value="{{ device.barcode }}">
+            <input type="hidden" name="request_type" value="downgrade">
+            <input type="hidden" name="qty" value="1">
+            <div class="modal-header">
+              <h6 class="modal-title fw-semibold"><i class="bi bi-arrow-down-circle me-2"></i>Downgrade Part</h6>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="row g-3 mb-1">
+                <div class="col-12">
+                  <label class="form-label form-label-sm mb-1 d-block">Downgrade Type</label>
+                  <div class="d-flex gap-3">
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="downgrade_type" id="dg_type_normal" value="normal" checked>
+                      <label class="form-check-label small" for="dg_type_normal">Normal Downgrade</label>
+                    </div>
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="downgrade_type" id="dg_type_replace" value="replace">
+                      <label class="form-check-label small" for="dg_type_replace">Replace Downgrade</label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="row g-3 mb-1">
+                <div class="col-12">
+                  <label class="form-label form-label-sm mb-1 d-block">Component</label>
+                  <div class="d-flex gap-3">
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="part_category" id="dg_comp_ram" value="RAM">
+                      <label class="form-check-label small" for="dg_comp_ram">RAM</label>
+                    </div>
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="part_category" id="dg_comp_hdd" value="Hard Drive">
+                      <label class="form-check-label small" for="dg_comp_hdd">Hard Drive</label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <label class="form-label form-label-sm mb-1">Part Name</label>
+                  <input type="text" name="part_name" id="dg_part_name" class="form-control form-control-sm" required>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label form-label-sm mb-1">Part Make</label>
+                  <input type="text" name="part_make" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label form-label-sm mb-1">Part Model</label>
+                  <input type="text" name="part_model" class="form-control form-control-sm">
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="submit" class="btn btn-sm btn-dark"><i class="bi bi-check-lg me-1"></i>Submit Downgrade</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+    <script>
+      function openDowngradeModal(component) {
+        document.getElementById('dg_type_normal').checked = true;
+        document.getElementById('dg_part_name').value = '';
+        var ram = document.getElementById('dg_comp_ram');
+        var hdd = document.getElementById('dg_comp_hdd');
+        if (component === 'Hard Drive') { hdd.checked = true; } else { ram.checked = true; }
+        new bootstrap.Modal(document.getElementById('downgradePartModal')).show();
+      }
+    </script>
     {% endif %}
 
     <!-- Device P&L -->
@@ -677,6 +735,38 @@
       </div>
     </div>
     {% endif %}
+
+    <!-- Work ID History -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-clipboard-check me-2"></i>Work ID History
+        {% if work_orders is defined and work_orders %}<span class="badge bg-secondary ms-1">{{ work_orders|length }}</span>{% endif %}
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0 align-middle">
+          <thead class="table-light">
+            <tr><th class="ps-3">Work ID</th><th>Stage</th><th>Assigned To</th><th>Status</th><th class="pe-3">Assigned On</th></tr>
+          </thead>
+          <tbody>
+            {% for wo in (work_orders if work_orders is defined else []) %}
+            <tr>
+              <td class="ps-3 font-monospace fw-bold"><a href="/workid-status?highlight={{ wo.work_id }}" class="text-decoration-none" title="View in WorkID Status">{{ wo.work_id }}</a></td>
+              <td><span class="badge bg-dark text-uppercase">{{ wo.stage }}</span></td>
+              <td>{{ wo.assigned_name or wo.assigned_username or '—' }}</td>
+              <td>
+                {% if wo.status == 'completed' %}<span class="badge bg-success">Completed</span>
+                {% elif wo.status == 'in_progress' %}<span class="badge bg-warning text-dark">In Progress</span>
+                {% else %}<span class="badge bg-secondary">{{ wo.status|replace('_',' ')|title }}</span>{% endif %}
+              </td>
+              <td class="pe-3 text-muted small">{{ wo.assigned_at.strftime('%d-%m-%Y %H:%M') if wo.assigned_at else '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-muted py-3">No Work IDs assigned yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
 
     <!-- Asset History (renamed from Stage Timeline) -->
     <div class="card border-0 shadow-sm mb-3">

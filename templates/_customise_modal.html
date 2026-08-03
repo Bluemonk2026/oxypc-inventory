@@ -32,6 +32,15 @@
             </select>
           </div>
           <div class="mb-3">
+            <label class="form-label small">Change Entity</label>
+            <select name="entity" class="form-select form-select-sm">
+              <option value="">— Leave unchanged —</option>
+              {% for e in master_options('entity') %}
+              <option value="{{ e }}">{{ e }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
             <label class="form-label small">Grade</label>
             <select name="grade" class="form-select form-select-sm">
               <option value="">— Leave unchanged —</option>

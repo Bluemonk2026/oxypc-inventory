@@ -34,6 +34,8 @@ class SparePart(Base):
     crate_number = Column(String(50), nullable=True)
     make = Column(String(100), nullable=True)
     model = Column(String(100), nullable=True)
+    # New / Replace / Upgrade / Downgrade — manually classified on Part Master. Additive.
+    part_type = Column(String(20), nullable=True)
     # Quantity sold as a spare part via Ready to Sale Parts → New Parts Sale.
     # Sellable stock = qty_in_stock - consumed(handed_over) - sold_qty.
     sold_qty = Column(Integer, nullable=False, default=0, server_default=text("0"))

@@ -90,6 +90,7 @@ class Device(Base):
     barcode = Column(String(100), unique=True, nullable=False, index=True)
     lot_id = Column(UUID(as_uuid=True), ForeignKey("lots.id"), nullable=False)
     brand = Column(String(50), nullable=True, index=True)
+    entity = Column(String(30), nullable=True)  # OxyPC Computers / Renew Circuits — additive, auto-provisioned by db_validator
     model = Column(String(100), nullable=True)
     device_type = Column(String(30), nullable=True)
     invoice_number = Column(String(100), nullable=True)  # bulk-set via Product IQC Customise modal

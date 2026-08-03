@@ -27,9 +27,6 @@
                   <div class="d-flex gap-1">
                     <a id="downloadAgentBtn" href="/iqc/agent-installer" class="btn btn-sm btn-primary text-nowrap" title="Download Diagnose_Device_Agent.exe to this station"><i class="bi bi-cloud-download me-1"></i>Download Agent</a>
                     <button type="button" id="diagnoseBtn" class="btn btn-sm btn-secondary text-nowrap" disabled title="Start the Diagnose_Device_Agent first, then click here"><i class="bi bi-cpu me-1"></i>Diagnose this Device</button>
-                    <button type="button" id="kbClickTestBtn" class="btn btn-sm btn-outline-dark text-nowrap" data-bs-toggle="modal" data-bs-target="#kbClickTestModal" title="Interactively test every key and mouse/touchpad click">
-                      <i class="bi bi-keyboard me-1"></i>Test Keyboard &amp; Click
-                    </button>
                   </div>
                 </div>
               </div>
@@ -143,6 +140,38 @@
             </div>
           </div>
 
+          <!-- ── Battery Health diagnose modal ──
+               Reads battery_health_pct from the local agent's /diagnose
+               endpoint (same one "Diagnose this Device" uses), scoped to
+               just this field so a technician can refresh it alone. -->
+          <div class="modal fade" id="batteryHealthModal" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h6 class="modal-title"><i class="bi bi-battery-half me-2"></i>Battery Health — Diagnose</h6>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  <div id="batteryLoading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <div class="small text-muted mt-2">Reading battery health from this station…</div>
+                  </div>
+                  <div id="batteryError" class="alert alert-warning py-2 small d-none"></div>
+                  <div id="batteryBody" class="text-center py-3 d-none">
+                    <span class="small text-muted d-block mb-1">Reading:</span>
+                    <span id="batteryReading" class="badge fs-5">—</span>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+                  <button type="button" id="batteryUseBtn" class="btn btn-sm btn-success" disabled>
+                    <i class="bi bi-check-circle me-1"></i>Use This Reading
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- ── Section 1: Identity ── -->
           <p class="fw-bold small text-uppercase mb-2 border-bottom pb-1 sec-hd">Identity</p>
           <div class="row g-3 mb-3">
@@ -150,6 +179,19 @@
               <label class="form-label fw-semibold">Tag Number / Asset Tag <span class="text-danger">*</span></label>
               <input type="text" name="barcode" id="iqcBarcode" maxlength="100" class="form-control barcode-field font-monospace" placeholder="Scan or type" autofocus required>
               <div id="iqcBarcodeErr" class="invalid-feedback d-block text-danger small d-none">Duplicate Tag Number — this tag already exists.</div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold d-block">Select Entity</label>
+              <div class="d-flex gap-3 pt-2">
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="entity" id="entity_oxypc" value="OxyPC Computers" checked>
+                  <label class="form-check-label small" for="entity_oxypc">OxyPC Computers</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="entity" id="entity_renewcircuit" value="Renew Circuits">
+                  <label class="form-check-label small" for="entity_renewcircuit">Renew Circuits</label>
+                </div>
+              </div>
             </div>
             <div class="col-md-3 d-none">
               <label class="form-label">Lot Line Item <small class="text-muted">(auto-fills specs)</small></label>
@@ -306,8 +348,15 @@
               </select>
             </div>
             <div class="col-md-3">
-              <label class="form-label small">Battery Health %</label>
-              <input type="number" name="battery_health_pct" class="form-control form-control-sm" tabindex="-1" min="0" max="100" placeholder="—">
+              <label class="form-label small d-flex align-items-center gap-1">
+                Battery Health %
+                <button type="button" id="batteryHealthTestBtn" class="btn btn-link p-0 lh-1 text-success border-0"
+                        data-bs-toggle="modal" data-bs-target="#batteryHealthModal"
+                        title="Diagnose battery health from this station">
+                  <i class="bi bi-play-circle-fill fs-6"></i>
+                </button>
+              </label>
+              <input type="number" name="battery_health_pct" id="battery_health_pct" class="form-control form-control-sm" tabindex="-1" min="0" max="100" placeholder="—">
             </div>
             <input type="hidden" name="battery_capacity_wh" id="battery_capacity_wh" value="">
             <input type="hidden" name="battery_power_w" id="battery_power_w" value="">
@@ -1282,6 +1331,64 @@ function estimatePowerW(cpuName) {
     var f = document.getElementById('storage_health_pct');
     if (f) { f.value = overall; f.dispatchEvent(new Event('change')); }
     bootstrap.Modal.getInstance(document.getElementById('smartModal')).hide();
+  });
+})();
+
+/* ── Battery Health diagnose (play icon next to the field label) ── */
+(function(){
+  var btn = document.getElementById('batteryHealthTestBtn');
+  var useBtn = document.getElementById('batteryUseBtn');
+  if (!btn || !useBtn) return;
+  var reading = null;
+
+  function badgeClass(p) {
+    if (p == null) return 'bg-secondary';
+    if (p >= 80) return 'bg-success';
+    if (p >= 50) return 'bg-warning text-dark';
+    return 'bg-danger';
+  }
+
+  btn.addEventListener('click', async function () {
+    document.getElementById('batteryLoading').classList.remove('d-none');
+    document.getElementById('batteryBody').classList.add('d-none');
+    document.getElementById('batteryError').classList.add('d-none');
+    useBtn.disabled = true;
+    reading = null;
+
+    var d;
+    try {
+      var res = await fetch('http://127.0.0.1:8765/diagnose');
+      if (!res.ok) throw new Error('agent returned ' + res.status);
+      d = await res.json();
+    } catch (e) {
+      document.getElementById('batteryLoading').classList.add('d-none');
+      var err = document.getElementById('batteryError');
+      err.textContent = 'Could not reach Diagnose_Device_Agent on this station. '
+        + 'Start the agent (or download it above), then try again.';
+      err.classList.remove('d-none');
+      return;
+    }
+
+    document.getElementById('batteryLoading').classList.add('d-none');
+    reading = (d && d.battery_health_pct != null) ? d.battery_health_pct : null;
+    if (reading == null) {
+      var e2 = document.getElementById('batteryError');
+      e2.textContent = 'No battery reported by this station (desktop, or battery not detected).';
+      e2.classList.remove('d-none');
+      return;
+    }
+    var badge = document.getElementById('batteryReading');
+    badge.className = 'badge fs-5 ' + badgeClass(reading);
+    badge.textContent = reading + '%';
+    document.getElementById('batteryBody').classList.remove('d-none');
+    useBtn.disabled = false;
+  });
+
+  useBtn.addEventListener('click', function () {
+    if (reading == null) return;
+    var f = document.getElementById('battery_health_pct');
+    if (f) { f.value = reading; f.dispatchEvent(new Event('change')); }
+    bootstrap.Modal.getInstance(document.getElementById('batteryHealthModal')).hide();
   });
 })();
 

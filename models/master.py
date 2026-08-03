@@ -22,6 +22,9 @@ class MasterData(Base):
 
 # Seed data for initial master data setup
 MASTER_SEED = {
+    "entity": [
+        "OxyPC Computers", "Renew Circuits",
+    ],
     "brand": [
         "HP", "Dell", "Lenovo", "Apple", "Asus", "Acer", "Toshiba", "Sony",
         "Samsung", "MSI", "Microsoft", "LG", "Huawei", "Razer", "Compaq",

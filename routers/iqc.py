@@ -740,6 +740,7 @@ async def iqc_bulk_apply_grade_type(
     model_keys: list[str] = Form(default=[]),
     return_to: str = Form(default="/iqc"),
     device_type: str = Form(""),
+    entity: str = Form(""),
     grade: str = Form(""),
     invoice_number: str = Form(""),
     po_number: str = Form(""),
@@ -801,7 +802,7 @@ async def iqc_bulk_apply_grade_type(
     if not barcodes:
         return RedirectResponse(url=f"{return_to}?error=No+devices+selected", status_code=302)
     to_stage = (to_stage or "").strip()
-    if (not device_type.strip() and not grade.strip() and not invoice_number.strip()
+    if (not device_type.strip() and not entity.strip() and not grade.strip() and not invoice_number.strip()
             and not po_number.strip() and not cpu.strip() and not cpu_make.strip()
             and not generation.strip() and not ram_gb.strip() and not storage_gb.strip()
             and not total_ram_count.strip() and not total_ram_size.strip()
@@ -824,6 +825,8 @@ async def iqc_bulk_apply_grade_type(
     for device in devices:
         if device_type.strip():
             device.device_type = device_type.strip()
+        if entity.strip():
+            device.entity = entity.strip()
         if grade.strip():
             device.grade = grade.strip()
         if invoice_number.strip():
@@ -946,6 +949,7 @@ async def iqc_new_form(request: Request, db: AsyncSession = Depends(get_db),
 async def iqc_create(
     request: Request,
     barcode: str = Form(...),
+    entity: str = Form(""),
     lot_id: str = Form(""),
     sub_category: str = Form(""),
     device_type: str = Form(""),
@@ -1129,6 +1133,7 @@ async def iqc_create(
 
     device = Device(
         barcode=barcode, lot_id=lot_id,
+        entity=entity or None,
         sub_category=sub_category or None,
         brand=brand or None, model=model or None, device_type=device_type or None,
         serial_no=serial_no or None,

@@ -27,7 +27,7 @@
           <input type="hidden" name="part_id" id="partId">
 
           <div class="row g-3">
-            <div class="col-md-6">
+            <div class="col-md-3">
               <label class="form-label fw-semibold">Part Name <span class="text-danger">*</span></label>
               <select id="partName" class="form-select" required>
                 <option value="">— Select part —</option>
@@ -41,14 +41,15 @@
               <label class="form-label fw-semibold">Part Model</label>
               <select id="partModel" class="form-select"><option value="">—</option></select>
             </div>
-
-            <div class="col-md-3">
-              <label class="form-label fw-semibold">Sale Date</label>
-              <input type="date" name="sale_date" class="form-control" value="{{ today }}" max="{{ today }}">
-            </div>
             <div class="col-md-3">
               <label class="form-label fw-semibold">Available Quantity</label>
               <select id="availableQty" class="form-select bg-light" disabled><option value="">—</option></select>
+            </div>
+          </div>
+          <div class="row g-3 mt-0">
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Sale Date</label>
+              <input type="date" name="sale_date" class="form-control" value="{{ today }}" max="{{ today }}">
             </div>
             <div class="col-md-3">
               <label class="form-label fw-semibold">Sale Quantity <span class="text-danger">*</span></label>
@@ -66,7 +67,8 @@
               <input type="number" id="totalSalePrice" class="form-control" min="0" step="0.01" placeholder="0">
               <div class="form-text small text-muted">Either field fills the other</div>
             </div>
-
+          </div>
+          <div class="row g-3 mt-0">
             <div class="col-md-3">
               <label class="form-label fw-semibold">Payment Mode</label>
               <select name="payment_mode" class="form-select">
@@ -76,20 +78,11 @@
                 <option value="credit">Credit</option>
               </select>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label fw-semibold">Customer Name</label>
               <input type="text" name="customer_name" class="form-control" placeholder="Customer name">
             </div>
-            {# Mirrors New Sale so both sale types credit a salesperson the same way. #}
-            <div class="col-md-4">
-              <label class="form-label fw-semibold">Sales Person Name</label>
-              <input type="text" name="sales_person" class="form-control"
-                     list="salesPersonList" placeholder="Who made this sale">
-              <datalist id="salesPersonList">
-                {% for sp in sales_person_options | default([]) %}<option value="{{ sp }}">{% endfor %}
-              </datalist>
-            </div>
-            <div class="col-md-2">
+            <div class="col-md-3">
               <label class="form-label fw-semibold">Customer Phone</label>
               <input type="tel" name="customer_phone" class="form-control" placeholder="Phone">
             </div>
@@ -100,11 +93,27 @@
                 {% for s in master_options('customer_state') %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
               </select>
             </div>
-
+          </div>
+          <div class="row g-3 mt-0">
+            {# Mirrors New Sale so both sale types credit a salesperson the same way. #}
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Sales Person Name</label>
+              <input type="text" name="sales_person" class="form-control"
+                     list="salesPersonList" placeholder="Who made this sale">
+              <datalist id="salesPersonList">
+                {% for sp in sales_person_options | default([]) %}<option value="{{ sp }}">{% endfor %}
+              </datalist>
+            </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">Invoice No.</label>
               <input type="text" name="invoice_no" class="form-control" placeholder="Invoice number">
             </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Address</label>
+              <input type="text" name="customer_address" class="form-control" placeholder="Customer address">
+            </div>
+          </div>
+          <div class="row g-3 mt-0">
             <div class="col-12">
               <label class="form-label fw-semibold">Notes</label>
               <textarea name="notes" class="form-control" rows="2" placeholder="Optional notes"></textarea>

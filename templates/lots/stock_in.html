@@ -310,6 +310,13 @@
 <script>
 function getCsrf(){ var c=document.cookie.split('; ').find(function(r){return r.startsWith('csrf_token=');}); return c ? c.split('=')[1] : ''; }
 
+// Selection persists across pages/searches as a Set of barcodes rather than
+// DOM checkbox state — server-side paging/search only ever renders a subset
+// of rows, so a previously-checked device that scrolls off (or gets
+// filtered out by a new scan/search) would otherwise silently drop out of
+// the selection the moment its row leaves the DOM.
+var stockSelected = new Set();
+
 $(document).ready(function(){
   // ── Device table, server-side: rows come from /stock/data a page at a time.
   // Search used to run as two separate client-side ext.search predicates over
@@ -341,6 +348,13 @@ $(document).ready(function(){
     },
     columnDefs: [{ orderable: false, targets: [0, 9, 11] }, { visible: false, targets: [12, 13] }],
     drawCallback: function () {
+      // Re-apply the persistent Set to whichever rows this draw rendered —
+      // scanning/searching narrows the table to matching rows via ajax, so a
+      // previously-checked row not in this result set simply isn't in the
+      // DOM to read a .checked state off of; the Set is what survives that.
+      document.querySelectorAll('#stockTable tbody .stockChk').forEach(function (c) {
+        c.checked = stockSelected.has(c.value);
+      });
       document.getElementById('selectAllStock').checked = false;
       updateStockSel();
       loadBucketMap();
@@ -365,7 +379,7 @@ $(document).ready(function(){
         var row = document.querySelector('#stockTable tbody tr[data-barcode="' + val + '"], #stockTable tbody tr[data-serial="' + val + '"]');
         if (row) {
           var chk = row.querySelector('.stockChk');
-          if (chk) { chk.checked = true; updateStockSel(); }
+          if (chk) { chk.checked = true; stockSelected.add(chk.value); updateStockSel(); }
           row.scrollIntoView({behavior:'smooth', block:'center'});
         }
       }, 500);   // after the ajax redraw
@@ -406,20 +420,30 @@ function openCustomiseModal(){
   new bootstrap.Modal(document.getElementById('customiseModal')).show();
 }
 
-function selectedStockBarcodes(){ return Array.from(document.querySelectorAll('.stockChk:checked')).map(function(c){return c.value;}); }
+function selectedStockBarcodes(){ return Array.from(stockSelected); }
 function updateStockSel(){
-  var n = selectedStockBarcodes().length;
+  var n = stockSelected.size;
   $('#bktSelCount').text(n);
   $('#assignBucketBtn').prop('disabled', n === 0);
   $('#customiseCount').text(n);
   $('#customiseBtn').toggleClass('d-none', n === 0);
 }
+// "Select all" reaches only the rows currently rendered (this page's/this
+// search's result set) — same page-scoped convention used elsewhere for
+// bulk actions that are deliberate, occasional operations rather than
+// routine multi-select across the whole table.
 $('#stockTable').on('change', '#selectAllStock', function(){
   var ck = this.checked;
-  document.querySelectorAll('.stockChk').forEach(function(c){ c.checked = ck; });
+  document.querySelectorAll('#stockTable tbody .stockChk').forEach(function(c){
+    c.checked = ck;
+    if (ck) stockSelected.add(c.value); else stockSelected.delete(c.value);
+  });
   updateStockSel();
 });
-$('#stockTable').on('change', '.stockChk', updateStockSel);
+$('#stockTable').on('change', '.stockChk', function(){
+  if (this.checked) stockSelected.add(this.value); else stockSelected.delete(this.value);
+  updateStockSel();
+});
 
 var vm = document.getElementById('validateModal');
 if (vm) { vm.addEventListener('show.bs.modal', function(e){

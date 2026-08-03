@@ -235,6 +235,8 @@ async def grn_map(request: Request, grn_id: str = Form(...),
     moved = 0
     for d in devices:
         d.grn_number = g.grn_number
+        # Mapping a GRN here means the tag is now OxyPC Computers' own stock.
+        d.entity = "OxyPC Computers"
         # After GRN mapping the tag leaves IQC and enters the Stock Inward table
         if d.current_stage == DeviceStage.iqc:
             prev = (await db.execute(

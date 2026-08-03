@@ -1148,7 +1148,10 @@ async def iqc_create(
         color=color or None,
         invoice_number=invoice_number or None,
         grade=grade or None,
-        current_stage=DeviceStage.stock_in if grn_number.strip() else DeviceStage.iqc,
+        # Add New IQC always registers at Stage IQC — a GRN Number entered here
+        # no longer auto-promotes the device to Stock In; that move happens
+        # later via the GRN-mapping flow (/grn/post-iqc).
+        current_stage=DeviceStage.iqc,
         floor=floor or None, warehouse=resolved_warehouse,
         location_id=resolved_location_id, notes=notes or None,
         lot_line_item_id=lot_line_item_id or None,

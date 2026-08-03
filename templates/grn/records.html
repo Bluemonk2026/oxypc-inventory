@@ -19,54 +19,22 @@
   </div>
 </form>
 
-{% macro tag_table(tid, rows, show_grn) %}
-<div class="table-responsive">
-  <table id="{{ tid }}" class="table table-hover mb-0 small align-middle">
-    <thead class="table-dark">
-      <tr>
-        <th class="ps-3">Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Grade</th><th>Stage</th>
-        {% if show_grn %}<th>GRN Number</th>{% endif %}<th>Updated</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for d, lot_number in rows %}
-      <tr>
-        <td class="ps-3"><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
-        <td>{% if lot_number %}<span class="badge bg-info text-dark">{{ lot_number }}</span>{% else %}—{% endif %}</td>
-        <td>{{ d.brand or '—' }}</td>
-        <td>{{ d.model or '—' }}</td>
-        <td>
-          {% set gv = d.grade.value if d.grade else '' %}
-          <span class="badge bg-{{ 'success' if gv == 'A' else 'warning text-dark' if gv == 'B' else 'danger' if gv in ['C','D','scrap'] else 'secondary' }}">{{ gv or '—' }}</span>
-        </td>
-        <td><span class="badge bg-{{ d.stage_color }}">{{ d.stage_label }}</span></td>
-        {% if show_grn %}<td class="font-monospace">{{ d.grn_number }}</td>{% endif %}
-        <td class="small text-muted">{{ d.updated_at.strftime('%d %b %Y') if d.updated_at else '—' }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="{{ 8 if show_grn else 7 }}" class="text-center text-muted py-4">No tag numbers.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endmacro %}
-
 <div class="card border-0 shadow-sm">
   <div class="card-header bg-transparent p-0">
     <ul class="nav nav-tabs card-header-tabs px-3 pt-2" id="grnBoardTabs" role="tablist">
       <li class="nav-item" role="presentation">
         <button class="nav-link active" id="assigned-tab" data-bs-toggle="tab" data-bs-target="#assignedPane" type="button">
-          GRN Assigned <span class="badge bg-success ms-1">{{ assigned|length }}</span>
+          GRN Assigned <span class="badge bg-success ms-1">{{ assigned_count }}</span>
         </button>
       </li>
       <li class="nav-item" role="presentation">
         <button class="nav-link" id="notmapped-tab" data-bs-toggle="tab" data-bs-target="#notMappedPane" type="button">
-          GRN Not Mapped <span class="badge bg-danger ms-1">{{ not_mapped|length }}</span>
+          GRN Not Mapped <span class="badge bg-danger ms-1">{{ not_mapped_count }}</span>
         </button>
       </li>
       <li class="nav-item" role="presentation">
         <button class="nav-link" id="pendingtrc-tab" data-bs-toggle="tab" data-bs-target="#pendingTrcPane" type="button">
-          Pending for TRC <span class="badge bg-warning text-dark ms-1">{{ pending_trc|length }}</span>
+          Pending for TRC <span class="badge bg-warning text-dark ms-1">{{ pending_trc_count }}</span>
         </button>
       </li>
     </ul>
@@ -75,30 +43,49 @@
     <div class="tab-pane fade show active" id="assignedPane" role="tabpanel">
       <div class="d-flex justify-content-end p-2 border-bottom">
         <button type="button" class="btn btn-outline-secondary btn-sm" onclick="exportGrnTable('assignedTable')">
-          <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
+          <i class="bi bi-file-earmark-arrow-down me-1"></i>Export page
         </button>
       </div>
-      {{ tag_table('assignedTable', assigned, true) }}
+      <div class="table-responsive">
+        <table id="assignedTable" class="table table-hover mb-0 small align-middle">
+          <thead class="table-dark">
+            <tr>
+              <th class="ps-3">Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Grade</th><th>Stage</th><th>GRN Number</th><th>Updated</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
     <div class="tab-pane fade" id="notMappedPane" role="tabpanel">
       <div class="d-flex justify-content-end p-2 border-bottom">
         <button type="button" class="btn btn-outline-secondary btn-sm" onclick="exportGrnTable('notMappedTable')">
-          <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
+          <i class="bi bi-file-earmark-arrow-down me-1"></i>Export page
         </button>
       </div>
-      {{ tag_table('notMappedTable', not_mapped, false) }}
+      <div class="table-responsive">
+        <table id="notMappedTable" class="table table-hover mb-0 small align-middle">
+          <thead class="table-dark">
+            <tr>
+              <th class="ps-3">Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Grade</th><th>Stage</th><th>Updated</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
     <div class="tab-pane fade" id="pendingTrcPane" role="tabpanel">
-      <form method="post" action="/grn/records/bulk-move-to-trc">
+      <form method="post" action="/grn/records/bulk-move-to-trc" id="pendingTrcForm">
         <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
+        <input type="hidden" name="dest" id="pendingTrcDest" value="">
         <div class="d-flex justify-content-between align-items-center p-2 border-bottom flex-wrap gap-2">
           <div class="small text-muted">Select tag numbers below, or upload a list, then bulk-move them into TRC Production.</div>
           <div class="d-flex align-items-center gap-2">
             <input type="file" id="pendingTrcCsvFile" accept=".csv,.txt" class="form-control form-control-sm" style="max-width:220px">
             <button type="button" class="btn btn-outline-secondary btn-sm" onclick="exportGrnTable('pendingTrcTable')">
-              <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
+              <i class="bi bi-file-earmark-arrow-down me-1"></i>Export page
             </button>
-            <button type="submit" id="bulkMoveToTrcBtn" class="btn btn-primary btn-sm" disabled>
+            <button type="button" id="bulkMoveToTrcBtn" class="btn btn-primary btn-sm" disabled data-bs-toggle="modal" data-bs-target="#trcDestModal">
               <i class="bi bi-arrow-right-circle me-1"></i>Bulk Move to TRC <span id="pendingTrcSelCount">(0)</span>
             </button>
           </div>
@@ -111,39 +98,94 @@
                 <th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>Grade</th><th>Stage</th><th>GRN Number</th><th>Updated</th>
               </tr>
             </thead>
-            <tbody>
-              {% for d, lot_number in pending_trc %}
-              <tr>
-                <td class="ps-3"><input type="checkbox" name="device_ids" value="{{ d.id }}" class="form-check-input pending-trc-cb" data-barcode="{{ d.barcode }}"></td>
-                <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
-                <td>{% if lot_number %}<span class="badge bg-info text-dark">{{ lot_number }}</span>{% else %}—{% endif %}</td>
-                <td>{{ d.brand or '—' }}</td>
-                <td>{{ d.model or '—' }}</td>
-                <td>
-                  {% set gv = d.grade.value if d.grade else '' %}
-                  <span class="badge bg-{{ 'success' if gv == 'A' else 'warning text-dark' if gv == 'B' else 'danger' if gv in ['C','D','scrap'] else 'secondary' }}">{{ gv or '—' }}</span>
-                </td>
-                <td><span class="badge bg-{{ d.stage_color }}">{{ d.stage_label }}</span></td>
-                <td class="font-monospace">{{ d.grn_number }}</td>
-                <td class="small text-muted">{{ d.updated_at.strftime('%d %b %Y') if d.updated_at else '—' }}</td>
-              </tr>
-              {% else %}
-              <tr><td colspan="9" class="text-center text-muted py-4">No tag numbers pending for TRC.</td></tr>
-              {% endfor %}
-            </tbody>
+            <tbody></tbody>
           </table>
         </div>
       </form>
     </div>
   </div>
 </div>
+
+<!-- Bulk Move to TRC — destination modal -->
+<div class="modal fade" id="trcDestModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title"><i class="bi bi-arrow-right-circle me-2"></i>Bulk Move to TRC — Destination</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-3">Choose what happens to the <span id="trcDestCount">0</span> selected tag(s).</p>
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="radio" name="trcDestChoice" id="trcDestSelling" value="selling" checked>
+          <label class="form-check-label" for="trcDestSelling">
+            <strong>Sending for Selling</strong>
+            <div class="small text-muted">Moves to the GRN in TRC table without a GRN value (awaiting a fresh GRN).</div>
+          </label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="trcDestChoice" id="trcDestSold" value="sold_oxypc">
+          <label class="form-check-label" for="trcDestSold">
+            <strong>Sold to OxyPC Computers</strong>
+            <div class="small text-muted">Moves to the Inventory Manager table, keeping the current GRN value.</div>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="trcDestConfirmBtn" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Confirm & Move</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
+// Read the date range straight off the URL so the ajax feeds stay in sync
+// with the filter form above (a normal GET reload, not ajax).
+var _grnParams = new URLSearchParams(window.location.search);
+var _grnDateFrom = _grnParams.get('date_from') || '';
+var _grnDateTo = _grnParams.get('date_to') || '';
+
 $(document).ready(function(){
-  if ($('#assignedTable tbody tr td').length > 1) { $('#assignedTable').DataTable({pageLength: 12, lengthChange:false, order:[]}); }
-  if ($('#notMappedTable tbody tr td').length > 1) { $('#notMappedTable').DataTable({pageLength: 12, lengthChange:false, order:[]}); }
-  if ($('#pendingTrcTable tbody tr td').length > 1) { $('#pendingTrcTable').DataTable({pageLength: 12, lengthChange:false, order:[], columnDefs: [{orderable: false, targets: 0}]}); }
+  // Rows for all 3 tabs now come from /grn/records/data (DataTables
+  // server-side) — rendering every matching device straight into the HTML
+  // froze the page once a tab reached a few thousand rows.
+  $('#assignedTable').DataTable({
+    serverSide: true, processing: true, pageLength: 25,
+    lengthMenu: [[25, 50, 100, 500, 1000], [25, 50, 100, 500, 1000]],
+    order: [], searchDelay: 400,
+    ajax: {
+      url: '/grn/records/data',
+      data: function(d){ d.tab = 'assigned'; d.date_from = _grnDateFrom; d.date_to = _grnDateTo; },
+      dataSrc: function(json){ return json.data; },
+    },
+  });
+  $('#notMappedTable').DataTable({
+    serverSide: true, processing: true, pageLength: 25,
+    lengthMenu: [[25, 50, 100, 500, 1000], [25, 50, 100, 500, 1000]],
+    order: [], searchDelay: 400,
+    ajax: {
+      url: '/grn/records/data',
+      data: function(d){ d.tab = 'not_mapped'; d.date_from = _grnDateFrom; d.date_to = _grnDateTo; },
+      dataSrc: function(json){ return json.data; },
+    },
+  });
+  $('#pendingTrcTable').DataTable({
+    serverSide: true, processing: true, pageLength: 25,
+    lengthMenu: [[25, 50, 100, 500, 1000], [25, 50, 100, 500, 1000]],
+    order: [], searchDelay: 400,
+    columnDefs: [{orderable: false, targets: 0}],
+    ajax: {
+      url: '/grn/records/data',
+      data: function(d){ d.tab = 'pending_trc'; d.date_from = _grnDateFrom; d.date_to = _grnDateTo; },
+      dataSrc: function(json){ return json.data; },
+    },
+    drawCallback: function(){
+      document.getElementById('pendingTrcSelectAll').checked = false;
+      refreshSelection();
+    },
+  });
 });
 
 function exportGrnTable(tableId) {
@@ -167,46 +209,58 @@ function exportGrnTable(tableId) {
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
-// Pending for TRC — selection + bulk-move button count
-(function(){
-  var selectAll = document.getElementById('pendingTrcSelectAll');
-  var moveBtn = document.getElementById('bulkMoveToTrcBtn');
-  var countEl = document.getElementById('pendingTrcSelCount');
+// Pending for TRC — selection + bulk-move button count (event delegation so
+// this keeps working as DataTables redraws the tbody on every page/search).
+var selectAll = document.getElementById('pendingTrcSelectAll');
+var moveBtn = document.getElementById('bulkMoveToTrcBtn');
+var countEl = document.getElementById('pendingTrcSelCount');
 
-  function refreshSelection() {
-    var checked = document.querySelectorAll('.pending-trc-cb:checked').length;
-    countEl.textContent = '(' + checked + ')';
-    moveBtn.disabled = checked === 0;
-  }
-  document.addEventListener('change', function(e){
-    if (e.target.classList && e.target.classList.contains('pending-trc-cb')) refreshSelection();
+function refreshSelection() {
+  var checked = document.querySelectorAll('.pending-trc-cb:checked').length;
+  countEl.textContent = '(' + checked + ')';
+  moveBtn.disabled = checked === 0;
+}
+document.addEventListener('change', function(e){
+  if (e.target.classList && e.target.classList.contains('pending-trc-cb')) refreshSelection();
+});
+if (selectAll) {
+  selectAll.addEventListener('change', function(){
+    document.querySelectorAll('.pending-trc-cb').forEach(function(cb){ cb.checked = selectAll.checked; });
+    refreshSelection();
   });
-  if (selectAll) {
-    selectAll.addEventListener('change', function(){
-      document.querySelectorAll('.pending-trc-cb').forEach(function(cb){ cb.checked = selectAll.checked; });
-      refreshSelection();
-    });
-  }
+}
 
-  // Upload a list of Tag Numbers (CSV/TXT) — checks matching rows already in the table.
-  var csvFile = document.getElementById('pendingTrcCsvFile');
-  if (csvFile) {
-    csvFile.addEventListener('change', function(e){
-      var file = e.target.files[0];
-      if (!file) return;
-      var reader = new FileReader();
-      reader.onload = function(ev){
-        var tags = (ev.target.result || '').split(/[\n\r,]+/).map(function(t){ return t.trim(); }).filter(Boolean);
-        var tagSet = {};
-        tags.forEach(function(t){ tagSet[t] = true; });
-        document.querySelectorAll('.pending-trc-cb').forEach(function(cb){
-          if (tagSet[cb.dataset.barcode]) cb.checked = true;
-        });
-        refreshSelection();
-      };
-      reader.readAsText(file);
-    });
-  }
-})();
+// Upload a list of Tag Numbers (CSV/TXT) — checks matching rows on the
+// currently-loaded page (server-side pagination means only that page's
+// checkboxes exist in the DOM at any moment).
+var csvFile = document.getElementById('pendingTrcCsvFile');
+if (csvFile) {
+  csvFile.addEventListener('change', function(e){
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev){
+      var tags = (ev.target.result || '').split(/[\n\r,]+/).map(function(t){ return t.trim(); }).filter(Boolean);
+      var tagSet = {};
+      tags.forEach(function(t){ tagSet[t] = true; });
+      document.querySelectorAll('.pending-trc-cb').forEach(function(cb){
+        if (tagSet[cb.dataset.barcode]) cb.checked = true;
+      });
+      refreshSelection();
+    };
+    reader.readAsText(file);
+  });
+}
+
+// Bulk Move to TRC — destination modal confirms, then submits the form.
+document.getElementById('trcDestModal').addEventListener('show.bs.modal', function(){
+  document.getElementById('trcDestCount').textContent =
+    document.querySelectorAll('.pending-trc-cb:checked').length;
+});
+document.getElementById('trcDestConfirmBtn').addEventListener('click', function(){
+  var choice = document.querySelector('input[name="trcDestChoice"]:checked');
+  document.getElementById('pendingTrcDest').value = choice ? choice.value : '';
+  document.getElementById('pendingTrcForm').submit();
+});
 </script>
 {% endblock %}

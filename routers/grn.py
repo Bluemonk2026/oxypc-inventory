@@ -265,56 +265,136 @@ async def grn_map(request: Request, grn_id: str = Form(...),
         status_code=302)
 
 
-# ── GRN Records (item 16): two paginated tables by source ─────────────────────
+# ── GRN Records ("GRN Board") — 3 tabs, rows served via /records/data ─────────
+# Rendering every matching device straight into the HTML (as this page used to)
+# froze the browser once the table reached a few thousand rows — same root
+# cause already fixed on /grn/post-iqc. Only tab counts (for the nav badges)
+# are computed here now; rows come a page at a time from /records/data below.
+
+def _records_base_filters(date_from: str, date_to: str):
+    from utils.date_filter import apply_date_range
+    filters = [Device.is_active == True, Device.is_trashed == False]
+    apply_date_range(filters, Device.created_at, date_from, date_to)
+    return filters
+
 
 @router.get("/records", response_class=HTMLResponse)
 async def grn_records(request: Request, db: AsyncSession = Depends(get_db),
                       current_user: User = Depends(allowed),
                       date_from: str = Query(default=""),
                       date_to: str = Query(default="")):
-    from utils.date_filter import apply_date_range
-    _rec_filters = [Device.is_active == True, Device.is_trashed == False]
-    apply_date_range(_rec_filters, Device.created_at, date_from, date_to)
-    base = (
-        select(Device, Lot.lot_number)
-        .join(Lot, Device.lot_id == Lot.id, isouter=True)
-        .where(*_rec_filters)
-    )
-    # GRN Assigned — tag numbers that already have a GRN value
-    assigned = (await db.execute(
-        base.where(Device.grn_number.isnot(None), Device.grn_number != "")
-        .order_by(Device.updated_at.desc())
-    )).all()
-    # GRN Not Mapped — tag numbers whose GRN value is still empty
-    not_mapped = (await db.execute(
-        base.where(or_(Device.grn_number.is_(None), Device.grn_number == ""))
-        .order_by(Device.updated_at.desc())
-    )).all()
-    # Pending for TRC — GRN assigned but not yet moved into TRC Production
-    pending_trc = (await db.execute(
-        base.where(Device.grn_number.isnot(None), Device.grn_number != "",
-                   Device.current_stage == DeviceStage.stock_in)
-        .order_by(Device.updated_at.desc())
-    )).all()
+    filters = _records_base_filters(date_from, date_to)
+
+    async def _count(*extra):
+        q = select(func.count()).select_from(Device).where(*filters, *extra)
+        return (await db.execute(q)).scalar() or 0
+
+    assigned_count = await _count(Device.grn_number.isnot(None), Device.grn_number != "")
+    not_mapped_count = await _count(or_(Device.grn_number.is_(None), Device.grn_number == ""))
+    # Pending for TRC — freshly registered tags still sitting at Stage IQC
+    pending_trc_count = await _count(Device.current_stage == DeviceStage.iqc)
+
     return templates.TemplateResponse("grn/records.html", {
-        "request": request, "assigned": assigned, "not_mapped": not_mapped,
-        "pending_trc": pending_trc,
+        "request": request,
+        "assigned_count": assigned_count, "not_mapped_count": not_mapped_count,
+        "pending_trc_count": pending_trc_count,
         "current_user": current_user,
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
     })
 
 
+@router.get("/records/data")
+async def grn_records_data(
+    request: Request,
+    tab: str = Query(...),  # assigned | not_mapped | pending_trc
+    draw: int = 1, start: int = 0, length: int = 25,
+    date_from: str = Query(default=""), date_to: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """DataTables server-side feed for the GRN Board's 3 tabs."""
+    from html import escape
+
+    filters = _records_base_filters(date_from, date_to)
+    show_grn = True
+    if tab == "assigned":
+        filters += [Device.grn_number.isnot(None), Device.grn_number != ""]
+    elif tab == "pending_trc":
+        filters += [Device.current_stage == DeviceStage.iqc]
+    else:
+        tab = "not_mapped"
+        filters += [or_(Device.grn_number.is_(None), Device.grn_number == "")]
+        show_grn = False
+
+    count_q = select(func.count()).select_from(Device).where(*filters)
+    total = (await db.execute(count_q)).scalar() or 0
+
+    search = (request.query_params.get("search[value]") or "").strip()
+    search_filters = []
+    if search:
+        like = f"%{search}%"
+        search_filters.append(or_(
+            Device.barcode.ilike(like), Device.brand.ilike(like), Device.model.ilike(like),
+        ))
+    filtered = (await db.execute(count_q.where(*search_filters))).scalar() or 0
+
+    rows = (await db.execute(
+        select(Device, Lot.lot_number)
+        .join(Lot, Device.lot_id == Lot.id, isouter=True)
+        .where(*filters, *search_filters)
+        .order_by(Device.updated_at.desc())
+        .offset(max(0, start)).limit(min(max(1, length), 5000))
+    )).all()
+
+    def esc(v):
+        return escape(str(v)) if v is not None else ""
+
+    def grade_class(gv):
+        return ('success' if gv == 'A' else 'warning text-dark' if gv == 'B'
+                else 'danger' if gv in ('C', 'D', 'scrap') else 'secondary')
+
+    data = []
+    for d, lot_number in rows:
+        gv = d.grade.value if d.grade else ""
+        row = []
+        if tab == "pending_trc":
+            row.append(f'<input type="checkbox" name="device_ids" value="{d.id}" '
+                        f'class="form-check-input pending-trc-cb" data-barcode="{esc(d.barcode)}">')
+        row += [
+            f'<a href="/devices/{esc(d.barcode)}" class="font-monospace text-decoration-none">{esc(d.barcode)}</a>',
+            f'<span class="badge bg-info text-dark">{esc(lot_number)}</span>' if lot_number else '—',
+            esc(d.brand or '—'), esc(d.model or '—'),
+            f'<span class="badge bg-{grade_class(gv)}">{esc(gv or "—")}</span>',
+            f'<span class="badge bg-{d.stage_color}">{esc(d.stage_label)}</span>',
+        ]
+        if show_grn:
+            row.append(esc(d.grn_number))
+        row.append(d.updated_at.strftime('%d %b %Y') if d.updated_at else '—')
+        data.append(row)
+
+    return {"draw": draw, "recordsTotal": total, "recordsFiltered": filtered, "data": data}
+
+
 @router.post("/records/bulk-move-to-trc")
 async def grn_bulk_move_to_trc(
     request: Request,
     device_ids: list[str] = Form(default=[]),
+    dest: str = Form(...),  # "selling" | "sold_oxypc"
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
 ):
-    """Pending for TRC tab — bulk-move selected tag numbers into TRC Production."""
+    """Pending for TRC tab — bulk-move selected tag numbers per the chosen
+    destination:
+      - selling: back to Stage IQC with GRN cleared (re-enters the "GRN in
+        TRC" / post-IQC pending queue, awaiting a fresh GRN before sale).
+      - sold_oxypc: into Stock Inward (Inventory Manager), GRN value left as-is.
+    """
     import uuid as _u
     from services.control_engine import validate_transition
+    if dest not in ("selling", "sold_oxypc"):
+        return RedirectResponse(url="/grn/records?error=Choose+a+destination", status_code=302)
+
     valid_ids = []
     for d in device_ids:
         try:
@@ -324,6 +404,9 @@ async def grn_bulk_move_to_trc(
     if not valid_ids:
         return RedirectResponse(url="/grn/records?error=No+tag+numbers+selected", status_code=302)
 
+    target_stage = DeviceStage.iqc if dest == "selling" else DeviceStage.stock_in
+    label = "Sending for Selling" if dest == "selling" else "Sold to OxyPC Computers"
+
     devices = (await db.execute(select(Device).where(Device.id.in_(valid_ids)))).scalars().all()
     is_admin = current_user.role.value == "admin"
     now = app_now()
@@ -331,23 +414,25 @@ async def grn_bulk_move_to_trc(
     skipped = []
     for d in devices:
         try:
-            await validate_transition(d, DeviceStage.trc_production, db, override_admin=is_admin)
+            await validate_transition(d, target_stage, db, override_admin=is_admin)
         except HTTPException:
             skipped.append(d.barcode)
             continue
         prev = d.current_stage
-        d.current_stage = DeviceStage.trc_production
+        d.current_stage = target_stage
         d.updated_at = now
-        db.add(StageMovement(device_id=d.id, from_stage=prev, to_stage=DeviceStage.trc_production,
+        if dest == "selling":
+            d.grn_number = None
+        db.add(StageMovement(device_id=d.id, from_stage=prev, to_stage=target_stage,
                               moved_by=current_user.username,
-                              notes="GRN Records — Pending for TRC bulk move"))
+                              notes=f"GRN Records — Pending for TRC bulk move ({label})"))
         moved += 1
 
     await audit(db, user=current_user, action="GRN_BULK_MOVE_TO_TRC",
                 table_name="devices", record_id=None,
-                new_value={"moved": moved, "skipped": len(skipped)}, request=request)
+                new_value={"moved": moved, "skipped": len(skipped), "dest": dest}, request=request)
     await db.commit()
-    msg = f"{moved}+tag(s)+moved+to+TRC+Production"
+    msg = f"{moved}+tag(s)+moved+%E2%80%94+{label.replace(' ', '+')}"
     if skipped:
         import urllib.parse
         msg += f"&error={urllib.parse.quote(f'{len(skipped)} tag(s) could not move (not an allowed transition): ' + ', '.join(skipped[:10]))}"

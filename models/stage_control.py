@@ -52,6 +52,7 @@ class AllowedTransition(Base):
 STAGE_SEQUENCE = [
     ("iqc",           "IQC Inspection",       1),
     ("stock_in",      "Stock In",             2),
+    ("trc_production","TRC Production",       2),
     ("l1",            "L1 Repair",            3),
     ("l2",            "L2 Repair",            4),
     ("l3",            "L3 Repair",            5),

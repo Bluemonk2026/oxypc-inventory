@@ -330,10 +330,6 @@
           <!-- ── Section: Condition & Location ── -->
           <p class="fw-bold small text-uppercase mb-2 border-bottom pb-1 sec-hd">Condition &amp; Location</p>
           <div class="row g-3 mb-3">
-            <div class="col-md-2">
-              <label class="form-label">All OK?</label>
-              {{ isel('all_ok', yn, 'form-select') }}
-            </div>
             <div class="col-md-3">
               <label class="form-label">R2V3 Grade Category</label>
               {% set cur_r2v3 = ii.r2v3_grade_category if ii else None %}
@@ -363,26 +359,6 @@
                 {% for g in ['A','B','C','scrap'] %}
                 <option value="{{ g }}" {% if cur_grade == g %}selected{% endif %}>{{ g }}</option>
                 {% endfor %}
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Floor/Zone</label>
-              {% set zone_opts = [
-                ('showroom','Showroom'), ('ground_floor','Ground Floor'), ('first_floor','1st Floor'),
-                ('second_floor','2nd Floor'), ('warehouse','Warehouse'), ('workshop','Workshop'),
-                ('dispatch','Dispatch Area'), ('holding','Holding Zone')
-              ] %}
-              <select name="floor" id="editFloorZone" class="form-select">
-                <option value="">N/A</option>
-                {% for val, label in zone_opts %}
-                <option value="{{ val }}" {% if device.floor == val %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Location ID</label>
-              <select name="location_id" id="editLocationId" class="form-select" data-preselect="{{ device.location_id or '' }}">
-                <option value="">-- Select Zone first --</option>
               </select>
             </div>
             <div class="col-md-3 d-flex align-items-end">

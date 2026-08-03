@@ -645,16 +645,26 @@
               <div class="row g-3">
                 <div class="col-md-4">
                   <label class="form-label form-label-sm mb-1">Part Name</label>
-                  <input type="text" name="part_name" id="dg_part_name" class="form-control form-control-sm" required>
+                  <select id="dg_part_name" class="form-select form-select-sm" required onchange="dgRefresh()">
+                    <option value="">— Select —</option>
+                  </select>
                 </div>
                 <div class="col-md-4">
                   <label class="form-label form-label-sm mb-1">Part Make</label>
-                  <input type="text" name="part_make" class="form-control form-control-sm">
+                  <select id="dg_part_make" class="form-select form-select-sm" onchange="dgRefresh()">
+                    <option value="">—</option>
+                  </select>
                 </div>
                 <div class="col-md-4">
                   <label class="form-label form-label-sm mb-1">Part Model</label>
-                  <input type="text" name="part_model" class="form-control form-control-sm">
+                  <select id="dg_part_model" class="form-select form-select-sm" onchange="dgRefresh()">
+                    <option value="">—</option>
+                  </select>
                 </div>
+                <input type="hidden" name="part_name" id="dg_part_name_hidden">
+                <input type="hidden" name="part_make" id="dg_part_make_hidden">
+                <input type="hidden" name="part_model" id="dg_part_model_hidden">
+                <input type="hidden" name="part_id" id="dg_part_id">
               </div>
             </div>
             <div class="modal-footer">
@@ -666,14 +676,40 @@
       </div>
     </div>
     <script>
+      function dgUniq(a) { return Array.from(new Set(a)); }
+      function dgFill(sel, values, keepFirst) {
+        var cur = sel.value;
+        sel.innerHTML = '<option value="">' + (keepFirst || '—') + '</option>' +
+          values.map(function(v) { return '<option value="' + v.replace(/"/g,'&quot;') + '">' + v + '</option>'; }).join('');
+        if (values.indexOf(cur) >= 0) sel.value = cur;
+      }
+      function dgRefresh() {
+        var nameSel = document.getElementById('dg_part_name');
+        var makeSel = document.getElementById('dg_part_make');
+        var modelSel = document.getElementById('dg_part_model');
+        var byName = ALL_SPARE_PARTS.filter(function(sp) { return !nameSel.value || sp.name === nameSel.value; });
+        dgFill(makeSel, dgUniq(byName.map(function(sp) { return sp.make; }).filter(Boolean)));
+        var byMake = byName.filter(function(sp) { return !makeSel.value || sp.make === makeSel.value; });
+        dgFill(modelSel, dgUniq(byMake.map(function(sp) { return sp.model; }).filter(Boolean)));
+        var matches = byMake.filter(function(sp) { return !modelSel.value || sp.model === modelSel.value; });
+        document.getElementById('dg_part_id').value = (matches.length === 1) ? matches[0].id : '';
+      }
       function openDowngradeModal(component) {
         document.getElementById('dg_type_normal').checked = true;
-        document.getElementById('dg_part_name').value = '';
         var ram = document.getElementById('dg_comp_ram');
         var hdd = document.getElementById('dg_comp_hdd');
         if (component === 'Hard Drive') { hdd.checked = true; } else { ram.checked = true; }
+        var nameSel = document.getElementById('dg_part_name');
+        dgFill(nameSel, dgUniq(ALL_SPARE_PARTS.map(function(sp) { return sp.name; })), '— Select —');
+        nameSel.value = '';
+        dgRefresh();
         new bootstrap.Modal(document.getElementById('downgradePartModal')).show();
       }
+      document.getElementById('downgradePartForm').addEventListener('submit', function() {
+        document.getElementById('dg_part_name_hidden').value = document.getElementById('dg_part_name').value;
+        document.getElementById('dg_part_make_hidden').value = document.getElementById('dg_part_make').value;
+        document.getElementById('dg_part_model_hidden').value = document.getElementById('dg_part_model').value;
+      });
     </script>
     {% endif %}
 

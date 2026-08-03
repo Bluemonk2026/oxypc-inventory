@@ -33,7 +33,7 @@ ACCORDION_SECTIONS = [
     {
         "id": "repair", "label": "Repair & QC", "icon": "bi-tools",
         "cat_keys": [
-            "l1_issue", "l2_issue", "l3_issue", "repair_issue",
+            "l34_activity", "l1_issue", "l2_issue", "l3_issue", "repair_issue",
             "repair_resolution", "part_category", "qc_check_item",
             "repair_action_taken", "repair_received_from", "repair_scrap_reason",
             "repair_source_type", "qc_failure_reason", "cosmetic_final_qc_status",
@@ -259,6 +259,7 @@ CATEGORIES = [
     ("cosmetic_issue",      "Cosmetic Issues",              "laptop"),
     ("cosmetic_grade",      "Cosmetic Grade Descriptions",  "laptop"),
     # ── Repair ───────────────────────────────────────────────────
+    ("l34_activity",        "L3/L4 Mark Complete Activities","repair"),
     ("l1_issue",            "L1 Repair Issues",             "repair"),
     ("l2_issue",            "L2 Repair Issues",             "repair"),
     ("l3_issue",            "L3 Repair Issues",             "repair"),

@@ -182,15 +182,13 @@
             </div>
             <div class="col-md-3">
               <label class="form-label fw-semibold d-block">Select Entity</label>
-              <div class="d-flex gap-3 pt-2">
+              <div class="d-flex gap-3 pt-2 flex-wrap">
+                {% for e in master_options('entity') %}
                 <div class="form-check">
-                  <input class="form-check-input" type="radio" name="entity" id="entity_oxypc" value="OxyPC Computers" checked>
-                  <label class="form-check-label small" for="entity_oxypc">OxyPC Computers</label>
+                  <input class="form-check-input" type="radio" name="entity" id="entity_{{ loop.index }}" value="{{ e }}" {% if loop.first %}checked{% endif %}>
+                  <label class="form-check-label small" for="entity_{{ loop.index }}">{{ e }}</label>
                 </div>
-                <div class="form-check">
-                  <input class="form-check-input" type="radio" name="entity" id="entity_renewcircuit" value="Renew Circuits">
-                  <label class="form-check-label small" for="entity_renewcircuit">Renew Circuits</label>
-                </div>
+                {% endfor %}
               </div>
             </div>
             <div class="col-md-3 d-none">
@@ -350,7 +348,7 @@
             <div class="col-md-3">
               <label class="form-label small d-flex align-items-center gap-1">
                 Battery Health %
-                <button type="button" id="batteryHealthTestBtn" class="btn btn-link p-0 lh-1 text-success border-0"
+                <button type="button" id="batteryHealthTestBtn" class="btn btn-link p-0 lh-1 text-success border-0 d-none"
                         data-bs-toggle="modal" data-bs-target="#batteryHealthModal"
                         title="Diagnose battery health from this station">
                   <i class="bi bi-play-circle-fill fs-6"></i>

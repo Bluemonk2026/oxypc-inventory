@@ -25,6 +25,10 @@ MASTER_SEED = {
     "entity": [
         "OxyPC Computers", "Renew Circuits",
     ],
+    "l34_activity": [
+        "Motherboard Repair", "Chip Level Repair", "Component Replacement",
+        "Reballing", "Cleaning & Reflow", "Data Recovery", "Other",
+    ],
     "brand": [
         "HP", "Dell", "Lenovo", "Apple", "Asus", "Acer", "Toshiba", "Sony",
         "Samsung", "MSI", "Microsoft", "LG", "Huawei", "Razer", "Compaq",

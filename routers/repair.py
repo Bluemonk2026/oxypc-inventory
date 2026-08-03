@@ -407,6 +407,8 @@ async def l3l4_start(
 async def l3l4_complete(
     request: Request,
     device_id: str = Form(...),
+    activity: str = Form(""),
+    repair_notes: str = Form(""),
     csrf_token: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -422,6 +424,10 @@ async def l3l4_complete(
         .values(status="completed", completed_at=app_now())
     )
     device.l34_status = "Completed"
+    if activity.strip():
+        device.l34_activity = activity.strip()
+    if repair_notes.strip():
+        device.repair_notes = repair_notes.strip()
     # L1/L2's own status column was still stuck on "Requested to L3/L4" once
     # L3/L4 finished — nothing told the L1/L2 queue the device was actually
     # back and awaiting further action there.

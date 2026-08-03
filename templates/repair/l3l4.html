@@ -26,11 +26,8 @@
                 </td>
                 <td class="text-nowrap">
                   {% if it.status == 'Repair Started' %}
-                    <form method="post" action="/repair/l3l4-complete" class="d-inline">
-                      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-                      <input type="hidden" name="device_id" value="{{ it.device_id }}">
-                      <button type="submit" class="btn btn-sm btn-success">Mark Complete</button>
-                    </form>
+                    <button type="button" class="btn btn-sm btn-success complete-btn"
+                            data-device="{{ it.device_id }}" data-barcode="{{ it.barcode }}">Mark Complete</button>
                     <button type="button" class="btn btn-sm btn-danger scrap-btn"
                             data-device="{{ it.device_id }}" data-barcode="{{ it.barcode }}">
                       <i class="bi bi-trash3"></i> Scrap</button>
@@ -93,6 +90,40 @@
   </div>
 </div>
 
+<!-- Mark Complete modal -->
+<div class="modal fade" id="completeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" action="/repair/l3l4-complete" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="device_id" id="cm_device">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-check-circle me-2"></i>Mark Repair Complete</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2"><span class="text-muted small">Tag Number:</span> <strong id="cm_barcode">—</strong></div>
+        <div class="mb-3">
+          <label class="form-label small">Activities</label>
+          <select name="activity" class="form-select form-select-sm">
+            <option value="">— Select —</option>
+            {% for a in master_options('l34_activity') %}
+            <option value="{{ a }}">{{ a }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Repair Notes</label>
+          <textarea name="repair_notes" class="form-control form-control-sm" rows="3"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-success">Confirm Complete</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Scrap modal -->
 <div class="modal fade" id="scrapModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
@@ -130,6 +161,15 @@ $(document).ready(function(){
   });
 });
 (function(){
+  var cmModal = new bootstrap.Modal(document.getElementById('completeModal'));
+  document.querySelectorAll('.complete-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.getElementById('cm_device').value = btn.dataset.device;
+      document.getElementById('cm_barcode').textContent = btn.dataset.barcode;
+      cmModal.show();
+    });
+  });
+
   var scModal = new bootstrap.Modal(document.getElementById('scrapModal'));
   document.querySelectorAll('.scrap-btn').forEach(function(btn){
     btn.addEventListener('click', function(){

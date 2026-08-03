@@ -33,7 +33,7 @@
     <div class="table-responsive">
       <table class="table table-hover mb-0 small">
         <thead class="table-secondary">
-          <tr><th>Bucket Number</th><th>Location</th><th>Category</th><th>Bucket Qty</th><th>Received Qty</th><th>Status</th><th>Actions</th></tr>
+          <tr><th>Bucket Name</th><th>Bucket Number</th><th>Location</th><th>Category</th><th>Bucket Qty</th><th>Received Qty</th><th>Actions</th></tr>
         </thead>
         <tbody id="trcBucketTbody">
           <tr><td colspan="7" class="text-center text-muted py-3">Loading…</td></tr>
@@ -244,17 +244,14 @@ function loadTrcBuckets(){
       return;
     }
     tbody.innerHTML = buckets.map(function(b){
-      var statusBadge = b.status === 'validated'
-        ? '<span class="badge bg-success">Validated</span>'
-        : '<span class="badge bg-secondary">Not Validated</span>';
       var receivedQty = b.received_qty !== null && b.received_qty !== undefined ? b.received_qty : '—';
       return '<tr>'+
+        '<td>'+(b.name || '—')+'</td>'+
         '<td><a href="#" class="font-monospace fw-bold text-decoration-none trc-view-tags" data-id="'+b.id+'" data-number="'+b.bucket_number+'">'+b.bucket_number+'</a></td>'+
         '<td>'+(b.location||'—')+'</td>'+
         '<td>'+(b.category||'—')+'</td>'+
         '<td><span class="badge bg-secondary">'+b.device_count+'</span></td>'+
         '<td>'+receivedQty+'</td>'+
-        '<td>'+statusBadge+'</td>'+
         '<td class="text-nowrap">'+
           '<button class="btn btn-xs btn-outline-primary btn-sm py-0 px-2 trc-assign-bkt" data-id="'+b.id+'" data-number="'+b.bucket_number+'" data-count="'+b.device_count+'">Assign</button>'+
         '</td>'+

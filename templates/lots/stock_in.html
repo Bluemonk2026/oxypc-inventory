@@ -346,6 +346,14 @@ $(document).ready(function(){
       },
       dataSrc: function (json) { return json.data; },
     },
+    // Rows are plain arrays of pre-rendered HTML (server-side DataTables),
+    // so the <tr> never gets a data-barcode attribute on its own — both the
+    // scan-to-select handler below and initTagScanAutocheck() look up rows
+    // by tr[data-barcode], so stamp it here from column 0's checkbox value.
+    createdRow: function (row, data) {
+      var m = /value="([^"]+)"/.exec(data[0] || '');
+      if (m) { row.setAttribute('data-barcode', m[1]); }
+    },
     columnDefs: [{ orderable: false, targets: [0, 9, 11] }, { visible: false, targets: [12, 13] }],
     drawCallback: function () {
       // Re-apply the persistent Set to whichever rows this draw rendered —

@@ -156,7 +156,8 @@ PERM_MODULES = [
     ("care_support",         "Customer Care"),
     # ── SALES & CRM ────────────────────────────────────────────────
     ("telesales_dashboard",  "TeleSales Dashboard"),
-    ("sales",                "Ready to Sale / Sales List"),
+    ("sales",                "Ready to Sale"),
+    ("sales_list",           "Sales List"),
     ("ready_to_sale_parts",  "Ready to Sale Parts"),
     ("part_sales",           "Spare Part Sales"),
     ("gate_pass",            "Gate Pass"),

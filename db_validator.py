@@ -78,11 +78,14 @@ CANONICAL_TRANSITIONS = [
     ("l1",            "l2"),
     ("l1",            "qc_check"),
     ("l1",            "scrapped"),
+    ("l1",            "stock_in"),
     ("l2",            "l3"),
     ("l2",            "qc_check"),
     ("l2",            "scrapped"),
+    ("l2",            "stock_in"),
     ("l3",            "qc_check"),
     ("l3",            "scrapped"),
+    ("l3",            "stock_in"),
     # QC
     ("qc_check",      "cleaning"),
     ("qc_check",      "ready_to_sale"),
@@ -90,21 +93,32 @@ CANONICAL_TRANSITIONS = [
     ("qc_check",      "l2"),
     ("qc_check",      "l3"),
     ("qc_check",      "scrapped"),
+    ("qc_check",      "stock_in"),
     # Cosmetic pipeline
     ("cleaning",      "dry_sanding"),
     ("cleaning",      "final_qc"),
+    ("cleaning",      "stock_in"),
     ("dry_sanding",   "masking"),
+    ("dry_sanding",   "stock_in"),
     ("masking",       "painting"),
+    ("masking",       "stock_in"),
     ("painting",      "water_sanding"),
+    ("painting",      "stock_in"),
     ("water_sanding", "final_qc"),
+    ("water_sanding", "stock_in"),
     ("final_qc",      "ready_to_sale"),
     ("final_qc",      "cleaning"),
     ("final_qc",      "scrapped"),
+    ("final_qc",      "stock_in"),
     # Sales
     ("ready_to_sale", "sold"),
     ("sold",          "returned"),
     ("returned",      "iqc"),
     ("returned",      "scrapped"),
+    ("returned",      "stock_in"),
+    # Corrective moves — Customise modal can send any in-pipeline device
+    # straight back to Stock In (e.g. mis-scrapped, mis-graded)
+    ("scrapped",      "stock_in"),
 ]
 
 CANONICAL_STAGE_NAMES = {name for name, _, _ in CANONICAL_STAGES}

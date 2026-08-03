@@ -115,10 +115,10 @@
     <div class="table-responsive">
       <table id="prodAllocationTable" class="table table-hover mb-0 small">
         <thead class="table-secondary">
-          <tr><th>Bucket Name</th><th>Bucket ID</th><th>Location ID</th><th>Total Pass</th><th>Total Fail</th><th>Count of Tag Numbers</th><th>Stage</th><th>Assigned To</th><th>Action</th></tr>
+          <tr><th>Bucket Name</th><th>Bucket ID</th><th>Location ID</th><th>Total Pass</th><th>Total Fail</th><th>Count of Tag Numbers</th><th>Assigned To</th><th>Action</th></tr>
         </thead>
         <tbody id="prodAllocationTbody">
-          <tr><td colspan="9" class="text-center text-muted py-3">Loading…</td></tr>
+          <tr><td colspan="8" class="text-center text-muted py-3">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -380,7 +380,7 @@ function loadProdAllocationTable(){
     var tbody = document.getElementById('prodAllocationTbody');
     var relevant = buckets.filter(function(b){ return b.assigned_to_production; });
     if(!relevant.length){
-      tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">No buckets allocated to L1/L2 Engineer yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No buckets allocated to L1/L2 Engineer yet.</td></tr>';
       return;
     }
     tbody.innerHTML = relevant.map(function(b){
@@ -391,7 +391,6 @@ function loadProdAllocationTable(){
         '<td><span class="badge bg-success">'+b.total_pass+'</span></td>'+
         '<td><span class="badge bg-danger">'+b.total_fail+'</span></td>'+
         '<td><span class="badge bg-info text-dark">'+b.device_count+'</span></td>'+
-        '<td><span class="badge bg-light text-dark">'+b.status+'</span></td>'+
         '<td><span class="badge bg-primary">L1/L2 Engineer</span></td>'+
         '<td><button class="btn btn-xs btn-outline-primary btn-sm py-0 px-2 assign-eng-btn" data-id="'+b.id+'" data-number="'+b.bucket_number+'"><i class="bi bi-person-check"></i> Assign to Engineer</button></td>'+
       '</tr>';

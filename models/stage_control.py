@@ -80,11 +80,14 @@ DEFAULT_TRANSITIONS = [
     ("l1",            "l2"),
     ("l1",            "qc_check"),
     ("l1",            "scrapped"),
+    ("l1",            "stock_in"),
     ("l2",            "l3"),
     ("l2",            "qc_check"),
     ("l2",            "scrapped"),
+    ("l2",            "stock_in"),
     ("l3",            "qc_check"),
     ("l3",            "scrapped"),
+    ("l3",            "stock_in"),
     # QC to cosmetic refurb
     ("qc_check",      "cleaning"),
     ("qc_check",      "ready_to_sale"),   # for mint-condition devices
@@ -92,22 +95,31 @@ DEFAULT_TRANSITIONS = [
     ("qc_check",      "l2"),
     ("qc_check",      "l3"),
     ("qc_check",      "scrapped"),
+    ("qc_check",      "stock_in"),
     # Cosmetic pipeline
     ("cleaning",      "dry_sanding"),
     ("cleaning",      "final_qc"),        # skip sanding if not needed
+    ("cleaning",      "stock_in"),
     ("dry_sanding",   "masking"),
+    ("dry_sanding",   "stock_in"),
     ("masking",       "painting"),
+    ("masking",       "stock_in"),
     ("painting",      "water_sanding"),
+    ("painting",      "stock_in"),
     ("water_sanding", "final_qc"),
+    ("water_sanding", "stock_in"),
     ("final_qc",      "ready_to_sale"),
     ("final_qc",      "cleaning"),        # back to cosmetic if failed
     ("final_qc",      "scrapped"),
+    ("final_qc",      "stock_in"),
     # Sales end-states
     ("ready_to_sale", "sold"),
     ("sold",          "returned"),
-    # Return re-enters IQC
+    # Return re-enters IQC, or can be corrected straight back to Stock In
     ("returned",      "iqc"),
     ("returned",      "scrapped"),
-    # Admin can move anything to scrapped
+    ("returned",      "stock_in"),
+    # Admin/Customise-modal corrective moves
     ("stock_in",      "scrapped"),
+    ("scrapped",      "stock_in"),
 ]

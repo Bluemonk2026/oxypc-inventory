@@ -344,7 +344,7 @@
       {% endif %}
 
       {# ── SALES & CRM (Overdue Orders removed — now on Sales List page) ─ #}
-      {% if any_perm(role,'sales','returns','dealers','telecalling','whatsapp','assign_dealer_leads','telesales_dashboard') %}
+      {% if any_perm(role,'sales','sales_list','returns','dealers','telecalling','whatsapp','assign_dealer_leads','telesales_dashboard') %}
       <li class="nav-section">SALES & CRM</li>
       {% if has_perm(role,'telesales_dashboard','enable') %}
       <li><a href="/telesales-dashboard" class="nav-link {% if request.url.path.startswith('/telesales-dashboard') %}active{% endif %}">
@@ -375,13 +375,15 @@
       <li><a href="/sales/ready" class="nav-link {% if '/sales/ready' in request.url.path %}active{% endif %}">
         <i class="bi bi-check-circle me-2"></i> {{ sidebar_label('sales', 'Ready to Sale') }}
       </a></li>
+      {% endif %}
       {% if has_perm(role,'ready_to_sale_parts','enable') %}
       <li><a href="/ready-to-sale-parts" class="nav-link {% if '/ready-to-sale-parts' in request.url.path %}active{% endif %}">
         <i class="bi bi-box-seam me-2"></i> {{ sidebar_label('ready_to_sale_parts', 'Ready to Sale Parts') }}
       </a></li>
       {% endif %}
+      {% if has_perm(role,'sales_list','enable') %}
       <li><a href="/sales" class="nav-link {% if request.url.path == '/sales' %}active{% endif %}">
-        <i class="bi bi-receipt me-2"></i> {{ sidebar_label('sales', 'Sales List') }}
+        <i class="bi bi-receipt me-2"></i> {{ sidebar_label('sales_list', 'Sales List') }}
       </a></li>
       {% endif %}
       {% if has_perm(role,'part_sales','enable') %}

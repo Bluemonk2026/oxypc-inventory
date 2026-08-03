@@ -291,8 +291,8 @@ async def grn_records(request: Request, db: AsyncSession = Depends(get_db),
 
     assigned_count = await _count(Device.grn_number.isnot(None), Device.grn_number != "")
     not_mapped_count = await _count(or_(Device.grn_number.is_(None), Device.grn_number == ""))
-    # Pending for TRC — freshly registered tags still sitting at Stage IQC
-    pending_trc_count = await _count(Device.current_stage == DeviceStage.iqc)
+    # Pending for TRC — Deshwal-entity tags still sitting at Stage IQC
+    pending_trc_count = await _count(Device.entity == "Deshwal", Device.current_stage == DeviceStage.iqc)
 
     return templates.TemplateResponse("grn/records.html", {
         "request": request,
@@ -321,7 +321,7 @@ async def grn_records_data(
     if tab == "assigned":
         filters += [Device.grn_number.isnot(None), Device.grn_number != ""]
     elif tab == "pending_trc":
-        filters += [Device.current_stage == DeviceStage.iqc]
+        filters += [Device.entity == "Deshwal", Device.current_stage == DeviceStage.iqc]
     else:
         tab = "not_mapped"
         filters += [or_(Device.grn_number.is_(None), Device.grn_number == "")]

@@ -175,12 +175,12 @@
           <!-- ── Section 1: Identity ── -->
           <p class="fw-bold small text-uppercase mb-2 border-bottom pb-1 sec-hd">Identity</p>
           <div class="row g-3 mb-3">
-            <div class="col-md-3">
+            <div class="col-md-6">
               <label class="form-label fw-semibold">Tag Number / Asset Tag <span class="text-danger">*</span></label>
               <input type="text" name="barcode" id="iqcBarcode" maxlength="100" class="form-control barcode-field font-monospace" placeholder="Scan or type" autofocus required>
               <div id="iqcBarcodeErr" class="invalid-feedback d-block text-danger small d-none">Duplicate Tag Number — this tag already exists.</div>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-6">
               <label class="form-label fw-semibold d-block">Select Entity</label>
               <div class="d-flex gap-3 pt-2 flex-wrap">
                 {% for e in master_options('entity') %}

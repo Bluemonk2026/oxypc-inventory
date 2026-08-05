@@ -65,6 +65,24 @@ IQC_INSPECTION_FIELDS = [
 ]
 DEVICE_CSV_HEADERS = DEVICE_CORE_FIELDS + DEVICE_REST_FIELDS + IQC_INSPECTION_FIELDS
 
+# Header aliases accepted for the tag-number column on IQC upload — the
+# template ships "Tag No" but hand-built CSVs from other systems commonly
+# use one of these instead.
+_TAG_HEADER_ALIASES = ["Tag No", "Tag Number", "barcode", "tag_number"]
+
+
+def _resolve_tag_header(row: dict) -> str | None:
+    """Return the first tag-number value found under any accepted header
+    alias (case-insensitive), or None if none of them are present/filled."""
+    lower_map = {k.lower(): k for k in row.keys()}
+    for alias in _TAG_HEADER_ALIASES:
+        actual_key = lower_map.get(alias.lower())
+        if actual_key is not None:
+            val = (row.get(actual_key) or "").strip()
+            if val:
+                return val
+    return None
+
 # Only a handful of illustrative inspection values in the sample row — the rest
 # are left blank since the checklist is optional and 70+ filled columns would
 # make the example row unreadable.
@@ -319,7 +337,7 @@ async def upload_devices(
 
     for i, row in enumerate(reader, start=2):
         try:
-            barcode = _s(row, "Tag No")
+            barcode = _resolve_tag_header(row)
             if not barcode:
                 errors.append(f"Row {i}: Tag No is required")
                 continue

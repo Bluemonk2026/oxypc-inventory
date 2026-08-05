@@ -9,7 +9,7 @@ from utils.timezone import app_now
 from utils.master_data import master_values
 from database import get_db
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
+from models.device import Device, DeviceStage, DeviceGrade, StageMovement, STAGE_LABELS
 from models.lot import Lot, LotLineItem
 from models.crm import CRMSourcingDeal
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
@@ -1250,12 +1250,22 @@ async def trc_production_list(
             if key not in assigned_name_map and name:
                 assigned_name_map[key] = name
 
+    # Scrap Products from Repair Line — moved here from All Inventory (that
+    # page now only handles active/searchable inventory, not scrap triage).
+    scrap_devices = (await db.execute(
+        select(Device, Lot.lot_number)
+        .join(Lot, Device.lot_id == Lot.id)
+        .where(Device.grade == DeviceGrade.scrap, Device.current_stage == DeviceStage.scrapped,
+               Device.is_active == True)
+        .order_by(Device.updated_at.desc())
+    )).all()
+
     return templates.TemplateResponse("lots/trc_production.html", {
         "request": request, "devices": devices, "current_user": current_user,
         "assigned_dept_map": assigned_dept_map, "departments": STOCK_DEPARTMENTS,
         "cost_parts_map": cost_parts_map, "location_map": location_map,
         "repair_line_devices": repair_line_devices, "assigned_name_map": assigned_name_map,
-        "total": total,
+        "total": total, "scrap_devices": scrap_devices,
     })
 
 
@@ -1274,14 +1284,14 @@ async def scrap_move_to_inventory(
     if not device:
         raise HTTPException(404, "Device not found")
     prev_stage = device.current_stage
-    device.current_stage = DeviceStage.stock_in
+    device.current_stage = DeviceStage.scrap_for_sale
     device.updated_at = app_now()
     db.add(StageMovement(
-        device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.stock_in,
-        moved_by=current_user.username, notes="Moved from Scrap back to Inventory",
+        device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.scrap_for_sale,
+        moved_by=current_user.username, notes="Moved from Scrap to Scrap for Sale",
     ))
     await db.commit()
-    return RedirectResponse(url="/trc-production?success=Moved+to+Inventory", status_code=302)
+    return RedirectResponse(url="/trc-production?success=Moved+to+Scrap+for+Sale", status_code=302)
 
 
 @router.post("/scrap-products/{barcode}/replace")

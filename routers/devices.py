@@ -150,8 +150,13 @@ async def _get_device_or_404(barcode: str, db: AsyncSession) -> Device:
     return device
 
 
-def _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to):
-    """Filter clauses shared by the Inventory Search page and its data endpoint."""
+def _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to, entity=""):
+    """Filter clauses shared by the Inventory Search page and its data endpoint.
+
+    `employee` is deliberately NOT handled here — Device has no direct
+    "assigned employee" column; that comes from a join to WorkOrder, which
+    only the page route (not this shared helper) needs to perform.
+    """
     from utils.date_filter import apply_date_range
     w = []
     if q:
@@ -174,8 +179,20 @@ def _device_search_filters(q, stage, lot, grade, category, device_type, date_fro
         w.append(Device.sub_category == category)
     if device_type:
         w.append(Device.device_type == device_type)
+    if entity:
+        w.append(Device.entity == entity)
     apply_date_range(w, Device.created_at, date_from, date_to)
     return w
+
+
+async def _employee_device_id_filter(db: AsyncSession, employee: str):
+    """Return a Device.id-scoped filter clause for the given assigned-employee
+    name, via WorkOrder (Device has no direct assigned-employee column)."""
+    emp_device_ids = set((await db.execute(
+        select(WorkOrder.device_id)
+        .where(WorkOrder.assigned_name == employee, WorkOrder.status != "completed")
+    )).scalars().all())
+    return Device.id.in_(emp_device_ids) if emp_device_ids else Device.id.in_([])
 
 
 _STAGE_BADGE = {
@@ -193,6 +210,7 @@ async def device_search_data(
     draw: int = 1, start: int = 0, length: int = 25,
     q: str = "", stage: str = "", lot: str = "", grade: str = "",
     category: str = "", device_type: str = "", date_from: str = "", date_to: str = "",
+    employee: str = "", entity: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(view_allowed),
 ):
@@ -211,7 +229,9 @@ async def device_search_data(
     role = getattr(current_user.role, "value", current_user.role)
     show_pricing = _cvp(role)
 
-    page_filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to)
+    page_filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to, entity=entity)
+    if employee:
+        page_filters.append(await _employee_device_id_filter(db, employee))
     base = select(Device, Lot.lot_number).join(Lot, Device.lot_id == Lot.id).where(Device.is_trashed == False)
     count_base = select(func.count()).select_from(Device).join(Lot, Device.lot_id == Lot.id).where(Device.is_trashed == False)
 
@@ -380,6 +400,8 @@ async def device_search(
     device_type: str = "",
     date_from: str = "",
     date_to: str = "",
+    employee: str = "",
+    entity: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(view_allowed),
 ):
@@ -393,7 +415,9 @@ async def device_search(
     so fetching the full result set here would cost real query time and memory
     for output nothing on the page uses.
     """
-    filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to)
+    filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to, entity=entity)
+    if employee:
+        filters.append(await _employee_device_id_filter(db, employee))
 
     count_query = (
         select(func.count())
@@ -412,27 +436,34 @@ async def device_search(
     model_summary = await _build_model_summary(db, filters)
     lot_summary = await _build_lot_summary(db)
 
-    # Scrap Products from Repair Line — moved here from Production Manager
-    # (that page now only handles active repair-line devices).
-    scrap_devices = (await db.execute(
-        select(Device, Lot.lot_number)
-        .join(Lot, Device.lot_id == Lot.id)
-        .where(Device.current_stage == DeviceStage.scrapped, Device.is_active == True)
-        .order_by(Device.updated_at.desc())
+    # Per-entity counts over the currently filtered set (not a separate
+    # unfiltered query) — the summary strip above the Tag Number table.
+    entity_counts_rows = (await db.execute(
+        select(Device.entity, func.count())
+        .select_from(Device).join(Lot, Device.lot_id == Lot.id)
+        .where(Device.is_trashed == False, *filters)
+        .group_by(Device.entity)
     )).all()
+    entity_counts = {(e or "Unassigned"): c for e, c in entity_counts_rows}
+
+    employee_options = [n for n in (await db.execute(
+        select(WorkOrder.assigned_name).distinct().where(WorkOrder.assigned_name.isnot(None))
+    )).scalars().all() if n]
+    entity_options = await master_values(db, "entity") or ["Deshwal", "OxyPC Computers", "Renew Circuits"]
 
     return templates.TemplateResponse("devices/list.html", {
         "request": request, "current_user": current_user,
         "lots": lots,
         "stages": DeviceStage, "stage_labels": STAGE_LABELS,
         "q": q, "stage": stage, "lot": lot, "grade": grade, "category": category,
-        "device_type": device_type,
+        "device_type": device_type, "employee": employee, "entity": entity,
         "device_type_options": await master_values(db, "device_type"),
+        "employee_options": employee_options, "entity_options": entity_options,
         "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
         "total": total,
         "model_summary": model_summary,
         "lot_summary": lot_summary,
-        "scrap_devices": scrap_devices,
+        "entity_counts": entity_counts,
     })
 
 

@@ -28,6 +28,7 @@ class DeviceStage(str, enum.Enum):
     sold = "sold"
     returned = "returned"
     scrapped = "scrapped"
+    scrap_for_sale = "scrap_for_sale"
 
 
 class DeviceGrade(str, enum.Enum):
@@ -58,6 +59,7 @@ STAGE_LABELS = {
     DeviceStage.sold: "Sold",
     DeviceStage.returned: "Returned",
     DeviceStage.scrapped: "Scrapped",
+    DeviceStage.scrap_for_sale: "Scrap for Sale",
 }
 
 STAGE_COLORS = {
@@ -80,6 +82,7 @@ STAGE_COLORS = {
     DeviceStage.sold: "dark",
     DeviceStage.returned: "warning",
     DeviceStage.scrapped: "danger",
+    DeviceStage.scrap_for_sale: "dark",
 }
 
 
@@ -181,3 +184,26 @@ class StageMovement(Base):
     notes      = Column(Text, nullable=True)
 
     device = relationship("Device", back_populates="stage_movements")
+
+
+class MovementDirection(str, enum.Enum):
+    sent = "sent"
+    sold = "sold"
+
+
+class TagNumberMovement(Base):
+    """One row per bulk Change-Entity action on the Entity Movement page —
+    NOT one row per tag number. `tag_count` is the number of tags moved in
+    that single action."""
+    __tablename__ = "tag_number_movements"
+
+    id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    moved_at         = Column(DateTime, default=app_now)
+    tag_count        = Column(Integer, nullable=False)
+    from_entity      = Column(String(30), nullable=True)
+    to_entity        = Column(String(30), nullable=False)
+    direction        = Column(SAEnum(MovementDirection), nullable=False)
+    by_user_id       = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    by_user_name     = Column(String(100), nullable=True)  # denormalized, survives user deletion
+    invoice_pdf_path = Column(String(255), nullable=True)
+    notes            = Column(String(255), nullable=True)

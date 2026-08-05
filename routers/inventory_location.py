@@ -14,7 +14,7 @@ from utils.timezone import app_now
 from typing import Optional
 import uuid
 
-from fastapi import APIRouter, Depends, Request, Form, HTTPException
+from fastapi import APIRouter, Depends, Request, Form, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_, desc
@@ -175,6 +175,82 @@ async def location_master(
             ZoneType.workshop, ZoneType.holding, ZoneType.dispatch, ZoneType.showroom, ZoneType.warehouse,
         ],
     })
+
+
+@router.get("/master/bulk-template")
+async def location_bulk_template(
+    current_user: User = Depends(require_roles(UserRole.admin, UserRole.inventory_manager)),
+):
+    import csv, io
+    from fastapi.responses import StreamingResponse
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["zone", "unit_type", "unit_id", "slot", "description", "capacity"])
+    writer.writerow(["workshop", "rack", "RACK-A1", "1", "Example rack", "50"])
+    output.seek(0)
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode("utf-8-sig")),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=location_template.csv"},
+    )
+
+
+@router.post("/master/bulk-upload")
+async def location_bulk_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.admin, UserRole.inventory_manager)),
+):
+    import csv, io
+
+    content = await file.read()
+    try:
+        text = content.decode("utf-8-sig")
+    except Exception:
+        text = content.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(text))
+    added, skipped, errors = 0, 0, []
+    existing_unit_ids = set((await db.execute(select(StorageLocation.unit_id))).scalars().all())
+
+    zone_values = {z.value for z in ZoneType}
+    unit_type_values = {u.value for u in UnitType}
+
+    for i, row in enumerate(reader, start=2):
+        unit_id = (row.get("unit_id") or "").strip()
+        zone = (row.get("zone") or "").strip().lower()
+        unit_type = (row.get("unit_type") or "").strip().lower()
+        if not unit_id:
+            errors.append(f"Row {i}: unit_id is required")
+            continue
+        if unit_id in existing_unit_ids:
+            skipped += 1
+            continue
+        if zone not in zone_values:
+            errors.append(f"Row {i}: invalid zone '{row.get('zone')}'")
+            continue
+        if unit_type not in unit_type_values:
+            errors.append(f"Row {i}: invalid unit_type '{row.get('unit_type')}'")
+            continue
+        capacity_raw = (row.get("capacity") or "").strip()
+        loc = StorageLocation(
+            zone=ZoneType(zone), unit_type=UnitType(unit_type), unit_id=unit_id,
+            slot=(row.get("slot") or "").strip() or None,
+            description=(row.get("description") or "").strip() or None,
+            capacity=int(capacity_raw) if capacity_raw.isdigit() else None,
+        )
+        db.add(loc)
+        existing_unit_ids.add(unit_id)
+        added += 1
+
+    await db.commit()
+    msg = f"{added}+location(s)+added,+{skipped}+skipped"
+    if errors:
+        msg += f"&error={'; '.join(errors[:10])}"
+        if len(errors) > 10:
+            msg += "…"
+    return RedirectResponse(url=f"/locations/master?success={msg}", status_code=302)
 
 
 @router.post("/master/create", response_class=HTMLResponse)

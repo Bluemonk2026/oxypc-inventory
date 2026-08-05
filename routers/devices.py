@@ -317,7 +317,7 @@ async def device_search_data(
             f'<input type="checkbox" class="form-check-input rowChk" value="{esc(d.barcode)}">',
             (f'<a href="/devices/{esc(d.barcode)}" class="text-decoration-none">'
              f'<code class="small fw-bold">{esc(d.barcode)}</code></a>'
-             f'<span class="badge rounded-pill bg-secondary ms-1" title="Quantity">{d.qty or 1}</span>'),
+             f'<div style="color:#999999;font-size:12px;">{esc(d.entity) if d.entity else "—"}</div>'),
             (f'<a href="/devices?lot={esc(lot_number)}" class="btn btn-sm py-0 px-2 small text-decoration-none" '
              f'style="background-color:#ffffff;border:1px solid #6C757D;color:#6C757D;">{esc(lot_number)}</a>'),
             esc(d.brand or "—"), esc(d.model or "—"), esc(d.device_type or "—"), esc(d.cpu or "—"),

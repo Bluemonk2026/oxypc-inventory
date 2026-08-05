@@ -370,6 +370,10 @@ document.getElementById('multiRequestBtn').addEventListener('click', function(){
 if (!$.fn.dataTable.isDataTable('#readyModelSummaryTable'))
   $('#readyModelSummaryTable').DataTable({pageLength:12, columnDefs:[{orderable:false, targets:[0,8]}]});
 
+// ── Requests for Lot: search + pagination ──
+if (!$.fn.dataTable.isDataTable('#lotOverviewTable'))
+  $('#lotOverviewTable').DataTable({pageLength:12, columnDefs:[{orderable:false, targets:[-1]}]});
+
 function selectedModelSumRows(){ return Array.from(document.querySelectorAll('.modelSumChk:checked')); }
 function updateModelSumSel(){
   var n = selectedModelSumRows().length;

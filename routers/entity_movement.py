@@ -12,8 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
 
 from database import get_db
+from utils.timezone import app_now
 from models.user import User
-from models.device import Device, TagNumberMovement, MovementDirection
+from models.device import Device, DeviceStage, StageMovement, TagNumberMovement, MovementDirection
 from utils.master_data import master_values
 from auth.dependencies import get_current_user, require_module_perm, verify_csrf
 from services.audit_engine import audit
@@ -95,10 +96,23 @@ async def change_entities(
     from_entity = next(iter(from_entities), None)
     notes = "mixed source entities" if len(from_entities) > 1 else None
 
+    # SEND TO: entity changes, GRN stays, stage -> Stock In.
+    # SOLD TO: entity changes, GRN cleared, stage -> IQC (re-inspection required
+    # before it can move forward again under the new entity).
+    target_stage = DeviceStage.iqc if direction == MovementDirection.sold else DeviceStage.stock_in
     for d in devices:
+        prev_stage = d.current_stage
         d.entity = to_entity
         if direction == MovementDirection.sold:
             d.grn_number = None
+        d.current_stage = target_stage
+        d.updated_at = app_now()
+        if prev_stage != target_stage:
+            db.add(StageMovement(
+                device_id=d.id, from_stage=prev_stage, to_stage=target_stage,
+                moved_by=current_user.username,
+                notes=f"Entity Movement — {direction.value.upper()} to {to_entity}",
+            ))
 
     invoice_pdf_path = None
     if invoice_pdf is not None and invoice_pdf.filename:

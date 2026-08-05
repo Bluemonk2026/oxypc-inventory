@@ -72,7 +72,7 @@
             <td>{{ m.moved_at.strftime('%Y-%m-%d %H:%M') if m.moved_at else '—' }}</td>
             <td>{{ m.tag_count }}</td>
             <td>{{ m.from_entity or '—' }}{% if m.notes %} <span class="text-muted small">({{ m.notes }})</span>{% endif %}</td>
-            <td>{{ m.to_entity }} <span class="badge bg-{{ 'success' if m.direction.value == 'sent' else 'warning text-dark' }}">{{ m.direction.value|upper }}</span></td>
+            <td>{{ m.to_entity }} <span class="badge bg-{{ 'success' if m.direction.value == 'send' else 'warning text-dark' }}">{{ m.direction.value|upper }}</span></td>
             <td>{{ m.by_user_name or '—' }}</td>
             <td>
               {% if m.invoice_pdf_path %}

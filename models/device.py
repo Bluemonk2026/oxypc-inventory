@@ -187,7 +187,7 @@ class StageMovement(Base):
 
 
 class MovementDirection(str, enum.Enum):
-    sent = "sent"
+    send = "send"
     sold = "sold"
 
 

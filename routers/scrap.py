@@ -10,7 +10,7 @@ from sqlalchemy import select, func
 from templates_config import templates
 from database import get_db
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, StageMovement
+from models.device import Device, DeviceStage, DeviceGrade, StageMovement
 from models.lot import Lot
 from models.engines import DeviceCosting
 from models.part_request import PartRequest
@@ -27,7 +27,7 @@ async def scrap_products(request: Request, db: AsyncSession = Depends(get_db),
     rows = (await db.execute(
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id, isouter=True)
-        .where(Device.current_stage == DeviceStage.scrapped)
+        .where(Device.grade == DeviceGrade.scrap, Device.current_stage == DeviceStage.scrap_for_sale)
         .order_by(Device.updated_at.desc())
     )).all()
     device_ids = [d.id for d, _ in rows]

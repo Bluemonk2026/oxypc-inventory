@@ -370,6 +370,29 @@ async def business_pl(
     total_device_cogs = sum(monthly_device_cogs)
     total_parts_cogs  = sum(monthly_parts_cogs)
     total_labour_cogs = sum(monthly_labour_cogs)
+
+    # ── Lots Sold: count of lots where every active device is sold, scrapped,
+    # or replaced — i.e. no device in the lot is still in-process. ───────────
+    from sqlalchemy import exists, or_, not_
+    _unresolved = (
+        select(Device.id)
+        .where(
+            Device.lot_id == Lot.id, Device.is_active == True,
+            not_(or_(
+                Device.current_stage == DeviceStage.sold,
+                Device.current_stage == DeviceStage.scrapped,
+                Device.replaced.isnot(None),
+            )),
+        )
+    )
+    lots_sold_count = (await db.execute(
+        select(func.count()).select_from(Lot)
+        .where(
+            exists(select(Device.id).where(Device.lot_id == Lot.id, Device.is_active == True)),
+            not_(exists(_unresolved)),
+        )
+    )).scalar() or 0
+
     gross_profit      = total_revenue - total_cogs
     gross_margin      = round(gross_profit / total_revenue * 100, 1) if total_revenue > 0 else 0
 
@@ -388,6 +411,7 @@ async def business_pl(
         "total_device_cogs":    total_device_cogs,
         "total_parts_cogs":     total_parts_cogs,
         "total_labour_cogs":    total_labour_cogs,
+        "lots_sold_count":      lots_sold_count,
         "gross_profit":         gross_profit,
         "gross_margin":         gross_margin,
         "total_sales_ct":       total_sales_ct,

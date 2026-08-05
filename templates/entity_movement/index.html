@@ -33,7 +33,7 @@
   </div>
 </div>
 
-<div class="card border-0 shadow-sm">
+<div class="card border-0 shadow-sm mb-4">
   <div class="card-header bg-transparent fw-semibold"><i class="bi bi-upload me-2"></i>Bulk Upload Tags — Change Entities</div>
   <div class="card-body">
     <div class="mb-2">
@@ -54,10 +54,45 @@
   </div>
 </div>
 
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-clock-history me-2"></i>Tag Number Movement</div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small">
+        <thead class="table-dark">
+          <tr>
+            <th>Movement ID</th><th>Date of Movement</th><th>Total Tag Counts</th>
+            <th>From Entity</th><th>To Entity</th><th>By User</th><th>Invoice PDF</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in movements %}
+          <tr>
+            <td class="font-monospace small">{{ m.id|string|truncate(8, True, '') }}</td>
+            <td>{{ m.moved_at.strftime('%Y-%m-%d %H:%M') if m.moved_at else '—' }}</td>
+            <td>{{ m.tag_count }}</td>
+            <td>{{ m.from_entity or '—' }}{% if m.notes %} <span class="text-muted small">({{ m.notes }})</span>{% endif %}</td>
+            <td>{{ m.to_entity }} <span class="badge bg-{{ 'success' if m.direction.value == 'sent' else 'warning text-dark' }}">{{ m.direction.value|upper }}</span></td>
+            <td>{{ m.by_user_name or '—' }}</td>
+            <td>
+              {% if m.invoice_pdf_path %}
+              <a href="/{{ m.invoice_pdf_path }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2"><i class="bi bi-file-earmark-pdf"></i></a>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="text-center text-muted py-4">No entity movements recorded yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <!-- Change Entities modal -->
 <div class="modal fade" id="changeEntitiesModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
-    <form method="post" action="/entity-movement/change-entities" class="modal-content">
+    <form method="post" action="/entity-movement/change-entities" enctype="multipart/form-data" class="modal-content">
       <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
       <input type="hidden" name="tags" id="ce_tags">
       <div class="modal-header">
@@ -66,13 +101,28 @@
       </div>
       <div class="modal-body">
         <div class="mb-2"><span class="text-muted small" id="ce_count">0 tag(s) selected</span></div>
-        <label class="form-label">New Entity</label>
-        <select name="entity" class="form-select" required>
-          <option value="">— Select —</option>
-          {% for e in entity_values %}
-          <option value="{{ e }}">{{ e }}</option>
-          {% endfor %}
-        </select>
+        <div class="row g-3 mb-3">
+          <div class="col-6">
+            <label class="form-label fw-semibold">SOLD TO <span class="text-muted small">(GRN removed)</span></label>
+            {% for e in entity_values %}
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="target" value="sold:{{ e }}" id="sold_{{ loop.index }}" required>
+              <label class="form-check-label" for="sold_{{ loop.index }}">{{ e }}</label>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold">SEND TO <span class="text-muted small">(GRN unchanged)</span></label>
+            {% for e in entity_values %}
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="target" value="send:{{ e }}" id="send_{{ loop.index }}" required>
+              <label class="form-check-label" for="send_{{ loop.index }}">{{ e }}</label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <label class="form-label">Upload Invoice PDF <span class="text-muted small">(optional)</span></label>
+        <input type="file" name="invoice_pdf" accept=".pdf" class="form-control">
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>

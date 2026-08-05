@@ -240,7 +240,7 @@
       <li class="nav-section">CRM</li>
       {% if has_perm(role,'crm_dashboard','enable') %}
       <li><a href="/procure-dashboard" class="nav-link {% if request.url.path == '/procure-dashboard' %}active{% endif %}">
-        <i class="bi bi-cart-check me-2"></i> Procure Dashboard
+        <i class="bi bi-cart-check me-2"></i> {{ sidebar_label('crm_dashboard', 'Procure Dashboard') }}
       </a></li>
       {% endif %}
       {% if has_perm(role,'crm_contacts','enable') %}
@@ -285,14 +285,6 @@
       {% if has_perm(role,'crm_assign_leads','enable') %}
       <li><a href="/crm/assign-social-leads" class="nav-link {% if request.url.path.startswith('/crm/assign-social-leads') %}active{% endif %}">
         <i class="bi bi-person-lines-fill me-2"></i> {{ sidebar_label('crm_assign_leads', 'Assign Social Leads') }}
-      </a></li>
-      {% endif %}
-      {# Terms & Conditions sits directly after Assign Social Leads per the
-         requested nav order. Admin-only by default; grantable to sub_admin
-         (or any role) via has_explicit_perm(), same as the Admin Settings items. #}
-      {% if role == 'admin' or has_explicit_perm(role, 'terms_conditions') %}
-      <li><a href="/admin/terms-conditions" class="nav-link {% if '/admin/terms-conditions' in request.url.path %}active{% endif %}">
-        <i class="bi bi-file-text me-2"></i> {{ sidebar_label('terms_conditions', 'Terms & Conditions') }}
       </a></li>
       {% endif %}
       {% endif %}
@@ -444,12 +436,23 @@
         <i class="bi bi-cash-coin me-2"></i> {{ sidebar_label('partner_payments', 'Partner Payments') }}
       </a></li>
       {% endif %}
+      {# Terms & Conditions moved here — directly before Company Setting —
+         per the requested nav order. Admin-only by default; grantable to
+         sub_admin (or any role) via has_explicit_perm(), same as the Admin
+         Settings items. #}
+      {% if role == 'admin' or has_explicit_perm(role, 'terms_conditions') %}
+      <li><a href="/admin/terms-conditions" class="nav-link {% if '/admin/terms-conditions' in request.url.path %}active{% endif %}">
+        <i class="bi bi-file-text me-2"></i> {{ sidebar_label('terms_conditions', 'Terms & Conditions') }}
+      </a></li>
+      {% endif %}
       {% if role == 'admin' %}
       <li><a href="/settings" class="nav-link {% if request.url.path == '/settings' %}active{% endif %}">
         <i class="bi bi-gear me-2"></i> Company Setting
       </a></li>
+      {% endif %}
+      {% if has_perm(role,'cost_config','enable') %}
       <li><a href="/admin/cost-config" class="nav-link {% if '/admin/cost-config' in request.url.path %}active{% endif %}">
-        <i class="bi bi-calculator me-2"></i> Cost Config
+        <i class="bi bi-calculator me-2"></i> {{ sidebar_label('cost_config', 'Cost Config') }}
       </a></li>
       {% endif %}
 

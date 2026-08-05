@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Inventory Search — OxyPC{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/vendor/tom-select/css/tom-select.bootstrap5.min.css">
+{% endblock %}
 {% block page_title %}Inventory Search{% endblock %}
 {% block content %}
 
@@ -54,7 +57,7 @@
       </div>
       <div class="col-md-2">
         <label class="form-label small fw-semibold mb-1">Employee</label>
-        <select name="employee" class="form-select form-select-sm">
+        <select name="employee" id="employeeFilterSelect" class="form-select form-select-sm">
           <option value="">All Employees</option>
           {% for emp in employee_options %}
           <option value="{{ emp }}" {% if employee == emp %}selected{% endif %}>{{ emp }}</option>
@@ -391,8 +394,16 @@
 
 {% endblock %}
 {% block scripts %}
+<script src="/static/vendor/tom-select/js/tom-select.complete.min.js"></script>
 <script>
 var CAN_VIEW_PRICING = {{ 'true' if can_view_pricing(current_user) else 'false' }};
+
+new TomSelect('#employeeFilterSelect', {
+  maxOptions: 500,
+  placeholder: 'Search employee…',
+  allowEmptyOption: true,
+  plugins: ['clear_button'],
+});
 
 // ── Movement table — all buckets, bucket-level pass/fail rollup ────────────
 (function () {

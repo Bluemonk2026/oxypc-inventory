@@ -150,14 +150,34 @@ async def _get_device_or_404(barcode: str, db: AsyncSession) -> Device:
     return device
 
 
+def _iqc_date_filter(date_from, date_to):
+    """Return a Device.id-scoped filter clause for devices whose IQC
+    inspection date (IQCInspection.inspected_at) falls in range — NOT
+    Device.created_at. Self-contained via a subquery (rather than a join)
+    so every caller that reuses the shared filter list stays safe, even
+    queries that never join IQCInspection themselves."""
+    from utils.date_filter import parse_date_range
+    start, end = parse_date_range(date_from, date_to)
+    if start is None and end is None:
+        return None
+    q = select(IQCInspection.device_id)
+    if start is not None:
+        q = q.where(IQCInspection.inspected_at >= start)
+    if end is not None:
+        q = q.where(IQCInspection.inspected_at < end)
+    return Device.id.in_(q)
+
+
 def _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to, entity=""):
     """Filter clauses shared by the Inventory Search page and its data endpoint.
 
     `employee` is deliberately NOT handled here — Device has no direct
     "assigned employee" column; that comes from a join to WorkOrder, which
     only the page route (not this shared helper) needs to perform.
+
+    Date From/To filter on the IQC inspection date (IQCInspection.inspected_at),
+    not Device.created_at — see _iqc_date_filter.
     """
-    from utils.date_filter import apply_date_range
     w = []
     if q:
         q_like = f"%{q}%"
@@ -181,7 +201,9 @@ def _device_search_filters(q, stage, lot, grade, category, device_type, date_fro
         w.append(Device.device_type == device_type)
     if entity:
         w.append(Device.entity == entity)
-    apply_date_range(w, Device.created_at, date_from, date_to)
+    iqc_filter = _iqc_date_filter(date_from, date_to)
+    if iqc_filter is not None:
+        w.append(iqc_filter)
     return w
 
 
@@ -447,7 +469,7 @@ async def device_search(
     entity_counts = {(e or "Unassigned"): c for e, c in entity_counts_rows}
 
     employee_options = [n for n in (await db.execute(
-        select(WorkOrder.assigned_name).distinct().where(WorkOrder.assigned_name.isnot(None))
+        select(User.full_name).where(User.status == True).order_by(User.full_name)  # noqa: E712
     )).scalars().all() if n]
     entity_options = await master_values(db, "entity") or ["Deshwal", "OxyPC Computers", "Renew Circuits"]
 

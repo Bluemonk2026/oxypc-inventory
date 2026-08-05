@@ -206,6 +206,7 @@ PERM_MODULES = [
     ("admin_users",          "Users"),
     ("admin_master",         "Master Data"),
     ("company_settings",     "Company Settings"),
+    ("cost_config",          "Cost Config"),
     ("attendance_config",    "Attendance Config"),
     ("terms_conditions",     "Terms & Conditions"),
 ]

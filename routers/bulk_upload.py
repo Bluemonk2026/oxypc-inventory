@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from database import get_db
 from utils.csv_decode import decode_csv_bytes
+from utils.master_data import entity_values
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, DeviceGrade, StageMovement, STAGE_LABELS
 from models.iqc_inspection import IQCInspection
@@ -31,6 +32,7 @@ allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
 # follows. Shared by both the template download and the upload parser so
 # the two can never drift apart. ────────────────────────────────────────────
 DEVICE_CORE_FIELDS = [
+    "entity",
     "Tag No", "serial_no", "brand", "model", "cpu", "cpu_make", "generation", "ram_gb", "storage_gb",
     "category", "lot_number",
 ]
@@ -97,6 +99,31 @@ _IQC_EXAMPLE_MAP = {
     "r2v3_grade_category": "C3",
 }
 
+# Sample values for the Device columns, keyed by header name rather than
+# position. The example row used to be three hand-built lists concatenated in
+# header order, which silently drifted every time a column was inserted — by
+# the time `cpu_make` and `entity` were added it was 8 values short of 104
+# headers, so the downloaded template showed lot_number under storage_gb and
+# grade under total_ram_size. Building it from this map means the row is
+# generated from DEVICE_CSV_HEADERS itself and cannot drift again.
+_DEVICE_EXAMPLE_MAP = {
+    "entity": "Deshwal",
+    "Tag No": "OXY-00001", "serial_no": "SN123456",
+    "brand": "HP", "model": "EliteBook 840 G6",
+    "cpu": "Intel Core i5-8250U", "cpu_make": "Intel", "generation": "8th Gen",
+    "ram_gb": "8", "storage_gb": "256",
+    "category": "Laptop", "lot_number": "LOT-001",
+    "device_type": "Laptop", "storage_type": "SSD",
+    "ram_summary": "8GB_DDR4_2400MHz_Samsung", "hdd_summary": "256GB_SSD_Samsung",
+    "total_ram_count": "1", "total_ram_size": "8GB",
+    "total_hdd_count": "1", "total_hdd_size": "256GB",
+    "invoice_number": "INV-2024-001",
+    "screen_size": "14.0 FHD", "battery_health_pct": "78", "bios_password": "no",
+    "color": "Silver", "grade": "B",
+    "floor": "Floor 1", "warehouse": "TRC 1st Floor", "grn_number": "GRN-001",
+    "qty": "1", "device_price": "5500", "notes": "Minor scratch on lid",
+}
+
 # CSV template headers
 TEMPLATES = {
     "lots": {
@@ -126,13 +153,12 @@ TEMPLATES = {
     "devices": {
         "filename": "devices_template.csv",
         "headers": DEVICE_CSV_HEADERS,
-        "example": (
-            ["OXY-00001", "SN123456", "HP", "EliteBook 840 G6", "Intel Core i5-8250U",
-             "8", "256", "Laptop", "LOT-001"]
-            + ["Laptop", "8th Gen", "SSD", "", "14.0 FHD", "78", "no", "Silver", "B",
-               "Floor 1", "TRC 1st Floor", "GRN-001", "1", "5500", "Minor scratch on lid"]
-            + [_IQC_EXAMPLE_MAP.get(f, "") for f in IQC_INSPECTION_FIELDS]
-        ),
+        # Generated from the header list itself — one value per header, always
+        # in step with it. See _DEVICE_EXAMPLE_MAP.
+        "example": [
+            _DEVICE_EXAMPLE_MAP.get(h, _IQC_EXAMPLE_MAP.get(h, ""))
+            for h in DEVICE_CSV_HEADERS
+        ],
     },
     "spare_parts": {
         "filename": "spare_parts_template.csv",
@@ -335,6 +361,15 @@ async def upload_devices(
     def _grade(row, key="grade"):
         return _parse_grade(row.get(key))
 
+    # Entity is matched case-insensitively against the Dropdown-configuration
+    # list and stored in its canonical spelling, so "deshwal" and "DESHWAL"
+    # both land as "Deshwal". An unrecognised value fails the row rather than
+    # being written through: a typo'd entity is invisible in the UI but
+    # silently corrupts the Entity Movement counts and the per-entity
+    # breakdown on All Inventory. Blank is allowed — unassigned is a valid
+    # state, and entity can still be set later via Customise or Entity Movement.
+    entity_lookup = {e.lower(): e for e in await entity_values(db)}
+
     for i, row in enumerate(reader, start=2):
         try:
             barcode = _resolve_tag_header(row)
@@ -360,6 +395,15 @@ async def upload_devices(
                     "row": {k: (v or "") for k, v in row.items()},
                 })
                 continue
+            entity_raw = _s(row, "entity")
+            if entity_raw and entity_raw.lower() not in entity_lookup:
+                errors.append(
+                    f"Row {i}: entity '{entity_raw}' not recognised — "
+                    f"expected one of: {', '.join(entity_lookup.values()) or '(none configured)'}"
+                )
+                continue
+            entity_val = entity_lookup.get(entity_raw.lower()) if entity_raw else None
+
             lot_number = _s(row, "lot_number")
             lot_id = lot_map.get(lot_number)
             if not lot_id:
@@ -382,6 +426,7 @@ async def upload_devices(
             dev_id = uuid.uuid4()
             device = Device(
                 id=dev_id, barcode=barcode, lot_id=lot_id,
+                entity=entity_val,
                 sub_category=_s(row, "category"),
                 brand=_s(row, "brand"), model=_s(row, "model"),
                 device_type=_s(row, "device_type"),
@@ -507,10 +552,14 @@ def _parse_grade(raw: str):
     return None
 
 
-def _apply_row_to_device(device: Device, row: dict) -> None:
+def _apply_row_to_device(device: Device, row: dict, entity_lookup: dict | None = None) -> None:
     """Apply one CSV row's field values onto an already-existing device —
     shared by the single-row Update and bulk Update All actions on the
-    duplicate-review modal. Never touches barcode/lot_number (identity)."""
+    duplicate-review modal. Never touches barcode/lot_number (identity).
+
+    entity_lookup maps lowercased entity name -> canonical spelling. An
+    unrecognised entity is left alone rather than written through, matching
+    the upload path's refusal to store a typo."""
     def s(key):
         return (row.get(key) or "").strip() or None
 
@@ -542,6 +591,9 @@ def _apply_row_to_device(device: Device, row: dict) -> None:
     if s("color"): device.color = s("color")
     if _parse_grade(row.get("grade")) is not None: device.grade = _parse_grade(row.get("grade"))
     if s("grn_number"): device.grn_number = s("grn_number")
+    if s("entity") and entity_lookup:
+        canonical = entity_lookup.get(s("entity").lower())
+        if canonical: device.entity = canonical
     device.updated_at = app_now()
 
 
@@ -564,7 +616,7 @@ async def update_duplicate_device(
     device = (await db.execute(select(Device).where(Device.barcode == tag_number))).scalar_one_or_none()
     if not device:
         return JSONResponse({"success": False, "error": f"Tag Number '{tag_number}' not found"}, status_code=404)
-    _apply_row_to_device(device, row)
+    _apply_row_to_device(device, row, {e.lower(): e for e in await entity_values(db)})
     await audit(db, action="DEVICE_UPDATED", user=current_user,
                 table_name="devices", record_id=str(device.id),
                 new_value={"source": "bulk_upload_duplicate_update"}, request=request)
@@ -594,6 +646,9 @@ async def update_all_duplicate_devices(
         select(Device).where(Device.barcode.in_(barcodes))
     )).scalars().all()}
 
+    # Fetched once for the whole batch rather than per row.
+    entity_lookup = {e.lower(): e for e in await entity_values(db)}
+
     updated, missing = [], []
     for r in rows:
         tag = r.get("tag_number")
@@ -601,7 +656,7 @@ async def update_all_duplicate_devices(
         if not device:
             missing.append(tag)
             continue
-        _apply_row_to_device(device, r.get("row") or {})
+        _apply_row_to_device(device, r.get("row") or {}, entity_lookup)
         updated.append(tag)
 
     if updated:

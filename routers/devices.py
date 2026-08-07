@@ -27,7 +27,7 @@ from models.sales import Sale
 from services.parts_required import compute_required, LEGACY_LABELS
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from utils.warranty import warranty_from_sold_at, warranty_status_for_sale
-from utils.master_data import master_values
+from utils.master_data import master_values, entity_values
 
 router = APIRouter(prefix="/devices", tags=["devices"], dependencies=[Depends(verify_csrf)])
 # All logged-in users can search/view; only admin+invmgr can edit
@@ -471,7 +471,7 @@ async def device_search(
     employee_options = [n for n in (await db.execute(
         select(User.full_name).where(User.status == True).order_by(User.full_name)  # noqa: E712
     )).scalars().all() if n]
-    entity_options = await master_values(db, "entity") or ["Deshwal", "OxyPC Computers", "Renew Circuits"]
+    entity_options = await entity_values(db)
 
     return templates.TemplateResponse("devices/list.html", {
         "request": request, "current_user": current_user,

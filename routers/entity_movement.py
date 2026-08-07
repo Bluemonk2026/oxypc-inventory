@@ -15,7 +15,7 @@ from database import get_db
 from utils.timezone import app_now
 from models.user import User
 from models.device import Device, DeviceStage, StageMovement, TagNumberMovement, MovementDirection
-from utils.master_data import master_values
+from utils.master_data import entity_values
 from auth.dependencies import get_current_user, require_module_perm, verify_csrf
 from services.audit_engine import audit
 
@@ -42,9 +42,9 @@ async def entity_movement_page(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
 ):
-    entity_values = await master_values(db, "entity") or ["Deshwal", "OxyPC Computers", "Renew Circuits"]
+    entity_list = await entity_values(db)
     counts = {}
-    for e in entity_values:
+    for e in entity_list:
         counts[e] = (await db.execute(
             select(func.count()).select_from(Device).where(
                 Device.entity == e, Device.is_active == True, Device.is_trashed == False,  # noqa: E712
@@ -62,7 +62,7 @@ async def entity_movement_page(
 
     return templates.TemplateResponse("entity_movement/index.html", {
         "request": request, "current_user": current_user,
-        "entity_values": entity_values, "counts": counts, "unassigned": unassigned,
+        "entity_values": entity_list, "counts": counts, "unassigned": unassigned,
         "movements": movements,
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),

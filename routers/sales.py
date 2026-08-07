@@ -110,11 +110,16 @@ async def ready_list_data(
         search_filters.append(or_(
             Device.barcode.ilike(like), Device.brand.ilike(like), Device.model.ilike(like),
         ))
-    filtered_q = (
-        select(func.count()).select_from(Device).join(Lot, Device.lot_id == Lot.id)
-        .where(Device.current_stage == DeviceStage.ready_to_sale, *search_filters)
-    )
-    filtered = (await db.execute(filtered_q)).scalar() or 0
+    # Without a search term this is the same query as the total above, and
+    # DataTables asks on every draw — only pay for it when a term narrows the set.
+    if search_filters:
+        filtered_q = (
+            select(func.count()).select_from(Device).join(Lot, Device.lot_id == Lot.id)
+            .where(Device.current_stage == DeviceStage.ready_to_sale, *search_filters)
+        )
+        filtered = (await db.execute(filtered_q)).scalar() or 0
+    else:
+        filtered = total
 
     col_map = {1: Device.barcode, 2: Lot.lot_number, 3: Device.brand, 4: Device.model, 7: Device.grade}
     try:

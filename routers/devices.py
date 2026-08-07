@@ -268,7 +268,11 @@ async def device_search_data(
         ))
 
     total = (await db.execute(count_base.where(*page_filters))).scalar() or 0
-    filtered = (await db.execute(count_base.where(*page_filters, *search_filters))).scalar() or 0
+    # With no search term the two counts are the same query over 22k+ rows, and
+    # DataTables issues one on every draw — paging, sorting, changing page size.
+    # Only pay for the second when a search term actually narrows the set.
+    filtered = total if not search_filters else (
+        (await db.execute(count_base.where(*page_filters, *search_filters))).scalar() or 0)
 
     col_map = {1: Device.barcode, 2: Lot.lot_number, 3: Device.brand, 4: Device.model,
                5: Device.device_type, 6: Device.cpu, 9: Device.grade, 13: Device.updated_at}
@@ -554,14 +558,23 @@ async def _build_model_summary(db: AsyncSession, filters: list) -> list:
     if not rows:
         return []
 
-    device_ids = [d.id for d, _ in rows]
+    # The three lookups below cover exactly the devices `query` already selected.
+    # Enumerating them as IN (...22,000 UUIDs...) made Postgres parse a
+    # 22k-parameter list three times over — 23 of the page's 36 seconds. Joining
+    # against the same filters returns the same rows and lets the planner use an
+    # index. `scope` is that filter set, reusable as a join condition.
+    scope = [Device.is_trashed == False, *filters]
 
     # Stock Price (P&L total cost) per device — same source as the main table
     price_map = {}
-    for c in (await db.execute(
-        select(DeviceCosting).where(DeviceCosting.device_id.in_(device_ids))
-    )).scalars().all():
-        price_map[str(c.device_id)] = float(c.total_cost or 0)
+    for did, total_cost in (await db.execute(
+        select(DeviceCosting.device_id, DeviceCosting.total_cost)
+        .select_from(DeviceCosting)
+        .join(Device, DeviceCosting.device_id == Device.id)
+        .join(Lot, Device.lot_id == Lot.id)
+        .where(*scope)
+    )).all():
+        price_map[str(did)] = float(total_cost or 0)
     for d, _ in rows:
         did = str(d.id)
         if did not in price_map and d.device_price:
@@ -571,8 +584,10 @@ async def _build_model_summary(db: AsyncSession, filters: list) -> list:
     # via the device's own location_id FK — same source as Device Detail.
     loc_rows = (await db.execute(
         select(Device.id, StorageLocation.unit_id, StorageLocation.unit_type)
+        .select_from(Device)
+        .join(Lot, Device.lot_id == Lot.id)
         .outerjoin(StorageLocation, Device.location_id == StorageLocation.id)
-        .where(Device.id.in_(device_ids))
+        .where(*scope)
     )).all()
     device_location = {str(did): (unit_id, unit_type) for did, unit_id, unit_type in loc_rows}
 
@@ -580,7 +595,10 @@ async def _build_model_summary(db: AsyncSession, filters: list) -> list:
     repaired_ids = {
         str(did) for (did,) in (await db.execute(
             select(SparePartConsumption.device_id)
-            .where(SparePartConsumption.device_id.in_(device_ids))
+            .select_from(SparePartConsumption)
+            .join(Device, SparePartConsumption.device_id == Device.id)
+            .join(Lot, Device.lot_id == Lot.id)
+            .where(*scope)
             .distinct()
         )).all()
     }

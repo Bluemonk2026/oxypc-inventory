@@ -142,7 +142,10 @@ async def grn_post_iqc_data(
             Device.barcode.ilike(like), Device.brand.ilike(like),
             Device.model.ilike(like), Device.device_type.ilike(like),
         ))
-    filtered = (await db.execute(count_q.where(*search_filters))).scalar() or 0
+    # Identical to `total` when no search term is present, and DataTables asks
+    # on every draw — skip the duplicate round-trip.
+    filtered = total if not search_filters else (
+        (await db.execute(count_q.where(*search_filters))).scalar() or 0)
 
     col_map = {1: Device.barcode, 2: Device.brand, 3: Device.model,
                4: Device.device_type, 5: Device.ram_gb, 6: Device.storage_gb,

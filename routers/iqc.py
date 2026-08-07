@@ -554,7 +554,11 @@ async def iqc_list_data(
         ))
 
     total = (await db.execute(count_base)).scalar() or 0
-    filtered = (await db.execute(count_base.where(*search_filters))).scalar() or 0
+    # No search term means the two counts are the same query; DataTables asks on
+    # every draw (paging, sorting, page-size change), so only pay for the second
+    # when a search term actually narrows the set.
+    filtered = total if not search_filters else (
+        (await db.execute(count_base.where(*search_filters))).scalar() or 0)
 
     col_map = {1: Device.serial_no, 2: Device.barcode, 3: Lot.lot_number,
                4: Device.current_stage, 5: Device.brand, 6: Device.model,

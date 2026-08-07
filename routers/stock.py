@@ -898,7 +898,10 @@ async def stock_in_data(
         ))
 
     total = (await db.execute(count_base)).scalar() or 0
-    filtered = (await db.execute(count_base.where(*search_filters))).scalar() or 0
+    # Same as the other server-side feeds: skip the identical second count when
+    # there is no search term narrowing the set.
+    filtered = total if not search_filters else (
+        (await db.execute(count_base.where(*search_filters))).scalar() or 0)
 
     col_map = {1: Device.barcode, 2: Lot.lot_number, 3: Device.brand, 4: Device.model,
                5: Device.device_type, 8: Device.grade}

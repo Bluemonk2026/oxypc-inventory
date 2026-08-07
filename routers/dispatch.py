@@ -82,13 +82,17 @@ async def _build_lot_overview(db: AsyncSession) -> list:
             {"id": dev_id, "barcode": barcode, "device_type": device_type})
 
     dev_ids_by_lot = {lid: {d["id"] for d in devs} for lid, devs in devices_by_lot.items()}
-    all_dev_ids = [d["id"] for devs in devices_by_lot.values() for d in devs]
     requested_by_dev = {}
-    if all_dev_ids:
+    if devices_by_lot:
+        # Joined rather than IN (...every active device...) — that list runs to
+        # 22k UUIDs in production and cost 8 of this page's 15 seconds on its
+        # own. The join reproduces exactly the dev_rows filter above.
         req_rows = (await db.execute(
             select(TelecallerDispatchRequest.device_id, func.sum(TelecallerDispatchRequest.qty_requested))
+            .select_from(TelecallerDispatchRequest)
+            .join(Device, TelecallerDispatchRequest.device_id == Device.id)
             .where(TelecallerDispatchRequest.source == "lot",
-                   TelecallerDispatchRequest.device_id.in_(all_dev_ids))
+                   Device.lot_id.in_(lot_ids), Device.is_active == True)
             .group_by(TelecallerDispatchRequest.device_id)
         )).all()
         requested_by_dev = {str(did): int(qty or 0) for did, qty in req_rows}

@@ -331,16 +331,13 @@ $(document).ready(function(){
     serverSide: true,
     processing: true,
     pageLength: 12,
-    lengthMenu: [[12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000],
-                 [12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]],
     order: [[1, 'asc']],
     searchDelay: 400,
-    {# 'l' (length menu) is in the dom string on purpose: the original omitted it
-       via lengthChange:false, which is exactly what would have hidden the Show
-       Entries dropdown this conversion is required to expose. #}
+    {# 'l' leads the top row so the Show-entries dropdown sits top left, ahead of
+       the button and scan-box slots. #}
     {# No 'f' in the dom string: the card-header #stockScanInput is the single
        search box for this table, so DataTables must not render a second one. #}
-    dom: '<"d-flex align-items-center justify-content-between px-3 py-2 border-bottom"<"#stkBtnArea"><"#stkScanArea">>t<"d-flex align-items-center justify-content-between px-3 py-2"lip>',
+    dom: '<"d-flex align-items-center justify-content-between px-3 py-2 border-bottom"l<"#stkBtnArea"><"#stkScanArea">>t<"d-flex justify-content-end align-items-center gap-3 px-3 py-2"ip>',
     ajax: {
       url: '/stock/data',
       data: function (d) {
@@ -565,9 +562,8 @@ function loadBucketTable(){
     }).join('');
     $('#bucketTable').DataTable({
       pageLength: 12,
-      lengthChange: false,
       ordering: false,
-      dom: '<"d-flex align-items-center justify-content-between px-3 py-2 border-bottom"f>t<"d-flex align-items-center justify-content-between px-3 py-2"ip>',
+      dom: '<"d-flex align-items-center justify-content-between px-3 py-2 border-bottom"lf>t<"d-flex justify-content-end align-items-center gap-3 px-3 py-2"ip>',
       language: { search: '', searchPlaceholder: 'Search buckets…' }
     });
   });

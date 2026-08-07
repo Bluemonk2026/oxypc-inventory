@@ -615,7 +615,10 @@ async def grn_edit(
     grn_id: str, request: Request,
     invoice_number: str = Form(""), invoice_date: str = Form(""),
     sender_name: str = Form(""), quantity: str = Form(""), amount: str = Form(""),
-    lot_number: str = Form(""),
+    # None (not "") when the form omits the field. The Edit GRN modal no longer
+    # carries a Lot Number input, and a "" default would blank the stored lot
+    # number on every save.
+    lot_number: str | None = Form(None),
     db: AsyncSession = Depends(get_db), current_user: User = Depends(allowed),
 ):
     try:
@@ -628,7 +631,8 @@ async def grn_edit(
         raise HTTPException(404, "GRN not found")
     g.invoice_number = invoice_number or None
     g.invoice_date = invoice_date or None
-    g.lot_number = lot_number or None
+    if lot_number is not None:
+        g.lot_number = lot_number or None
     g.sender_name = sender_name or None
     try:
         g.quantity = int(quantity) if quantity else None

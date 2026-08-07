@@ -56,7 +56,7 @@
       <table id="grnTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark">
           <tr>
-            <th class="ps-3">GRN</th><th>Lot Number</th><th>Invoice Number</th><th>Date of Invoice</th>
+            <th class="ps-3">GRN</th><th>Invoice Number</th><th>Date of Invoice</th>
             <th>Vendor Name</th><th>Quantity</th><th>Stocked</th><th>Amount</th><th>Download</th><th>Action</th>
           </tr>
         </thead>
@@ -64,7 +64,6 @@
           {% for g in grns %}
           <tr id="grn-{{ g.grn_number }}">
             <td class="ps-3"><span class="font-monospace fw-bold">{{ g.grn_number }}</span></td>
-            <td class="font-monospace">{{ g.lot_number or '—' }}</td>
             <td>{{ g.invoice_number or '—' }}</td>
             <td>{{ g.invoice_date or '—' }}</td>
             <td>{{ g.sender_name or '—' }}</td>
@@ -84,7 +83,7 @@
             <td class="text-nowrap">
               <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
                       data-bs-toggle="modal" data-bs-target="#editGrnModal"
-                      data-id="{{ g.id }}" data-lot="{{ g.lot_number or '' }}" data-inv="{{ g.invoice_number or '' }}" data-date="{{ g.invoice_date or '' }}"
+                      data-id="{{ g.id }}" data-inv="{{ g.invoice_number or '' }}" data-date="{{ g.invoice_date or '' }}"
                       data-sender="{{ g.sender_name or '' }}" data-qty="{{ g.quantity if g.quantity is not none else '' }}"
                       data-amount="{{ g.amount if g.amount is not none else '' }}">
                 <i class="bi bi-pencil"></i> Edit
@@ -102,7 +101,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="10" class="text-center text-muted py-4">No GRN imports yet. Upload an invoice to begin.</td></tr>
+          <tr><td colspan="9" class="text-center text-muted py-4">No GRN imports yet. Upload an invoice to begin.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -176,9 +175,6 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div class="mb-2"><label class="form-label fw-semibold">Lot Number</label>
-          <input type="text" name="lot_number" id="e_lot" class="form-control font-monospace">
-          <div id="e_lot_err" class="text-danger small mt-1 d-none">Duplicate Lot Number — this lot already exists.</div></div>
         <div class="mb-2"><label class="form-label fw-semibold">Invoice Number</label>
           <input type="text" name="invoice_number" id="e_inv" class="form-control"></div>
         <div class="mb-2"><label class="form-label fw-semibold">Date of Invoice</label>
@@ -200,69 +196,32 @@
   </div>
 </div>
 
-<!-- Validate GRN modal -->
-<div class="modal fade" id="validateGrnModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <form method="post" id="validateGrnForm" class="modal-content">
-      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-      <div class="modal-header text-white" style="background:#198754">
-        <h5 class="modal-title"><i class="bi bi-receipt-cutoff me-2"></i>Validate GRN — <span id="vg_grn"></span></h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="row g-3">
-          <div class="col-6">
-            <label class="form-label fw-semibold">Expected Qty</label>
-            <input type="number" id="vg_expected" class="form-control" min="0" disabled>
-          </div>
-          <div class="col-6">
-            <label class="form-label fw-semibold">Received Qty <span class="text-danger">*</span></label>
-            <input type="number" name="received_qty" id="vg_received" class="form-control" min="0" required placeholder="Actual count">
-          </div>
-          <div class="col-12">
-            <label class="form-label">GRN Reference No.</label>
-            <input type="text" name="grn_number" class="form-control font-monospace" placeholder="e.g. GRN-2025-001">
-          </div>
-          <div class="col-12">
-            <label class="form-label">Notes / Remarks</label>
-            <textarea name="notes" class="form-control" rows="2" placeholder="Discrepancy notes, condition, etc."></textarea>
-          </div>
-        </div>
-        <div class="alert alert-info small mt-3 mb-0 py-2"><i class="bi bi-info-circle me-1"></i>Submitting marks this GRN as <strong>Validated</strong>.</div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="submit" class="btn btn-success px-4"><i class="bi bi-check2-circle me-1"></i>Submit GRN</button>
-      </div>
-    </form>
-  </div>
-</div>
 {% endblock %}
 {% block scripts %}
 <script src="/static/js/tag-scan-autocheck.js?v={{ ASSET_VERSION }}"></script>
 <script>
 $(document).ready(function(){
   if ($('#grnTable tbody tr td').length > 1) {
-    var dt = $('#grnTable').DataTable({pageLength: 12, lengthChange:false, order:[]});
+    var dt = $('#grnTable').DataTable({pageLength: 12, order: []});
     $.fn.dataTable.ext.search.push(function(settings, data){
       if (settings.nTable.id !== 'grnTable') return true;
       var from = document.getElementById('fFrom').value;
       var to   = document.getElementById('fTo').value;
       if (!from && !to) return true;
-      var d = (data[3] || '').trim();
+      var d = (data[2] || '').trim();  // Date of Invoice — column 2 since Lot Number was removed
       if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
       if (from && d < from) return false;
       if (to && d > to) return false;
       return true;
     });
     document.getElementById('fGrn').addEventListener('input', function(){ dt.column(0).search(this.value).draw(); });
-    document.getElementById('fInvoice').addEventListener('input', function(){ dt.column(2).search(this.value).draw(); });
-    document.getElementById('fVendor').addEventListener('input', function(){ dt.column(4).search(this.value).draw(); });
+    document.getElementById('fInvoice').addEventListener('input', function(){ dt.column(1).search(this.value).draw(); });
+    document.getElementById('fVendor').addEventListener('input', function(){ dt.column(3).search(this.value).draw(); });
     document.getElementById('fFrom').addEventListener('change', function(){ dt.draw(); });
     document.getElementById('fTo').addEventListener('change', function(){ dt.draw(); });
     document.getElementById('fReset').addEventListener('click', function(){
       ['fGrn','fInvoice','fVendor','fFrom','fTo'].forEach(function(id){ document.getElementById(id).value=''; });
-      dt.column(0).search('').column(2).search('').column(4).search('').draw();
+      dt.column(0).search('').column(1).search('').column(3).search('').draw();
     });
   }
   // Server-side: the Invoice/PO/Device Type filters used to run as a
@@ -273,8 +232,6 @@ $(document).ready(function(){
     serverSide: true,
     processing: true,
     pageLength: 12,
-    lengthMenu: [[12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000],
-                 [12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]],
     order: [],
     searchDelay: 400,
     ajax: {
@@ -350,61 +307,11 @@ var em = document.getElementById('editGrnModal');
 if (em) { em.addEventListener('show.bs.modal', function(e){
   var b = e.relatedTarget;
   document.getElementById('editGrnForm').action = '/grn/' + b.getAttribute('data-id') + '/edit';
-  document.getElementById('e_lot').value = b.getAttribute('data-lot') || '';
   document.getElementById('e_inv').value = b.getAttribute('data-inv') || '';
   document.getElementById('e_date').value = b.getAttribute('data-date') || '';
   document.getElementById('e_sender').value = b.getAttribute('data-sender') || '';
   document.getElementById('e_qty').value = b.getAttribute('data-qty') || '';
   document.getElementById('e_amount').value = b.getAttribute('data-amount') || '';
-  var le = document.getElementById('e_lot_err'); if(le) le.classList.add('d-none');
-  document.getElementById('e_lot').classList.remove('is-invalid');
 });}
-// Live duplicate Lot Number check (item 13)
-(function(){
-  var inp = document.getElementById('e_lot');
-  var err = document.getElementById('e_lot_err');
-  var form = document.getElementById('editGrnForm');
-  if(!inp || !form) return;
-  var submitBtn = form.querySelector('button[type="submit"]');
-  var t=null;
-  function check(){
-    var v = inp.value.trim();
-    if(!v){ err.classList.add('d-none'); inp.classList.remove('is-invalid'); if(submitBtn) submitBtn.disabled=false; return; }
-    fetch('/lots/api/exists?lot_number='+encodeURIComponent(v))
-      .then(function(r){ return r.ok ? r.json() : {exists:false}; })
-      .then(function(d){
-        var dup = !!(d && d.exists);
-        err.classList.toggle('d-none', !dup);
-        inp.classList.toggle('is-invalid', dup);
-        if(submitBtn) submitBtn.disabled = dup;
-      }).catch(function(){});
-  }
-  inp.addEventListener('input', function(){ clearTimeout(t); t=setTimeout(check, 350); });
-})();
-// Validate modal wiring — AJAX submit
-var vgm = document.getElementById('validateGrnModal');
-if (vgm) {
-  vgm.addEventListener('show.bs.modal', function(e){
-    var b = e.relatedTarget;
-    document.getElementById('validateGrnForm').dataset.grnId = b.getAttribute('data-id');
-    document.getElementById('vg_grn').textContent = b.getAttribute('data-grn') || '';
-    document.getElementById('vg_expected').value = b.getAttribute('data-qty') || '';
-    document.getElementById('vg_received').value = '';
-  });
-  document.getElementById('validateGrnForm').addEventListener('submit', function(e){
-    e.preventDefault();
-    var grnId = this.dataset.grnId;
-    var grnNum = document.getElementById('vg_grn').textContent;
-    var fd = new FormData(this);
-    var body = new URLSearchParams(fd);
-    fetch('/grn/' + grnId + '/validate', {method:'POST', body: body,
-      headers:{'Content-Type':'application/x-www-form-urlencoded'}})
-    .then(function(r){ return r.json(); })
-    .then(function(){
-      bootstrap.Modal.getInstance(vgm).hide();
-    })
-    .catch(function(){ bootstrap.Modal.getInstance(vgm).hide(); });
-  });
-}
 </script>
 {% endblock %}

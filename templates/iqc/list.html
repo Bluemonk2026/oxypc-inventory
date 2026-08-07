@@ -424,8 +424,6 @@ $(document).ready(function(){
     serverSide: true,
     processing: true,
     pageLength: 12,
-    lengthMenu: [[12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000],
-                 [12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]],
     order: [[13, 'desc']],
     searchDelay: 400,
     // App-wide default is 'lf' — the 'f' is dropped so the table does not render
@@ -433,7 +431,7 @@ $(document).ready(function(){
     // right of this toolbar, inside the table wrapper.
     dom: '<"d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"l<"#iqcScanArea">>' +
          'rt' +
-         '<"d-flex flex-column align-items-center mt-3"<"small text-muted mb-1"i>p>',
+         '<"d-flex justify-content-end align-items-center flex-wrap gap-3 mt-3"<"small text-muted"i>p>',
     ajax: {
       url: '/iqc/data',
       data: function (d) {
@@ -507,7 +505,7 @@ $(document).ready(function(){
     pageLength: 12,
     order: [],
     columnDefs: [{ orderable: false, targets: [0] }],
-    dom: '<"d-flex justify-content-between align-items-center mb-2"lp>t<"d-flex justify-content-between"ip>',
+    dom: '<"d-flex justify-content-between align-items-center mb-2"lf>t<"d-flex justify-content-end align-items-center gap-3 mt-2"ip>',
   });
   window._dtIqcModel = dtModel;
   $('#iqcModelSearchBox').on('keyup', function(){
@@ -532,7 +530,7 @@ $(document).ready(function(){
     pageLength: 12,
     order: [],
     columnDefs: [{ orderable: false, targets: -1 }],
-    dom: '<"d-flex justify-content-between align-items-center mb-2"lfp>t<"d-flex justify-content-between"ip>',
+    dom: '<"d-flex justify-content-between align-items-center mb-2"lf>t<"d-flex justify-content-end align-items-center gap-3 mt-2"ip>',
     language: { search: '', searchPlaceholder: 'Search lots…' },
   });
 });

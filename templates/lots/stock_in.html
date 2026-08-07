@@ -82,8 +82,10 @@
               onclick="openCustomiseModal('stock')">
         <i class="bi bi-sliders me-1"></i>Customise (<span id="customiseCount">0</span>)
       </button>
+      {# The only search box on this table — DataTables' own 'f' box is left out
+         of the dom string below so scanning and searching share one input. #}
       <input type="text" id="stockScanInput" class="form-control form-control-sm font-monospace"
-             placeholder="Scan Tag/Serial, or comma-separated Tag Numbers to select multiple…" style="width:340px" autocomplete="off">
+             placeholder="Scan Tag Number, or search GRN / Invoice / Model…" style="width:340px" autocomplete="off">
     </div>
   </div>
   <div class="card-body p-0">
@@ -335,8 +337,9 @@ $(document).ready(function(){
     {# 'l' (length menu) is in the dom string on purpose: the original omitted it
        via lengthChange:false, which is exactly what would have hidden the Show
        Entries dropdown this conversion is required to expose. #}
-    dom: '<"d-flex align-items-center justify-content-between px-3 py-2 border-bottom"<"#stkBtnArea">f>t<"d-flex align-items-center justify-content-between px-3 py-2"lip>',
-    language: { search: '', searchPlaceholder: 'Search…' },
+    {# No 'f' in the dom string: the card-header #stockScanInput is the single
+       search box for this table, so DataTables must not render a second one. #}
+    dom: '<"d-flex align-items-center justify-content-between px-3 py-2 border-bottom"<"#stkBtnArea">>t<"d-flex align-items-center justify-content-between px-3 py-2"lip>',
     ajax: {
       url: '/stock/data',
       data: function (d) {
@@ -371,26 +374,67 @@ $(document).ready(function(){
   // Move hidden Assign button into the DT toolbar slot
   $('#stkBtnArea').append($('#assignBucketBtn').removeClass('d-none'));
 
-  // Scan a single tag/serial -> the ajax search narrows to that one row (which
-  // then IS the current page), so it can be auto-selected and scrolled to
-  // regardless of which page it used to sit on. A comma-separated list keeps
-  // using the shared tag-scan-autocheck component, which — like Export
-  // Selected elsewhere — only reaches rows already rendered on the current
-  // page; that is an accepted limitation of paginating a selectable table.
+  // ── Single scan/search box ────────────────────────────────────────────────
+  // One input serves both roles. Scanning narrows the table server-side, then
+  // auto-ticks the matched row and leaves the text selected, so the scanner's
+  // next value overwrites it rather than appending — the gun can be fired
+  // repeatedly with no keyboard between scans, and each tick accumulates in
+  // `stockSelected` (which survives the redraw) so the count keeps climbing.
+  // A comma-separated list still routes through tag-scan-autocheck, which —
+  // like Export Selected elsewhere — only reaches rows on the current page.
   var stockScan = document.getElementById('stockScanInput');
+  var pendingScanTag = null;      // value awaiting auto-select on the next draw
+  var pendingScanReselect = false;  // re-highlight input so next scan replaces
+
+  // Registered once rather than per-scan: rapid gun fire would otherwise stack
+  // a one-shot handler per keystroke and re-select rows already ticked.
+  dtStock.on('draw.dt', function () {
+    if (pendingScanTag === null) return;
+    var val = pendingScanTag;
+    pendingScanTag = null;
+
+    var rows = document.querySelectorAll('#stockTable tbody tr[data-barcode]');
+    var row = document.querySelector('#stockTable tbody tr[data-barcode="' + val + '"]');
+    // Serial numbers never land in data-barcode (createdRow stamps the barcode
+    // from column 0), so fall back to "the search resolved to exactly one row".
+    if (!row && rows.length === 1) row = rows[0];
+
+    if (row) {
+      var chk = row.querySelector('.stockChk');
+      if (chk && !chk.checked) {
+        chk.checked = true;
+        stockSelected.add(chk.value);
+        updateStockSel();
+      }
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    if (pendingScanReselect && stockScan) { stockScan.select(); pendingScanReselect = false; }
+  });
+
+  function runStockScan(val, reselect) {
+    pendingScanTag = val;
+    pendingScanReselect = !!reselect;
+    dtStock.search(val).draw();
+  }
+
   if (stockScan) {
+    var scanTimer = null;
+    // .search().draw() ignores the table's searchDelay, so debounce here or a
+    // scanner typing 12 characters fires 12 ajax round-trips.
     stockScan.addEventListener('input', function () {
       var val = this.value.trim();
-      if (!val || val.indexOf(',') !== -1) { dtStock.search(val.indexOf(',') !== -1 ? '' : val).draw(); return; }
-      dtStock.search(val).draw();
-      setTimeout(function () {
-        var row = document.querySelector('#stockTable tbody tr[data-barcode="' + val + '"], #stockTable tbody tr[data-serial="' + val + '"]');
-        if (row) {
-          var chk = row.querySelector('.stockChk');
-          if (chk) { chk.checked = true; stockSelected.add(chk.value); updateStockSel(); }
-          row.scrollIntoView({behavior:'smooth', block:'center'});
-        }
-      }, 500);   // after the ajax redraw
+      if (val.indexOf(',') !== -1) return;   // handed to tag-scan-autocheck
+      clearTimeout(scanTimer);
+      scanTimer = setTimeout(function () { runStockScan(val, false); }, 250);
+    });
+    // Scanners emit Enter as the terminator — act immediately and re-highlight.
+    stockScan.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      var val = this.value.trim();
+      if (!val || val.indexOf(',') !== -1) return;
+      clearTimeout(scanTimer);
+      runStockScan(val, true);
     });
   }
   initTagScanAutocheck({ inputId: 'stockScanInput', tableSelector: '#stockTable', rowTagAttr: 'data-barcode', rowCheckboxSelector: '.stockChk' });

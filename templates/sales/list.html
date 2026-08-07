@@ -184,8 +184,8 @@ $(document).ready(function() {
   var dt = $('#salesTable').DataTable({
     serverSide: true,
     processing: true,
-    pageLength: 25,
-    lengthMenu: [[25, 50, 100, 250], [25, 50, 100, 250]],
+    pageLength: 12,
+    lengthMenu: [[12, 25, 50, 100, 250], [12, 25, 50, 100, 250]],
     order: [[2, 'desc']],          // sale date, newest first
     searchDelay: 400,              // don't fire a query per keystroke
     ajax: {

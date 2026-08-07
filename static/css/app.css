@@ -143,6 +143,22 @@ body {
   padding: 0.2rem 0.4rem;
 }
 
+/* Header labels stay on one line, so each column is at least as wide as its
+   own heading instead of the heading wrapping to two or three lines and the
+   rows below it looking cramped. A table that outgrows its container scrolls
+   sideways inside .table-responsive rather than squeezing the columns. */
+table.dataTable thead th,
+table.dataTable thead td {
+  white-space: nowrap;
+}
+
+/* DataTables sets an inline width while sizing columns; without this a table
+   whose columns total less than the container is left narrower than the card
+   it sits in. */
+table.dataTable {
+  width: 100% !important;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   #sidebar {

@@ -27,7 +27,7 @@
         <div class="table-responsive">
           <table id="l1Table" class="table table-hover mb-0 small">
             <thead class="table-dark">
-              <tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Location</th><th>Parts Required</th><th>Parts Requested</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>L3/L4 Status</th><th>Action</th></tr>
+              <tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Parts Required</th><th>Parts Requested</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>L3/L4 Status</th><th>Action</th></tr>
             </thead>
             <tbody>
               {% for device, lot_number in devices %}
@@ -36,20 +36,6 @@
                 <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
                 <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a></td>
                 <td>{% set bkt = bucket_map.get(device.id|string) if bucket_map is defined else None %}{% if bkt %}<span class="badge bg-warning text-dark font-monospace">{{ bkt }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-                <td>
-                  {% set loc = location_map.get(device.id | string) %}
-                  {% if loc and loc.unit_id %}
-                    {% if loc.action == 'picked_up' %}
-                      <span class="badge bg-warning text-dark"><i class="bi bi-hand-index me-1"></i>{{ loc.unit_id }}</span>
-                    {% else %}
-                      <span class="badge bg-success">{{ loc.unit_id }}</span>
-                    {% endif %}
-                  {% elif loc and loc.action == 'picked_up' %}
-                    <span class="badge bg-warning text-dark"><i class="bi bi-hand-index me-1"></i>In Hand</span>
-                  {% else %}
-                    <a href="/locations/device/{{ device.id }}" class="text-danger small" title="Assign location"><i class="bi bi-geo-alt"></i> —</a>
-                  {% endif %}
-                </td>
                 <td class="text-center">{% set pr = parts_required_map.get(device.id|string, 0) if parts_required_map is defined else 0 %}<span class="badge bg-{{ 'warning text-dark' if pr else 'light text-muted border' }}">{{ pr }}</span></td>
                 <td class="text-center">{% set pq = parts_requested_map.get(device.id|string, 0) if parts_requested_map is defined else 0 %}<span class="badge bg-{{ 'primary' if pq else 'light text-muted border' }}">{{ pq }}</span></td>
                 <td class="text-muted">{{ device.repair_notes or '—' }}</td>

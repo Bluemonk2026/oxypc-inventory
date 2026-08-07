@@ -532,23 +532,11 @@ async def repair_list(stage: str, request: Request,
     # still list a colleague's device even though its row is hidden.
     open_jobs = [r for r in open_jobs if str(r.RepairJob.device_id) in visible_ids]
 
-    # Current location per device
-    location_map = {}
-    uuid_ids = [d.id for d, _ in devices]  # already UUID objects from SQLAlchemy
-    if uuid_ids:
-        sub = (
-            select(DeviceLocationLog.device_id, func.max(DeviceLocationLog.logged_at).label("latest"))
-            .group_by(DeviceLocationLog.device_id).subquery()
-        )
-        loc_rows = await db.execute(
-            select(DeviceLocationLog.device_id, StorageLocation.unit_id, DeviceLocationLog.action)
-            .join(sub, and_(DeviceLocationLog.device_id == sub.c.device_id,
-                            DeviceLocationLog.logged_at == sub.c.latest))
-            .outerjoin(StorageLocation, DeviceLocationLog.location_id == StorageLocation.id)
-            .where(DeviceLocationLog.device_id.in_(uuid_ids))
-        )
-        for did, unit_id, action in loc_rows.all():
-            location_map[str(did)] = {"unit_id": unit_id, "action": action.value if action else None}
+    # The Location column was removed from the L1/L2 table, so the per-device
+    # location lookup that fed it is gone too. It was not cheap: the subquery
+    # grouped the whole device_location_logs table before filtering.
+    # (repair/l2.html and l3.html still reference location_map, but STAGE_MAP
+    # only maps "l1", so neither template is reachable.)
 
     # ── Batch scrap-warning + suggest-QC (no N+1) ────────────────────────────
     device_ids = [d.id for d, _ in devices]
@@ -728,7 +716,6 @@ async def repair_list(stage: str, request: Request,
         "l3l4_engineers": l3l4_engineers, "stress_engineers": stress_engineers,
         "stage": stage.upper(), "current_user": current_user,
         "returned_job_ids": returned_job_ids,
-        "location_map": location_map,
         "scrap_warning_map": scrap_warning_map,
         "suggest_qc_ids": suggest_qc_ids,
         "available_parts": available_parts,

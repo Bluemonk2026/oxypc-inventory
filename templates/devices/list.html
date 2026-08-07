@@ -603,16 +603,32 @@ function showModelDetail(g){
   $('#mdGradeC').text(g.grade_counts.C || 0);
   $('#mdUnitPrice').text(Number(g.unit_price || 0).toLocaleString('en-IN'));
   $('#mdTotalPrice').text(Number(g.total_price || 0).toLocaleString('en-IN'));
-  var rows = '';
-  (g.tags || []).forEach(function(t){
-    rows += '<tr><td class="small"><a href="/devices/' + encodeURIComponent(t.barcode) + '" target="_blank" class="font-monospace text-decoration-none">' + t.barcode + '</a></td>' +
-            '<td class="small">' + t.location_id + '</td>' +
-            '<td class="small">' + t.location_type + '</td>' +
-            '<td class="small">' + t.grade + '</td></tr>';
-  });
-  $('#mdTagsBody').html(rows || '<tr><td colspan="4" class="text-center text-muted small py-2">No tags.</td></tr>');
+  $('#mdTagsBody').html('<tr><td colspan="4" class="text-center text-muted small py-2">Loading tags…</td></tr>');
   var modal = new bootstrap.Modal(document.getElementById('modelDetailModal'));
   modal.show();
+
+  // Tags are fetched per group rather than embedded in every row of the page.
+  // The whole inventory's tag list used to be serialised into this HTML —
+  // ~22,000 entries — just so a modal could read one group of it.
+  // The page's own filters ride along so the modal shows what the row counted.
+  var params = new URLSearchParams(window.location.search);
+  params.set('model', g.model);
+  params.set('make', g.make);
+  fetch('/devices/model-summary/tags?' + params.toString())
+    .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+    .then(function(d){
+      var rows = '';
+      (d.tags || []).forEach(function(t){
+        rows += '<tr><td class="small"><a href="/devices/' + encodeURIComponent(t.barcode) + '" target="_blank" class="font-monospace text-decoration-none">' + t.barcode + '</a></td>' +
+                '<td class="small">' + t.location_id + '</td>' +
+                '<td class="small">' + t.location_type + '</td>' +
+                '<td class="small">' + t.grade + '</td></tr>';
+      });
+      $('#mdTagsBody').html(rows || '<tr><td colspan="4" class="text-center text-muted small py-2">No tags.</td></tr>');
+    })
+    .catch(function(){
+      $('#mdTagsBody').html('<tr><td colspan="4" class="text-center text-danger small py-2">Could not load tags.</td></tr>');
+    });
 }
 
 function showLotDetail(l){

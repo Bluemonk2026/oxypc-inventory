@@ -10,7 +10,7 @@ from utils.csv_decode import decode_csv_bytes
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, func, and_, update
+from sqlalchemy import select, or_, func, and_, update, case
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceGrade, DeviceStage, StageMovement, STAGE_LABELS
@@ -542,92 +542,93 @@ async def _build_lot_summary(db: AsyncSession) -> list:
     return summary
 
 
+def _device_price_expr(costing):
+    """Stock Price per device, matching the main table's rule exactly.
+
+    A device_costing row wins even when its total_cost is NULL (that reads as
+    zero, not "fall back to the purchase price"); only a device with no costing
+    row at all uses device_price x qty. `qty or 1` treats 0 as 1, so a plain
+    COALESCE would be wrong for zero-qty rows.
+    """
+    units = case((func.coalesce(Device.qty, 0) > 0, Device.qty), else_=1)
+    return case(
+        (costing.c.device_id.isnot(None), func.coalesce(costing.c.total_cost, 0.0)),
+        else_=func.coalesce(Device.device_price * units, 0.0),
+    )
+
+
 async def _build_model_summary(db: AsyncSession, filters: list) -> list:
     """Model Based table (below the main Devices table on Inventory Search):
-    one row per distinct (model, brand), aggregated across ALL matching
-    devices (not capped at 500 like the on-screen table), with Total Count,
-    Total Price, Repaired count, and per-tag detail for the view modal."""
-    query = (
-        select(Device, Lot.lot_number)
-        .join(Lot, Device.lot_id == Lot.id)
-        .where(Device.is_trashed == False)
-    )
-    for f in filters:
-        query = query.where(f)
-    rows = (await db.execute(query)).all()
-    if not rows:
-        return []
+    one row per distinct (model, brand), aggregated across ALL matching devices.
 
-    # The three lookups below cover exactly the devices `query` already selected.
-    # Enumerating them as IN (...22,000 UUIDs...) made Postgres parse a
-    # 22k-parameter list three times over — 23 of the page's 36 seconds. Joining
-    # against the same filters returns the same rows and lets the planner use an
-    # index. `scope` is that filter set, reusable as a join condition.
+    Aggregated in SQL. This used to select every matching device — 22,395 rows
+    in production — and group them in Python, then embed each group's full tag
+    list in the page HTML. That was ~5s of query time plus a very large page.
+    Postgres now returns one row per group (619 of them) and the per-tag detail
+    the view modal needs is fetched on demand from /devices/model-summary/tags.
+
+    Grouping is on the raw columns rather than COALESCE(...) because Postgres
+    will not match a COALESCE in GROUP BY to the same expression in the SELECT
+    list when each carries its own bind parameter. NULL and empty-string models
+    are folded together afterwards, which is what `model or "Unknown Model"` did.
+    """
     scope = [Device.is_trashed == False, *filters]
 
-    # Stock Price (P&L total cost) per device — same source as the main table
-    price_map = {}
-    for did, total_cost in (await db.execute(
-        select(DeviceCosting.device_id, DeviceCosting.total_cost)
-        .select_from(DeviceCosting)
-        .join(Device, DeviceCosting.device_id == Device.id)
-        .join(Lot, Device.lot_id == Lot.id)
-        .where(*scope)
-    )).all():
-        price_map[str(did)] = float(total_cost or 0)
-    for d, _ in rows:
-        did = str(d.id)
-        if did not in price_map and d.device_price:
-            price_map[did] = float(d.device_price) * (d.qty or 1)
+    # Both joins must contribute at most one row per device, or the counts and
+    # the price sum inflate. No device has two device_costing rows today, but
+    # collapsing here means a future duplicate cannot silently double a total.
+    costing = (
+        select(DeviceCosting.device_id.label("device_id"),
+               func.max(DeviceCosting.total_cost).label("total_cost"))
+        .group_by(DeviceCosting.device_id).subquery()
+    )
+    consumed = (
+        select(SparePartConsumption.device_id.label("device_id"))
+        .distinct().subquery()
+    )
 
-    # Assigned Storage Location (Location ID / Location Type) per device,
-    # via the device's own location_id FK — same source as Device Detail.
-    loc_rows = (await db.execute(
-        select(Device.id, StorageLocation.unit_id, StorageLocation.unit_type)
+    rows = (await db.execute(
+        select(
+            Device.model,
+            Device.brand,
+            # The old Python version took whichever device happened to come back
+            # first, so a group whose first row had no device_type displayed "—"
+            # even when thousands of its devices said "Laptop" — and which row
+            # came first was down to the planner. mode() is deterministic and
+            # reports what the group actually mostly is.
+            func.mode().within_group(Device.device_type).label("device_type"),
+            func.count(Device.id).label("total_count"),
+            func.sum(_device_price_expr(costing)).label("total_price"),
+            func.count(consumed.c.device_id).label("repaired_count"),
+            func.count(case((Device.grade == DeviceGrade.A, 1))).label("grade_a"),
+            func.count(case((Device.grade == DeviceGrade.B, 1))).label("grade_b"),
+            func.count(case((Device.grade == DeviceGrade.C, 1))).label("grade_c"),
+        )
         .select_from(Device)
         .join(Lot, Device.lot_id == Lot.id)
-        .outerjoin(StorageLocation, Device.location_id == StorageLocation.id)
+        .outerjoin(costing, costing.c.device_id == Device.id)
+        .outerjoin(consumed, consumed.c.device_id == Device.id)
         .where(*scope)
+        .group_by(Device.model, Device.brand)
     )).all()
-    device_location = {str(did): (unit_id, unit_type) for did, unit_id, unit_type in loc_rows}
 
-    # Devices with at least one part consumed ("Repaired")
-    repaired_ids = {
-        str(did) for (did,) in (await db.execute(
-            select(SparePartConsumption.device_id)
-            .select_from(SparePartConsumption)
-            .join(Device, SparePartConsumption.device_id == Device.id)
-            .join(Lot, Device.lot_id == Lot.id)
-            .where(*scope)
-            .distinct()
-        )).all()
-    }
-
+    # Fold NULL and "" into the Unknown buckets, merging any groups that collide.
     groups: dict = {}
-    for d, _lot_number in rows:
-        key = (d.model or "Unknown Model", d.brand or "Unknown Make")
+    for r in rows:
+        key = (r.model or "Unknown Model", r.brand or "Unknown Make")
         g = groups.setdefault(key, {
-            "model": key[0], "make": key[1], "device_type": d.device_type or "—",
+            "model": key[0], "make": key[1], "device_type": r.device_type or "—",
             "total_count": 0, "total_price": 0.0, "repaired_count": 0,
             "grade_counts": {"A": 0, "B": 0, "C": 0},
-            "tags": [],
         })
-        did = str(d.id)
-        price = price_map.get(did, 0.0)
-        unit_id, unit_type = device_location.get(did, (None, None))
-        grade_val = d.grade.value if d.grade else None
-        g["total_count"] += 1
-        g["total_price"] += price
-        if did in repaired_ids:
-            g["repaired_count"] += 1
-        if grade_val in g["grade_counts"]:
-            g["grade_counts"][grade_val] += 1
-        g["tags"].append({
-            "barcode": d.barcode,
-            "location_id": unit_id or "—",
-            "location_type": UNIT_TYPE_LABELS.get(unit_type, unit_type) if unit_type else "—",
-            "grade": grade_val or "—",
-        })
+        g["total_count"] += r.total_count or 0
+        g["total_price"] += float(r.total_price or 0)
+        g["repaired_count"] += r.repaired_count or 0
+        g["grade_counts"]["A"] += r.grade_a or 0
+        g["grade_counts"]["B"] += r.grade_b or 0
+        g["grade_counts"]["C"] += r.grade_c or 0
+        if g["device_type"] == "—" and r.device_type:
+            g["device_type"] = r.device_type
 
     summary = []
     for g in groups.values():
@@ -636,6 +637,59 @@ async def _build_model_summary(db: AsyncSession, filters: list) -> list:
         summary.append(g)
     summary.sort(key=lambda g: g["total_count"], reverse=True)
     return summary
+
+
+@router.get("/model-summary/tags")
+async def model_summary_tags(
+    model: str = "",
+    make: str = "",
+    q: str = "",
+    stage: str = "",
+    lot: str = "",
+    grade: str = "",
+    category: str = "",
+    device_type: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    employee: str = "",
+    entity: str = "",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(view_allowed),
+):
+    """Per-tag detail for one Model Based row, loaded when the modal opens.
+
+    Takes the same filter parameters as the page so the modal shows the same
+    devices the summary counted. "Unknown Model" / "Unknown Make" match rows
+    whose column is NULL or empty, mirroring how the summary folds them.
+    """
+    filters = _device_search_filters(q, stage, lot, grade, category, device_type,
+                                     date_from, date_to, entity=entity)
+    if employee:
+        filters.append(await _employee_device_id_filter(db, employee))
+
+    def _match(col, value, unknown_label):
+        if value == unknown_label:
+            return or_(col.is_(None), col == "")
+        return col == value
+
+    rows = (await db.execute(
+        select(Device.barcode, Device.grade, StorageLocation.unit_id,
+               StorageLocation.unit_type)
+        .select_from(Device)
+        .join(Lot, Device.lot_id == Lot.id)
+        .outerjoin(StorageLocation, Device.location_id == StorageLocation.id)
+        .where(Device.is_trashed == False, *filters,
+               _match(Device.model, model, "Unknown Model"),
+               _match(Device.brand, make, "Unknown Make"))
+        .order_by(Device.barcode)
+    )).all()
+
+    return JSONResponse({"tags": [{
+        "barcode": barcode,
+        "location_id": unit_id or "—",
+        "location_type": UNIT_TYPE_LABELS.get(unit_type, unit_type) if unit_type else "—",
+        "grade": getattr(g, "value", g) if g else "—",
+    } for barcode, g, unit_id, unit_type in rows]})
 
 
 @router.get("/export")

@@ -40,7 +40,10 @@
   <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span><i class="bi bi-upc-scan me-2"></i>Ready to Sale Tag Numbers</span>
     <div class="d-flex gap-2 align-items-center flex-wrap">
-      <input type="text" id="readyScanInput" class="form-control form-control-sm" style="max-width:220px" placeholder="Scan tag or serial number">
+      {# The only search box on this table — DataTables' own 'f' box is dropped
+         from the dom string below so scanning and searching share one input. #}
+      <input type="text" id="readyScanInput" class="form-control form-control-sm font-monospace"
+             style="max-width:280px" autocomplete="off" placeholder="Scan Tag/Serial, or search…">
       <button type="button" id="multiRequestBtn" class="btn btn-sm btn-outline-primary" disabled>
         <i class="bi bi-telephone-outbound me-1"></i>Multi-Request with selected (<span id="readySelCount">0</span>)
       </button>
@@ -267,6 +270,11 @@ $(document).ready(function(){
                  [12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]],
     order: [],
     searchDelay: 400,
+    // App-wide default is 'lf' — the 'f' is dropped here so the table does not
+    // render a second search box alongside the #readyScanInput box above it.
+    dom: '<"d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"l>' +
+         'rt' +
+         '<"d-flex flex-column align-items-center mt-3"<"small text-muted mb-1"i>p>',
     ajax: {
       url: '/sales/ready/data',
       dataSrc: function (json) { return json.data; },

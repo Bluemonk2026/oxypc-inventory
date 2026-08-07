@@ -76,7 +76,7 @@
 </div>
 <div class="mb-2">
   <input type="text" id="iqcTagScan" class="form-control form-control-sm font-monospace" style="max-width:420px"
-         placeholder="Scan a Tag Number to select it — or paste a comma-separated list">
+         placeholder="Scan Tag Number, search, or paste a comma-separated list">
 </div>
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
@@ -422,6 +422,11 @@ $(document).ready(function(){
                  [12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]],
     order: [[13, 'desc']],
     searchDelay: 400,
+    // App-wide default is 'lf' — the 'f' is dropped here so the table does not
+    // render a second search box alongside the #iqcTagScan box above it.
+    dom: '<"d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"l>' +
+         'rt' +
+         '<"d-flex flex-column align-items-center mt-3"<"small text-muted mb-1"i>p>',
     ajax: {
       url: '/iqc/data',
       data: function (d) {

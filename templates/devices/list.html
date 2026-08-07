@@ -95,10 +95,7 @@
       {% if total == 500 %}<span class="text-warning ms-1">(showing first 500 — use filters to narrow)</span>{% endif %}
     {% endif %}
   </span>
-  <div class="d-flex gap-2 align-items-center flex-wrap">
-    <input type="text" id="devicesScanInput" class="form-control form-control-sm font-monospace"
-           style="width:260px" autocomplete="off"
-           placeholder="Scan Tag Number to select…">
+  <div class="d-flex gap-2">
     <button type="button" id="bulkDeleteBtn" class="btn btn-sm btn-outline-danger" disabled
             onclick="submitBulkTrash()" title="Move selected devices to Trash">
       <i class="bi bi-trash3 me-1"></i>Delete Selected (<span id="selCount">0</span>)
@@ -480,14 +477,24 @@ $(document).ready(function() {
   }
   window._devicesUpdateSel = updateSel;
 
-  // Scan a tag to select it: the search narrows the table server-side, the
-  // match is ticked, and the input re-highlights so the gun's next value
-  // replaces this one. Selections accumulate in `devicesSelected`.
+  // Scan-to-select runs on the table's own DataTables search box rather than a
+  // second input of our own. .off() drops DataTables' native keyup->search
+  // binding so the helper is the sole driver — otherwise both would issue the
+  // same query and the table would fetch twice per keystroke.
+  // Located through the DataTables API container rather than the '#<id>_filter'
+  // markup, so a version bump that renames that wrapper can't silently drop
+  // scan-to-select on this page.
+  $(dt.table().container()).find('input[type="search"]').first()
+    .attr({ id: 'devicesScanInput', placeholder: 'Scan Tag Number, or search…', autocomplete: 'off' })
+    .addClass('font-monospace')
+    .off();
   initScanSelect({
     inputId: 'devicesScanInput', dt: dt,
     tableSelector: '#devicesTable', checkboxSelector: '.rowChk',
     selection: devicesSelected, onChange: updateSel,
   });
+  // Comma-separated lists tick every match on the current page.
+  initTagScanAutocheck({ inputId: 'devicesScanInput', tableSelector: '#devicesTable', rowCheckboxSelector: '.rowChk' });
 
   $('#devicesTable').on('change', '.rowChk', function(){
     if (this.checked) devicesSelected.add(this.value); else devicesSelected.delete(this.value);

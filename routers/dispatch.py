@@ -72,52 +72,48 @@ async def _build_lot_overview(db: AsyncSession) -> list:
         return []
     lot_ids = [l.id for l in lots]
 
-    dev_rows = (await db.execute(
-        select(Device.lot_id, Device.id, Device.barcode, Device.device_type)
+    # Every per-lot figure this table shows is an aggregate, so Postgres computes
+    # them. Building them in Python meant loading id, barcode and device_type for
+    # every active device — ~22,000 rows — to produce roughly 280 table rows.
+    stats = {}
+    for lot_id, count, sample_barcode, device_type in (await db.execute(
+        select(Device.lot_id, func.count(Device.id), func.min(Device.barcode),
+               # Most common device type in the lot, matching the old
+               # max(type_counts) — and deterministic on ties, which the Python
+               # version was not (it kept whichever type it happened to see first).
+               func.mode().within_group(Device.device_type))
         .where(Device.lot_id.in_(lot_ids), Device.is_active == True)
-    )).all()
-    devices_by_lot: dict = {}
-    for lot_id, dev_id, barcode, device_type in dev_rows:
-        devices_by_lot.setdefault(str(lot_id), []).append(
-            {"id": dev_id, "barcode": barcode, "device_type": device_type})
+        .group_by(Device.lot_id)
+    )).all():
+        stats[str(lot_id)] = {"count": count, "barcode": sample_barcode,
+                              "device_type": device_type}
 
-    dev_ids_by_lot = {lid: {d["id"] for d in devs} for lid, devs in devices_by_lot.items()}
-    requested_by_dev = {}
-    if devices_by_lot:
-        # Joined rather than IN (...every active device...) — that list runs to
-        # 22k UUIDs in production and cost 8 of this page's 15 seconds on its
-        # own. The join reproduces exactly the dev_rows filter above.
-        req_rows = (await db.execute(
-            select(TelecallerDispatchRequest.device_id, func.sum(TelecallerDispatchRequest.qty_requested))
-            .select_from(TelecallerDispatchRequest)
-            .join(Device, TelecallerDispatchRequest.device_id == Device.id)
-            .where(TelecallerDispatchRequest.source == "lot",
-                   Device.lot_id.in_(lot_ids), Device.is_active == True)
-            .group_by(TelecallerDispatchRequest.device_id)
-        )).all()
-        requested_by_dev = {str(did): int(qty or 0) for did, qty in req_rows}
+    # Summed straight to the lot rather than per device and re-summed in Python —
+    # the total is the same either way.
+    requested_by_lot = {str(lot_id): int(qty or 0) for lot_id, qty in (await db.execute(
+        select(Device.lot_id, func.sum(TelecallerDispatchRequest.qty_requested))
+        .select_from(TelecallerDispatchRequest)
+        .join(Device, TelecallerDispatchRequest.device_id == Device.id)
+        .where(TelecallerDispatchRequest.source == "lot",
+               Device.lot_id.in_(lot_ids), Device.is_active == True)
+        .group_by(Device.lot_id)
+    )).all()}
 
     overview = []
     for lot in lots:
-        devs = devices_by_lot.get(str(lot.id), [])
-        if not devs:
+        s = stats.get(str(lot.id))
+        if not s:
             continue  # no point showing a lot with nothing to request
-        type_counts: dict = {}
-        for d in devs:
-            if d["device_type"]:
-                type_counts[d["device_type"]] = type_counts.get(d["device_type"], 0) + 1
-        device_type = max(type_counts, key=type_counts.get) if type_counts else "—"
-        requested_qty = sum(requested_by_dev.get(str(d["id"]), 0) for d in devs)
         overview.append({
             "lot_number": lot.lot_number,
             "purchase_date": lot.purchase_date,
             "supplier_name": lot.supplier_name,
-            "device_type": device_type,
-            "total_quantity": len(devs),
-            "requested_quantity": requested_qty,
+            "device_type": s["device_type"] or "—",
+            "total_quantity": s["count"],
+            "requested_quantity": requested_by_lot.get(str(lot.id), 0),
             "stock_price": float(lot.buying_price or 0),
             "selling_price": float(lot.selling_price) if lot.selling_price is not None else None,
-            "sample_barcode": devs[0]["barcode"],
+            "sample_barcode": s["barcode"],
         })
     return overview
 

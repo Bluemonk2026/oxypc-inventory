@@ -559,10 +559,13 @@ async def repair_list(stage: str, request: Request,
         open_device_ids = {str(j.device_id) for j, *_ in open_jobs}
         suggest_qc_ids = {str(did) for did in device_ids} - open_device_ids
 
-    _parts_res = await db.execute(
-        select(SparePart).where(SparePart.qty_in_stock > 0).order_by(SparePart.name)
-    )
-    available_parts = _parts_res.scalars().all()
+    # Two columns of the in-stock parts, used only to answer "is this part
+    # available?" below. This used to load 1,253 full SparePart objects and pass
+    # them to the template as `available_parts` — which repair/l1.html never
+    # referenced. Only repair/l3l4.html uses that name, and it has its own query.
+    in_stock_parts = (await db.execute(
+        select(SparePart.category, SparePart.name).where(SparePart.qty_in_stock > 0)
+    )).all()
 
     # ── Work orders (WorkID + assignment + timeline) for assigned devices ─────
     wo_by_device: dict = {}
@@ -628,22 +631,24 @@ async def repair_list(stage: str, request: Request,
     if device_ids and wo_by_device:
         now = app_now()
         today = now.date()
-        # Stock lookups are memoised per (category, keyword). PARTS_MATRIX has 20
-        # fixed rows, so every device asks the same handful of questions — running
-        # the query per device per part meant ~1000 sequential round-trips on a
-        # 99-device queue and the page never finished loading.
+        # Answered from the single in_stock_parts list rather than a query per
+        # (category, keyword). PARTS_MATRIX asks at most 20 distinct questions,
+        # so this was 20 round-trips a page — and originally one per part per
+        # device, ~1000 of them, which is why the page stopped loading at all.
+        # Same predicate as the old SQL: category match OR keyword substring of
+        # the name, case-insensitive. Restricting the list to qty_in_stock > 0
+        # is equivalent to the old "highest-stock match is non-zero" because the
+        # column is NOT NULL and no part carries negative stock.
         stock_cache: dict = {}
 
-        async def _has_stock(category, keyword):
+        def _has_stock(category, keyword):
             key = (category, keyword)
             if key not in stock_cache:
-                sp = (await db.execute(
-                    select(SparePart).where(or_(
-                        SparePart.category == category,
-                        SparePart.name.ilike(f"%{keyword}%"),
-                    )).order_by(SparePart.qty_in_stock.desc())
-                )).scalars().first()
-                stock_cache[key] = bool(sp and sp.qty_in_stock)
+                kw = (keyword or "").lower()
+                stock_cache[key] = any(
+                    cat == category or (kw and kw in (name or "").lower())
+                    for cat, name in in_stock_parts
+                )
             return stock_cache[key]
 
         for did_str, dev in dev_by_id.items():
@@ -655,7 +660,7 @@ async def repair_list(stage: str, request: Request,
             for row in compute_required(iqc, dev):
                 if not row["required"]:
                     continue
-                if not await _has_stock(row["category"], row["keyword"]):
+                if not _has_stock(row["category"], row["keyword"]):
                     blocked = True
                     break
 
@@ -718,7 +723,6 @@ async def repair_list(stage: str, request: Request,
         "returned_job_ids": returned_job_ids,
         "scrap_warning_map": scrap_warning_map,
         "suggest_qc_ids": suggest_qc_ids,
-        "available_parts": available_parts,
         "work_map": work_map,
         "parts_alert_map": parts_alert_map,
         "parts_required_map": parts_required_map,

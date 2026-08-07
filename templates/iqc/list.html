@@ -76,7 +76,7 @@
 </div>
 <div class="mb-2">
   <input type="text" id="iqcTagScan" class="form-control form-control-sm font-monospace" style="max-width:420px"
-         placeholder="Scan or type Tag Numbers, comma separated — auto-checks matching rows">
+         placeholder="Scan a Tag Number to select it — or paste a comma-separated list">
 </div>
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
@@ -405,6 +405,14 @@
 {% block scripts %}
 <script src="/static/js/tag-scan-autocheck.js"></script>
 <script>
+// Selection persists across pages/redraws as a Set of barcodes rather than DOM
+// checkbox state. With serverSide:true only the current page's rows exist in
+// the DOM, so counting `:checked` meant a scan that redrew the table to one
+// matching row silently discarded every tag scanned before it — and Create Lot
+// / Customise then acted on that one device. Matches the Set already used on
+// Inventory Manager, All Inventory and Ready to Sale.
+var iqcSelected = new Set();
+
 $(document).ready(function(){
   var dt = $('#iqcTable').DataTable({
     serverSide: true,
@@ -429,6 +437,9 @@ $(document).ready(function(){
     // to display/sort by when Stage is broadened beyond the IQC default.
     columnDefs:[{visible:false, targets:[12,13]}, {orderable:false, targets:[0,-1]}],
     drawCallback: function () {
+      document.querySelectorAll('#iqcTable tbody .iqcRowChk').forEach(function (c) {
+        c.checked = iqcSelected.has(c.value);
+      });
       $('#iqcSelectAllChk').prop('checked', false);
       updateSel();
     },
@@ -436,18 +447,36 @@ $(document).ready(function(){
   window._dtIqc = dt;
 
   function updateSel(){
-    var n = $(dt.rows().nodes()).find('.iqcRowChk:checked').length;
+    var n = iqcSelected.size;
     $('#createLotCount').text(n);
     $('#createLotBtn').toggleClass('d-none', n === 0);
     $('#customiseCount').text(n);
     $('#customiseBtn').toggleClass('d-none', n === 0);
   }
+  window._iqcUpdateSel = updateSel;
+
+  // Scan a tag to select it: the search narrows the table server-side, the
+  // match is ticked, and the input re-highlights so the gun's next value
+  // replaces this one. Selections accumulate in `iqcSelected`.
+  initScanSelect({
+    inputId: 'iqcTagScan', dt: dt,
+    tableSelector: '#iqcTable', checkboxSelector: '.iqcRowChk',
+    selection: iqcSelected, onChange: updateSel,
+  });
+
+  // "Select all" stays page-scoped here, as it always has on this page.
   $('#iqcTable').on('change', '#iqcSelectAllChk', function(){
     var checked = this.checked;
-    $(dt.rows({page:'current'}).nodes()).find('.iqcRowChk').prop('checked', checked);
+    document.querySelectorAll('#iqcTable tbody .iqcRowChk').forEach(function(c){
+      c.checked = checked;
+      if (checked) iqcSelected.add(c.value); else iqcSelected.delete(c.value);
+    });
     updateSel();
   });
-  $('#iqcTable').on('change', '.iqcRowChk', updateSel);
+  $('#iqcTable').on('change', '.iqcRowChk', function(){
+    if (this.checked) iqcSelected.add(this.value); else iqcSelected.delete(this.value);
+    updateSel();
+  });
   $('#iqcTable').on('click', '.trash-one-btn', function () {
     var bc = $(this).data('barcode');
     if (!confirm('Move ' + bc + ' to Trash?')) return;
@@ -508,9 +537,8 @@ function openIqcModelCustomiseModal(){
 }
 
 function openCreateLotModal(){
-  var dt = window._dtIqc;
-  var checked = $(dt.rows().nodes()).find('.iqcRowChk:checked');
-  var barcodes = checked.map(function(){ return this.value; }).get();
+  // Reads the persistent Set, not on-screen checkboxes — see iqcSelected.
+  var barcodes = Array.from(iqcSelected);
   if (barcodes.length === 0) return;
   var form = document.getElementById('createLotForm');
   $(form).find('input[name="barcodes"]').remove();
@@ -523,9 +551,8 @@ function openCreateLotModal(){
 }
 
 function openCustomiseModal(){
-  var dt = window._dtIqc;
-  var checked = $(dt.rows().nodes()).find('.iqcRowChk:checked');
-  var barcodes = checked.map(function(){ return this.value; }).get();
+  // Reads the persistent Set, not on-screen checkboxes — see iqcSelected.
+  var barcodes = Array.from(iqcSelected);
   if (barcodes.length === 0) return;
   var form = document.getElementById('customiseForm');
   $('#customiseHiddenBarcodes').empty();

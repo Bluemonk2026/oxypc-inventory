@@ -247,6 +247,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="/static/js/tag-scan-autocheck.js"></script>
 <script>
 var readyDt;
 // Selected barcodes persist here rather than being read off checkbox state in
@@ -278,6 +279,16 @@ $(document).ready(function(){
       updateReadySel();
     },
   });
+
+  // Scan a tag/serial to select it: the search narrows the table server-side,
+  // the match is ticked, and the input re-highlights so the gun's next value
+  // replaces this one. Selections accumulate in `readySelected`, which
+  // survives the redraw, so ten scans leave ten devices selected.
+  initScanSelect({
+    inputId: 'readyScanInput', dt: readyDt,
+    tableSelector: '#readyTable', checkboxSelector: '.readyChk',
+    selection: readySelected, onChange: updateReadySel,
+  });
 });
 var _dm = document.getElementById('dispatchModal');
 if (_dm) {
@@ -288,27 +299,6 @@ if (_dm) {
     document.getElementById('dm_model').textContent = b.getAttribute('data-model') || '—';
   });
 }
-
-// ── Scan tag/serial to find + select the matching row ──
-// Server-side search narrows to the match (which becomes page 1 of the
-// filtered set, wherever it used to sit), then the checkbox — not the <tr> —
-// carries the barcode/serial, since server-rendered rows are plain DataTables
-// arrays with no attributes of their own to query.
-document.getElementById('readyScanInput').addEventListener('input', function(){
-  var val = this.value.trim();
-  readyDt.search(val).draw();
-  if (!val) return;
-  setTimeout(function(){
-    var chk = document.querySelector(
-      '#readyTable tbody .readyChk[value="' + val + '"], #readyTable tbody .readyChk[data-serial="' + val + '"]');
-    if (chk) {
-      chk.checked = true;
-      readySelected.add(chk.value);
-      updateReadySel();
-      chk.closest('tr').scrollIntoView({block:'center'});
-    }
-  }, 500);   // after the ajax redraw
-});
 
 // ── Multi-select + Multi-Request ──
 // selectedReadyBarcodes() reads the persistent Set, not DOM checkbox state —

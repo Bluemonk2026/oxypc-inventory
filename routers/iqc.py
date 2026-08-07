@@ -1138,6 +1138,10 @@ async def iqc_create(
             resolved_location_id = loc.id
             resolved_warehouse = loc.display_name
 
+    # Drives both the landing stage and the stage history written below.
+    _grn_clean = (grn_number or "").strip()
+    _has_grn = bool(_grn_clean)
+
     # qty arrives as free text; a non-numeric value must degrade to 1, not 500.
     def _safe_qty(s):
         try:
@@ -1163,10 +1167,11 @@ async def iqc_create(
         color=color or None,
         invoice_number=invoice_number or None,
         grade=grade or None,
-        # Add New IQC always registers at Stage IQC — a GRN Number entered here
-        # no longer auto-promotes the device to Stock In; that move happens
-        # later via the GRN-mapping flow (/grn/post-iqc).
-        current_stage=DeviceStage.iqc,
+        # A GRN Number entered here registers the tag straight into Stock
+        # Inward; without one it stays at IQC and shows up on GRN in TRC's
+        # pending list, to be mapped there. Same rule the mapping flow applies,
+        # just applied at entry when the GRN is already known.
+        current_stage=DeviceStage.stock_in if _has_grn else DeviceStage.iqc,
         floor=floor or None, warehouse=resolved_warehouse,
         location_id=resolved_location_id, notes=notes or None,
         lot_line_item_id=lot_line_item_id or None,
@@ -1264,11 +1269,24 @@ async def iqc_create(
     )
     db.add(inspection)
 
-    movement = StageMovement(
+    # The IQC step is always recorded — the inspection genuinely happened, and
+    # dropping it would hide the tag from IQC-stage history and aging. When a
+    # GRN promotes the tag immediately, that entry is closed off the same way
+    # the GRN-mapping flow closes it (exited_at) and a second row carries the
+    # move to Stock Inward.
+    _now = app_now()
+    entry = StageMovement(
         device_id=device.id, from_stage=None, to_stage=DeviceStage.iqc,
-        moved_by=current_user.username, notes="IQC Entry"
+        moved_by=current_user.username, notes="IQC Entry",
+        exited_at=_now if _has_grn else None,
     )
-    db.add(movement)
+    db.add(entry)
+    if _has_grn:
+        db.add(StageMovement(
+            device_id=device.id, from_stage=DeviceStage.iqc,
+            to_stage=DeviceStage.stock_in, moved_by=current_user.username,
+            notes=f"GRN {_grn_clean} entered at IQC — moved to Stock Inward",
+        ))
 
     await audit(db, action="DEVICE_IQC_REGISTERED", user=current_user,
                 table_name="devices", record_id=str(device.id),

@@ -7,15 +7,23 @@
   --sidebar-active: #1a56db;
   --brand-blue: #1a56db;
   --topbar-height: 56px;
+  /* Global UI scale. Anything sized in vh must divide by this, since zoom shrinks
+     the CSS pixel but not the viewport unit — 100vh would render 10% short. */
+  --app-zoom: 0.9;
+  --full-vh: calc(100vh / var(--app-zoom));
 }
 
 /* Layout */
-body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f4f8; }
+body {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  background: #f0f4f8;
+  zoom: var(--app-zoom);
+}
 #wrapper { align-items: flex-start; }
 
 #sidebar {
   width: var(--sidebar-width);
-  height: 100vh;
+  height: var(--full-vh);
   position: sticky;
   top: 0;
   overflow-y: auto;
@@ -142,7 +150,7 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f4f8; }
     top: 0;
     left: 0;
     z-index: 1040;
-    height: 100vh !important;
+    height: var(--full-vh) !important;
     width: 0;
     overflow-x: hidden;
     overflow-y: auto;

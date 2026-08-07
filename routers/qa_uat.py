@@ -1130,3 +1130,28 @@ async def srs_functional_spec_download(current_user: User = Depends(_view)):
     return Response(pdf_bytes, media_type="application/pdf", headers={
         "Content-Disposition": 'attachment; filename="OxyPC_Functional_Specification_Document.pdf"'
     })
+
+
+@router.get("/srs/module-map/download")
+async def srs_module_map_pdf(current_user: User = Depends(_view)):
+    from fastapi.responses import Response
+    from utils.module_map_doc import build_module_map_pdf
+    pdf_bytes = build_module_map_pdf(generated_on=app_now().strftime("%d %b %Y"))
+    return Response(pdf_bytes, media_type="application/pdf", headers={
+        "Content-Disposition": 'attachment; filename="OxyPC_Module_Interconnectivity_Map.pdf"'
+    })
+
+
+@router.get("/srs/module-map/download.pptx")
+async def srs_module_map_pptx(current_user: User = Depends(_view)):
+    from fastapi.responses import Response
+    from utils.module_map_doc import build_module_map_pptx
+    ppt_bytes = build_module_map_pptx(generated_on=app_now().strftime("%d %b %Y"))
+    return Response(
+        ppt_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={
+            "Content-Disposition":
+                'attachment; filename="OxyPC_Module_Interconnectivity_Map.pptx"'
+        },
+    )

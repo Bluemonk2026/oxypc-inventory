@@ -1304,7 +1304,7 @@ $.extend(true, $.fn.dataTable.defaults, {
 
 <!-- Notification bell slide-in panel -->
 <div id="notifPanelBackdrop" class="d-none" style="position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:2050" onclick="closeNotifPanel()"></div>
-<div id="notifPanel" style="position:fixed;top:0;right:-320px;height:100vh;width:300px;max-width:300px;background:#fff;box-shadow:-2px 0 12px rgba(0,0,0,.15);z-index:2060;transition:right .25s ease;display:flex;flex-direction:column">
+<div id="notifPanel" style="position:fixed;top:0;right:-320px;height:var(--full-vh);width:300px;max-width:300px;background:#fff;box-shadow:-2px 0 12px rgba(0,0,0,.15);z-index:2060;transition:right .25s ease;display:flex;flex-direction:column">
   <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom">
     <span class="fw-semibold"><i class="bi bi-bell me-2"></i>Alerts</span>
     <button type="button" class="btn-close" onclick="closeNotifPanel()"></button>

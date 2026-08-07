@@ -36,6 +36,7 @@ class DeviceGrade(str, enum.Enum):
     B = "B"
     C = "C"
     D = "D"
+    E = "E"
     scrap = "scrap"
 
 

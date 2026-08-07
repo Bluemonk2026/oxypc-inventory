@@ -41,8 +41,8 @@
         <label class="form-label small fw-semibold mb-1">Grade</label>
         <select name="grade" class="form-select form-select-sm">
           <option value="">All Grades</option>
-          {% for g in ['A','B','C','scrap'] %}
-          <option value="{{ g }}" {% if grade == g %}selected{% endif %}>{{ g }}</option>
+          {% for value, label in grade_options() %}
+          <option value="{{ value }}" {% if grade == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
       </div>

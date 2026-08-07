@@ -57,7 +57,12 @@ async def list_buckets(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     status: str = "stock_in",
+    with_stage: str = "",
 ):
+    """`with_stage` (opt-in) drops any bucket holding zero active devices in that
+    stage. The Production Manager's Bucket Allocation table passes
+    trc_production so it only lists buckets that actually have work in TRC;
+    every other caller omits it and sees buckets regardless of stage."""
     statuses = [s.strip() for s in status.split(",") if s.strip()]
     rows = (await db.execute(
         select(Bucket).where(Bucket.status.in_(statuses)).order_by(Bucket.created_at.desc())
@@ -65,6 +70,22 @@ async def list_buckets(
 
     if not rows:
         return JSONResponse([])
+
+    if with_stage.strip():
+        try:
+            want_stage = DeviceStage(with_stage.strip())
+        except ValueError:
+            raise HTTPException(400, f"Unknown stage {with_stage!r}")
+        in_stage = set((await db.execute(
+            select(Device.bucket_id)
+            .where(Device.bucket_id.in_([b.id for b in rows]),
+                   Device.current_stage == want_stage, Device.is_active == True)
+            .group_by(Device.bucket_id)
+            .having(func.count(Device.id) > 0)
+        )).scalars().all())
+        rows = [b for b in rows if b.id in in_stage]
+        if not rows:
+            return JSONResponse([])
 
     bucket_ids = [b.id for b in rows]
     count_rows = (await db.execute(

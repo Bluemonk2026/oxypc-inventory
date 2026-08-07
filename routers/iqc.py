@@ -17,6 +17,7 @@ from auth.dependencies import get_current_user, require_roles, verify_csrf, requ
 from services.audit_engine import audit
 from services.control_engine import validate_transition
 from utils.master_data import master_values
+from utils.grades import parse_grade
 from routers.devices import _build_model_summary
 
 router = APIRouter(prefix="/iqc", tags=["iqc"], dependencies=[Depends(verify_csrf)])
@@ -821,14 +822,24 @@ async def iqc_bulk_apply_grade_type(
         except ValueError:
             return RedirectResponse(url=f"{return_to}?error=Invalid+stage+{to_stage}", status_code=302)
 
+    # Grade is a Postgres enum, so an unrecognised string would only fail at
+    # commit — after the loop below has already mutated every selected device.
+    # Reject up front instead, the same way an invalid stage is rejected.
+    new_grade = None
+    if grade.strip():
+        new_grade = parse_grade(grade)
+        if new_grade is None:
+            return RedirectResponse(url=f"{return_to}?error=Invalid+grade+{grade.strip()}",
+                                    status_code=302)
+
     is_admin = current_user.role.value == "admin"
     for device in devices:
         if device_type.strip():
             device.device_type = device_type.strip()
         if entity.strip():
             device.entity = entity.strip()
-        if grade.strip():
-            device.grade = grade.strip()
+        if new_grade is not None:
+            device.grade = new_grade
         if invoice_number.strip():
             device.invoice_number = invoice_number.strip()
         if po_number.strip():

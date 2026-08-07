@@ -12,8 +12,9 @@ from sqlalchemy import select
 from database import get_db
 from utils.csv_decode import decode_csv_bytes
 from utils.master_data import entity_values
+from utils.grades import parse_grade
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, DeviceGrade, StageMovement, STAGE_LABELS
+from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.iqc_inspection import IQCInspection
 from models.lot import Lot
 from models.spare_parts import SparePart
@@ -614,21 +615,11 @@ async def approve_duplicate_move(
                           "new_stage_label": STAGE_LABELS.get(new_stage, new_stage.value)})
 
 
-def _parse_grade(raw: str):
-    # devicegrade is a real Postgres enum (A/B/C/D/scrap) but GRN-style
-    # exports commonly write "B Grade", "Grade B", etc. An unrecognized value
-    # assigned straight to Device.grade only fails at the next db.commit()
-    # flush — which is outside any per-row try/except — so this must
-    # normalize or drop, never pass raw text through to the enum column.
-    v = (raw or "").strip().lower()
-    if not v:
-        return None
-    m = re.match(r"(?:grade\s*)?([abcd])(?:\s*grade)?\b", v)
-    if m:
-        return DeviceGrade(m.group(1).upper())
-    if "scrap" in v:
-        return DeviceGrade.scrap
-    return None
+# devicegrade is a real Postgres enum but GRN-style exports commonly write
+# "B Grade", "Grade B", etc. Normalisation lives in utils/grades so the CSV
+# path and the Customise-modal dropdowns accept exactly the same set of grades —
+# they drifted before, which is how "E" worked in one place and not the other.
+_parse_grade = parse_grade
 
 
 def _apply_row_to_device(device: Device, row: dict, entity_lookup: dict | None = None) -> None:

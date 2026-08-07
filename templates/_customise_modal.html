@@ -44,7 +44,9 @@
             <label class="form-label small">Grade</label>
             <select name="grade" class="form-select form-select-sm">
               <option value="">— Leave unchanged —</option>
-              <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="scrap">Scrap</option>
+              {% for value, label in grade_options() %}
+              <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
             </select>
           </div>
           <!-- Row 1: CPU | CPU Make | Generation (mirrors the IQC form grouping) -->

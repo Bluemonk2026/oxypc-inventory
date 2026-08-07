@@ -204,3 +204,10 @@ templates.env.globals["ROLE_DISPLAY_MAP"] = _ROLE_DISPLAY
 from utils.master_data import master_options as _master_options
 
 templates.env.globals["master_options"] = _master_options
+
+# grade_options() → [(enum value, admin-managed label)] for every Grade dropdown.
+# Separate from master_options('grade') because that category holds display
+# labels ("Grade A - Like New") which cannot be posted to the enum column.
+from utils.grades import grade_options as _grade_options
+
+templates.env.globals["grade_options"] = _grade_options

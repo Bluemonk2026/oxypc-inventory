@@ -487,12 +487,15 @@ async def repair_list(stage: str, request: Request,
     devices = result.all()
 
     # ── Scope to this engineer's own bench ───────────────────────────────────
-    # Own tags plus anything unclaimed. Filtering here, before the maps below,
-    # means every downstream count and lookup is scoped automatically rather
-    # than each one needing to remember.
+    # Only the MOST RECENT assignment counts. A device can carry several open
+    # work orders, so a tag reassigned away from me leaves my older work order
+    # behind; treating any assignment-to-me as ownership kept the tag on the
+    # previous engineer's list forever. Latest assignment wins, full stop.
+    # Filtering here, before the maps below, means every downstream count and
+    # lookup is scoped automatically rather than each one needing to remember.
     if not _sees_full_queue(current_user):
         dev_ids = [d.id for d, _ in devices]
-        assigned_to_other: set[str] = set()
+        current_owner: dict[str, object] = {}
         if dev_ids:
             wo_rows = (await db.execute(
                 select(WorkOrder.device_id, WorkOrder.assigned_user_id)
@@ -500,15 +503,17 @@ async def repair_list(stage: str, request: Request,
                        WorkOrder.stage == stage,
                        WorkOrder.status != "completed",
                        WorkOrder.assigned_user_id.isnot(None))
+                # created_at breaks ties: two work orders can share an
+                # assigned_at when a reassignment happens in the same second.
+                .order_by(WorkOrder.device_id, WorkOrder.assigned_at.desc(),
+                          WorkOrder.created_at.desc())
             )).all()
-            others, mine = set(), set()
             for did, uid in wo_rows:
-                (mine if uid == current_user.id else others).add(str(did))
-            # Collect both sides first, then subtract: a device can carry more
-            # than one open work order, and an assignment to me must win however
-            # the rows happen to be ordered.
-            assigned_to_other = others - mine
-        devices = [(d, ln) for d, ln in devices if str(d.id) not in assigned_to_other]
+                current_owner.setdefault(str(did), uid)
+        # A device with no open assignment is unclaimed and stays visible to
+        # everyone — that is how work reaches a bench in the first place.
+        devices = [(d, ln) for d, ln in devices
+                   if current_owner.get(str(d.id), current_user.id) == current_user.id]
 
     total = len(devices)
     visible_ids = {str(d.id) for d, _ in devices}

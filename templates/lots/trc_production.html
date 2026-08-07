@@ -309,10 +309,13 @@ var _engineers = [];
 fetch('/api/bucket-engineers').then(function(r){return r.json();}).then(function(list){ _engineers = list; });
 
 function loadTrcBuckets(){
-  fetch('/api/buckets?status=trc_pending,validated').then(function(r){return r.json();}).then(function(buckets){
+  // with_stage: a bucket only belongs on this table while it still holds tags
+  // sitting in TRC Production. Filtered server-side so the count in the row and
+  // the reason the row is here cannot disagree.
+  fetch('/api/buckets?status=trc_pending,validated&with_stage=trc_production').then(function(r){return r.json();}).then(function(buckets){
     var tbody = document.getElementById('trcBucketTbody');
     if(!buckets.length){
-      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No buckets received from Stock In yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No buckets with tags in TRC Production.</td></tr>';
       return;
     }
     tbody.innerHTML = buckets.map(function(b){

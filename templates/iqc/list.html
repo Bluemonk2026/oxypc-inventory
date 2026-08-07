@@ -63,11 +63,18 @@
     <button type="button" id="customiseBtn" class="btn btn-outline-primary btn-sm d-none" onclick="openCustomiseModal()">
       <i class="bi bi-sliders me-1"></i>Customise (<span id="customiseCount">0</span>)
     </button>
-    <a href="/iqc/export-csv" class="btn btn-outline-info btn-sm">
-      <i class="bi bi-file-earmark-arrow-down me-1"></i>Export CSV
+    <button type="button" id="exportSelectedBtn" class="btn btn-outline-info btn-sm d-none"
+            onclick="exportSelectedIqc()">
+      <i class="bi bi-file-earmark-arrow-down me-1"></i>Export Selected (<span id="exportSelectedCount">0</span>)
+    </button>
+    {# Carries the page's current filters so the file matches the table on
+       screen rather than always dumping every IQC device. #}
+    <a href="/iqc/export-csv?q={{ q | urlencode }}&stage={{ stage | urlencode }}&grade={{ grade | urlencode }}&lot={{ lot | urlencode }}&device_type={{ device_type | urlencode }}&date_from={{ date_from | urlencode }}&date_to={{ date_to | urlencode }}"
+       class="btn btn-outline-info btn-sm">
+      <i class="bi bi-file-earmark-arrow-down me-1"></i>Export All
     </a>
     <a href="/bulk-upload?type=devices" class="btn btn-outline-success btn-sm">
-      <i class="bi bi-cloud-upload me-1"></i>Bulk Inward
+      <i class="bi bi-cloud-upload me-1"></i>Bulk Upload IQC
     </a>
     <a href="/iqc/new" class="btn btn-primary btn-sm">
       <i class="bi bi-plus-circle me-1"></i>Add New Asset
@@ -80,6 +87,37 @@
 <input type="text" id="iqcTagScan" class="d-none form-control form-control-sm font-monospace"
        style="max-width:420px" autocomplete="off"
        placeholder="Scan Tag Number, search, or paste a comma-separated list">
+<!-- Tag Number / Model Summary / Lot Numbers tabs. Each table keeps its own
+     card, toolbar and Customise modal — only the container changed. -->
+<ul class="nav nav-tabs mb-3" id="iqcTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="iqc-tab-tags-btn" data-bs-toggle="tab"
+            data-bs-target="#iqc-tab-tags" type="button" role="tab" aria-selected="true">
+      <i class="bi bi-upc-scan me-1"></i>Tag Number
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="iqc-tab-models-btn" data-bs-toggle="tab"
+            data-bs-target="#iqc-tab-models" type="button" role="tab" aria-selected="false">
+      <i class="bi bi-collection me-1"></i>Model Summary
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="iqc-tab-lots-btn" data-bs-toggle="tab"
+            data-bs-target="#iqc-tab-lots" type="button" role="tab" aria-selected="false">
+      <i class="bi bi-box-seam me-1"></i>Lot Numbers
+    </button>
+  </li>
+</ul>
+
+{# The per-row Trash form lives outside the panes: it is display:none and shared,
+   and a stray form between panes is not valid tab-content markup. #}
+<form id="trashOneForm" method="post" action="" style="display:none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+</form>
+
+<div class="tab-content" id="iqcTabContent">
+<div class="tab-pane fade show active" id="iqc-tab-tags" role="tabpanel">
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -99,12 +137,9 @@
   </div>
 </div>
 
-{# Single reusable form for the per-row Trash button: rows are server-rendered,
-   so there is no per-row {{ loop.index }} to build one form per device. #}
-<form id="trashOneForm" method="post" action="" style="display:none">
-  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
-</form>
+</div><!-- /iqc-tab-tags -->
 
+<div class="tab-pane fade" id="iqc-tab-models" role="tabpanel">
 <!-- Model Based Summary — scoped to the currently-filtered IQC device set,
      with its own Customise modal (same fields/backend as the main table's). -->
 <div class="card border-0 shadow-sm mt-3">
@@ -151,6 +186,9 @@
   </div>
 </div>
 
+</div><!-- /iqc-tab-models -->
+
+<div class="tab-pane fade" id="iqc-tab-lots" role="tabpanel">
 <!-- Product Lots — the Lot Management table, surfaced here so a lot can be
      created or imported without leaving IQC. Same rows, same counts. -->
 <div class="card border-0 shadow-sm mt-3">
@@ -226,6 +264,9 @@
     </div>
   </div>
 </div>
+
+</div><!-- /iqc-tab-lots -->
+</div><!-- /tab-content -->
 
 <!-- IQC Model Based Summary Customise modal -->
 <div class="modal fade" id="iqcModelCustomiseModal" tabindex="-1">
@@ -464,6 +505,8 @@ $(document).ready(function(){
     $('#createLotBtn').toggleClass('d-none', n === 0);
     $('#customiseCount').text(n);
     $('#customiseBtn').toggleClass('d-none', n === 0);
+    $('#exportSelectedCount').text(n);
+    $('#exportSelectedBtn').toggleClass('d-none', n === 0);
   }
   window._iqcUpdateSel = updateSel;
 
@@ -526,12 +569,21 @@ $(document).ready(function(){
   dtModel.on('draw', function(){ $('#iqcModelSelectAllChk').prop('checked', false); updateModelSel(); });
 
   // Product Lots — client-side pagination + search, same as the tables above
-  $('#iqcProductLotsTable').DataTable({
+  var dtLots = $('#iqcProductLotsTable').DataTable({
     pageLength: 12,
     order: [],
     columnDefs: [{ orderable: false, targets: -1 }],
     dom: '<"d-flex justify-content-between align-items-center mb-2"lf>t<"d-flex justify-content-end align-items-center gap-3 mt-2"ip>',
     language: { search: '', searchPlaceholder: 'Search lots…' },
+  });
+
+  // A DataTable laid out while its tab is hidden measures every column as zero
+  // wide, so the headers and body come apart the first time the tab is opened.
+  // Re-measuring on shown.bs.tab is the documented fix.
+  $('#iqcTabs button[data-bs-toggle="tab"]').on('shown.bs.tab', function () {
+    dtModel.columns.adjust();
+    dtLots.columns.adjust();
+    if (window._dtIqc) window._dtIqc.columns.adjust();
   });
 });
 
@@ -560,6 +612,23 @@ function openCreateLotModal(){
   $('#createLotTotalQty').val(barcodes.length);
   var modal = new bootstrap.Modal(document.getElementById('createLotModal'));
   modal.show();
+}
+
+function exportSelectedIqc(){
+  // Same source as the Customise action: the persistent Set, not the
+  // checkboxes on screen — with serverSide:true only the current page's rows
+  // exist in the DOM, so a selection spanning pages would otherwise be lost.
+  var barcodes = Array.from(iqcSelected);
+  if (barcodes.length === 0) return;
+  // GET with the list in the query string; long selections would blow the URL
+  // limit, so anything sizeable goes as a POSTed form instead.
+  if (barcodes.length <= 200) {
+    window.location = '/iqc/export-csv?barcodes=' + encodeURIComponent(barcodes.join(','));
+    return;
+  }
+  var f = $('<form>').attr({ method: 'get', action: '/iqc/export-csv' }).hide();
+  $('<input>').attr({ type: 'hidden', name: 'barcodes', value: barcodes.join(',') }).appendTo(f);
+  f.appendTo('body').submit().remove();
 }
 
 function openCustomiseModal(){

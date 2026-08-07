@@ -900,44 +900,82 @@ async def iqc_bulk_apply_grade_type(
     return RedirectResponse(url=f"{return_to}?success={msg}", status_code=302)
 
 
+# Device columns the export leads with, in the order they appear in the file.
+# Everything the inspection itself records is appended after these, straight
+# from the IQCInspection model, so a new inspection field shows up in the export
+# without anyone remembering to add it here.
+_EXPORT_DEVICE_FIELDS = [
+    "barcode", "serial_no", "entity", "grade", "brand", "model", "device_type",
+    "sub_category", "cpu", "cpu_make", "generation",
+    "ram_summary", "total_ram_count", "total_ram_size", "ram_gb",
+    "hdd_summary", "total_hdd_count", "total_hdd_size", "storage_gb", "storage_type",
+    "screen_size", "battery_health_pct", "color", "bios_password",
+    "grn_number", "invoice_number", "po_number", "floor", "warehouse",
+    "qty", "device_price", "notes",
+]
+_EXPORT_INSPECTION_FIELDS = [
+    c.name for c in IQCInspection.__table__.columns
+    if c.name not in ("id", "device_id")
+]
+
+
 @router.get("/export-csv")
 async def iqc_export_csv(
+    request: Request,
+    q: str = "", stage: str = "", grade: str = "", lot: str = "",
+    device_type: str = "", date_from: str = "", date_to: str = "",
+    barcodes: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
 ):
-    """Export all IQC-stage devices as CSV."""
+    """Export IQC devices with their full inspection record.
+
+    Two entry points share this route. "Export All" sends the page's current
+    filters so the file matches what is on screen; "Export Selected" sends a
+    comma-separated `barcodes` list and ignores the filters, since the user
+    picked those rows explicitly. Every column of IQCInspection is included —
+    grade and stage and entity from the device, then hardware, body and
+    cosmetic straight from the inspection.
+    """
+    picked = [b.strip() for b in barcodes.split(",") if b.strip()]
+    if picked:
+        filters = [Device.barcode.in_(picked)]
+    else:
+        filters = _iqc_filters(stage, device_type, grade, lot, q, date_from, date_to)
+
     result = await db.execute(
-        select(Device, Lot.lot_number)
+        select(Device, Lot.lot_number, IQCInspection)
         .join(Lot, Device.lot_id == Lot.id)
-        .where(Device.current_stage == DeviceStage.iqc, Device.is_active.is_(True))
+        .outerjoin(IQCInspection, IQCInspection.device_id == Device.id)
+        .where(*filters)
         .order_by(Device.created_at.desc())
     )
-    devices = result.all()
+    rows = result.all()
+
+    def _cell(v):
+        if v is None:
+            return ""
+        v = getattr(v, "value", v)          # enums -> their value
+        if hasattr(v, "strftime"):
+            return v.strftime("%Y-%m-%d %H:%M") if getattr(v, "hour", None) is not None \
+                else v.strftime("%Y-%m-%d")
+        return v
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow([
-        "barcode", "brand", "model", "lot_number", "grade",
-        "ram_gb", "storage_gb", "storage_type", "battery_health_pct",
-        "cpu", "serial_no", "floor", "added_date",
-    ])
-    for device, lot_number in devices:
-        writer.writerow([
-            device.barcode,
-            device.brand or "",
-            device.model or "",
-            lot_number,
-            device.grade or "",
-            device.ram_gb or "",
-            device.storage_gb or "",
-            device.storage_type or "",
-            device.battery_health_pct if device.battery_health_pct is not None else "",
-            device.cpu or "",
-            device.serial_no or "",
-            device.floor or "",
-            device.created_at.strftime("%Y-%m-%d") if device.created_at else "",
-        ])
-    filename = f"iqc-devices-{_dtnow.utcnow().strftime('%Y%m%d')}.csv"
+    writer.writerow(
+        ["lot_number", "stage"] + _EXPORT_DEVICE_FIELDS
+        + ["created_at", "updated_at"] + _EXPORT_INSPECTION_FIELDS
+    )
+    for device, lot_number, insp in rows:
+        writer.writerow(
+            [lot_number or "", _cell(device.current_stage)]
+            + [_cell(getattr(device, f, None)) for f in _EXPORT_DEVICE_FIELDS]
+            + [_cell(device.created_at), _cell(device.updated_at)]
+            + [_cell(getattr(insp, f, None)) if insp else "" for f in _EXPORT_INSPECTION_FIELDS]
+        )
+    suffix = "selected" if picked else "all"
+    filename = f"iqc-{suffix}-{app_now().strftime('%Y%m%d-%H%M')}.csv"
     return StreamingResponse(
         iter([output.getvalue().encode("utf-8-sig")]),
         media_type="text/csv; charset=utf-8-sig",

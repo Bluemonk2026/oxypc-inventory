@@ -239,7 +239,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="/static/js/tag-scan-autocheck.js"></script>
+<script src="/static/js/tag-scan-autocheck.js?v={{ ASSET_VERSION }}"></script>
 <script>
 $(document).ready(function(){
   if ($('#grnTable tbody tr td').length > 1) {

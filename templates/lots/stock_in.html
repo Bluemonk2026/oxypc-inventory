@@ -82,9 +82,10 @@
               onclick="openCustomiseModal('stock')">
         <i class="bi bi-sliders me-1"></i>Customise (<span id="customiseCount">0</span>)
       </button>
-      {# The only search box on this table — DataTables' own 'f' box is left out
-         of the dom string below so scanning and searching share one input. #}
-      <input type="text" id="stockScanInput" class="form-control form-control-sm font-monospace"
+      {# Moved into the table's own DataTables toolbar (top right) by JS below —
+         same pattern as #assignBucketBtn. It is the only search box on this
+         table; DataTables' 'f' box is left out of the dom string. #}
+      <input type="text" id="stockScanInput" class="d-none form-control form-control-sm font-monospace"
              placeholder="Scan Tag Number, or search GRN / Invoice / Model…" style="width:340px" autocomplete="off">
     </div>
   </div>
@@ -308,7 +309,7 @@
 
 {% endblock %}
 {% block scripts %}
-<script src="/static/js/tag-scan-autocheck.js"></script>
+<script src="/static/js/tag-scan-autocheck.js?v={{ ASSET_VERSION }}"></script>
 <script>
 function getCsrf(){ var c=document.cookie.split('; ').find(function(r){return r.startsWith('csrf_token=');}); return c ? c.split('=')[1] : ''; }
 
@@ -339,7 +340,7 @@ $(document).ready(function(){
        Entries dropdown this conversion is required to expose. #}
     {# No 'f' in the dom string: the card-header #stockScanInput is the single
        search box for this table, so DataTables must not render a second one. #}
-    dom: '<"d-flex align-items-center justify-content-between px-3 py-2 border-bottom"<"#stkBtnArea">>t<"d-flex align-items-center justify-content-between px-3 py-2"lip>',
+    dom: '<"d-flex align-items-center justify-content-between px-3 py-2 border-bottom"<"#stkBtnArea"><"#stkScanArea">>t<"d-flex align-items-center justify-content-between px-3 py-2"lip>',
     ajax: {
       url: '/stock/data',
       data: function (d) {
@@ -371,8 +372,11 @@ $(document).ready(function(){
       loadBucketMap();
     },
   });
-  // Move hidden Assign button into the DT toolbar slot
+  // Move hidden Assign button + scan box into the DT toolbar slots — the
+  // toolbar is justify-content-between, so the button sits left and the scan
+  // box top right, inside the table wrapper.
   $('#stkBtnArea').append($('#assignBucketBtn').removeClass('d-none'));
+  $('#stkScanArea').append($('#stockScanInput').removeClass('d-none'));
 
   // Single scan/search box: each scan narrows the table, ticks the match and
   // re-highlights the input so the gun's next value replaces this one. Ticks

@@ -395,7 +395,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="/static/vendor/tom-select/js/tom-select.complete.min.js"></script>
-<script src="/static/js/tag-scan-autocheck.js"></script>
+<script src="/static/js/tag-scan-autocheck.js?v={{ ASSET_VERSION }}"></script>
 <script>
 var CAN_VIEW_PRICING = {{ 'true' if can_view_pricing(current_user) else 'false' }};
 
@@ -457,7 +457,11 @@ $(document).ready(function() {
       dataSrc: function (json) { return json.data; },
     },
     columnDefs: [{ orderable: false, targets: [0, -1] }],
+    {# 'f' renders the scan box in this toolbar's right slot, inside the table
+       wrapper. The 'Search:' label is blanked so it matches the bare scan box
+       on Inventory Manager / Product IQC / Ready to Sale. #}
     dom: '<"d-flex justify-content-between align-items-center mb-2"lf>t<"d-flex justify-content-between"ip>',
+    language: { search: '' },
     drawCallback: function () {
       document.querySelectorAll('#devicesTable tbody .rowChk').forEach(function (c) {
         c.checked = devicesSelected.has(c.value);

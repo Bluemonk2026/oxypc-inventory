@@ -40,9 +40,10 @@
   <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span><i class="bi bi-upc-scan me-2"></i>Ready to Sale Tag Numbers</span>
     <div class="d-flex gap-2 align-items-center flex-wrap">
-      {# The only search box on this table — DataTables' own 'f' box is dropped
-         from the dom string below so scanning and searching share one input. #}
-      <input type="text" id="readyScanInput" class="form-control form-control-sm font-monospace"
+      {# Moved into the table's own DataTables toolbar (top right) by JS below.
+         It is the only search box on this table; DataTables' 'f' box is left
+         out of the dom string. #}
+      <input type="text" id="readyScanInput" class="d-none form-control form-control-sm font-monospace"
              style="max-width:280px" autocomplete="off" placeholder="Scan Tag/Serial, or search…">
       <button type="button" id="multiRequestBtn" class="btn btn-sm btn-outline-primary" disabled>
         <i class="bi bi-telephone-outbound me-1"></i>Multi-Request with selected (<span id="readySelCount">0</span>)
@@ -250,7 +251,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="/static/js/tag-scan-autocheck.js"></script>
+<script src="/static/js/tag-scan-autocheck.js?v={{ ASSET_VERSION }}"></script>
 <script>
 var readyDt;
 // Selected barcodes persist here rather than being read off checkbox state in
@@ -270,9 +271,10 @@ $(document).ready(function(){
                  [12, 25, 50, 100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]],
     order: [],
     searchDelay: 400,
-    // App-wide default is 'lf' — the 'f' is dropped here so the table does not
-    // render a second search box alongside the #readyScanInput box above it.
-    dom: '<"d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"l>' +
+    // App-wide default is 'lf' — the 'f' is dropped so the table does not render
+    // a second search box, and #readyScanArea gives the scan box a slot on the
+    // right of this toolbar, inside the table wrapper.
+    dom: '<"d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"l<"#readyScanArea">>' +
          'rt' +
          '<"d-flex flex-column align-items-center mt-3"<"small text-muted mb-1"i>p>',
     ajax: {
@@ -287,6 +289,9 @@ $(document).ready(function(){
       updateReadySel();
     },
   });
+
+  // Scan box lives in the table's own toolbar, top right.
+  $('#readyScanArea').append($('#readyScanInput').removeClass('d-none'));
 
   // Scan a tag/serial to select it: the search narrows the table server-side,
   // the match is ticked, and the input re-highlights so the gun's next value

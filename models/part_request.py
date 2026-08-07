@@ -83,3 +83,22 @@ class PartSourcingRequest(Base):
     reupload_requested = Column(Boolean, nullable=False, default=False, server_default="false")
     reupload_requested_at = Column(DateTime, nullable=True)
     reupload_requested_by = Column(String(50), nullable=True)
+
+    # ── Production-raised requests (Part Estimation page) ────────────────────
+    # 'procure'    — the original flow: Spare Parts Manager clicked Procure on a
+    #                single engineer part request, closed by Sales in the CRM.
+    # 'production' — raised by Download & Attach Estimate on Part Estimation.
+    #                Whole-lot request; Status renders as "Production", Part Code
+    #                stays blank, Part Name links back to the lot's estimate, and
+    #                the Action column offers Confirm Request instead of Verify.
+    # server_default is emitted verbatim into ALTER TABLE ... DEFAULT <x> by
+    # db_validator, so the quotes are part of the value — without them Postgres
+    # reads 'procure' as a column reference and the whole migration aborts.
+    source = Column(String(20), nullable=False, default="procure", server_default="'procure'", index=True)
+    lot_id = Column(UUID(as_uuid=True), ForeignKey("lots.id"), nullable=True)
+    lot_number = Column(String(100), nullable=True)
+    estimate_id = Column(UUID(as_uuid=True), ForeignKey("part_estimates.id"), nullable=True)
+
+    confirmed = Column(Boolean, nullable=False, default=False, server_default="false")
+    confirmed_at = Column(DateTime, nullable=True)
+    confirmed_by = Column(String(50), nullable=True)

@@ -477,9 +477,21 @@
           {% set _deal = deal_map.get(s.source_deal_id) if s.source_deal_id else None %}
           <tr>
             <td><input type="checkbox" class="form-check-input sp-cb" data-tbl="sourcingTable"></td>
-            <td>{% if s.status == 'closed' %}<span class="badge bg-success">Close</span>{% else %}<span class="badge bg-warning text-dark">Open</span>{% endif %}</td>
-            <td><code>{{ s.part_code or '—' }}</code></td>
-            <td class="fw-semibold">{{ s.part_name }}</td>
+            <td>
+              {% if s.source == 'production' %}<span class="badge bg-info text-dark">Production</span>
+              {% elif s.status == 'closed' %}<span class="badge bg-success">Close</span>
+              {% else %}<span class="badge bg-warning text-dark">Open</span>{% endif %}
+            </td>
+            <td>{% if s.source == 'production' %}<span class="text-muted">—</span>{% else %}<code>{{ s.part_code or '—' }}</code>{% endif %}</td>
+            <td class="fw-semibold">
+              {% if s.source == 'production' %}
+              <a href="/part-estimation">{{ s.part_name }}</a>
+              {% if s.estimate_id %}
+              <div><a class="small" href="/part-estimation/download/{{ s.estimate_id }}">
+                <i class="bi bi-file-earmark-excel me-1"></i>Download estimate</a></div>
+              {% endif %}
+              {% else %}{{ s.part_name }}{% endif %}
+            </td>
             <td>{{ s.qty_requested }}</td>
             <td>{{ s.qty_sourced }}</td>
             <td>{{ s.raised_by or '—' }}</td>
@@ -488,6 +500,14 @@
               {% else %}{{ s.source_deal_id or '—' }}{% endif %}
             </td>
             <td class="text-nowrap">
+              {% if s.source == 'production' %}
+              {% if s.estimate_id %}
+              <a class="btn btn-sm btn-outline-success py-0 px-1" title="Part Estimate"
+                 href="/part-estimation/download/{{ s.estimate_id }}"><i class="bi bi-file-earmark-excel"></i></a>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+              {% else %}
               {% if _deal and _deal.purchase_invoice_path %}
               <a class="btn btn-sm btn-outline-secondary py-0 px-1" title="Purchase Invoice"
                  href="/uploads/crm/{{ _deal.purchase_invoice_path }}" target="_blank"><i class="bi bi-file-earmark-text"></i></a>
@@ -506,9 +526,17 @@
               {% else %}
               <button class="btn btn-sm btn-outline-secondary py-0 px-1" disabled title="E-way Bill not uploaded"><i class="bi bi-truck"></i></button>
               {% endif %}
+              {% endif %}
             </td>
             <td>
-              {% if s.verified %}
+              {% if s.source == 'production' %}
+                {% if s.confirmed %}
+                <span class="badge bg-success"><i class="bi bi-patch-check"></i> Confirmed</span>
+                {% else %}
+                <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
+                        onclick="confirmProductionRequest('{{ s.id }}', this)">Confirm Request</button>
+                {% endif %}
+              {% elif s.verified %}
               <span class="badge bg-success"><i class="bi bi-patch-check"></i> Verified</span>
               {% elif s.status == 'closed' %}
               <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
@@ -822,6 +850,23 @@ document.getElementById('sourcingVerifyForm').addEventListener('submit', functio
   })
   .catch(function() { alert('Network error — please try again.'); });
 });
+
+function confirmProductionRequest(srId, btn) {
+  if (!confirm('Confirm this production part request?')) return;
+  var csrf = document.cookie.split('; ').find(function(c){ return c.startsWith('csrf_token='); });
+  btn.disabled = true;
+  fetch('/part-sourcing/' + srId + '/confirm', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({csrf_token: csrf ? csrf.split('=')[1] : ''})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.ok) { location.reload(); }
+    else { alert('Failed: ' + (d.error || 'Unknown error')); btn.disabled = false; }
+  })
+  .catch(function() { alert('Network error — please try again.'); btn.disabled = false; });
+}
 
 function submitSourcingReupload() {
   var srId = document.getElementById('sv_sr_id').value;

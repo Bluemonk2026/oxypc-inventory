@@ -346,6 +346,34 @@ async def verify_sourcing(sr_id: str, request: Request,
     return JSONResponse({"ok": True})
 
 
+@router.post("/part-sourcing/{sr_id}/confirm")
+async def confirm_production_sourcing(sr_id: str, request: Request,
+                                      db: AsyncSession = Depends(get_db),
+                                      current_user: User = Depends(spm_allowed)):
+    """Confirm Request — the Spare Parts Manager acknowledges a whole-lot
+    request raised from Part Estimation. Production-sourced rows have no CRM
+    deal to close, so this is their equivalent of the Verify step."""
+    sr = (await db.execute(
+        select(PartSourcingRequest).where(PartSourcingRequest.id == _as_uuid(sr_id))
+    )).scalar_one_or_none()
+    if not sr:
+        return JSONResponse({"ok": False, "error": "Sourcing request not found"}, status_code=404)
+    if sr.source != "production":
+        return JSONResponse({"ok": False, "error": "Only production requests can be confirmed here"}, status_code=409)
+    if sr.confirmed:
+        return JSONResponse({"ok": True})
+
+    sr.confirmed = True
+    sr.confirmed_at = app_now()
+    sr.confirmed_by = current_user.username
+    await audit(db, user=current_user, action="PRODUCTION_SOURCING_CONFIRMED",
+                table_name="part_sourcing_requests", record_id=str(sr.id),
+                new_value={"confirmed_by": current_user.username, "lot": sr.lot_number},
+                request=request)
+    await db.commit()
+    return JSONResponse({"ok": True})
+
+
 @router.post("/part-sourcing/{sr_id}/request-reupload")
 async def request_sourcing_reupload(sr_id: str, request: Request,
                                     db: AsyncSession = Depends(get_db), current_user: User = Depends(spm_allowed)):

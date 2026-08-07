@@ -20,6 +20,7 @@ from .iqc_inspection import IQCInspection
 from .stock_transfer import StockTransfer
 from .work_order import WorkOrder
 from .part_request import PartRequest, PartSourcingRequest
+from .part_estimate import PartEstimate, PartEstimateLine
 from .dispatch_request import TelecallerDispatchRequest
 from .stock_validation import StockValidation
 from .grn_import import GRNImport

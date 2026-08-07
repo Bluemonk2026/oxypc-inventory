@@ -98,7 +98,7 @@
       {% endif %}
 
       {# ── INVENTORY ───────────────────────────────────────────────────── #}
-      {% if any_perm(role,'stock','production_manager','transfers','inventory_requests','model_requested') %}
+      {% if any_perm(role,'stock','production_manager','part_estimation','transfers','inventory_requests','model_requested') %}
       <li class="nav-section">INVENTORY</li>
       {% if has_perm(role,'stock','enable') %}
       <li><a href="/stock" class="nav-link {% if request.url.path == '/stock' %}active{% endif %}">
@@ -126,6 +126,11 @@
       {% if has_perm(role,'production_manager','enable') %}
       <li><a href="/trc-production" class="nav-link {% if '/trc-production' in request.url.path %}active{% endif %}">
         <i class="bi bi-cpu me-2"></i> {{ sidebar_label('production_manager', 'Production Manager') }}
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'part_estimation','enable') %}
+      <li><a href="/part-estimation" class="nav-link {% if '/part-estimation' in request.url.path %}active{% endif %}">
+        <i class="bi bi-calculator me-2"></i> {{ sidebar_label('part_estimation', 'Part Estimation') }}
       </a></li>
       {% endif %}
       {% if has_perm(role,'transfers','enable') %}

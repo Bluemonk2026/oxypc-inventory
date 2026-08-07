@@ -67,6 +67,7 @@ NAV_PAGE_TITLES = [
     ("entity_movement",      "Entity Movement",               "Entity Movement",               "/entity-movement"),
     ("stock",                "Stock Inwards",                 "Stock Inwards",                 "/stock"),
     ("production_manager",   "Production Manager",            "Production Manager",            "/trc-production"),
+    ("part_estimation",      "Part Estimation",               "Part Estimation",               "/part-estimation"),
     ("scrap_products",       "Scrap Products",                "Scrap Products",                "/scrap-products"),
     ("transfers",            "Move Device",                   "Move Device",                   "/transfers"),
     ("repair_l1",            "L1 Repair",                     "L1 Repair",                     "/repair/l1"),

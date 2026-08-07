@@ -640,6 +640,24 @@ async def repair_list(stage: str, request: Request,
     if device_ids and wo_by_device:
         now = app_now()
         today = now.date()
+        # Stock lookups are memoised per (category, keyword). PARTS_MATRIX has 20
+        # fixed rows, so every device asks the same handful of questions — running
+        # the query per device per part meant ~1000 sequential round-trips on a
+        # 99-device queue and the page never finished loading.
+        stock_cache: dict = {}
+
+        async def _has_stock(category, keyword):
+            key = (category, keyword)
+            if key not in stock_cache:
+                sp = (await db.execute(
+                    select(SparePart).where(or_(
+                        SparePart.category == category,
+                        SparePart.name.ilike(f"%{keyword}%"),
+                    )).order_by(SparePart.qty_in_stock.desc())
+                )).scalars().first()
+                stock_cache[key] = bool(sp and sp.qty_in_stock)
+            return stock_cache[key]
+
         for did_str, dev in dev_by_id.items():
             wo = wo_by_device.get(did_str)
             if not wo:
@@ -649,13 +667,7 @@ async def repair_list(stage: str, request: Request,
             for row in compute_required(iqc, dev):
                 if not row["required"]:
                     continue
-                sp = (await db.execute(
-                    select(SparePart).where(or_(
-                        SparePart.category == row["category"],
-                        SparePart.name.ilike(f"%{row['keyword']}%"),
-                    )).order_by(SparePart.qty_in_stock.desc())
-                )).scalars().first()
-                if not sp or not sp.qty_in_stock:
+                if not await _has_stock(row["category"], row["keyword"]):
                     blocked = True
                     break
 

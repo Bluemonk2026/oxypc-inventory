@@ -266,6 +266,58 @@ class SchemaValidator:
             except Exception as e:
                 self.failed.append(f"Could not add {tbl}.{col}: {e}")
 
+    # ── check 2b: VARCHAR columns narrower in the DB than in the model ────────
+
+    async def check_column_widths(self, base_metadata) -> list[tuple]:
+        """Return (table, column, current_len, wanted_len) for every VARCHAR the
+        model has widened since the table was created.
+
+        ADD COLUMN only covers columns that do not exist yet; a column whose
+        length grew in the model stays narrow in the database forever, and the
+        overflow only surfaces at INSERT time as a StringDataRightTruncation —
+        which, on a bulk import, aborts the whole commit rather than one row.
+
+        Widening is non-destructive and rewrites no data. Narrowing is never
+        emitted: if the DB column is wider than the model, it is left alone,
+        since shrinking could truncate rows that are already stored.
+        """
+        widen = []
+        db_tables = await self._db_tables()
+
+        for tbl_name, tbl in base_metadata.tables.items():
+            if tbl_name not in db_tables:
+                continue
+            rows = (await self.conn.execute(text(
+                "SELECT column_name, character_maximum_length "
+                "FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = :t "
+                "AND data_type = 'character varying'"
+            ), {"t": tbl_name})).all()
+            db_len = {name: length for name, length in rows if length is not None}
+
+            for col in tbl.columns:
+                want = getattr(col.type, "length", None)
+                have = db_len.get(col.name)
+                if want and have and want > have:
+                    widen.append((tbl_name, col.name, have, want))
+                    self.issues.append(
+                        f"COLUMN TOO NARROW: {tbl_name}.{col.name} "
+                        f"varchar({have}) -> varchar({want})"
+                    )
+        return widen
+
+    # ── fix 2b: widen those columns ──────────────────────────────────────────
+
+    async def fix_column_widths(self, widen: list[tuple]) -> None:
+        for tbl, col, have, want in widen:
+            try:
+                await self.conn.execute(text(
+                    f"ALTER TABLE {tbl} ALTER COLUMN {col} TYPE VARCHAR({want})"
+                ))
+                self.fixed.append(f"Widened {tbl}.{col} varchar({have}) -> varchar({want})")
+            except Exception as e:
+                self.failed.append(f"Could not widen {tbl}.{col}: {e}")
+
     # ── check 3: stage_master correctness ────────────────────────────────────
 
     async def check_stages(self) -> None:
@@ -411,6 +463,13 @@ async def validate_and_fix(engine: AsyncEngine, auto_fix: bool = True) -> dict:
             await v.check_tables(Base.metadata)
 
         # ── Phase 2: check + fix missing columns ──────────────────────────────
+        # Widening runs first: a column that exists but is too narrow is not
+        # "missing", so ADD COLUMN never touches it, and the mismatch would
+        # otherwise stay invisible until an INSERT overflowed it.
+        widen_cols = await v.check_column_widths(Base.metadata)
+        if auto_fix and widen_cols:
+            await v.fix_column_widths(widen_cols)
+
         missing_cols = await v.check_columns(Base.metadata)
         if auto_fix and missing_cols:
             await v.fix_missing_columns(missing_cols)

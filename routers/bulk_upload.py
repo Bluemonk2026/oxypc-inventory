@@ -85,6 +85,74 @@ def _resolve_tag_header(row: dict) -> str | None:
                 return val
     return None
 
+
+def _row_get(row: dict, key: str) -> str:
+    """Case-insensitive column read.
+
+    Spreadsheets round-trip headers with inconsistent casing — a file whose
+    first column reads "Entity" rather than "entity" used to import with the
+    entity silently dropped, because every lookup was an exact dict hit. The
+    tag-number column already tolerated casing; now every column does.
+    """
+    v = row.get(key)
+    if v is None:
+        for k in row.keys():
+            if k is not None and k.lower() == key.lower():
+                v = row[k]
+                break
+    return v or ""
+
+
+# ── IQC inspection column shapes, read off the model ─────────────────────────
+# The checklist used to be written straight through as text:
+#     **{f: _s(row, f) for f in IQC_INSPECTION_FIELDS}
+# which handed "Yes" to an Integer column and a 13-character value to a
+# varchar(10). Both are rejected by Postgres at flush — i.e. at commit, outside
+# the per-row try/except — so a single bad cell aborted the entire upload with
+# an unhandled 500 and imported nothing. Coercing against the real column type
+# turns those into ordinary per-row errors.
+def _inspection_column_specs() -> dict:
+    specs = {}
+    for col in IQCInspection.__table__.columns:
+        t = col.type.__class__.__name__
+        specs[col.name] = (t, getattr(col.type, "length", None))
+    return specs
+
+
+_INSPECTION_SPECS = _inspection_column_specs()
+
+
+def _coerce_inspection(row: dict, row_no: int, errors: list) -> dict:
+    """Build the IQCInspection kwargs for one row, coercing each value to its
+    column's type. Any value that cannot be represented is reported against
+    the row and left out, so the rest of the row still imports."""
+    out = {}
+    for f in IQC_INSPECTION_FIELDS:
+        raw = _row_get(row, f).strip()
+        if not raw:
+            continue
+        kind, length = _INSPECTION_SPECS.get(f, ("String", None))
+
+        if kind in ("Integer", "SmallInteger", "BigInteger"):
+            # Pull the first integer out of whatever was typed ("2 ports" -> 2).
+            # A cell with no digits at all ("Yes", "No") is left unset rather
+            # than guessed at — inventing 1/0 for a dBA reading or a port count
+            # would put a fabricated measurement into the inspection record.
+            m = re.search(r"-?\d+", raw)
+            if m:
+                out[f] = int(m.group())
+        elif kind in ("Float", "Numeric"):
+            m = re.search(r"-?\d+(?:\.\d+)?", raw)
+            if m:
+                out[f] = float(m.group())
+        else:
+            if length and len(raw) > length:
+                errors.append(
+                    f"Row {row_no}: {f} is {len(raw)} characters, max {length} ('{raw}')")
+            else:
+                out[f] = raw
+    return out
+
 # Only a handful of illustrative inspection values in the sample row — the rest
 # are left blank since the checklist is optional and 70+ filled columns would
 # make the example row unreadable.
@@ -348,18 +416,17 @@ async def upload_devices(
     existing_devices_by_barcode: dict[str, Device] = {}
 
     def _s(row, key):
-        return (row.get(key) or "").strip() or None
+        return _row_get(row, key).strip() or None
 
     def _i(row, key):
         # Accept any value without restriction — pull the first integer out of
         # whatever was typed (e.g. "256GB" -> 256, "8 GB" -> 8) instead of
         # silently discarding the whole cell just because it wasn't a bare digit.
-        v = (row.get(key) or "").strip()
-        m = re.search(r"-?\d+", v)
+        m = re.search(r"-?\d+", _row_get(row, key).strip())
         return int(m.group()) if m else None
 
     def _grade(row, key="grade"):
-        return _parse_grade(row.get(key))
+        return _parse_grade(_row_get(row, key))
 
     # Entity is matched case-insensitively against the Dropdown-configuration
     # list and stored in its canonical spelling, so "deshwal" and "DESHWAL"
@@ -463,17 +530,15 @@ async def upload_devices(
 
             # ── Physical inspection checklist (mirrors the manual IQC entry
             # form's IQCInspection creation) — entirely optional per-row. ──
+            # Every checklist value is coerced to its column's real type and
+            # length-checked here, before anything is staged — see
+            # _coerce_inspection. Overflows land in `errors` as a row message
+            # instead of blowing up the shared commit later.
             inspection = IQCInspection(
                 device_id=device.id,
                 inspector_name=current_user.full_name,
                 bios_password=("Yes" if bios_pwd_raw == "yes" else "No" if bios_pwd_raw == "no" else None),
-                **{f: _s(row, f) for f in IQC_INSPECTION_FIELDS
-                   if f not in ("usb_a_ports", "usb_c_ports", "ethernet_ports",
-                                 "storage_health_pct", "fan_sound_dba", "bios_password")},
-                usb_a_ports=_i(row, "usb_a_ports"), usb_c_ports=_i(row, "usb_c_ports"),
-                ethernet_ports=_i(row, "ethernet_ports"),
-                storage_health_pct=_i(row, "storage_health_pct"),
-                fan_sound_dba=_i(row, "fan_sound_dba"),
+                **_coerce_inspection(row, i, errors),
             )
             db.add(inspection)
             inserted += 1
@@ -483,7 +548,21 @@ async def upload_devices(
     # Single flush/commit for the whole batch — a flush per row was causing a
     # DB round-trip per device, slow enough on larger CSVs to trip a reverse
     # proxy's upstream timeout ("upstream error") before the response returned.
-    await db.commit()
+    #
+    # Batching means a value the row-level checks did not catch is rejected
+    # here, for the whole batch at once, far from the row that caused it. That
+    # used to surface as an unhandled 500 with no indication of which file or
+    # cell was at fault. Report it on the results page instead, so the upload
+    # always ends somewhere the user can act on.
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        inserted = 0
+        errors.append(
+            "The batch could not be saved and no rows were imported. "
+            "Fix the value below and re-upload: " + str(e).split("\n")[0]
+        )
     return templates.TemplateResponse("bulk_upload/result.html", {
         "request": request, "current_user": current_user,
         "upload_type": "Devices", "inserted": inserted, "errors": errors,

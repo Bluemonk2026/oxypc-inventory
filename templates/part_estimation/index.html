@@ -172,9 +172,7 @@
             <table class="table table-sm table-bordered align-middle mb-3">
               <tbody>
                 <tr class="table-secondary fw-semibold">
-                  <td>Total Unit Price</td>
-                  <td class="text-end" style="width:200px" id="me_unit_total">0.00</td>
-                  <td>Total Parts Price</td>
+                  <td colspan="3" class="text-end">Total Parts Price</td>
                   <td class="text-end" style="width:200px" id="me_parts_total">0.00</td>
                 </tr>
                 <tr>
@@ -421,25 +419,34 @@ function meRenderModel(m, groups, prevCosts, idx) {
 
   var tbl = $('<table>').addClass('table table-sm table-bordered align-middle mb-0 small');
   tbl.append($('<thead>').addClass('table-light').append($('<tr>').append(
-    $('<th>').text('Part'), $('<th>').css('max-width', '160px').text('Note'),
-    $('<th>').css('width', '110px').text('Parts Quantity'),
-    $('<th>').css('width', '150px').text('Unit Part Price'),
-    $('<th>').css('width', '150px').text('Total Part Value'))));
+    $('<th>').css('white-space', 'nowrap').text('Part'),
+    $('<th>').css({ 'max-width': '160px', 'white-space': 'nowrap' }).text('Note'),
+    $('<th>').css({ width: '130px', 'white-space': 'nowrap' }).text('Parts Quantity'),
+    $('<th>').css({ width: '160px', 'white-space': 'nowrap' }).text('Unit Part Price'),
+    $('<th>').css({ width: '160px', 'white-space': 'nowrap' }).text('Total Part Value'))));
 
   var body = $('<tbody>');
   groups.forEach(function (g) {
-    var sel = $('<select>').addClass('form-select form-select-sm d-inline-block me-status')
-      .css('width', 'auto').attr('data-group', g.key);
-    sel.append($('<option>').val('').text('Select'));
-    g.statuses.forEach(function (s) { sel.append($('<option>').val(s).text(s)); });
-    // Opens on "Yes" so the card shows real numbers straight away; "Select"
-    // zeroes the group, which is how a whole group is left out of the bill.
-    sel.val('Yes');
+    // Multi-select: any combination of statuses can be checked at once, and
+    // a part's Parts Quantity is the sum across every status ticked for its
+    // group — e.g. ticking both Minor and Major under Cosmetic Part Damage?
+    // counts a part as needed whichever of those two a tag landed on. Opens
+    // on "Yes" alone so the card shows real numbers straight away; unticking
+    // everything zeroes the group, which is how it's left out of the bill.
+    var statusBox = $('<span>').addClass('d-inline-flex flex-wrap gap-2 align-middle');
+    g.statuses.forEach(function (s) {
+      var id = 'me_st_' + g.key + '_' + s.replace(/\W+/g, '') + '_' + Math.random().toString(36).slice(2, 7);
+      var cb = $('<input>').attr({ type: 'checkbox', id: id, checked: s === 'Yes' })
+        .addClass('form-check-input me-status-cb').attr('data-group', g.key).val(s);
+      statusBox.append(
+        $('<span>').addClass('form-check form-check-inline me-0').append(
+          cb, $('<label>').addClass('form-check-label small').attr('for', id).text(s)));
+    });
 
     body.append($('<tr>').addClass('table-secondary').append(
       $('<td>').attr('colspan', 5).append(
         $('<span>').addClass('fw-semibold me-2').text(g.heading),
-        $('<span>').addClass('text-muted me-1').text(g.filter_label + ':'), sel)));
+        $('<span>').addClass('text-muted me-2').text(g.filter_label + ':'), statusBox)));
 
     g.parts.forEach(function (part) {
       var counts = ((m.counts[g.key] || {})[part]) || {};
@@ -450,7 +457,7 @@ function meRenderModel(m, groups, prevCosts, idx) {
         .append(
           $('<td>').text(part),
           $('<td>').css('max-width', '160px').append($('<input>').attr({ type: 'text', maxlength: 255 })
-            .addClass('form-control form-control-sm me-note')),
+            .addClass('form-control form-control-sm me-note').css('max-width', '160px')),
           $('<td>').addClass('me-qty text-end').text('0'),
           $('<td>').append($('<input>').attr({ type: 'number', step: '0.01', min: '0' })
             .addClass('form-control form-control-sm text-end me-unit')
@@ -461,11 +468,11 @@ function meRenderModel(m, groups, prevCosts, idx) {
 
   // Collapsed rows stay in the DOM — recalcModelEstimate reads them whether or
   // not they are on screen, so a closed model still counts toward the totals.
-  var open = idx === 0;
-  card.append($('<div>').addClass('me-panel table-responsive')
-    .toggleClass('d-none', !open)
-    .append(tbl.append(body)));
-  if (open) card.find('.me-chevron').removeClass('bi-chevron-right').addClass('bi-chevron-down');
+  // Every model starts collapsed: with a dozen models the first one opening
+  // by default was still a wall of tables to load into, and the pricing
+  // fields underneath are keyed off default statuses regardless of whether
+  // the card is open, so nothing is lost by starting closed.
+  card.append($('<div>').addClass('me-panel table-responsive d-none').append(tbl.append(body)));
   return card;
 }
 
@@ -481,38 +488,41 @@ $(document).on('click', '.me-head', function (e) {
 });
 
 function recalcModelEstimate() {
-  var unitTotal = 0, partsTotal = 0;
+  var partsTotal = 0;
   $('#me_models .me-model').each(function () {
     var card = $(this);
     var included = card.find('.me-include').prop('checked');
     card.toggleClass('opacity-50', !included);
+    // Every status ticked for a group, not just one — a part's quantity is
+    // the sum of the counts for however many statuses are checked.
     var statuses = {};
-    card.find('.me-status').each(function () {
-      statuses[$(this).data('group')] = $(this).val();
+    card.find('.me-status-cb:checked').each(function () {
+      var g = $(this).data('group');
+      (statuses[g] = statuses[g] || []).push(this.value);
     });
     var mQty = 0, mUnit = 0, mTotal = 0;
     card.find('.me-part').each(function () {
       var row = $(this);
-      var status = statuses[row.attr('data-group')];
-      var qty = status ? (row.data('counts')[status] || 0) : 0;
+      var checked = statuses[row.attr('data-group')] || [];
+      var counts = row.data('counts');
+      var qty = checked.reduce(function (s, status) { return s + (counts[status] || 0); }, 0);
       var unit = parseFloat(row.find('.me-unit').val()) || 0;
       var total = qty * unit;
       row.find('.me-qty').text(qty);
       row.find('.me-total').text(estMoney(total));
       // A row needing nothing is dropped from view entirely, not just muted —
       // it would otherwise pad out every model's table with rows nobody acts
-      // on. Unit price / note stay intact underneath so switching the group
-      // status back to a band that DOES need this part restores them.
+      // on. Unit price / note stay intact underneath so ticking a status
+      // band that DOES need this part restores them.
       row.toggleClass('d-none', qty === 0);
       mQty += qty; mUnit += unit; mTotal += total;
     });
     card.find('.me-model-qty').text(mQty);
     card.find('.me-model-unit').text(estMoney(mUnit));
     card.find('.me-model-total').text(estMoney(mTotal));
-    if (included) { unitTotal += mUnit; partsTotal += mTotal; }
+    if (included) { partsTotal += mTotal; }
   });
   var labour = parseFloat($('#me_labour').val()) || 0;
-  $('#me_unit_total').text(estMoney(unitTotal));
   $('#me_parts_total').text(estMoney(partsTotal));
   $('#me_grand').text(estMoney(partsTotal + labour));
 }
@@ -566,7 +576,7 @@ function openModelEstimateModal(lotId, lotNumber) {
 }
 
 $(document).on('input', '.me-unit, #me_labour', recalcModelEstimate);
-$(document).on('change', '.me-status, .me-include', recalcModelEstimate);
+$(document).on('change', '.me-status-cb, .me-include', recalcModelEstimate);
 
 function submitModelEstimate() {
   var included = [], statuses = {}, prices = {};
@@ -574,9 +584,13 @@ function submitModelEstimate() {
     var card = $(this), key = card.attr('data-key');
     if (!card.find('.me-include').prop('checked')) return;
     included.push(key);
+    // Every status ticked per group, not one — matches quantities_for on the
+    // server, which now sums counts across the whole list instead of reading
+    // a single value.
     statuses[key] = {};
-    card.find('.me-status').each(function () {
-      statuses[key][$(this).data('group')] = $(this).val();
+    card.find('.me-status-cb:checked').each(function () {
+      var g = $(this).data('group');
+      (statuses[key][g] = statuses[key][g] || []).push(this.value);
     });
     prices[key] = {};
     card.find('.me-part').each(function () {

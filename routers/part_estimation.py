@@ -348,7 +348,7 @@ async def generate_model_estimate(
 
     payload = {
       included: [model_key, ...],
-      statuses: {model_key: {group: status}},
+      statuses: {model_key: {group: [status, ...]}},  # multi-select per group
       prices:   {model_key: {"<group>|<part>": {note, unit_cost}}},
       grade:    grade_value,
       labour_cost, notes
@@ -412,10 +412,10 @@ async def generate_model_estimate(
                  "groups": []}
 
         for g, heading, filter_label, group_statuses, parts in PART_GROUPS:
-            status = (statuses.get(row["key"]) or {}).get(g)
-            status = status if status in group_statuses else None
+            picked = [s for s in ((statuses.get(row["key"]) or {}).get(g) or [])
+                     if s in group_statuses]
             grp = {"heading": heading, "filter_label": filter_label,
-                   "status": status, "lines": []}
+                   "status": ", ".join(picked) or None, "lines": []}
             for name, _fn in parts:
                 cell = model_prices.get(f"{g}|{name}") or {}
                 qty = qtys[row["key"]][g][name]

@@ -249,22 +249,26 @@ async def lot_model_matrix(db: AsyncSession, lot_id) -> list[dict]:
 def quantities_for(matrix: list[dict], selections: dict) -> dict:
     """Server-side re-derivation of every quantity the modal displayed.
 
-    selections is {model_key: {group: status}}. Returns
-    {model_key: {group: {part: qty}}} using only the counts computed from IQC —
-    the browser's numbers are never trusted, only its status choices are.
+    selections is {model_key: {group: [status, ...]}} — each group's status
+    filter is a multi-select, so a part's quantity is the sum of the counts
+    for however many statuses are ticked (e.g. Minor + Major both checked
+    under Cosmetic Part Damage? counts a part as needed under either one).
+    Returns {model_key: {group: {part: qty}}} using only the counts computed
+    from IQC — the browser's numbers are never trusted, only its status
+    choices are.
     """
     out: dict = {}
     for row in matrix:
         chosen = selections.get(row["key"]) or {}
         per_group = {}
         for g, _h, _f, statuses, parts in PART_GROUPS:
-            status = chosen.get(g)
-            # "Select" (or anything unrecognised) costs nothing — it is how the
-            # operator drops a whole group out of the estimate.
-            if status not in statuses:
-                per_group[g] = {name: 0 for name, _fn in parts}
-                continue
-            per_group[g] = {name: row["counts"][g][name].get(status, 0)
+            # Anything not a real status for this group is dropped rather than
+            # rejected — a stale or tampered value must not raise, it just
+            # doesn't contribute to the count. No statuses ticked (or all of
+            # them unrecognised) costs nothing, same as "Select" did before
+            # this was a multi-select.
+            picked = [s for s in (chosen.get(g) or []) if s in statuses]
+            per_group[g] = {name: sum(row["counts"][g][name].get(s, 0) for s in picked)
                             for name, _fn in parts}
         out[row["key"]] = per_group
     return out

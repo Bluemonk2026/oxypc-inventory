@@ -34,14 +34,17 @@
         <label class="form-label fw-semibold">Mobile Number</label>
         <div class="input-group">
           <span class="input-group-text"><i class="bi bi-phone"></i></span>
-          <input type="tel" name="phone" class="form-control" placeholder="10-digit mobile" inputmode="numeric" autofocus required>
+          <input type="tel" name="phone" class="form-control" placeholder="10-digit mobile" inputmode="numeric" autocomplete="tel" autofocus required>
         </div>
       </div>
       <div class="mb-4">
         <label class="form-label fw-semibold">Password</label>
         <div class="input-group">
           <span class="input-group-text"><i class="bi bi-lock"></i></span>
-          <input type="password" name="password" class="form-control" placeholder="Enter password" required>
+          <input type="password" id="partnerPassword" name="password" class="form-control" placeholder="Enter password" autocomplete="current-password" required>
+          <button type="button" class="btn btn-outline-secondary" id="togglePartnerPassword" tabindex="-1" title="Show/hide password">
+            <i class="bi bi-eye"></i>
+          </button>
         </div>
       </div>
       <button type="submit" class="btn btn-primary w-100 py-2 fw-semibold">
@@ -55,6 +58,14 @@
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/partner/sw.js').catch(function () {});
 }
+document.getElementById('togglePartnerPassword').addEventListener('click', function () {
+  var pw = document.getElementById('partnerPassword');
+  var icon = this.querySelector('i');
+  var showing = pw.type === 'text';
+  pw.type = showing ? 'password' : 'text';
+  icon.classList.toggle('bi-eye', showing);
+  icon.classList.toggle('bi-eye-slash', !showing);
+});
 </script>
 </body>
 </html>

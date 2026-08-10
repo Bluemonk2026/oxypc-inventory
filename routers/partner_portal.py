@@ -59,6 +59,10 @@ def _login_page(request: Request, error: str = None):
     })
     resp.set_cookie(PARTNER_CSRF_COOKIE, csrf_tok, httponly=False,
                     samesite="strict", secure=COOKIE_SECURE)
+    # Prevent the browser/bfcache from serving a stale copy of this page —
+    # a cached page carries an old CSRF hidden field that no longer matches
+    # the cookie, which fails with a confusing "Session expired" on submit.
+    resp.headers["Cache-Control"] = "no-store"
     return resp
 
 

@@ -60,18 +60,8 @@ PARTS_MATRIX = [
                           or (d is not None and d.hdd_capacity_gb is None)),
     ("Internal Battery",  "Battery",    "battery",  lambda i, d: _is(i.battery_present, "No") or _is_sentinel(i.battery_present)
                           or (d is not None and d.battery_health_pct is not None and d.battery_health_pct < 40)),
-    ("Keyboard",          "Keyboard",   "keyboard", lambda i, d: _is(i.keyboard_working, "No") or _is_sentinel(i.keyboard_working)
-                          or _is(i.keyboard_key_missing, "Yes")),
-    ("Display",           "Screen",     "screen",   lambda i, d: _is(i.status, "No Display")
-                          or _is(i.screen_broken, "Yes") or _is(i.screen_line, "Yes")
-                          or _is(i.screen_dot, "Yes") or _is(i.screen_flickering, "Yes")
-                          or _is(i.screen_missing, "Yes") or _is(i.screen_functional, "No")
-                          or _is_sentinel(i.screen_functional)),
-    ("Hinge",             "Other",      "hinge",    lambda i, d: _is(i.screen_hinge_broken, "Yes") or _is_sentinel(i.screen_hinge_broken)),
     ("Adapter",           "Charger",    "charger",  lambda i, d: False),
     ("Speaker",           "Other",      "speaker",  lambda i, d: _faulty(i.speaker_status) or _is_sentinel(i.speaker_status)),
-    ("Touchpad",          "Other",      "touchpad", lambda i, d: _is(i.touchpad_working, "No") or _is_sentinel(i.touchpad_working)
-                          or _is(i.touchpad_missing, "Yes")),
     ("Wi-Fi",             "Other",      "wifi",     lambda i, d: _faulty(i.wifi_status) or _is_sentinel(i.wifi_status)),
     ("Web Cam",           "Other",      "webcam",   lambda i, d: _faulty(i.webcam_status) or _is_sentinel(i.webcam_status)),
     # ── Remaining IQC hardware fields (item 3d) — one Parts Consumption row per
@@ -86,20 +76,49 @@ PARTS_MATRIX = [
     ("DVD Drive",         "DVD Drive",  "dvd",      lambda i, d: _is(i.dvd_drive, "No") or _faulty(i.dvd_drive)),
     ("Fan Working",       "Fan",        "fan",      lambda i, d: _is(i.fan_working, "No") or _faulty(i.fan_working)),
     ("Motherboard",       "Motherboard", "motherboard", lambda i, d: _is(i.status, "No Display") or _is(i.power_on, "No")),
-    # ── Cosmetic body panels ─────────────────────────────────────────────────
-    # One row per panel group on the IQC Entry form. Required when that panel
-    # is recorded broken, missing or dented — a scratch or a faded colour is
-    # refinished at the Paint stage, not replaced, so those fields are not
-    # consulted here.
+    # ── Body / display assembly, kept together at the foot of the table ──────
+    # These eight are the parts an engineer strips the chassis to reach, so
+    # they sit last and in the order the machine comes apart: lid, bezel,
+    # screen, hinges, then the base half. The sequence is fixed by the
+    # business, not derived — do not re-sort this block.
+    #
+    # The four cosmetic panels are Required when that panel is recorded
+    # broken, missing or dented. A scratch or a faded colour is refinished at
+    # the Paint stage, not replaced, so those fields are not consulted.
     ("Display Panel",     "Body",   "display panel", lambda i, d: _damaged(
         i.panel_a_broken, i.panel_a_missing, i.panel_a_dent)),
-    ("Bazel Frame",       "Bazel",  "bazel",         lambda i, d: _damaged(
+    # Label is "Bezel"; the category and keyword stay "Bazel" because that is
+    # how the spare-part rows are spelled in master data and they are the
+    # stock-matching keys. Rename those in Master Data if you want them to
+    # agree — the display label does not depend on it.
+    ("Bezel",             "Bazel",  "bazel",         lambda i, d: _damaged(
         i.panel_c_broken, i.panel_c_missing, i.panel_c_dent)),
+    ("Display",           "Screen",     "screen",   lambda i, d: _is(i.status, "No Display")
+                          or _is(i.screen_broken, "Yes") or _is(i.screen_line, "Yes")
+                          or _is(i.screen_dot, "Yes") or _is(i.screen_flickering, "Yes")
+                          or _is(i.screen_missing, "Yes") or _is(i.screen_functional, "No")
+                          or _is_sentinel(i.screen_functional)),
+    ("Hinge",             "Other",      "hinge",    lambda i, d: _is(i.screen_hinge_broken, "Yes") or _is_sentinel(i.screen_hinge_broken)),
+    ("Touchpad",          "Other",      "touchpad", lambda i, d: _is(i.touchpad_working, "No") or _is_sentinel(i.touchpad_working)
+                          or _is(i.touchpad_missing, "Yes")),
     ("Bottom Base",       "Body",   "bottom base",   lambda i, d: _damaged(
         i.panel_b_broken, i.panel_b_missing, i.panel_b_rubber_cut)),
+    ("Keyboard",          "Keyboard",   "keyboard", lambda i, d: _is(i.keyboard_working, "No") or _is_sentinel(i.keyboard_working)
+                          or _is(i.keyboard_key_missing, "Yes")),
     ("Palm rest",         "Body",   "palm rest",     lambda i, d: _damaged(
         i.panel_d_broken, i.panel_d_missing, i.panel_d_dent)),
 ]
+
+# The eight rows above must stay last and in this order. compute_required
+# preserves PARTS_MATRIX order, so a stray edit that moves one of them would
+# silently reorder the Device Detail table; the assertion below turns that
+# into an import-time failure instead.
+_BODY_TAIL = ["Display Panel", "Bezel", "Display", "Hinge",
+              "Touchpad", "Bottom Base", "Keyboard", "Palm rest"]
+assert [row[0] for row in PARTS_MATRIX[-len(_BODY_TAIL):]] == _BODY_TAIL, (
+    "PARTS_MATRIX tail order changed — Parts Consumption expects "
+    f"{_BODY_TAIL}, found {[row[0] for row in PARTS_MATRIX[-len(_BODY_TAIL):]]}"
+)
 
 
 # Older labels that PartRequest.part_name rows may still carry in the database.
@@ -109,6 +128,8 @@ PARTS_MATRIX = [
 LEGACY_LABELS = {
     "Display": ("Screen / Display",),
     "Adapter": ("Adapter / Charger",),
+    # Shipped as "Bazel Frame" for one day before being renamed.
+    "Bezel": ("Bazel Frame",),
 }
 
 

@@ -478,8 +478,13 @@
           <tr>
             <td><input type="checkbox" class="form-check-input sp-cb" data-tbl="sourcingTable"></td>
             <td>
-              {% if s.source == 'production' %}<span class="badge bg-info text-dark">Production</span>
-              {% elif s.status == 'closed' %}<span class="badge bg-success">Close</span>
+              {# Closing the deal on Procurement Board (Parts Sourcing tab)
+                 sets status='closed' the same way for a production row as
+                 any other — checked first here so a closed production row
+                 reads "Close" instead of getting stuck on "Production"
+                 forever. #}
+              {% if s.status == 'closed' %}<span class="badge bg-success">Close</span>
+              {% elif s.source == 'production' %}<span class="badge bg-info text-dark">Production</span>
               {% else %}<span class="badge bg-warning text-dark">Open</span>{% endif %}
             </td>
             {# Production requests cover a whole lot, so they have no part code.
@@ -545,18 +550,23 @@
               {% endif %}
             </td>
             <td>
-              {% if s.source == 'production' %}
+              {# Verify/Verified is checked ahead of the production branch so
+                 a production row that's been closed on Procurement Board
+                 (Parts Sourcing tab -> Close Deal) moves on to the same
+                 Verify step every other closed request goes through, instead
+                 of sitting on "Confirmed" forever with nothing left to do. #}
+              {% if s.verified %}
+              <span class="badge bg-success"><i class="bi bi-patch-check"></i> Verified</span>
+              {% elif s.status == 'closed' %}
+              <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
+                      onclick="openSourcingVerifyModal('{{ s.id }}', '{{ s.part_name }}')">Verify</button>
+              {% elif s.source == 'production' %}
                 {% if s.confirmed %}
                 <span class="badge bg-success"><i class="bi bi-patch-check"></i> Confirmed</span>
                 {% else %}
                 <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
                         onclick="confirmProductionRequest('{{ s.id }}', this)">Confirm Request</button>
                 {% endif %}
-              {% elif s.verified %}
-              <span class="badge bg-success"><i class="bi bi-patch-check"></i> Verified</span>
-              {% elif s.status == 'closed' %}
-              <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
-                      onclick="openSourcingVerifyModal('{{ s.id }}', '{{ s.part_name }}')">Verify</button>
               {% else %}
               <span class="badge bg-warning text-dark">Pending at Sourcing</span>
               {% endif %}

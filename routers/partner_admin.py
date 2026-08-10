@@ -1606,6 +1606,53 @@ async def lot_captured_bids(
     } for r in rows]})
 
 
+async def _lot_model_summary(db: AsyncSession, lot_id) -> list[dict]:
+    """Model / Make / Device Type / Total Quantity for one lot, across ALL
+    stages (no current_stage filter).
+
+    Two bits of real-world messiness are folded out, because leaving them in
+    splits one model across several rows and reads as a bug:
+
+    * device_type is NULL on about a quarter of devices while sub_category is
+      set, so Device Type falls back to sub_category.
+    * Make and Model spellings vary in case ("HP"/"Hp", "Lenovo"/"LENOVO").
+      Rows are grouped case-insensitively and displayed using whichever
+      spelling covers the most units.
+
+    Quantities are unaffected by either — every device still counts exactly
+    once.
+    """
+    rows = (await db.execute(
+        select(Device.model, Device.brand,
+               func.coalesce(Device.device_type, Device.sub_category).label("dtype"),
+               func.count(Device.id).label("qty"))
+        .where(Device.lot_id == lot_id,
+               Device.is_active == True, Device.is_trashed == False)  # noqa: E712
+        .group_by(Device.model, Device.brand,
+                  func.coalesce(Device.device_type, Device.sub_category))
+    )).all()
+
+    merged: dict = {}
+    for r in rows:
+        model = (r.model or "").strip()
+        make = (r.brand or "").strip()
+        dtype = (r.dtype or "").strip()
+        key = (model.upper(), make.upper(), dtype.upper())
+        e = merged.setdefault(key, {"qty": 0, "spellings": {}})
+        e["qty"] += r.qty
+        # remember how many units back each spelling so the biggest one wins
+        e["spellings"][(model, make, dtype)] = \
+            e["spellings"].get((model, make, dtype), 0) + r.qty
+
+    out = []
+    for e in merged.values():
+        model, make, dtype = max(e["spellings"].items(), key=lambda kv: kv[1])[0]
+        out.append({"model": model or "-", "make": make or "-",
+                    "device_type": dtype or "-", "qty": e["qty"]})
+    out.sort(key=lambda d: (-d["qty"], d["model"]))
+    return out
+
+
 @router.get("/bids/{bid_id}/po-preview")
 async def po_preview(
     bid_id: str,
@@ -1625,45 +1672,24 @@ async def po_preview(
     rows = await _bid_rows(db, [bid])
     r = rows[0]
 
+    # Summary of the bid's lot: one row per Model / Make / Device Type with the
+    # total quantity, replacing the old per-spec line item table.
     items = []
     if bid.lot_id:
-        # Show every Model added under this Lot, across ALL stages (no
-        # Device.current_stage filter) — the Line Item table previously only
-        # showed LotLineItem rows (invoice-entry data), missing models that
-        # only exist as stocked Device rows in later stages (L1/L2/stock_in/
-        # sold/etc). Device-based grouping is now the primary source.
-        drows = (await db.execute(
-            select(Device.model, Device.cpu, Device.generation, Device.ram_gb,
-                   Device.storage_gb, Device.storage_type,
-                   func.count(Device.id).label("qty"))
-            .where(Device.lot_id == bid.lot_id,
-                   Device.is_active == True, Device.is_trashed == False)  # noqa: E712
-            .group_by(Device.model, Device.cpu, Device.generation, Device.ram_gb,
-                      Device.storage_gb, Device.storage_type)
-            .order_by(func.count(Device.id).desc())
-        )).all()
-        items = [{
-            "model": d.model or "-",
-            "cpu": " ".join(x for x in [d.cpu, d.generation] if x) or "-",
-            "ram": f"{d.ram_gb}GB" if d.ram_gb else "-",
-            "storage": (f"{d.storage_gb}GB {d.storage_type or ''}".strip()
-                        if d.storage_gb else "-"),
-            "qty": d.qty,
-        } for d in drows]
+        items = await _lot_model_summary(db, bid.lot_id)
 
         # Fallback for lots stocked only via LotLineItem entries (no Device
-        # rows created yet).
+        # rows created yet). LotLineItem has no device_type — sub_category is
+        # the equivalent field there.
         if not items:
             for li in (await db.execute(
                 select(LotLineItem).where(LotLineItem.lot_id == bid.lot_id)
                 .order_by(LotLineItem.sub_category, LotLineItem.model)
             )).scalars().all():
                 items.append({
-                    "model": li.model or li.sub_category or "-",
-                    "cpu": " ".join(x for x in [li.cpu, li.generation] if x) or "-",
-                    "ram": f"{li.ram_gb}GB" if li.ram_gb else "-",
-                    "storage": (f"{li.storage_gb}GB {li.storage_type or ''}".strip()
-                                if li.storage_gb else "-"),
+                    "model": li.model or "-",
+                    "make": li.brand or "-",
+                    "device_type": li.sub_category or "-",
                     "qty": li.qty or 0,
                 })
     return JSONResponse({

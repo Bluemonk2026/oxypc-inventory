@@ -276,9 +276,12 @@
         <div class="table-responsive mb-2">
           <table class="table table-sm table-bordered mb-0">
             <thead class="table-light">
-              <tr><th>Model Name</th><th>CPU</th><th>RAM</th><th>Storage</th><th class="text-end">Quantity</th></tr>
+              <tr><th>Model Names</th><th>Make</th><th>Device Type</th><th class="text-end">Total Quantity</th></tr>
             </thead>
             <tbody id="poItemsBody"></tbody>
+            <tfoot class="table-light fw-semibold">
+              <tr><td colspan="3" class="text-end">Total</td><td class="text-end" id="poItemsTotal">0</td></tr>
+            </tfoot>
           </table>
         </div>
         {# Per-row prices are deliberately omitted — only the won total is shown. #}
@@ -453,11 +456,14 @@ function openPoPreview(bidId){
       document.getElementById('poLot').textContent = d.lot_number || '';
       document.getElementById('poTotal').textContent = inr(d.total);
       var body = document.getElementById('poItemsBody');
-      body.innerHTML = (d.items && d.items.length)
-        ? d.items.map(i => `<tr><td>${esc(i.model)}</td><td>${esc(i.cpu)}</td>
-             <td>${esc(i.ram)}</td><td>${esc(i.storage)}</td>
+      var items = d.items || [];
+      body.innerHTML = items.length
+        ? items.map(i => `<tr><td>${esc(i.model)}</td><td>${esc(i.make)}</td>
+             <td>${esc(i.device_type)}</td>
              <td class="text-end">${esc(i.qty)}</td></tr>`).join('')
-        : '<tr><td colspan="5" class="text-center text-muted py-2">No line items on this lot.</td></tr>';
+        : '<tr><td colspan="4" class="text-center text-muted py-2">No products on this lot.</td></tr>';
+      document.getElementById('poItemsTotal').textContent =
+        items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
       renderCompanyDetails();
       termPreview('poPayTerm','poPayPreview');
       termPreview('poDelTerm','poDelPreview');

@@ -10,6 +10,13 @@
 </div>
 {% endif %}
 
+{% if request.query_params.get('error') %}
+<div class="alert alert-danger alert-dismissible fade show">
+  <i class="bi bi-exclamation-triangle me-2"></i>{{ request.query_params.get('error') }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
 <div class="alert alert-warning d-flex align-items-center gap-2 small mb-3">
   <i class="bi bi-trash3 fs-5"></i>
   <div>Items in Trash are hidden from all main lists. Restore them to make them active again. Only admins and inventory managers can access this page.</div>
@@ -62,6 +69,13 @@
                     <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
                   </button>
                 </form>
+                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 ms-1"
+                        title="Delete this lot and its devices permanently"
+                        onclick="confirmPurge('/trash/lots/{{ lot.id }}/delete',
+                                              {{ lot.lot_number | tojson }}, 'lot',
+                                              {{ lot.qty | tojson }})">
+                  <i class="bi bi-trash3 me-1"></i>Delete
+                </button>
               </td>
             </tr>
             {% endfor %}
@@ -111,6 +125,12 @@
                     <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
                   </button>
                 </form>
+                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 ms-1"
+                        title="Delete this device permanently"
+                        onclick="confirmPurge('/trash/devices/{{ dev.barcode | urlencode }}/delete',
+                                              {{ dev.barcode | tojson }}, 'device', null)">
+                  <i class="bi bi-trash3 me-1"></i>Delete
+                </button>
               </td>
             </tr>
             {% endfor %}
@@ -127,4 +147,75 @@
   </div>
 
 </div>
+
+<!-- Permanent delete confirmation.
+     The button on its own is not enough for the only action in this app that
+     cannot be undone, so the operator has to type the lot or tag number back.
+     The same check runs again server-side — this modal is a speed bump for the
+     human, not the security boundary. -->
+<div class="modal fade" id="purgeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="purgeForm">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+      <div class="modal-content border-danger">
+        <div class="modal-header bg-danger bg-opacity-10">
+          <h5 class="modal-title text-danger">
+            <i class="bi bi-exclamation-octagon me-2"></i>Delete permanently
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-2">
+            This permanently deletes <strong id="purgeName" class="font-monospace"></strong>
+            <span id="purgeExtra" class="text-danger"></span>.
+          </p>
+          <p class="small text-muted">
+            Its inspection, stage history, parts consumption and scan records go with it.
+            Records that only mention it — supplier payments, sourcing deals — are kept and
+            unlinked. <strong>There is no undo and it is not in any backup taken after now.</strong>
+          </p>
+          <label class="form-label small fw-semibold">
+            Type <span id="purgeEcho" class="font-monospace text-danger"></span> to confirm
+          </label>
+          <input type="text" name="confirm" id="purgeInput" class="form-control"
+                 autocomplete="off" placeholder="Type it exactly">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger" id="purgeSubmit" disabled>
+            <i class="bi bi-trash3 me-1"></i>Delete permanently
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var purgeExpected = '';
+
+function confirmPurge(action, name, kind, qty) {
+  purgeExpected = name;
+  document.getElementById('purgeForm').action = action;
+  document.getElementById('purgeName').textContent = name;
+  document.getElementById('purgeEcho').textContent = name;
+  // Deleting a lot takes its devices with it — say how many before, not after.
+  document.getElementById('purgeExtra').textContent =
+    (kind === 'lot' && qty) ? ' and its ' + qty + ' device(s)' : '';
+  var input = document.getElementById('purgeInput');
+  input.value = '';
+  document.getElementById('purgeSubmit').disabled = true;
+  new bootstrap.Modal(document.getElementById('purgeModal')).show();
+  setTimeout(function () { input.focus(); }, 300);
+}
+
+document.getElementById('purgeInput').addEventListener('input', function () {
+  // Same comparison the server makes, so the button never enables on something
+  // the server would then reject.
+  document.getElementById('purgeSubmit').disabled =
+    this.value.trim().toLowerCase() !== purgeExpected.trim().toLowerCase();
+});
+</script>
 {% endblock %}

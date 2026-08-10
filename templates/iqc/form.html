@@ -582,31 +582,31 @@
                      own "Minor Scratch" / "Major Broken" wording. #}
                   <label class="form-label small">Scratch</label>
                   <select name="panel_a_scratch" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in sev_opts %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in sev_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Broken / Crack</label>
                   <select name="panel_a_broken" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in sev_opts %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in sev_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Missing</label>
                   <select name="panel_a_missing" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Dent</label>
                   <select name="panel_a_dent" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in sev_opts %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in sev_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Colour Fade</label>
                   <select name="panel_a_colour_fade" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
               </div>
@@ -621,31 +621,31 @@
                 <div class="col-md-2">
                   <label class="form-label small">Scratch</label>
                   <select name="panel_c_scratch" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in scratch_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Broken / Crack</label>
                   <select name="panel_c_broken" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in broken_opts %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in broken_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Missing</label>
                   <select name="panel_c_missing" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Dent</label>
                   <select name="panel_c_dent" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in dent_opts %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in dent_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Colour Fade</label>
                   <select name="panel_c_colour_fade" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
               </div>
@@ -657,17 +657,17 @@
             <div class="card-body py-2">
               <p class="small fw-semibold text-uppercase mb-2 text-info">Screen/Display</p>
               <div class="row g-2">
-                <div class="col-md-2"><label class="form-label small">Dot</label><select name="screen_dot" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Line</label><select name="screen_line" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Colour Discoloration</label><select name="screen_discoloration" class="form-select form-select-sm"><option value="">—</option>{% for o in sev_opts %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Colour Spread</label><select name="screen_colour_spread" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Patch</label><select name="screen_patch" class="form-select form-select-sm"><option value="">—</option>{% for o in sev_opts %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Flickering</label><select name="screen_flickering" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Scratch</label><select name="screen_scratch" class="form-select form-select-sm"><option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Missing</label><select name="screen_missing" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Broken</label><select name="screen_broken" class="form-select form-select-sm"><option value="">—</option>{% for o in sev_opts %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Keyboard Mark</label><select name="screen_keyboard_mark" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Touch Screen</label><select name="touch_screen" class="form-select form-select-sm"><option value="">—</option><option>Yes</option><option>No</option><option>Faulty</option></select></div>
+                <div class="col-md-2"><label class="form-label small">Dot</label><select name="screen_dot" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Line</label><select name="screen_line" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Colour Discoloration</label><select name="screen_discoloration" class="form-select form-select-sm"><option value="">—</option>{% for o in sev_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Colour Spread</label><select name="screen_colour_spread" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Patch</label><select name="screen_patch" class="form-select form-select-sm"><option value="">—</option>{% for o in sev_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Flickering</label><select name="screen_flickering" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Scratch</label><select name="screen_scratch" class="form-select form-select-sm"><option value="">—</option>{% for o in scratch_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Missing</label><select name="screen_missing" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Broken</label><select name="screen_broken" class="form-select form-select-sm"><option value="">—</option>{% for o in sev_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Keyboard Mark</label><select name="screen_keyboard_mark" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Touch Screen</label><select name="touch_screen" class="form-select form-select-sm"><option value="">—</option><option>Yes</option><option selected>No</option><option>Faulty</option></select></div>
               </div>
             </div>
           </div>
@@ -680,25 +680,25 @@
                 <div class="col-md-3">
                   <label class="form-label small">Hinge</label>
                   <select name="hinge_condition" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-3">
                   <label class="form-label small">Loose</label>
                   <select name="screen_loose" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-3">
                   <label class="form-label small">Hinge Broken</label>
                   <select name="screen_hinge_broken" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-3">
                   <label class="form-label small">Hinge Cover Broken</label>
                   <select name="hinge_cover" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in sev_opts %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in sev_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
               </div>
@@ -710,9 +710,9 @@
             <div class="card-body py-2">
               <p class="small fw-semibold text-uppercase mb-2 text-secondary">Touchpad</p>
               <div class="row g-2">
-                <div class="col-md-2"><label class="form-label small">Touchpad Scratch</label><select name="touchpad_scratch" class="form-select form-select-sm"><option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Touchpad Colour Fade</label><select name="touchpad_colour_fade" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Touchpad Logicboard</label><select name="touchpad_logicboard" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Touchpad Scratch</label><select name="touchpad_scratch" class="form-select form-select-sm"><option value="">—</option>{% for o in scratch_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Touchpad Colour Fade</label><select name="touchpad_colour_fade" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Touchpad Logicboard Missing?</label><select name="touchpad_logicboard" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
               </div>
             </div>
           </div>
@@ -725,31 +725,31 @@
                 <div class="col-md-2">
                   <label class="form-label small">Scratch</label>
                   <select name="panel_b_scratch" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in scratch_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Broken / Crack</label>
                   <select name="panel_b_broken" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in broken_opts %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in broken_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Missing</label>
                   <select name="panel_b_missing" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Colour Fade</label>
                   <select name="panel_b_colour_fade" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Rubber Cut</label>
                   <select name="panel_b_rubber_cut" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
               </div>
@@ -761,9 +761,9 @@
             <div class="card-body py-2">
               <p class="small fw-semibold text-uppercase mb-2 text-secondary">Keyboard</p>
               <div class="row g-2">
-                <div class="col-md-2"><label class="form-label small">Keyboard Colour Fade</label><select name="keyboard_colour_fade" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Keyboard Hard Press</label><select name="keyboard_hard_press" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Key Missing</label><select name="keyboard_key_missing" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Keyboard Colour Fade</label><select name="keyboard_colour_fade" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Keyboard Hard Press</label><select name="keyboard_hard_press" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Key Missing</label><select name="keyboard_key_missing" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}</select></div>
               </div>
             </div>
           </div>
@@ -776,31 +776,31 @@
                 <div class="col-md-2">
                   <label class="form-label small">Scratch</label>
                   <select name="panel_d_scratch" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in scratch_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Broken / Crack</label>
                   <select name="panel_d_broken" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in broken_opts %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in broken_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Missing</label>
                   <select name="panel_d_missing" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Dent</label>
                   <select name="panel_d_dent" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in dent_opts %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in dent_opts %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small">Colour Fade</label>
                   <select name="panel_d_colour_fade" class="form-select form-select-sm">
-                    <option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}
+                    <option value="">—</option>{% for o in yn %}<option{% if o == 'No' %} selected{% endif %}>{{o}}</option>{% endfor %}
                   </select>
                 </div>
               </div>

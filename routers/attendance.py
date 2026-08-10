@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, extract, text
+from sqlalchemy.exc import IntegrityError
 from database import get_db
 from models.attendance import Attendance
 from models.user import User, UserRole
@@ -272,7 +273,16 @@ async def checkin(
         )
         db.add(record)
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # uq_attendance_user_date. The advisory lock above should make this
+        # unreachable; if it is ever hit, the row exists either way, so report
+        # it as an ordinary repeat check-in rather than a 500.
+        await db.rollback()
+        return RedirectResponse(
+            url="/attendance?error=Already+checked+in+today", status_code=302
+        )
     return RedirectResponse(
         url="/attendance?success=Checked+in+successfully", status_code=302
     )

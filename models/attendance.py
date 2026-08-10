@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from utils.timezone import app_now
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Boolean, Date, Time
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Boolean, Date, Time, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from database import Base
@@ -9,6 +9,14 @@ from database import Base
 
 class Attendance(Base):
     __tablename__ = "attendance"
+
+    # One attendance row per user per day. Absent this, a double-clicked Check
+    # In inserted two rows and every later read of that day returned 500.
+    # Added to the live databases by merge_duplicate_attendance.py --apply;
+    # declared here so any new database gets it from create_all.
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", name="uq_attendance_user_date"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)

@@ -841,15 +841,23 @@ async def stock_in_data(
     device_ids = [d.id for d, _ in rows]
 
     # Location ID column — same source as Device Detail's own "Location ID"
-    # row (device.location_id), not the pickup/placeback movement log.
+    # row: the latest DeviceLocationLog entry (what "assign one" / the
+    # pickup-placeback flow at /locations/device/{id} actually writes), with
+    # device.location_id as a fallback for a device assigned only via Edit
+    # Device's dropdown and never through that flow.
+    from routers.devices import _build_location_map
     location_map = {}
     if device_ids:
-        for did, unit_id in (await db.execute(
-            select(Device.id, StorageLocation.unit_id)
-            .join(StorageLocation, Device.location_id == StorageLocation.id)
-            .where(Device.id.in_(device_ids))
-        )).all():
-            location_map[str(did)] = unit_id
+        log_map = await _build_location_map(db, device_ids)
+        location_map = {did: v["unit_id"] for did, v in log_map.items() if v.get("unit_id")}
+        missing = [d for d in device_ids if str(d) not in location_map]
+        if missing:
+            for did, unit_id in (await db.execute(
+                select(Device.id, StorageLocation.unit_id)
+                .join(StorageLocation, Device.location_id == StorageLocation.id)
+                .where(Device.id.in_(missing))
+            )).all():
+                location_map[str(did)] = unit_id
 
     assigned_dept_map = {}
     if device_ids:

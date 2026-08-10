@@ -119,6 +119,7 @@ async def _build_location_map(db: AsyncSession, device_ids: list) -> dict:
     rows = await db.execute(
         select(
             DeviceLocationLog.device_id,
+            StorageLocation.id,
             StorageLocation.unit_id,
             DeviceLocationLog.action,
             DeviceLocationLog.actor_name,
@@ -131,8 +132,9 @@ async def _build_location_map(db: AsyncSession, device_ids: list) -> dict:
         .where(DeviceLocationLog.device_id.in_(uuid_ids))
     )
     loc_map = {}
-    for device_id, unit_id, action, actor_name in rows.all():
+    for device_id, location_id, unit_id, action, actor_name in rows.all():
         loc_map[str(device_id)] = {
+            "location_id": location_id,
             "unit_id": unit_id,
             "action": action.value if action else None,
             "actor_name": actor_name,
@@ -294,17 +296,24 @@ async def device_search_data(
 
     device_ids = [d.id for d, _ in rows]
 
-    # Location ID column — the device's own location_id FK (Device Detail's
-    # "Location ID" row, not the pickup/placeback movement log), so this page
-    # and Device Detail never disagree about the same field.
+    # Location ID column — same source as Device Detail's own "Location ID"
+    # row: the latest DeviceLocationLog entry (what "assign one" / the
+    # pickup-placeback flow at /locations/device/{id} actually writes), with
+    # device.location_id as a fallback for a device assigned only via Edit
+    # Device's dropdown and never through that flow. Reading device.location_id
+    # alone here previously showed nothing for the normal-path assignment.
     location_map = {}
     if device_ids:
-        for did, unit_id in (await db.execute(
-            select(Device.id, StorageLocation.unit_id)
-            .join(StorageLocation, Device.location_id == StorageLocation.id)
-            .where(Device.id.in_(device_ids))
-        )).all():
-            location_map[str(did)] = unit_id
+        log_map = await _build_location_map(db, device_ids)
+        location_map = {did: v["unit_id"] for did, v in log_map.items() if v.get("unit_id")}
+        missing = [d for d in device_ids if str(d) not in location_map]
+        if missing:
+            for did, unit_id in (await db.execute(
+                select(Device.id, StorageLocation.unit_id)
+                .join(StorageLocation, Device.location_id == StorageLocation.id)
+                .where(Device.id.in_(missing))
+            )).all():
+                location_map[str(did)] = unit_id
 
     stock_price_map, sale_price_map = {}, {}
     if show_pricing and device_ids:
@@ -934,13 +943,22 @@ async def device_detail(
     loc_map = await _build_location_map(db, [device.id])
     current_location = loc_map.get(str(device.id))
 
-    # Assigned Storage Location (Location ID / Location Type / Zone) — the
-    # device's own location_id FK, distinct from current_location above
-    # (which is derived from the most recent DeviceLocationLog entry).
+    # Assigned Storage Location (Location ID / Location Type / Zone). Reads
+    # off the same DeviceLocationLog entry as current_location above, NOT
+    # device.location_id — the "assign one" / pickup-placeback flow at
+    # /locations/device/{id} only ever writes to the log, never to
+    # device.location_id, so a device assigned that way (the normal path)
+    # showed no Location ID anywhere on this page, All Inventory, or
+    # Inventory Manager despite genuinely having one. device.location_id is
+    # only ever set from Edit Device's own Assign Location dropdown or a
+    # warehouse transfer, so it's kept as a fallback for a device that was
+    # assigned that way and has no log entry at all.
     assigned_location = None
-    if device.location_id:
+    log_location_id = current_location.get("location_id") if current_location else None
+    resolved_location_id = log_location_id or device.location_id
+    if resolved_location_id:
         assigned_location = (await db.execute(
-            select(StorageLocation).where(StorageLocation.id == device.location_id)
+            select(StorageLocation).where(StorageLocation.id == resolved_location_id)
         )).scalar_one_or_none()
 
     # IQC inspection (for stress report display)

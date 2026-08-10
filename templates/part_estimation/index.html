@@ -50,6 +50,14 @@
                     {% if not r.total_parts_required %}disabled title="No parts required for this lot"{% endif %}>
               <i class="bi bi-calculator me-1"></i>Generate Estimate
             </button>
+            {# Per-model costing. Unlike Generate Estimate it stays enabled for
+               a lot with no Required=Yes rows, because its quantities come
+               from the cosmetic status bands rather than the required flag. #}
+            <button type="button" class="btn btn-sm btn-outline-dark py-0 px-2 ms-1"
+                    onclick="openModelEstimateModal('{{ r.lot.id }}', '{{ r.lot.lot_number }}')"
+                    {% if not r.total_products %}disabled title="This lot has no tags"{% endif %}>
+              <i class="bi bi-diagram-3 me-1"></i>Part Estimate
+            </button>
             {# Only offered once a file is actually attached in the Download
                column — there is nothing to delete before that. #}
             {% if r.estimate and r.estimate.file_name %}
@@ -121,6 +129,61 @@
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
         <button type="button" class="btn btn-primary" id="est_submit" onclick="submitEstimate()" disabled>
           <i class="bi bi-download me-1"></i>Download and Attach Estimate
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Part Estimate modal — per-model, per-group costing -->
+<div class="modal fade" id="modelEstimateModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header bg-dark bg-opacity-10">
+        <h5 class="modal-title"><i class="bi bi-diagram-3 me-2"></i>Part Estimate — <span id="me_lot">—</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="me_loading" class="text-center text-muted py-4">
+          <div class="spinner-border spinner-border-sm me-2"></div>Loading model summary…
+        </div>
+        <div id="me_error" class="alert alert-danger d-none"></div>
+        <div id="me_body" class="d-none">
+          <div id="me_models"></div>
+
+          <div class="table-responsive mt-3">
+            <table class="table table-sm table-bordered align-middle mb-3">
+              <tbody>
+                <tr class="table-secondary fw-semibold">
+                  <td>Total Unit Price</td>
+                  <td class="text-end" style="width:200px" id="me_unit_total">0.00</td>
+                  <td>Total Parts Price</td>
+                  <td class="text-end" style="width:200px" id="me_parts_total">0.00</td>
+                </tr>
+                <tr>
+                  <td colspan="3" class="text-end fw-semibold">Total Labour Cost</td>
+                  <td>
+                    <input type="number" step="0.01" min="0"
+                           class="form-control form-control-sm text-end" id="me_labour" value="0">
+                  </td>
+                </tr>
+                <tr class="table-primary fw-semibold">
+                  <td colspan="3" class="text-end">Total Estimate Cost</td>
+                  <td class="text-end" id="me_grand">0.00</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <label class="form-label small fw-semibold">Notes</label>
+          <textarea id="me_notes" class="form-control form-control-sm" rows="2"
+                    placeholder="Anything the sourcing team should know about this estimate"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-dark" id="me_submit" onclick="submitModelEstimate()" disabled>
+          <i class="bi bi-download me-1"></i>Generate Estimate
         </button>
       </div>
     </div>
@@ -277,6 +340,232 @@ function submitEstimate() {
     .catch(function () {
       $('#est_error').removeClass('d-none').text('Could not generate the estimate.');
       $('#est_submit').prop('disabled', false);
+    });
+}
+
+/* ── Part Estimate (per-model) ──────────────────────────────────────────────
+   One card per Model Summary row. Each card holds the three fixed groups, and
+   each group has one status filter that drives every quantity underneath it —
+   so pricing a lot is "pick a condition band, fill the prices", not a row-by-
+   row hunt. Quantities are never typed: they come from the counts the server
+   computed off IQC, and the server recomputes them again on submit. */
+var meLotId = null, meData = null;
+
+function meRenderModel(m, groups, prevCosts, idx) {
+  var card = $('<div>').addClass('card border mb-2 me-model').attr('data-key', m.key);
+
+  // The header is the accordion handle: a lot with a dozen models is otherwise
+  // a wall of 23-row tables. Everything that decides the estimate — count,
+  // quantity, price, total — stays visible on the collapsed strip, so the
+  // operator can scan the whole lot and only open the model being priced.
+  var head = $('<div>').addClass('card-header bg-light py-2 me-head')
+    .css('cursor', 'pointer').attr('title', 'Show / hide this model’s parts');
+  var headRow = $('<div>').addClass('row g-2 align-items-center small');
+  var chk = $('<input>').attr({ type: 'checkbox', checked: true })
+    .addClass('form-check-input me-include me-2');
+  headRow.append(
+    $('<div>').addClass('col-md-4').append(
+      $('<i>').addClass('bi bi-chevron-right me-chevron me-2 text-muted'),
+      chk,
+      $('<span>').addClass('fw-semibold').text(m.model),
+      $('<span>').addClass('text-muted ms-2').text(m.make + ' · ' + m.device_type)),
+    $('<div>').addClass('col-md-2').append(
+      $('<span>').addClass('text-muted').text('Model Count: '),
+      $('<span>').addClass('fw-semibold').text(m.qty)),
+    $('<div>').addClass('col-md-2').append(
+      $('<span>').addClass('text-muted').text('Parts Qty: '),
+      $('<span>').addClass('fw-semibold me-model-qty').text('0')),
+    $('<div>').addClass('col-md-2').append(
+      $('<span>').addClass('text-muted').text('Unit Price: '),
+      $('<span>').addClass('fw-semibold me-model-unit').text('0.00')),
+    $('<div>').addClass('col-md-2').append(
+      $('<span>').addClass('text-muted').text('Sum Price: '),
+      $('<span>').addClass('fw-semibold me-model-total').text('0.00'))
+  );
+  card.append(head.append(headRow));
+
+  var tbl = $('<table>').addClass('table table-sm table-bordered align-middle mb-0 small');
+  tbl.append($('<thead>').addClass('table-light').append($('<tr>').append(
+    $('<th>').text('Part'), $('<th>').text('Note'),
+    $('<th>').css('width', '110px').text('Parts Quantity'),
+    $('<th>').css('width', '150px').text('Unit Part Price'),
+    $('<th>').css('width', '150px').text('Total Part Value'))));
+
+  var body = $('<tbody>');
+  groups.forEach(function (g) {
+    var sel = $('<select>').addClass('form-select form-select-sm d-inline-block me-status')
+      .css('width', 'auto').attr('data-group', g.key);
+    sel.append($('<option>').val('').text('Select'));
+    g.statuses.forEach(function (s) { sel.append($('<option>').val(s).text(s)); });
+    // Opens on "Yes" so the card shows real numbers straight away; "Select"
+    // zeroes the group, which is how a whole group is left out of the bill.
+    sel.val('Yes');
+
+    body.append($('<tr>').addClass('table-secondary').append(
+      $('<td>').attr('colspan', 5).append(
+        $('<span>').addClass('fw-semibold me-2').text(g.heading),
+        $('<span>').addClass('text-muted me-1').text(g.filter_label + ':'), sel)));
+
+    g.parts.forEach(function (part) {
+      var counts = ((m.counts[g.key] || {})[part]) || {};
+      var label = m.model + ' — ' + part;
+      body.append($('<tr>').addClass('me-part')
+        .attr('data-group', g.key).attr('data-part', part)
+        .data('counts', counts)
+        .append(
+          $('<td>').text(part),
+          $('<td>').append($('<input>').attr({ type: 'text', maxlength: 255 })
+            .addClass('form-control form-control-sm me-note')),
+          $('<td>').addClass('me-qty text-end').text('0'),
+          $('<td>').append($('<input>').attr({ type: 'number', step: '0.01', min: '0' })
+            .addClass('form-control form-control-sm text-end me-unit')
+            .val(prevCosts[label] || '')),
+          $('<td>').addClass('me-total text-end').text('0.00')));
+    });
+  });
+
+  // Collapsed rows stay in the DOM — recalcModelEstimate reads them whether or
+  // not they are on screen, so a closed model still counts toward the totals.
+  var open = idx === 0;
+  card.append($('<div>').addClass('me-panel table-responsive')
+    .toggleClass('d-none', !open)
+    .append(tbl.append(body)));
+  if (open) card.find('.me-chevron').removeClass('bi-chevron-right').addClass('bi-chevron-down');
+  return card;
+}
+
+// Anything interactive in the header (the include checkbox) must not also fold
+// the card away underneath the click.
+$(document).on('click', '.me-head', function (e) {
+  if ($(e.target).is('input, select, label')) return;
+  var card = $(this).closest('.me-model');
+  var shown = card.find('.me-panel').toggleClass('d-none').hasClass('d-none') === false;
+  card.find('.me-chevron')
+    .toggleClass('bi-chevron-right', !shown)
+    .toggleClass('bi-chevron-down', shown);
+});
+
+function recalcModelEstimate() {
+  var unitTotal = 0, partsTotal = 0;
+  $('#me_models .me-model').each(function () {
+    var card = $(this);
+    var included = card.find('.me-include').prop('checked');
+    card.toggleClass('opacity-50', !included);
+    var statuses = {};
+    card.find('.me-status').each(function () {
+      statuses[$(this).data('group')] = $(this).val();
+    });
+    var mQty = 0, mUnit = 0, mTotal = 0;
+    card.find('.me-part').each(function () {
+      var row = $(this);
+      var status = statuses[row.attr('data-group')];
+      var qty = status ? (row.data('counts')[status] || 0) : 0;
+      var unit = parseFloat(row.find('.me-unit').val()) || 0;
+      var total = qty * unit;
+      row.find('.me-qty').text(qty);
+      row.find('.me-total').text(estMoney(total));
+      row.toggleClass('text-muted', qty === 0);
+      mQty += qty; mUnit += unit; mTotal += total;
+    });
+    card.find('.me-model-qty').text(mQty);
+    card.find('.me-model-unit').text(estMoney(mUnit));
+    card.find('.me-model-total').text(estMoney(mTotal));
+    if (included) { unitTotal += mUnit; partsTotal += mTotal; }
+  });
+  var labour = parseFloat($('#me_labour').val()) || 0;
+  $('#me_unit_total').text(estMoney(unitTotal));
+  $('#me_parts_total').text(estMoney(partsTotal));
+  $('#me_grand').text(estMoney(partsTotal + labour));
+}
+
+function openModelEstimateModal(lotId, lotNumber) {
+  meLotId = lotId; meData = null;
+  $('#me_lot').text(lotNumber);
+  $('#me_loading').removeClass('d-none');
+  $('#me_body').addClass('d-none');
+  $('#me_error').addClass('d-none').text('');
+  $('#me_models').empty();
+  $('#me_submit').prop('disabled', true);
+  new bootstrap.Modal(document.getElementById('modelEstimateModal')).show();
+
+  fetch('/part-estimation/' + lotId + '/model-matrix', { credentials: 'same-origin' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      $('#me_loading').addClass('d-none');
+      if (!d.ok || !d.models || !d.models.length) {
+        $('#me_error').removeClass('d-none').text('This lot has no tags to estimate.');
+        return;
+      }
+      meData = d;
+      d.models.forEach(function (m, i) {
+        $('#me_models').append(meRenderModel(m, d.groups, d.prev_costs || {}, i));
+      });
+      $('#me_labour').val(d.labour_cost || 0);
+      $('#me_notes').val(d.notes || '');
+      $('#me_body').removeClass('d-none');
+      $('#me_submit').prop('disabled', false);
+      recalcModelEstimate();
+    })
+    .catch(function () {
+      $('#me_loading').addClass('d-none');
+      $('#me_error').removeClass('d-none').text('Could not load the model summary for this lot.');
+    });
+}
+
+$(document).on('input', '.me-unit, #me_labour', recalcModelEstimate);
+$(document).on('change', '.me-status, .me-include', recalcModelEstimate);
+
+function submitModelEstimate() {
+  var included = [], statuses = {}, prices = {};
+  $('#me_models .me-model').each(function () {
+    var card = $(this), key = card.attr('data-key');
+    if (!card.find('.me-include').prop('checked')) return;
+    included.push(key);
+    statuses[key] = {};
+    card.find('.me-status').each(function () {
+      statuses[key][$(this).data('group')] = $(this).val();
+    });
+    prices[key] = {};
+    card.find('.me-part').each(function () {
+      var row = $(this);
+      prices[key][row.attr('data-group') + '|' + row.attr('data-part')] = {
+        note: row.find('.me-note').val() || '',
+        unit_cost: parseFloat(row.find('.me-unit').val()) || 0
+      };
+    });
+  });
+  if (!included.length) {
+    $('#me_error').removeClass('d-none').text('Select at least one model to estimate.');
+    return;
+  }
+
+  var fd = new FormData();
+  fd.append('payload', JSON.stringify({
+    included: included, statuses: statuses, prices: prices,
+    labour_cost: parseFloat($('#me_labour').val()) || 0,
+    notes: $('#me_notes').val() || ''
+  }));
+  fd.append('csrf_token', peCsrfToken());
+
+  $('#me_submit').prop('disabled', true);
+  fetch('/part-estimation/' + meLotId + '/generate-model-estimate', {
+    method: 'POST', body: fd, credentials: 'same-origin'
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.ok) {
+        $('#me_error').removeClass('d-none').text(d.error || 'Could not generate the estimate.');
+        $('#me_submit').prop('disabled', false);
+        return;
+      }
+      window.location.href = d.download_url;
+      setTimeout(function () {
+        window.location.href = '/part-estimation?success=Part+Estimate+generated+and+sent+to+Sourcing';
+      }, 1200);
+    })
+    .catch(function () {
+      $('#me_error').removeClass('d-none').text('Could not generate the estimate.');
+      $('#me_submit').prop('disabled', false);
     });
 }
 </script>

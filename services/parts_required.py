@@ -44,8 +44,10 @@ def _is_unknown(val):
 def _damaged(*vals):
     """True if any cosmetic panel field reports actual damage.
 
-    Panel fields read "No" / "Yes" / "Major Broken" / "Major Dent", so anything
-    that is not "No" (and not blank) is damage. Deliberately NOT using
+    Panel fields read "No" / "Yes" / "Minor" / "Major" on the current IQC form,
+    and "Major Broken" / "Major Dent" / "Minor Scratch" on rows captured before
+    the scales were unified — so anything that is not "No" (and not blank) is
+    damage, whichever wording it was entered under. Deliberately NOT using
     _is_sentinel here: a blank cosmetic field means the inspector did not
     record that panel, which is not evidence the part needs replacing. The
     hardware rows above treat blanks as Required=Yes because an unverified
@@ -113,7 +115,7 @@ PARTS_MATRIX = [
     ("Bezel",             "Bazel",  "bazel",         lambda i, d: _damaged(
         i.panel_c_broken, i.panel_c_missing, i.panel_c_dent)),
     ("Display",           "Screen",     "screen",   lambda i, d: _is(i.status, "No Display")
-                          or _is(i.screen_broken, "Yes") or _is(i.screen_line, "Yes")
+                          or _damaged(i.screen_broken) or _is(i.screen_line, "Yes")
                           or _is(i.screen_dot, "Yes") or _is(i.screen_flickering, "Yes")
                           or _is(i.screen_missing, "Yes") or _is(i.screen_functional, "No")
                           or _is_unknown(i.screen_functional)),

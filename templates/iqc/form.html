@@ -511,11 +511,23 @@
             </div>
           </div>
 
-          {% set yn = ['Yes','No'] %}
-          {% set scratch_opts = ['No','Minor Scratch','Major Scratch'] %}
-          {% set dent_opts = ['No','Yes','Major Dent'] %}
-          {% set broken_opts = ['No','Yes','Major Broken'] %}
-          {% set sev_opts = ['No','Minor','Major'] %}
+          {# ── Cosmetics option scales ──────────────────────────────────────
+             Every graded cosmetic field (scratch / broken / dent / patch /
+             discoloration / hinge cover) now shares ONE four-value scale so a
+             technician never has to remember whether this particular section
+             says "Minor Scratch" or just "Minor". The three old lists are kept
+             as separate names only because the markup below still refers to
+             them by field type; their contents are deliberately identical.
+
+             Historic rows hold the previous wording ("Minor Scratch",
+             "Major Broken", "Major Dent"). Nothing rewrites them — the parts
+             rules in services/parts_required.py read both spellings, so old
+             inspections keep evaluating exactly as before. #}
+          {% set yn = ['No','Yes'] %}
+          {% set scratch_opts = ['No','Yes','Minor','Major'] %}
+          {% set dent_opts = ['No','Yes','Minor','Major'] %}
+          {% set broken_opts = ['No','Yes','Minor','Major'] %}
+          {% set sev_opts = ['No','Yes','Minor','Major'] %}
 
           <!-- ── Section 6: Cosmetics (renamed from Body Panels) ── -->
           <div class="d-flex justify-content-between align-items-center border-bottom mb-2 pb-1">
@@ -653,9 +665,9 @@
                 <div class="col-md-2"><label class="form-label small">Flickering</label><select name="screen_flickering" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
                 <div class="col-md-2"><label class="form-label small">Scratch</label><select name="screen_scratch" class="form-select form-select-sm"><option value="">—</option>{% for o in scratch_opts %}<option>{{o}}</option>{% endfor %}</select></div>
                 <div class="col-md-2"><label class="form-label small">Missing</label><select name="screen_missing" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Broken</label><select name="screen_broken" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label small">Broken</label><select name="screen_broken" class="form-select form-select-sm"><option value="">—</option>{% for o in sev_opts %}<option>{{o}}</option>{% endfor %}</select></div>
                 <div class="col-md-2"><label class="form-label small">Keyboard Mark</label><select name="screen_keyboard_mark" class="form-select form-select-sm"><option value="">—</option>{% for o in yn %}<option>{{o}}</option>{% endfor %}</select></div>
-                <div class="col-md-2"><label class="form-label small">Touch Screen</label><select name="touch_screen" class="form-select form-select-sm"><option value="">—</option><option>Yes</option><option>No</option><option>Yes - Faulty</option></select></div>
+                <div class="col-md-2"><label class="form-label small">Touch Screen</label><select name="touch_screen" class="form-select form-select-sm"><option value="">—</option><option>Yes</option><option>No</option><option>Faulty</option></select></div>
               </div>
             </div>
           </div>

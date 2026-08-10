@@ -493,13 +493,15 @@
             </td>
             <td class="fw-semibold">
               {% if s.source == 'production' %}
-              <a href="/part-estimation">{{ s.part_name }}</a>
-              {# Part Estimate can write several files in one Generate click —
-                 one per Grade selected. All of them, not just the one this
-                 request happens to be linked to. #}
+              {# The "Request for <lot>" text was the part_name value itself
+                 and pointed nowhere useful — the attached file(s) are what
+                 the Spare Parts Manager actually needs from this cell. A row
+                 always has at least one by the time it exists (Part Estimate
+                 raises the request and writes the file in the same
+                 transaction), so there is no blank-cell case in practice. #}
               {% set _files = estimates_by_batch.get(s.id | string, []) %}
               {% if _files %}
-              <div class="d-flex flex-wrap gap-1 mt-1">
+              <div class="d-flex flex-wrap gap-1">
                 {% for f in _files %}
                 <a class="btn btn-sm btn-outline-success py-0 px-1"
                    href="/part-estimation/download/{{ f.id }}" title="{{ f.file_name }}">
@@ -507,7 +509,7 @@
                 </a>
                 {% endfor %}
               </div>
-              {% endif %}
+              {% else %}<span class="text-muted">No file attached</span>{% endif %}
               {% else %}{{ s.part_name }}{% endif %}
             </td>
             <td>{{ s.qty_requested }}</td>
@@ -520,10 +522,9 @@
             <td class="text-nowrap">
               {# The estimate workbook(s) live under Part Name now, not here —
                  this column is deal documents only (Purchase Invoice / PO /
-                 E-way Bill), same as every non-production sourcing request. #}
-              {% if s.source == 'production' and not _deal %}
-              <span class="text-muted">—</span>
-              {% endif %}
+                 E-way Bill), same as every non-production sourcing request:
+                 disabled placeholder icons when a document isn't uploaded
+                 yet, no separate dash. #}
               {% if _deal and _deal.purchase_invoice_path %}
               <a class="btn btn-sm btn-outline-secondary py-0 px-1" title="Purchase Invoice"
                  href="/uploads/crm/{{ _deal.purchase_invoice_path }}" target="_blank"><i class="bi bi-file-earmark-text"></i></a>

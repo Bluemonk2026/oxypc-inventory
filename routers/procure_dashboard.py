@@ -12,7 +12,7 @@ from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 
 from database import get_db
 from models.user import User, UserRole
@@ -21,6 +21,7 @@ from models.crm import (
     SOURCING_STAGES, SALES_STAGES,
 )
 from models.part_request import PartSourcingRequest
+from models.part_estimate import PartEstimate
 from models.model_requests import ModelRequest
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from services.audit_engine import audit
@@ -121,10 +122,36 @@ async def procure_dashboard(
             sales_map[str(o.id)] = o
 
     # ── Part Sourcing tab (same data as CRM Dashboard's table) ──────────────
+    # A production-sourced (Part Estimate) request only belongs here once the
+    # Spare Parts Manager has clicked Confirm Request on it, on Part Master ->
+    # Sourcing Requests — until then it's still theirs to review, not
+    # Procurement's to act on. 'procure'-sourced rows have no such gate and
+    # always show, same as before.
     ps_r = await db.execute(
-        select(PartSourcingRequest).order_by(PartSourcingRequest.created_at.desc()).limit(200)
+        select(PartSourcingRequest)
+        .where(or_(PartSourcingRequest.source != "production",
+                  PartSourcingRequest.confirmed == True))  # noqa: E712
+        .order_by(PartSourcingRequest.created_at.desc()).limit(200)
     )
     part_sourcing = ps_r.scalars().all()
+
+    # Every estimate file from the same Generate click as each production
+    # request shown here — mirrors the grouping on Part Master -> Sourcing
+    # Requests (routers/spare_parts.py) so the attachment shows the same way
+    # in both places.
+    lot_ids = {s.lot_id for s in part_sourcing if s.source == "production" and s.lot_id}
+    estimates_by_batch = {}
+    if lot_ids:
+        est_rows = (await db.execute(
+            select(PartEstimate).where(
+                PartEstimate.lot_id.in_(lot_ids), PartEstimate.file_name.isnot(None))
+        )).scalars().all()
+        by_lot_and_time = {}
+        for e in est_rows:
+            by_lot_and_time.setdefault((e.lot_id, e.created_at), []).append(e)
+        for s in part_sourcing:
+            if s.source == "production" and s.lot_id:
+                estimates_by_batch[str(s.id)] = by_lot_and_time.get((s.lot_id, s.created_at), [])
 
     open_deals_r = await db.execute(
         select(CRMSourcingDeal)
@@ -160,6 +187,7 @@ async def procure_dashboard(
     return templates.TemplateResponse("procure/dashboard.html", {
         "request": request, "current_user": current_user, "is_sm": is_sm,
         "part_sourcing": part_sourcing,
+        "estimates_by_batch": estimates_by_batch,
         "sourcing_deals_for_close": sourcing_deals_for_close,
         "deal_map": deal_map,
         "device_sourcing": device_sourcing,

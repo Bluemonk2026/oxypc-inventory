@@ -157,6 +157,7 @@
            differently) and click Generate again for the next file, all in
            one sitting — this list is where each file from the session shows
            up as it's made. #}
+        <div id="me_success" class="alert alert-success d-none"></div>
         <div id="me_generated" class="d-none mb-2">
           <div class="small fw-semibold text-muted mb-1">Generated this session:</div>
           <div id="me_generated_list" class="d-flex flex-wrap gap-2"></div>
@@ -420,7 +421,7 @@ function meRenderModel(m, groups, prevCosts, idx) {
   var tbl = $('<table>').addClass('table table-sm table-bordered align-middle mb-0 small');
   tbl.append($('<thead>').addClass('table-light').append($('<tr>').append(
     $('<th>').css('white-space', 'nowrap').text('Part'),
-    $('<th>').css({ 'max-width': '160px', 'white-space': 'nowrap' }).text('Note'),
+    $('<th>').css({ width: '160px', 'max-width': '160px', 'white-space': 'nowrap' }).text('Note'),
     $('<th>').css({ width: '130px', 'white-space': 'nowrap' }).text('Parts Quantity'),
     $('<th>').css({ width: '160px', 'white-space': 'nowrap' }).text('Unit Part Price'),
     $('<th>').css({ width: '160px', 'white-space': 'nowrap' }).text('Total Part Value'))));
@@ -430,13 +431,14 @@ function meRenderModel(m, groups, prevCosts, idx) {
     // Multi-select: any combination of statuses can be checked at once, and
     // a part's Parts Quantity is the sum across every status ticked for its
     // group — e.g. ticking both Minor and Major under Cosmetic Part Damage?
-    // counts a part as needed whichever of those two a tag landed on. Opens
-    // on "Yes" alone so the card shows real numbers straight away; unticking
-    // everything zeroes the group, which is how it's left out of the bill.
+    // counts a part as needed whichever of those two a tag landed on. Starts
+    // with nothing ticked (every part reads 0) so the operator makes an
+    // explicit choice per group rather than pricing against a default nobody
+    // picked.
     var statusBox = $('<span>').addClass('d-inline-flex flex-wrap gap-2 align-middle');
     g.statuses.forEach(function (s) {
       var id = 'me_st_' + g.key + '_' + s.replace(/\W+/g, '') + '_' + Math.random().toString(36).slice(2, 7);
-      var cb = $('<input>').attr({ type: 'checkbox', id: id, checked: s === 'Yes' })
+      var cb = $('<input>').attr({ type: 'checkbox', id: id })
         .addClass('form-check-input me-status-cb').attr('data-group', g.key).val(s);
       statusBox.append(
         $('<span>').addClass('form-check form-check-inline me-0').append(
@@ -456,8 +458,10 @@ function meRenderModel(m, groups, prevCosts, idx) {
         .data('counts', counts)
         .append(
           $('<td>').text(part),
-          $('<td>').css('max-width', '160px').append($('<input>').attr({ type: 'text', maxlength: 255 })
-            .addClass('form-control form-control-sm me-note').css('max-width', '160px')),
+          $('<td>').css({ width: '160px', 'max-width': '160px' })
+            .append($('<input>').attr({ type: 'text', maxlength: 255 })
+              .addClass('form-control form-control-sm me-note')
+              .css({ width: '160px', 'max-width': '160px' })),
           $('<td>').addClass('me-qty text-end').text('0'),
           $('<td>').append($('<input>').attr({ type: 'number', step: '0.01', min: '0' })
             .addClass('form-control form-control-sm text-end me-unit')
@@ -544,6 +548,7 @@ function openModelEstimateModal(lotId, lotNumber) {
   $('#me_loading').removeClass('d-none');
   $('#me_body').addClass('d-none');
   $('#me_error').addClass('d-none').text('');
+  $('#me_success').addClass('d-none').text('');
   $('#me_models').empty();
   $('#me_grade').val('');
   $('#me_generated').addClass('d-none');
@@ -622,6 +627,7 @@ function submitModelEstimate() {
 
   $('#me_submit').prop('disabled', true);
   $('#me_error').addClass('d-none');
+  $('#me_success').addClass('d-none');
   fetch('/part-estimation/' + meLotId + '/generate-model-estimate', {
     method: 'POST', body: fd, credentials: 'same-origin'
   })
@@ -638,6 +644,8 @@ function submitModelEstimate() {
       // this modal only picks them up once the modal is closed and the page
       // is reloaded.
       meAnyGenerated = true;
+      $('#me_success').removeClass('d-none')
+        .text('Grade ' + gradeLabel + ' file generated and sent to Part Manager.');
       $('#me_generated').removeClass('d-none');
       $('#me_generated_list').append(
         $('<a>').addClass('btn btn-sm btn-outline-success py-0 px-2')

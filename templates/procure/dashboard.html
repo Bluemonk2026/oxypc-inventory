@@ -262,7 +262,21 @@
                 <a href="/lots?q={{ s.lot_number | urlencode }}" class="fw-semibold">{{ s.lot_number }}</a>
                 {% else %}<code>{{ s.part_code or '—' }}</code>{% endif %}
               </td>
-              <td class="fw-semibold">{{ s.part_name }}</td>
+              <td class="fw-semibold">
+                {% if s.source == 'production' %}
+                {% set _files = estimates_by_batch.get(s.id | string, []) %}
+                {% if _files %}
+                <div class="d-flex flex-wrap gap-1">
+                  {% for f in _files %}
+                  <a class="btn btn-sm btn-outline-success py-0 px-1"
+                     href="/part-estimation/download/{{ f.id }}" title="{{ f.file_name }}">
+                    <i class="bi bi-file-earmark-excel me-1"></i>{{ f.grade or 'Estimate' }}
+                  </a>
+                  {% endfor %}
+                </div>
+                {% else %}<span class="text-muted">No file attached</span>{% endif %}
+                {% else %}{{ s.part_name }}{% endif %}
+              </td>
               <td>{{ s.qty_requested }}</td>
               <td>{{ s.qty_sourced }}
                 {% if s.source_deal_id %}

@@ -79,6 +79,36 @@ async def _force_https(request: Request, call_next):
                                     status_code=307)
     return await call_next(request)
 
+
+# ── Never let a browser hold a stale PAGE across a deploy ─────────────────────
+# TemplateResponse sends no Cache-Control, no ETag and no Last-Modified, so what
+# a browser does with a rendered page is left to its heuristics — and the answer
+# differs by browser, by whether the page was reached by link, reload, or the
+# back button, and by whether bfcache kept the whole document alive. The visible
+# symptom is always the same and always looks like a failed deploy: the code is
+# live on the server, and the user is looking at yesterday's form.
+#
+# no-store (not no-cache) because there is nothing worth revalidating: every
+# page here is per-user, permission-filtered and built from live inventory. It
+# also keeps a logged-in page out of the back button after logout on a shared
+# floor machine.
+#
+# /static is deliberately untouched: CSS/JS/vendor bundles SHOULD stay cached,
+# and they are already cache-busted by the ?v=ASSET_VERSION stamp that
+# templates_config.py derives from asset mtime. An explicit Cache-Control set
+# by a route (a file download, an export) wins over this default.
+@app.middleware("http")
+async def _no_store_pages(request: Request, call_next):
+    resp = await call_next(request)
+    if request.url.path.startswith("/static"):
+        return resp
+    if resp.headers.get("cache-control"):
+        return resp
+    if resp.headers.get("content-type", "").split(";")[0].strip() == "text/html":
+        resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 # ── Error logger (writes to errors.log next to main.py) ───────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _err_logger = logging.getLogger("oxypc.errors")

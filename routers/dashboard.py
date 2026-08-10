@@ -20,6 +20,7 @@ from models.parts_grn import PartsGRN, PartsGRNLineItem
 from models.part_request import PartSourcingRequest
 from models.cost_config import CostConfig
 from auth.dependencies import get_current_user
+from routers.auth import NON_ADMIN_LANDING
 from routers.inventory_location import _gap_devices
 
 _log = logging.getLogger("oxypc.dashboard")
@@ -55,9 +56,13 @@ async def _count(db: AsyncSession, *filters) -> int:
 
 @router.get("/", response_class=HTMLResponse)
 async def home(current_user: User = Depends(get_current_user)):
-    """Application home page — Inventory Search, for every user.
+    """Application home page — My Attendance for everyone except admin, who
+    keeps Inventory Search. Matches where login drops each role, so the app
+    opens on the same page whether you sign in or hit the bare URL.
     no-store so browsers never cache this redirect across deploys/logins."""
-    resp = RedirectResponse(url="/devices", status_code=302)
+    role_value = getattr(current_user.role, "value", None) or str(current_user.role)
+    target = "/devices" if role_value == "admin" else NON_ADMIN_LANDING
+    resp = RedirectResponse(url=target, status_code=302)
     resp.headers["Cache-Control"] = "no-store"
     return resp
 

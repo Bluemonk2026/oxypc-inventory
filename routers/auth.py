@@ -14,16 +14,22 @@ from config import ACCESS_TOKEN_EXPIRE_MINUTES, COOKIE_SECURE
 from limiter import limiter, ip_key_func
 
 
-def _first_landing(role_value: str) -> str:
-    """Return the app's default landing page.
+# Where a non-admin user starts. My Attendance is first so staff check in
+# before anything else; every page they used to land on is still one click
+# away in the sidebar. /attendance needs only a valid session — no module
+# permission — so no role can be stranded here.
+NON_ADMIN_LANDING = "/attendance"
 
-    Admin lands on the Admin Dashboard first; every other role lands on
-    Inventory Search (/devices), which is still reachable for admins via
-    its own nav link.
+
+def _first_landing(role_value: str) -> str:
+    """Return the page to send a user to immediately after login.
+
+    Admin lands on the Admin Dashboard; every other role lands on My
+    Attendance.
     """
     if role_value == "admin":
         return "/dashboard"
-    return "/devices"
+    return NON_ADMIN_LANDING
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

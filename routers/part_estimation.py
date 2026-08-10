@@ -350,7 +350,7 @@ async def generate_model_estimate(
       included: [model_key, ...],
       statuses: {model_key: {group: status}},
       prices:   {model_key: {"<group>|<part>": {note, unit_cost}}},
-      grades:   [grade_value, ...],   # at least one — see below
+      grade:    grade_value,
       labour_cost, notes
     }
 
@@ -359,13 +359,13 @@ async def generate_model_estimate(
     Generate Estimate — a tampered or stale quantity can never reach the
     workbook or the sourcing request.
 
-    Select Grade takes one or more grades. The parts breakdown is identical
-    for every grade chosen — the modal has no per-grade filtering — so this
-    writes ONE workbook per selected grade, each an exact copy of the same
-    priced data with only the Grade field (header + filename + Download-column
-    label) differing. One PartSourcingRequest still covers the whole batch —
-    qty_requested is the batch total, not multiplied by grade count, since
-    every file represents the same underlying parts need.
+    One call writes one workbook for one grade. The modal stays open after a
+    successful call specifically so the operator can change the grade (and
+    re-price whatever that grade needs differently) and call this again —
+    each call is its own independent PartEstimate + its own
+    PartSourcingRequest, exactly like the plain (non-model) Generate Estimate
+    already works. A lot ends up with as many files as the operator chose to
+    make, in as many separate visits to this endpoint as that took.
     """
     import json
 
@@ -387,15 +387,13 @@ async def generate_model_estimate(
     included = set(data.get("included") or [])
     statuses = data.get("statuses") or {}
     prices = data.get("prices") or {}
-    grades = [g for g in (data.get("grades") or []) if g]
-    if not grades:
-        return JSONResponse({"ok": False, "error": "Select at least one Grade"}, status_code=400)
-    valid_grades = {v for v, _l in grade_options()}
-    bad = [g for g in grades if g not in valid_grades]
-    if bad:
-        return JSONResponse({"ok": False, "error": f"Unknown grade(s): {', '.join(bad)}"},
-                            status_code=400)
+    grade = (data.get("grade") or "").strip()
+    if not grade:
+        return JSONResponse({"ok": False, "error": "Select a Grade"}, status_code=400)
     grade_labels = dict(grade_options())
+    if grade not in grade_labels:
+        return JSONResponse({"ok": False, "error": f"Unknown grade: {grade}"}, status_code=400)
+    grade_label = grade_labels[grade]
 
     qtys = quantities_for(matrix, statuses)
 
@@ -457,62 +455,48 @@ async def generate_model_estimate(
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     safe_lot = "".join(ch for ch in (lot.lot_number or "lot") if ch.isalnum() or ch in "-_")
 
-    created = []
-    for grade in grades:
-        grade_label = grade_labels.get(grade, grade)
-        xlsx = _build_model_workbook(
-            lot_number=lot.lot_number, generated_on=stamp.strftime("%d %b %Y %H:%M"),
-            generated_by=current_user.username, grade=grade_label, blocks=blocks,
-            unit_price_total=unit_price_total, parts_total=parts_total,
-            labour_cost=labour, total_estimation=total_estimation, notes=notes,
-        )
-        safe_grade = "".join(ch for ch in grade_label if ch.isalnum() or ch in "-_") or "grade"
-        stored = f"{uuid.uuid4().hex}.xlsx"
-        download_name = f"Part_Estimate_{safe_lot}_{safe_grade}_{stamp.strftime('%Y%m%d-%H%M')}.xlsx"
-        with open(os.path.join(UPLOAD_DIR, stored), "wb") as fh:
-            fh.write(xlsx)
+    xlsx = _build_model_workbook(
+        lot_number=lot.lot_number, generated_on=stamp.strftime("%d %b %Y %H:%M"),
+        generated_by=current_user.username, grade=grade_label, blocks=blocks,
+        unit_price_total=unit_price_total, parts_total=parts_total,
+        labour_cost=labour, total_estimation=total_estimation, notes=notes,
+    )
+    safe_grade = "".join(ch for ch in grade_label if ch.isalnum() or ch in "-_") or "grade"
+    stored = f"{uuid.uuid4().hex}.xlsx"
+    download_name = f"Part_Estimate_{safe_lot}_{safe_grade}_{stamp.strftime('%Y%m%d-%H%M')}.xlsx"
+    with open(os.path.join(UPLOAD_DIR, stored), "wb") as fh:
+        fh.write(xlsx)
 
-        est = PartEstimate(
-            lot_id=lid, lot_number=lot.lot_number, total_products=total_products,
-            total_qty=total_qty, parts_total_cost=parts_total, labour_cost=labour,
-            total_estimation=total_estimation, notes=notes, grade=grade,
-            file_path=stored, file_name=download_name,
-            created_by=current_user.username, created_at=stamp,
-        )
-        db.add(est)
-        await db.flush()
-        for line in lines:
-            db.add(PartEstimateLine(estimate_id=est.id, **line))
-        created.append(est)
+    est = PartEstimate(
+        lot_id=lid, lot_number=lot.lot_number, total_products=total_products,
+        total_qty=total_qty, parts_total_cost=parts_total, labour_cost=labour,
+        total_estimation=total_estimation, notes=notes, grade=grade,
+        file_path=stored, file_name=download_name,
+        created_by=current_user.username, created_at=stamp,
+    )
+    db.add(est)
+    await db.flush()
+    for line in lines:
+        db.add(PartEstimateLine(estimate_id=est.id, **line))
 
-    # One sourcing request for the whole batch — every file in `created`
-    # represents the same total_qty, so the request is not multiplied per
-    # grade. Its estimate_id points at the first file; every file in the
-    # batch (this one plus any siblings) is found by matching lot_id +
-    # created_at, which templates/part_estimation and Part Manager both use
-    # to list "every file from this Generate click" rather than just one.
     db.add(PartSourcingRequest(
         source="production", part_code=None,
         part_name=f"Request for {lot.lot_number}",
         qty_requested=total_qty, raised_by=current_user.username,
-        lot_id=lid, lot_number=lot.lot_number, estimate_id=created[0].id,
+        lot_id=lid, lot_number=lot.lot_number, estimate_id=est.id,
         created_at=stamp,
     ))
 
     await audit(db, user=current_user, action="PART_ESTIMATE_GENERATED",
-                table_name="part_estimates", record_id=str(created[0].id),
-                new_value={"lot": lot.lot_number, "mode": "per-model",
-                           "models": len(priced_blocks), "grades": grades,
-                           "files": len(created), "total_qty": total_qty,
+                table_name="part_estimates", record_id=str(est.id),
+                new_value={"lot": lot.lot_number, "mode": "per-model", "grade": grade,
+                           "models": len(priced_blocks), "total_qty": total_qty,
                            "total_estimation": str(total_estimation)},
                 request=request)
     await db.commit()
 
-    return JSONResponse({
-        "ok": True,
-        "files": [{"estimate_id": str(e.id), "grade": e.grade,
-                   "download_url": f"/part-estimation/download/{e.id}"} for e in created],
-    })
+    return JSONResponse({"ok": True, "estimate_id": str(est.id),
+                         "download_url": f"/part-estimation/download/{est.id}"})
 
 
 def _build_workbook(*, lot_number, generated_on, generated_by, lines,

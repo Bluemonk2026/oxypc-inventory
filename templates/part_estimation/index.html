@@ -151,6 +151,16 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
+        {# One Generate click writes one file for the grade currently
+           selected. Nothing here navigates away on success, so the operator
+           can change the grade (and re-price anything that grade needs
+           differently) and click Generate again for the next file, all in
+           one sitting — this list is where each file from the session shows
+           up as it's made. #}
+        <div id="me_generated" class="d-none mb-2">
+          <div class="small fw-semibold text-muted mb-1">Generated this session:</div>
+          <div id="me_generated_list" class="d-flex flex-wrap gap-2"></div>
+        </div>
         <div id="me_loading" class="text-center text-muted py-4">
           <div class="spinner-border spinner-border-sm me-2"></div>Loading model summary…
         </div>
@@ -182,11 +192,14 @@
                   <td colspan="3" class="text-end fw-semibold align-middle">
                     Select Grade
                     <div class="small text-muted fw-normal">
-                      One identical-content file is written per grade chosen.
+                      Generate writes one file for this grade. Change the grade
+                      (and prices, if this grade needs different ones) and
+                      click Generate again for the next file.
                     </div>
                   </td>
                   <td>
-                    <select id="me_grades" class="form-select form-select-sm" multiple size="4">
+                    <select id="me_grade" class="form-select form-select-sm">
+                      <option value="">Select</option>
                       {% for value, label in grade_options %}
                       <option value="{{ value }}">{{ label }}</option>
                       {% endfor %}
@@ -504,14 +517,27 @@ function recalcModelEstimate() {
   $('#me_grand').text(estMoney(partsTotal + labour));
 }
 
+// The Download column on the page behind the modal is server-rendered, so it
+// only reflects files generated this session once the page reloads. Doing
+// that on modal close (rather than after every single Generate) is what lets
+// the operator stay in the modal across several grades without a reload
+// yanking their place — or their unsaved prices for the next grade — away.
+var meAnyGenerated = false;
+$('#modelEstimateModal').on('hidden.bs.modal', function () {
+  if (meAnyGenerated) window.location.reload();
+});
+
 function openModelEstimateModal(lotId, lotNumber) {
+  meAnyGenerated = false;
   meLotId = lotId; meData = null;
   $('#me_lot').text(lotNumber);
   $('#me_loading').removeClass('d-none');
   $('#me_body').addClass('d-none');
   $('#me_error').addClass('d-none').text('');
   $('#me_models').empty();
-  $('#me_grades').val([]);
+  $('#me_grade').val('');
+  $('#me_generated').addClass('d-none');
+  $('#me_generated_list').empty();
   $('#me_submit').prop('disabled', true);
   new bootstrap.Modal(document.getElementById('modelEstimateModal')).show();
 
@@ -565,15 +591,16 @@ function submitModelEstimate() {
     $('#me_error').removeClass('d-none').text('Select at least one model to estimate.');
     return;
   }
-  var grades = $('#me_grades').val() || [];
-  if (!grades.length) {
-    $('#me_error').removeClass('d-none').text('Select at least one Grade.');
+  var grade = $('#me_grade').val();
+  if (!grade) {
+    $('#me_error').removeClass('d-none').text('Select a Grade.');
     return;
   }
+  var gradeLabel = $('#me_grade option:selected').text();
 
   var fd = new FormData();
   fd.append('payload', JSON.stringify({
-    included: included, statuses: statuses, prices: prices, grades: grades,
+    included: included, statuses: statuses, prices: prices, grade: grade,
     labour_cost: parseFloat($('#me_labour').val()) || 0,
     notes: $('#me_notes').val() || ''
   }));
@@ -586,22 +613,29 @@ function submitModelEstimate() {
   })
     .then(function (r) { return r.json(); })
     .then(function (d) {
+      $('#me_submit').prop('disabled', false);
       if (!d.ok) {
         $('#me_error').removeClass('d-none').text(d.error || 'Could not generate the estimate.');
-        $('#me_submit').prop('disabled', false);
         return;
       }
-      // One file per grade selected — too many to auto-download at once
-      // (browsers block a burst of downloads), so land back on the list and
-      // let the operator pick each one off the Download column.
-      var n = (d.files || []).length;
-      var msg = n === 1 ? 'Part Estimate generated and sent to Sourcing'
-                        : n + ' Part Estimate files generated and sent to Sourcing';
-      window.location.href = '/part-estimation?success=' + encodeURIComponent(msg);
+      // Stays open on purpose — change the grade (and re-price anything that
+      // grade needs differently), then Generate again for the next file. Each
+      // one lands here as it's made; the Download column on the page behind
+      // this modal only picks them up once the modal is closed and the page
+      // is reloaded.
+      meAnyGenerated = true;
+      $('#me_generated').removeClass('d-none');
+      $('#me_generated_list').append(
+        $('<a>').addClass('btn btn-sm btn-outline-success py-0 px-2')
+          .attr({ href: d.download_url, target: '_blank',
+                  title: 'Generated ' + new Date().toLocaleTimeString() })
+          .append($('<i>').addClass('bi bi-file-earmark-excel me-1'), gradeLabel)
+      );
+      $('#me_grade').val('');
     })
     .catch(function () {
-      $('#me_error').removeClass('d-none').text('Could not generate the estimate.');
       $('#me_submit').prop('disabled', false);
+      $('#me_error').removeClass('d-none').text('Could not generate the estimate.');
     });
 }
 </script>

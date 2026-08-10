@@ -99,7 +99,11 @@ async def lot_parts(
     if not lot:
         raise HTTPException(404, "Lot not found")
 
-    parts = await required_parts_for_lot(db, lid)
+    # The modal lists every Parts Consumption row, including the ones no tag in
+    # this lot needs, so the operator can see the full checklist rather than
+    # wonder whether a missing part was overlooked. Zero rows carry a 0 and are
+    # dropped when the estimate is saved.
+    parts = await required_parts_for_lot(db, lid, include_zero=True)
 
     prev = (await db.execute(
         select(PartEstimate).where(PartEstimate.lot_id == lid)

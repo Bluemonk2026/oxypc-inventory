@@ -91,9 +91,17 @@ async def device_counts_by_lot(db: AsyncSession) -> dict:
     return {lot_id: n for lot_id, n in rows if lot_id is not None}
 
 
-async def required_parts_for_lot(db: AsyncSession, lot_id) -> list[dict]:
-    """[{part_name, qty}] for one lot, in PARTS_MATRIX order, parts with qty 0
-    omitted. qty = how many of the lot's tags need that part."""
+async def required_parts_for_lot(db: AsyncSession, lot_id,
+                                 include_zero: bool = False) -> list[dict]:
+    """[{part_name, qty}] for one lot, in PARTS_MATRIX order — the same order
+    and the same names as Parts Consumption on Device Detail. qty = how many of
+    the lot's tags need that part.
+
+    include_zero=True keeps parts no tag needs, so the costing modal can show
+    the full list with a 0 against them. The saved estimate still stores only
+    the rows with a quantity: a zero line costs nothing and would just pad the
+    workbook.
+    """
     rows = (await db.execute(
         _active(select(*_select_cols())
                 .outerjoin(IQCInspection, IQCInspection.device_id == Device.id))
@@ -106,4 +114,5 @@ async def required_parts_for_lot(db: AsyncSession, lot_id) -> list[dict]:
         for r in compute_required(iqc, device):
             if r["required"]:
                 tally[r["label"]] += 1
-    return [{"part_name": label, "qty": tally[label]} for label in PART_LABELS if tally[label]]
+    return [{"part_name": label, "qty": tally[label]} for label in PART_LABELS
+            if include_zero or tally[label]]

@@ -29,6 +29,18 @@ def _is_sentinel(val):
     return str(val).strip().lower() in _SENTINELS
 
 
+# Same idea as _is_sentinel, but "No" counts as a real answer rather than a
+# non-answer. Used by the body / display group at the foot of the table: on
+# those fields "No" is the technician saying there is no defect, so treating it
+# as unknown made the part Required on essentially every tag — Hinge came back
+# needed on all 2,185 tags of a lot purely because screen_hinge_broken said
+# "No". Genuinely missing data still flags.
+def _is_unknown(val):
+    if val is None:
+        return True
+    return str(val).strip().lower() in (_SENTINELS - {"no"})
+
+
 def _damaged(*vals):
     """True if any cosmetic panel field reports actual damage.
 
@@ -43,8 +55,15 @@ def _damaged(*vals):
         if v is None:
             continue
         s = str(v).strip().lower()
-        if s and s not in ("no", "-", "n/a", "none"):
-            return True
+        if not s or s in ("no", "-", "n/a", "none"):
+            continue
+        # The broken/dent columns sometimes carry a scratch or colour-fade
+        # value (panel_c_broken holds "Minor Scratch" on 104 production rows).
+        # Those go to Paint for refinishing, not to Stores for a new panel, so
+        # they must not flag the part Required wherever they were entered.
+        if "scratch" in s or "fade" in s:
+            continue
+        return True
     return False
 
 
@@ -97,13 +116,13 @@ PARTS_MATRIX = [
                           or _is(i.screen_broken, "Yes") or _is(i.screen_line, "Yes")
                           or _is(i.screen_dot, "Yes") or _is(i.screen_flickering, "Yes")
                           or _is(i.screen_missing, "Yes") or _is(i.screen_functional, "No")
-                          or _is_sentinel(i.screen_functional)),
-    ("Hinge",             "Other",      "hinge",    lambda i, d: _is(i.screen_hinge_broken, "Yes") or _is_sentinel(i.screen_hinge_broken)),
-    ("Touchpad",          "Other",      "touchpad", lambda i, d: _is(i.touchpad_working, "No") or _is_sentinel(i.touchpad_working)
+                          or _is_unknown(i.screen_functional)),
+    ("Hinge",             "Other",      "hinge",    lambda i, d: _is(i.screen_hinge_broken, "Yes") or _is_unknown(i.screen_hinge_broken)),
+    ("Touchpad",          "Other",      "touchpad", lambda i, d: _is(i.touchpad_working, "No") or _is_unknown(i.touchpad_working)
                           or _is(i.touchpad_missing, "Yes")),
     ("Bottom Base",       "Body",   "bottom base",   lambda i, d: _damaged(
         i.panel_b_broken, i.panel_b_missing, i.panel_b_rubber_cut)),
-    ("Keyboard",          "Keyboard",   "keyboard", lambda i, d: _is(i.keyboard_working, "No") or _is_sentinel(i.keyboard_working)
+    ("Keyboard",          "Keyboard",   "keyboard", lambda i, d: _is(i.keyboard_working, "No") or _is_unknown(i.keyboard_working)
                           or _is(i.keyboard_key_missing, "Yes")),
     ("Palm rest",         "Body",   "palm rest",     lambda i, d: _damaged(
         i.panel_d_broken, i.panel_d_missing, i.panel_d_dent)),

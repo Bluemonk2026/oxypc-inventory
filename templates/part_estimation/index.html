@@ -204,14 +204,21 @@ function openEstimateModal(lotId, lotNumber) {
     .then(function (r) { return r.json(); })
     .then(function (d) {
       $('#est_loading').addClass('d-none');
-      if (!d.ok || !d.parts || !d.parts.length) {
+      // Every Parts Consumption row is listed now, so row count no longer
+      // tells us whether anything is needed — check the quantities.
+      var needed = (d.parts || []).reduce(function (s, p) { return s + (p.qty || 0); }, 0);
+      if (!d.ok || !d.parts || !d.parts.length || !needed) {
         $('#est_error').removeClass('d-none').text('No parts are required for this lot.');
         return;
       }
       d.parts.forEach(function (p) {
+        // Rows no tag in this lot needs still show, with a 0, so the operator
+        // sees the whole checklist. Muted so the real work stands out.
+        var zero = !p.qty;
         $('#est_rows').append(
-          $('<tr>').attr('data-qty', p.qty).attr('data-name', p.part_name).append(
-            $('<td>').addClass('fw-semibold').text(p.part_name),
+          $('<tr>').attr('data-qty', p.qty).attr('data-name', p.part_name)
+            .addClass(zero ? 'text-muted' : '').append(
+            $('<td>').addClass(zero ? '' : 'fw-semibold').text(p.part_name),
             $('<td>').text(p.qty),
             $('<td>').append($('<input>').attr({ type: 'number', step: '0.01', min: '0' })
               .addClass('form-control form-control-sm est-unit').val(p.unit_cost || '')),

@@ -8,7 +8,7 @@ import csv
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, extract
+from sqlalchemy import select, func, and_, extract, text
 from database import get_db
 from models.attendance import Attendance
 from models.user import User, UserRole
@@ -22,6 +22,40 @@ ADMIN_ROLES = (UserRole.admin, UserRole.inventory_manager)
 
 def _is_privileged(user: User) -> bool:
     return user.role in (UserRole.admin, UserRole.inventory_manager)
+
+
+async def _day_record(db: AsyncSession, user_id, target_date: date):
+    """The attendance row for one user on one date.
+
+    There is no unique constraint on (user_id, date), and a double-submitted
+    Check In used to insert two rows (both requests missed the existing-row
+    check before either committed). scalar_one_or_none() then raised
+    MultipleResultsFound on that user's day — which is what surfaced as a 500
+    on My Attendance and on the Check In button itself.
+
+    _lock_attendance_day below stops new duplicates. This picks a row
+    deterministically so days that already have one degrade to "shows the
+    first check-in" instead of erroring. nullslast keeps a real check-in ahead
+    of an admin-created blank row for the same day.
+    """
+    return (await db.execute(
+        select(Attendance)
+        .where(Attendance.user_id == user_id, Attendance.date == target_date)
+        .order_by(Attendance.check_in.asc().nullslast(), Attendance.created_at.asc())
+    )).scalars().first()
+
+
+async def _lock_attendance_day(db: AsyncSession, user_id, target_date: date):
+    """Serialize check-in/check-out for one user+date across all workers.
+
+    Transaction-scoped, so it releases on commit. Used instead of a unique
+    constraint because adding one would first require deleting the duplicate
+    rows already in production.
+    """
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k)::bigint)"),
+        {"k": f"attendance:{user_id}:{target_date.isoformat()}"},
+    )
 
 
 async def _attendance_report_scope(db: AsyncSession, current_user: User):
@@ -57,13 +91,7 @@ async def api_status(
     current_user: User = Depends(get_current_user),
 ):
     today = app_now().date()
-    result = await db.execute(
-        select(Attendance).where(
-            Attendance.user_id == current_user.id,
-            Attendance.date == today,
-        )
-    )
-    record = result.scalar_one_or_none()
+    record = await _day_record(db, current_user.id, today)
     if record is None:
         return JSONResponse({
             "checked_in": False,
@@ -100,13 +128,7 @@ async def attendance_index(
         target_date = app_now().date()
 
     # Own record for the target date (drives check-in/out buttons)
-    own_result = await db.execute(
-        select(Attendance).where(
-            Attendance.user_id == current_user.id,
-            Attendance.date == target_date,
-        )
-    )
-    own_record = own_result.scalar_one_or_none()
+    own_record = await _day_record(db, current_user.id, target_date)
 
     # Table rows
     if _is_privileged(current_user):
@@ -218,13 +240,11 @@ async def checkin(
     current_user: User = Depends(get_current_user),
 ):
     today = app_now().date()
-    result = await db.execute(
-        select(Attendance).where(
-            Attendance.user_id == current_user.id,
-            Attendance.date == today,
-        )
-    )
-    existing = result.scalar_one_or_none()
+    # Take the lock before reading: a second submit now waits here until the
+    # first has committed, so it sees the row and is rejected below instead of
+    # inserting a duplicate.
+    await _lock_attendance_day(db, current_user.id, today)
+    existing = await _day_record(db, current_user.id, today)
 
     if existing and existing.check_in is not None:
         return RedirectResponse(
@@ -268,13 +288,8 @@ async def checkout(
     current_user: User = Depends(get_current_user),
 ):
     today = app_now().date()
-    result = await db.execute(
-        select(Attendance).where(
-            Attendance.user_id == current_user.id,
-            Attendance.date == today,
-        )
-    )
-    record = result.scalar_one_or_none()
+    await _lock_attendance_day(db, current_user.id, today)
+    record = await _day_record(db, current_user.id, today)
 
     if not record or record.check_in is None:
         return RedirectResponse(
@@ -560,13 +575,8 @@ async def mark_attendance(
     if not target_user:
         return RedirectResponse(url="/attendance?error=User+not+found", status_code=302)
 
-    r_res = await db.execute(
-        select(Attendance).where(
-            Attendance.user_id == target_user.id,
-            Attendance.date == target_date,
-        )
-    )
-    record = r_res.scalar_one_or_none()
+    await _lock_attendance_day(db, target_user.id, target_date)
+    record = await _day_record(db, target_user.id, target_date)
 
     def parse_time(time_str, ref_date):
         if not time_str:

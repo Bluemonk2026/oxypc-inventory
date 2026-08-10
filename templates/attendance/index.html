@@ -35,7 +35,7 @@
       {% if own_record.check_out %}<div class="small">Check-out: <strong>{{ own_record.check_out.strftime('%H:%M') }} UTC</strong></div>{% endif %}
     </div>
     {% if own_record.check_in and not own_record.check_out and target_date == today %}
-    <form method="post" action="/attendance/checkout" class="ms-auto">
+    <form method="post" action="/attendance/checkout" class="ms-auto attendance-once">
       <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
       <button class="btn btn-danger"><i class="bi bi-box-arrow-right me-1"></i>Check Out</button>
     </form>
@@ -65,12 +65,12 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body d-flex gap-3 justify-content-center py-4">
-        <form method="post" action="/attendance/checkin">
+        <form method="post" action="/attendance/checkin" class="attendance-once">
           <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
           <input type="hidden" name="mode" value="in_office">
           <button type="submit" class="btn btn-primary btn-lg px-4"><i class="bi bi-building me-2"></i>In-Office</button>
         </form>
-        <form method="post" action="/attendance/checkin">
+        <form method="post" action="/attendance/checkin" class="attendance-once">
           <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
           <input type="hidden" name="mode" value="wfh">
           <button type="submit" class="btn btn-outline-primary btn-lg px-4"><i class="bi bi-house me-2"></i>Work From Home</button>
@@ -174,4 +174,20 @@
   </div>
 </div>
 {% endif %}
+
+<script>
+// Check In / Check Out are once-per-day actions, but the buttons stayed live
+// while the POST was in flight — an impatient second click sent a second
+// request and produced two attendance rows for the same day. Disable on first
+// submit. The server also holds a per-user advisory lock, so this is the fast
+// path, not the guarantee.
+document.querySelectorAll('form.attendance-once').forEach(function (form) {
+  form.addEventListener('submit', function () {
+    form.querySelectorAll('button[type=submit], button:not([type])').forEach(function (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Please wait…';
+    });
+  });
+});
+</script>
 {% endblock %}

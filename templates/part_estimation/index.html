@@ -60,7 +60,7 @@
             {% endif %}
           </td>
           <td class="text-nowrap">
-            <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
+            <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 d-none"
                     onclick="openEstimateModal('{{ r.lot.id }}', '{{ r.lot.lot_number }}')"
                     {% if not r.total_parts_required %}disabled title="No parts required for this lot"{% endif %}>
               <i class="bi bi-calculator me-1"></i>Generate Estimate
@@ -68,7 +68,7 @@
             {# Per-model costing. Unlike Generate Estimate it stays enabled for
                a lot with no Required=Yes rows, because its quantities come
                from the cosmetic status bands rather than the required flag. #}
-            <button type="button" class="btn btn-sm btn-outline-dark py-0 px-2 ms-1"
+            <button type="button" class="btn btn-sm btn-primary py-0 px-2"
                     onclick="openModelEstimateModal('{{ r.lot.id }}', '{{ r.lot.lot_number }}')"
                     {% if not r.total_products %}disabled title="This lot has no tags"{% endif %}>
               <i class="bi bi-diagram-3 me-1"></i>Part Estimate

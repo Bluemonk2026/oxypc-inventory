@@ -1,4 +1,5 @@
 from templates_config import templates
+import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Form, Query, Request, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
@@ -14,6 +15,7 @@ from models.lot import Lot, LotLineItem
 from models.crm import CRMSourcingDeal
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from services.audit_engine import audit
+from utils.fk_purge import purge_references
 from services.event_bus import EventType, publish
 from models.sales import Sale
 from models.spare_parts import SparePartConsumption
@@ -27,6 +29,8 @@ from models.part_request import PartRequest
 from models.spare_parts import SparePart
 from models.location import StorageLocation, ZoneType, ZONE_LABELS, UnitType, UNIT_TYPE_LABELS
 from models.work_order import WorkOrder
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["stock"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager,
@@ -572,15 +576,17 @@ async def delete_lot_permanent(
     current_user: User = Depends(allowed),
 ):
     """
-    Permanently delete a lot and all its associated devices (with their full
-    history) from the database. Deletion cascades through every device child
-    table in FK dependency order so no constraint violations occur.
-    CRM sourcing deal links are nullified, then LotLineItems are cascade-deleted
-    by the DB alongside the lot row.
+    Permanently delete a lot, its devices and everything that references them.
+
+    The cascade is derived from the database's own foreign keys at request
+    time (utils/fk_purge), so tables added later are handled automatically.
+    Records that merely mention the lot — supplier payments, CRM sourcing
+    deals, telecalling records — are unlinked rather than deleted.
     """
     import uuid as _uuid
     from urllib.parse import quote
     from sqlalchemy import text as _text
+    from sqlalchemy.exc import IntegrityError
 
     try:
         uid = _uuid.UUID(lot_id)
@@ -594,119 +600,19 @@ async def delete_lot_permanent(
     lot_number = lot.lot_number
     lot_id_param = {"lot_id": str(uid)}
 
-    # ── Cascade-delete all device child records (leaf tables first) ──────────
-    # 1. spare_parts_consumption (nullable device_id)
-    await db.execute(_text(
-        "DELETE FROM spare_parts_consumption "
-        "WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-    ), lot_id_param)
-
-    # 2. ram_tracking (nullable device_id AND destination_device_id)
-    await db.execute(_text(
-        "DELETE FROM ram_tracking "
-        "WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id) "
-        "OR destination_device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-    ), lot_id_param)
-
-    # 3. spare_parts_ledger (nullable device_id)
-    await db.execute(_text(
-        "DELETE FROM spare_parts_ledger "
-        "WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-    ), lot_id_param)
-
-    # 4. audit_scan_items (nullable device_id)
-    await db.execute(_text(
-        "DELETE FROM audit_scan_items "
-        "WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-    ), lot_id_param)
-
-    # 5. device_location_logs
-    await db.execute(_text(
-        "DELETE FROM device_location_logs "
-        "WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-    ), lot_id_param)
-
-    # 6. qc_checks
-    await db.execute(_text(
-        "DELETE FROM qc_checks "
-        "WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-    ), lot_id_param)
-
-    # 7. iqc_inspections
-    await db.execute(_text(
-        "DELETE FROM iqc_inspections "
-        "WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-    ), lot_id_param)
-
-    # 8. repair_attempts (before repair_jobs — may FK into repair_jobs)
-    await db.execute(_text(
-        "DELETE FROM repair_attempts "
-        "WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-    ), lot_id_param)
-
-    # 9. repair_jobs
-    await db.execute(_text(
-        "DELETE FROM repair_jobs "
-        "WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-    ), lot_id_param)
-
-    # 10. device_costing
-    await db.execute(_text(
-        "DELETE FROM device_costing "
-        "WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-    ), lot_id_param)
-
-    # 11. device_aging (nullable device_id)
-    await db.execute(_text(
-        "DELETE FROM device_aging "
-        "WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-    ), lot_id_param)
-
-    # 12. stage_movements
-    await db.execute(_text(
-        "DELETE FROM stage_movements "
-        "WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-    ), lot_id_param)
-
-    # 13. returns (before sales — returns may FK to sales.original_sale_id)
-    await db.execute(_text(
-        "DELETE FROM returns "
-        "WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-    ), lot_id_param)
-
-    # 14a. customer_receipts (FK to sales.id via sale_id — must precede sales)
-    await db.execute(_text(
-        "DELETE FROM customer_receipts "
-        "WHERE sale_id IN ("
-        "  SELECT id FROM sales "
-        "  WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-        ")"
-    ), lot_id_param)
-
-    # 14b. sales
-    await db.execute(_text(
-        "DELETE FROM sales "
-        "WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-    ), lot_id_param)
-
-    # 15. stock_transfers
-    await db.execute(_text(
-        "DELETE FROM stock_transfers "
-        "WHERE device_id IN (SELECT id FROM devices WHERE lot_id = :lot_id)"
-    ), lot_id_param)
-
-    # 16. devices for this lot
-    await db.execute(_text(
-        "DELETE FROM devices WHERE lot_id = :lot_id"
-    ), lot_id_param)
-    # ── End device cascade ────────────────────────────────────────────────────
-
-    # Nullify any CRM sourcing deal back-links so the FK doesn't block the delete
-    await db.execute(
-        update(CRMSourcingDeal)
-        .where(CRMSourcingDeal.linked_lot_id == uid)
-        .values(linked_lot_id=None)
-    )
+    # ── Clear everything that references this lot ────────────────────────────
+    # Driven by the live FK catalog rather than a hand-written table list: the
+    # old list had fallen 19 tables behind the schema, and because every FK
+    # here is ON DELETE NO ACTION, one forgotten child row raised
+    # ForeignKeyViolation and the page returned 500 (22 of 287 production lots
+    # could not be deleted). See utils/fk_purge for the delete-vs-unlink rule.
+    device_ids = (await db.execute(
+        _text("SELECT id FROM devices WHERE lot_id = :lot_id"), lot_id_param)).scalars().all()
+    purged = await purge_references(db, "devices", device_ids)
+    if device_ids:
+        await db.execute(_text("DELETE FROM devices WHERE lot_id = :lot_id"), lot_id_param)
+        purged.append(f"deleted {len(device_ids)} devices")
+    purged += await purge_references(db, "lots", [uid])
 
     # Audit before the row is gone
     await audit(
@@ -718,12 +624,24 @@ async def delete_lot_permanent(
             "buying_price": str(lot.buying_price),
             "qty": lot.qty,
             "deleted_by": current_user.username,
+            "cascade": purged,
         },
         request=request,
     )
 
     await db.delete(lot)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as e:
+        # A reference the purge could not resolve. Roll back so the lot is left
+        # intact and say which constraint blocked it, rather than 500ing.
+        await db.rollback()
+        _log.exception("lot delete blocked by a foreign key: %s", lot_number)
+        detail = getattr(getattr(e, "orig", None), "constraint_name", None) or "a related record"
+        return RedirectResponse(
+            url=f"/lots?error={quote(lot_number + ' could not be deleted — still referenced by ' + str(detail))}",
+            status_code=302,
+        )
 
     return RedirectResponse(
         url=f"/lots?success={quote(lot_number + ' deleted permanently')}",

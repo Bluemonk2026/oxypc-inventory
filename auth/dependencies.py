@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
+from starlette.concurrency import run_in_threadpool
 from jose import JWTError, jwt
 import bcrypt as _bcrypt
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,6 +63,24 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def hash_password(password: str) -> str:
     return _bcrypt.hashpw(_bcrypt_bytes(password), _bcrypt.gensalt()).decode("utf-8")
+
+
+# ── Async wrappers ────────────────────────────────────────────────────────────
+# bcrypt is deliberately slow: at the stored cost factor of 12 one verify takes
+# ~410 ms of solid CPU. Called straight from an `async def` endpoint that runs
+# on the event loop, which means it blocks EVERY other request on that worker
+# for those 410 ms — not just the person logging in. With 4 workers and a
+# morning login rush, that is the whole app stalling: slow logins, requests
+# timing out into 500s, unrelated pages hanging.
+#
+# Running it in the threadpool keeps the event loop free. Always use these in
+# request handlers; the sync versions above are for scripts and tests.
+async def verify_password_async(plain: str, hashed: str) -> bool:
+    return await run_in_threadpool(verify_password, plain, hashed)
+
+
+async def hash_password_async(password: str) -> str:
+    return await run_in_threadpool(hash_password, password)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

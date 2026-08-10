@@ -31,7 +31,7 @@ from decimal import Decimal, InvalidOperation
 from models.lot import Lot
 from models.device import Device
 from models.iqc_inspection import IQCInspection
-from auth.dependencies import verify_password
+from auth.dependencies import verify_password_async
 from auth.partner_auth import (
     get_current_partner, verify_partner_csrf, create_partner_token,
     new_partner_csrf, normalize_phone,
@@ -108,7 +108,7 @@ async def login(
         or not dealer.portal_enabled
         or dealer.status != "active"
         or not dealer.portal_password_hash
-        or not verify_password(password, dealer.portal_password_hash)
+        or not await verify_password_async(password, dealer.portal_password_hash)
     ):
         db.add(PartnerLoginLog(dealer_id=dealer.id if dealer else None,
                                phone_attempted=norm, ip_address=ip,

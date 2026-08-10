@@ -39,7 +39,7 @@ from models.company import Company
 from models.terms import TermsCondition
 from models.crm import CRMSalesOpportunity
 from auth.dependencies import (
-    get_current_user, verify_csrf, hash_password, require_module_perm,
+    get_current_user, verify_csrf, hash_password_async, require_module_perm,
 )
 from services.audit_engine import audit
 from services.partner_service import (
@@ -289,7 +289,7 @@ async def enable_partner(
         dealer.crm_contact_id = contact.id
         dealer.portal_enabled = True
         dealer.portal_phone = norm
-        dealer.portal_password_hash = hash_password(temp_password)
+        dealer.portal_password_hash = await hash_password_async(temp_password)
         dealer.partner_type = partner_type
         dealer.price_segment = price_segment
         dealer.sales_owner_username = owner
@@ -421,7 +421,7 @@ async def reset_partner_password(
     if not dealer:
         raise HTTPException(status_code=404, detail="Dealer not found")
     temp_password = _gen_temp_password()
-    dealer.portal_password_hash = hash_password(temp_password)
+    dealer.portal_password_hash = await hash_password_async(temp_password)
     dealer.portal_password_version = (dealer.portal_password_version or 1) + 1  # invalidates old JWTs
     await audit(db, action="PARTNER_PASSWORD_RESET", user=current_user,
                 table_name="dealers", record_id=str(dealer.id), request=request)

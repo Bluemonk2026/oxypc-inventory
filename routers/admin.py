@@ -15,7 +15,7 @@ from database import get_db
 from models.user import User, UserRole, LoginLog, UserPermission, ROLE_LABELS
 from models.engines import AuditLog
 from models.cost_config import CostConfig
-from auth.dependencies import get_current_user, require_roles, hash_password, verify_csrf
+from auth.dependencies import get_current_user, require_roles, hash_password_async, verify_csrf
 from services.audit_engine import audit
 
 PERMISSION_GROUPS = {
@@ -178,7 +178,7 @@ async def create_user(
         })
     user = User(
         username=username, full_name=full_name,
-        role=role, password_hash=hash_password(password),
+        role=role, password_hash=await hash_password_async(password),
         whatsapp_number=(whatsapp_number.strip() or None),
         email=(email.strip() or None),
         created_by=current_user.username, status=True,
@@ -267,7 +267,7 @@ async def reset_password(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(404)
-    user.password_hash = hash_password(new_password)
+    user.password_hash = await hash_password_async(new_password)
     await db.commit()
     return RedirectResponse(url="/admin/users?success=Password+reset", status_code=302)
 

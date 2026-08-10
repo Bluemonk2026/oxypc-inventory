@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
 from database import get_db
 from models.user import User, LoginLog
-from auth.dependencies import verify_password, hash_password, create_access_token, get_current_user, verify_csrf
+from auth.dependencies import (verify_password_async, hash_password_async,
+                               create_access_token, get_current_user, verify_csrf)
 from config import ACCESS_TOKEN_EXPIRE_MINUTES, COOKIE_SECURE
 from limiter import limiter, ip_key_func
 
@@ -86,7 +87,7 @@ async def login(
                 f"Account locked — too many failed attempts. "
                 f"Try again in {LOCKOUT_MINUTES} minutes.")
 
-    if not user or not verify_password(password, user.password_hash):
+    if not user or not await verify_password_async(password, user.password_hash):
         # Log the failure against the real account (prevents FK violation; generic message
         # avoids user-enumeration via different error text)
         if user:
@@ -180,7 +181,7 @@ async def change_password(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not verify_password(current_password, current_user.password_hash):
+    if not await verify_password_async(current_password, current_user.password_hash):
         return templates.TemplateResponse("profile.html", {
             "request": request, "current_user": current_user,
             "pw_error": "Current password is incorrect",
@@ -197,7 +198,7 @@ async def change_password(
         })
     await db.execute(
         update(User).where(User.id == current_user.id).values(
-            password_hash=hash_password(new_password)
+            password_hash=await hash_password_async(new_password)
         )
     )
     await db.commit()

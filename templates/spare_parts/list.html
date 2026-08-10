@@ -136,8 +136,8 @@
         <thead class="table-dark">
           <tr>
             <th><input type="checkbox" class="form-check-input sp-sa" data-tbl="partsTable"></th>
-            <th>Code</th><th>GRN</th><th>Added As</th><th>Name</th><th>Category</th><th>Type</th>
-            <th>Crate Number</th><th>Make</th><th>Model</th>
+            <th>Code</th><th>GRN</th><th>Added As</th><th>Category</th>
+            <th>Crate Number</th><th>Name</th><th>Make</th><th>Model</th>
             <th>Min Alert</th><th>In Stock</th><th>Consumed</th><th>Sold</th>
             {% if can_view_pricing(current_user) %}<th>Unit Price</th>
             <th>Stock Value</th>{% endif %}
@@ -170,17 +170,9 @@
               <span class="badge bg-success">New</span>
               {% endif %}
             </td>
-            <td class="fw-semibold">{{ part.name }}</td>
             <td><span class="badge bg-secondary">{{ part.category }}</span></td>
-            <td>
-              <select class="form-select form-select-sm part-type-select" data-part-id="{{ part.id }}" style="min-width:110px">
-                <option value="" {% if not part.part_type %}selected{% endif %}>—</option>
-                {% for t in ['New', 'Replace', 'Upgrade', 'Downgrade'] %}
-                <option value="{{ t }}" {% if part.part_type == t %}selected{% endif %}>{{ t }}</option>
-                {% endfor %}
-              </select>
-            </td>
             <td>{{ part.crate_number or '—' }}</td>
+            <td class="fw-semibold">{{ part.name }}</td>
             <td>{{ part.make or '—' }}</td>
             <td>{{ part.model or '—' }}</td>
             <td>{{ part.min_stock_alert }}</td>
@@ -202,7 +194,7 @@
             <td>
               <div class="d-flex gap-1 flex-wrap">
                 <a href="/spare-parts/{{ part.id }}/edit"
-                   class="btn btn-xs btn-outline-primary btn-sm py-0 px-2">View</a>
+                   class="btn btn-xs btn-outline-primary btn-sm py-0 px-2">Edit</a>
                 <form method="post" action="/spare-parts/{{ part.id }}/procure" class="d-inline">
                   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                   <button class="btn btn-xs btn-outline-info btn-sm py-0 px-2" title="Send to Sourcing">Procure</button>
@@ -749,7 +741,9 @@
 $(document).ready(function() {
   var cdNone = {orderable: false, targets: 0};
   if (!$.fn.dataTable.isDataTable('#partsTable'))
-    $('#partsTable').DataTable({ pageLength: 12, order: [[4, 'asc']], columnDefs: [cdNone], language: { emptyTable: 'No parts registered.' } });
+    {# Name moved from column 4 to column 6 (after Category, Crate Number) —
+       still the default sort. #}
+    $('#partsTable').DataTable({ pageLength: 12, order: [[6, 'asc']], columnDefs: [cdNone], language: { emptyTable: 'No parts registered.' } });
   if (!$.fn.dataTable.isDataTable('#purchasesTable'))
     $('#purchasesTable').DataTable({ pageLength: 12, order: [[8, 'desc']], columnDefs: [cdNone], language: { emptyTable: 'No purchases recorded.' } });
   if (!$.fn.dataTable.isDataTable('#consumptionTable'))
@@ -807,22 +801,6 @@ document.querySelectorAll('#sparePartsTabs button').forEach(btn => {
 });
 
 // ── Export utility ─────────────────────────────────────────────────────────
-document.querySelectorAll('.part-type-select').forEach(function (sel) {
-  sel.addEventListener('change', function () {
-    var partId = sel.dataset.partId;
-    var val = sel.value;
-    sel.disabled = true;
-    var fd = new FormData();
-    fd.append('part_type', val);
-    fetch('/spare-parts/' + partId + '/set-type', { method: 'POST', body: fd,
-      headers: { 'X-CSRF-Token': (document.querySelector('[name="csrf_token"]') || {}).value || '' } })
-      .then(function (r) { return r.json(); })
-      .then(function (d) { if (!d.ok) alert(d.error || 'Could not update Type.'); })
-      .catch(function () { alert('Could not update Type — please try again.'); })
-      .finally(function () { sel.disabled = false; });
-  });
-});
-
 function spExport(tableId, selectedOnly) {
   var table = document.getElementById(tableId);
   if (!table) return;

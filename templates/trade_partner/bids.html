@@ -21,8 +21,8 @@
       <table class="table table-sm table-hover align-middle mb-0" id="summaryTable">
         <thead class="table-light">
           <tr>
-            <th class="ps-2">Lot No</th><th>Total Bids</th><th>Highest Bid</th><th>Lowest Bid</th>
-            <th>Account Manager</th><th>Account Name</th><th>Download</th><th>Action</th>
+            <th class="ps-2">Lot No</th><th>Total Bids</th><th>Lowest Bid</th><th>Highest Bid</th>
+            <th>Account Name (Highest Bidder)</th><th>Account Manager</th><th>Download</th><th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -34,10 +34,10 @@
                  data-lot-number="{{ s.lot_number }}">{{ s.lot_number }}</a>
             </td>
             <td><span class="badge bg-secondary">{{ s.total_bids }}</span></td>
-            <td class="fw-bold text-success">₹{{ "{:,.0f}".format(s.highest) }}</td>
             <td class="text-muted">₹{{ "{:,.0f}".format(s.lowest) }}</td>
-            <td>{{ s.manager_name }}</td>
+            <td class="fw-bold text-success">₹{{ "{:,.0f}".format(s.highest) }}</td>
             <td>{{ s.account_name }}</td>
+            <td>{{ s.manager_name }}</td>
             <td class="text-nowrap">
               {% for d in s.documents %}
               <a href="/trade-partner/bids/document/{{ d.id }}"

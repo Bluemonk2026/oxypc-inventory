@@ -284,6 +284,81 @@ async def generate_estimate(
                          "download_url": f"/part-estimation/download/{est.id}"})
 
 
+@router.post("/{estimate_id}/delete-file")
+async def delete_estimate_file(
+    estimate_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Detach the estimate file and withdraw its Production sourcing request.
+
+    The Download column goes back to empty and the request disappears from
+    Part Master -> Sourcing Requests, which is what "Delete File" means to the
+    user. Two things are deliberately kept:
+
+    * The workbook itself stays under uploads/part_estimates. Removing the row
+      that points at it is reversible; deleting the file is not, and nothing
+      else on the page depends on the bytes being gone.
+    * The PartEstimate row and its lines stay, so re-running Generate Estimate
+      still pre-fills the unit costs and labour that were entered last time.
+
+    Only the attachment fields are cleared, so file_name being empty is what
+    hides the button.
+    """
+    est = (await db.execute(
+        select(PartEstimate).where(PartEstimate.id == _as_uuid(estimate_id))
+    )).scalar_one_or_none()
+    if not est:
+        return JSONResponse({"ok": False, "error": "Estimate not found"}, status_code=404)
+    if not est.file_name:
+        return JSONResponse({"ok": False, "error": "No file is attached to this estimate"},
+                            status_code=409)
+
+    srs = (await db.execute(
+        select(PartSourcingRequest).where(PartSourcingRequest.estimate_id == est.id)
+    )).scalars().all()
+
+    # Snapshot enough to put this back by hand. file_path matters as much as
+    # file_name: the stored name is a random hex, so without it the workbook
+    # on disk cannot be matched back to the estimate. Same for the sourcing
+    # request's own fields — logging only its id makes it unrecoverable.
+    undo = {
+        "file_name": est.file_name,
+        "file_path": est.file_path,
+        "sourcing_requests": [{
+            "id": str(s.id), "part_name": s.part_name,
+            "qty_requested": s.qty_requested, "qty_sourced": s.qty_sourced,
+            "raised_by": s.raised_by, "status": s.status,
+            "source_deal_id": s.source_deal_id,
+            "confirmed": s.confirmed,
+            "confirmed_by": s.confirmed_by,
+            "confirmed_at": s.confirmed_at.isoformat() if s.confirmed_at else None,
+            "closed_by": s.closed_by,
+            "closed_at": s.closed_at.isoformat() if s.closed_at else None,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+        } for s in srs],
+    }
+    removed_file = est.file_name
+
+    for sr in srs:
+        await db.delete(sr)
+    est.file_path = None
+    est.file_name = None
+
+    await audit(db, user=current_user, action="PART_ESTIMATE_FILE_REMOVED",
+                table_name="part_estimates", record_id=str(est.id),
+                old_value=undo,
+                new_value={"lot_number": est.lot_number},
+                request=request)
+    await db.commit()
+
+    msg = f"Estimate file removed for {est.lot_number}"
+    if srs:
+        msg += f" and {len(srs)} sourcing request(s) withdrawn"
+    return JSONResponse({"ok": True, "message": msg})
+
+
 @router.get("/download/{estimate_id}")
 async def download_estimate(
     estimate_id: str,

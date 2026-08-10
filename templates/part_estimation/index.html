@@ -23,12 +23,18 @@
       <tbody>
         {% for r in rows %}
         <tr>
-          <td class="fw-semibold">{{ r.lot.lot_number }}</td>
+          <td class="fw-semibold">
+            <a href="/lots?q={{ r.lot.lot_number | urlencode }}"
+               title="Open this lot in Lot Management">{{ r.lot.lot_number }}</a>
+          </td>
           <td>{{ r.lot.purchase_date.strftime('%d %b %Y') if r.lot.purchase_date else '—' }}</td>
           <td>{{ r.total_products }}</td>
           <td>{{ r.total_parts_required }}</td>
           <td>
-            {% if r.estimate %}
+            {# Gated on file_path, not on the estimate existing: after Delete
+               File the estimate row survives (it still pre-fills unit costs)
+               but there is nothing left to download. #}
+            {% if r.estimate and r.estimate.file_path %}
             <a class="btn btn-sm btn-outline-success py-0 px-2"
                href="/part-estimation/download/{{ r.estimate.id }}"
                title="{{ r.estimate.file_name }}">
@@ -38,12 +44,20 @@
             <span class="text-muted">—</span>
             {% endif %}
           </td>
-          <td>
+          <td class="text-nowrap">
             <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
                     onclick="openEstimateModal('{{ r.lot.id }}', '{{ r.lot.lot_number }}')"
                     {% if not r.total_parts_required %}disabled title="No parts required for this lot"{% endif %}>
               <i class="bi bi-calculator me-1"></i>Generate Estimate
             </button>
+            {# Only offered once a file is actually attached in the Download
+               column — there is nothing to delete before that. #}
+            {% if r.estimate and r.estimate.file_name %}
+            <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 ms-1"
+                    onclick="deleteEstimateFile('{{ r.estimate.id }}', '{{ r.lot.lot_number }}', this)">
+              <i class="bi bi-trash3 me-1"></i>Delete File
+            </button>
+            {% endif %}
           </td>
         </tr>
         {% else %}
@@ -128,6 +142,32 @@ var estLotId = null;
 function peCsrfToken() {
   var c = document.cookie.split('; ').find(function (x) { return x.startsWith('csrf_token='); });
   return c ? c.split('=')[1] : '';
+}
+
+// Detaches the estimate file from the lot row and withdraws the matching
+// Production request from Part Master -> Sourcing Requests. The workbook
+// itself is left on the server; only the link to it is removed.
+function deleteEstimateFile(estimateId, lotNumber, btn) {
+  if (!confirm('Remove the estimate file for ' + lotNumber + '?\n\n'
+             + 'It will disappear from the Download column and its request will be '
+             + 'removed from the Sourcing Requests table on Part Master.')) return;
+  btn.disabled = true;
+  var fd = new FormData();
+  fd.append('csrf_token', peCsrfToken());
+  fetch('/part-estimation/' + estimateId + '/delete-file', { method: 'POST', body: fd })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.ok) {
+        window.location = '/part-estimation?success=' + encodeURIComponent(d.message);
+      } else {
+        alert(d.error || 'Could not remove the estimate file.');
+        btn.disabled = false;
+      }
+    })
+    .catch(function () {
+      alert('Could not remove the estimate file.');
+      btn.disabled = false;
+    });
 }
 
 function estMoney(n) {

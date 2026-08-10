@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
 
-from urllib.parse import quote
+from urllib.parse import quote, quote_plus
 
 from database import get_db
 from templates_config import templates
@@ -29,7 +29,7 @@ from models.partner import (
 )
 from decimal import Decimal, InvalidOperation
 from models.lot import Lot
-from models.device import Device
+from models.device import Device, DeviceStage
 from models.iqc_inspection import IQCInspection
 from auth.dependencies import verify_password_async
 from auth.partner_auth import (
@@ -241,15 +241,31 @@ async def catalog(
         )).scalars().all()
         if not getattr(l, "is_restricted", False) or l.id in granted_ids
     ]
+    # A lot reaches the partner catalog only once EVERY one of its tags is at
+    # Ready to Sale. A lot still part-way through refurbishment cannot be sold
+    # as a lot, so showing it invites bids on stock that is not there yet.
+    if vis_rows:
+        stage_rows = (await db.execute(
+            select(Device.lot_id, Device.current_stage, func.count(Device.id))
+            .where(Device.lot_id.in_([l.id for l in vis_rows]),
+                   Device.is_active == True, Device.is_trashed == False)  # noqa: E712
+            .group_by(Device.lot_id, Device.current_stage)
+        )).all()
+        total_by_lot, ready_by_lot = {}, {}
+        for lid, stage, cnt in stage_rows:
+            total_by_lot[lid] = total_by_lot.get(lid, 0) + cnt
+            if stage == DeviceStage.ready_to_sale:
+                ready_by_lot[lid] = ready_by_lot.get(lid, 0) + cnt
+        vis_rows = [
+            l for l in vis_rows
+            if total_by_lot.get(l.id, 0) > 0
+            and ready_by_lot.get(l.id, 0) == total_by_lot[l.id]
+        ]
+
     visible_lots = []
     if vis_rows:
         lot_ids = [l.id for l in vis_rows]
-        avail_rows = (await db.execute(
-            select(Device.lot_id, func.count(Device.id))
-            .where(Device.lot_id.in_(lot_ids), Device.is_active == True)
-            .group_by(Device.lot_id)
-        )).all()
-        avail_map = {str(lid): cnt for lid, cnt in avail_rows}
+        avail_map = {str(lid): ready_by_lot.get(lid, 0) for lid in lot_ids}
         my_bookings = (await db.execute(
             select(LotBookingRequest).where(
                 LotBookingRequest.dealer_id == dealer.id,
@@ -505,6 +521,23 @@ async def _lot_bid_state(db: AsyncSession, lots, dealer_id):
     return out
 
 
+async def _existing_lot_bid(db: AsyncSession, lot_id, dealer_id):
+    """The dealer's standing bid on this lot, of either kind, or None.
+
+    A partner account gets ONE bid per lot — an increment bid or a custom
+    price, not one of each and not several of the same. 'lost' is excluded so a
+    closed auction does not block a dealer forever if the lot is reopened.
+    """
+    lid = lot_id if isinstance(lot_id, uuid_mod.UUID) else uuid_mod.UUID(str(lot_id))
+    return (await db.execute(
+        select(PartnerBid).where(
+            PartnerBid.lot_id == lid,
+            PartnerBid.dealer_id == dealer_id,
+            PartnerBid.status.in_(("active", "won")),
+        ).order_by(PartnerBid.created_at.desc())
+    )).scalars().first()
+
+
 def _parse_amount(raw):
     try:
         amt = Decimal(str(raw).replace(",", "").strip())
@@ -742,6 +775,16 @@ async def place_lot_bid(
         return RedirectResponse(url=f"{back}?error=Lot+not+available+to+you",
                                 status_code=302)
 
+    # One bid per lot per dealer, general or custom. Checked under the row lock
+    # taken above, so two simultaneous submits cannot both get through.
+    existing = await _existing_lot_bid(db, lot.id, dealer.id)
+    if existing:
+        await db.rollback()
+        return RedirectResponse(
+            url=f"{back}?error=You+have+already+bid+on+{quote_plus(lot.lot_number)}"
+                f"+({quote_plus(existing.bid_number)}).+Only+one+bid+per+lot+is+allowed",
+            status_code=302)
+
     amt = _parse_amount(amount)
     if amt is None:
         await db.rollback()
@@ -797,19 +840,19 @@ async def request_lot_custom_price(
         return RedirectResponse(url=f"{back}?error=Lot+not+available+to+you",
                                 status_code=302)
 
+    # One bid per lot per dealer, general or custom. This supersedes the older
+    # one-below-base-offer rule, which only ever constrained custom bids.
+    existing = await _existing_lot_bid(db, lot.id, dealer.id)
+    if existing:
+        return RedirectResponse(
+            url=f"{back}?error=You+have+already+bid+on+{quote_plus(lot.lot_number)}"
+                f"+({quote_plus(existing.bid_number)}).+Only+one+bid+per+lot+is+allowed",
+            status_code=302)
+
     amt = _parse_amount(amount)
     if amt is None:
         return RedirectResponse(url=f"{back}?error=Enter+a+valid+amount",
                                 status_code=302)
-
-    # One below-base offer per dealer per lot; at or above base is unlimited.
-    base = lot.buying_price
-    if base and amt < Decimal(str(base)):
-        if await _below_base_bid_used(db, lot.id, dealer.id):
-            return RedirectResponse(
-                url=f"{back}?error=You+have+already+placed+one+bid+below+the+base+price+"
-                    f"for+this+lot.+Further+bids+must+be+at+or+above+Rs+{Decimal(str(base)):.0f}",
-                status_code=302)
 
     bid = PartnerBid(
         bid_number=await _next_bid_number(db),

@@ -28,6 +28,12 @@ _IQC_COLS = (
     "touchpad_working", "touchpad_missing", "wifi_status", "webcam_status",
     "port_hdmi", "port_usb_working", "port_audio_jack", "charging_port",
     "dvd_drive", "fan_working", "power_on",
+    # Cosmetic panels — feed the Display Panel / Bazel Frame / Bottom Base /
+    # Palm rest rows added to PARTS_MATRIX.
+    "panel_a_broken", "panel_a_missing", "panel_a_dent",
+    "panel_b_broken", "panel_b_missing", "panel_b_rubber_cut",
+    "panel_c_broken", "panel_c_missing", "panel_c_dent",
+    "panel_d_broken", "panel_d_missing", "panel_d_dent",
 )
 
 PART_LABELS = [label for label, _c, _k, _fn in PARTS_MATRIX]

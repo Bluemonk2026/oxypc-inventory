@@ -255,7 +255,13 @@
             {% for s in part_sourcing %}
             <tr>
               <td class="ps-3">{% if s.status == 'closed' %}<span class="badge bg-success">Closed</span>{% else %}<span class="badge bg-warning text-dark">Open</span>{% endif %}</td>
-              <td><code>{{ s.part_code or '—' }}</code></td>
+              {# Requests raised from the Part Estimation modal cover a whole
+                 lot and have no part code — show the clickable lot number. #}
+              <td>
+                {% if s.source == 'production' and s.lot_number %}
+                <a href="/lots?q={{ s.lot_number | urlencode }}" class="fw-semibold">{{ s.lot_number }}</a>
+                {% else %}<code>{{ s.part_code or '—' }}</code>{% endif %}
+              </td>
               <td class="fw-semibold">{{ s.part_name }}</td>
               <td>{{ s.qty_requested }}</td>
               <td>{{ s.qty_sourced }}

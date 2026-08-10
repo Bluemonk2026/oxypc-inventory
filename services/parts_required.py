@@ -29,6 +29,25 @@ def _is_sentinel(val):
     return str(val).strip().lower() in _SENTINELS
 
 
+def _damaged(*vals):
+    """True if any cosmetic panel field reports actual damage.
+
+    Panel fields read "No" / "Yes" / "Major Broken" / "Major Dent", so anything
+    that is not "No" (and not blank) is damage. Deliberately NOT using
+    _is_sentinel here: a blank cosmetic field means the inspector did not
+    record that panel, which is not evidence the part needs replacing. The
+    hardware rows above treat blanks as Required=Yes because an unverified
+    component is a risk; a body panel nobody looked at is not.
+    """
+    for v in vals:
+        if v is None:
+            continue
+        s = str(v).strip().lower()
+        if s and s not in ("no", "-", "n/a", "none"):
+            return True
+    return False
+
+
 # Labels are the IQC Entry form's hardware field names (templates/iqc/form.html)
 # so a Parts Consumption row reads with the same name the technician saw at IQC.
 PARTS_MATRIX = [
@@ -67,6 +86,19 @@ PARTS_MATRIX = [
     ("DVD Drive",         "DVD Drive",  "dvd",      lambda i, d: _is(i.dvd_drive, "No") or _faulty(i.dvd_drive)),
     ("Fan Working",       "Fan",        "fan",      lambda i, d: _is(i.fan_working, "No") or _faulty(i.fan_working)),
     ("Motherboard",       "Motherboard", "motherboard", lambda i, d: _is(i.status, "No Display") or _is(i.power_on, "No")),
+    # ── Cosmetic body panels ─────────────────────────────────────────────────
+    # One row per panel group on the IQC Entry form. Required when that panel
+    # is recorded broken, missing or dented — a scratch or a faded colour is
+    # refinished at the Paint stage, not replaced, so those fields are not
+    # consulted here.
+    ("Display Panel",     "Body",   "display panel", lambda i, d: _damaged(
+        i.panel_a_broken, i.panel_a_missing, i.panel_a_dent)),
+    ("Bazel Frame",       "Bazel",  "bazel",         lambda i, d: _damaged(
+        i.panel_c_broken, i.panel_c_missing, i.panel_c_dent)),
+    ("Bottom Base",       "Body",   "bottom base",   lambda i, d: _damaged(
+        i.panel_b_broken, i.panel_b_missing, i.panel_b_rubber_cut)),
+    ("Palm rest",         "Body",   "palm rest",     lambda i, d: _damaged(
+        i.panel_d_broken, i.panel_d_missing, i.panel_d_dent)),
 ]
 
 

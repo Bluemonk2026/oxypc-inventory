@@ -4,8 +4,17 @@ The Generate Estimate modal costs a lot as a single bill. Part Estimate costs
 it the way production actually buys: model by model, and only for the condition
 band the buyer is willing to pay for. So every part carries a count for each
 status a technician could have recorded, and the modal picks one band per
-group ("Cosmetic Part Status = Major" -> how many of this model need a Major
+group ("Cosmetic Part Damage? = Major" -> how many of this model need a Major
 panel).
+
+Note on Yes/No polarity: "Yes" always means the classifier's original finding
+(the part is required / needs sourcing), regardless of how the group's filter
+label reads in English. Renaming "Critical Part Status" to "Critical Part
+Available?" did not flip which answer counts as needing a part — an operator
+still picks "Yes" for a part that is missing/faulty, the way they always have.
+Flipping that polarity to match the new wording literally (Yes = present) is
+a separate, bigger change (classifiers, JS defaults, workbook headers) that
+was deliberately not made alongside a same-turn rename.
 
 Three groups, fixed by the business:
 
@@ -102,14 +111,14 @@ def _severity(*fields):
 # ── The three groups ─────────────────────────────────────────────────────────
 # (group key, heading, filter label, allowed statuses, [(part name, classifier)])
 PART_GROUPS = [
-    ("critical", "Critical", "Critical Part Status", YES_NO, [
+    ("critical", "Critical", "Critical Part Available?", YES_NO, [
         # No IQC field records the processor; a blank CPU on the device is the
         # only evidence the machine needs one.
         ("CPU",              _flag(lambda i, d: d is not None and _blank(d.cpu))),
         ("RAM",              _rule("RAM")),
         ("Hard Drive",       _rule("Hard Drive")),
     ]),
-    ("internal", "Internal", "Internal Part Status", YES_NO, [
+    ("internal", "Internal", "Internal Part Working?", YES_NO, [
         ("Battery Cable",    _flag(lambda i, d: _blank(i.battery_cable)
                                    or str(i.battery_cable).strip().lower() == "no")),
         ("Internal Battery", _rule("Internal Battery")),
@@ -128,7 +137,7 @@ PART_GROUPS = [
     # Touchpad appears once, though it is both an internal and a cosmetic part:
     # here it is graded on its scratch field, above it is flagged on whether it
     # works. Costing the same name twice in one group would double-count it.
-    ("cosmetic", "Cosmetic", "Cosmetic Part Status", SEVERITY, [
+    ("cosmetic", "Cosmetic", "Cosmetic Part Damage?", SEVERITY, [
         ("Display Panel",    _severity("panel_a_scratch", "panel_a_broken", "panel_a_dent")),
         ("Bezel Frame",      _severity("panel_c_scratch", "panel_c_broken", "panel_c_dent")),
         ("Screen",           _severity("screen_discoloration", "screen_patch",

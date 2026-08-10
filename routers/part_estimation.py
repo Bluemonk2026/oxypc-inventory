@@ -31,6 +31,7 @@ from services.part_estimation import (
 from services.part_estimate_matrix import (
     PART_GROUPS, group_meta, lot_model_matrix, quantities_for,
 )
+from utils.grades import grade_options
 
 router = APIRouter(prefix="/part-estimation", tags=["part_estimation"],
                    dependencies=[Depends(verify_csrf)])
@@ -67,23 +68,28 @@ async def part_estimation_page(
     tag_counts = await device_counts_by_lot(db)
     parts_counts = await required_counts_by_lot(db)
 
-    # Latest estimate per lot — that is the file the Download column offers.
+    # Every attached estimate per lot, newest first — a lot can be estimated
+    # more than once (re-priced, or one Generate click across several grades),
+    # and the Download column now offers all of them, not just the latest.
     estimates = (await db.execute(
-        select(PartEstimate).order_by(desc(PartEstimate.created_at))
+        select(PartEstimate)
+        .where(PartEstimate.file_name.isnot(None))
+        .order_by(desc(PartEstimate.created_at), desc(PartEstimate.id))
     )).scalars().all()
-    latest_estimate = {}
+    estimates_by_lot = {}
     for e in estimates:
-        latest_estimate.setdefault(e.lot_id, e)
+        estimates_by_lot.setdefault(e.lot_id, []).append(e)
 
     rows = [{
         "lot": lot,
         "total_products": tag_counts.get(lot.id, 0),
         "total_parts_required": parts_counts.get(lot.id, 0),
-        "estimate": latest_estimate.get(lot.id),
+        "estimates": estimates_by_lot.get(lot.id, []),
     } for lot in lots]
 
     return templates.TemplateResponse("part_estimation/index.html", {
         "request": request, "current_user": current_user, "rows": rows,
+        "grade_options": grade_options(),
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
     })
@@ -148,7 +154,7 @@ async def lot_model_matrix_json(
 
     prev = (await db.execute(
         select(PartEstimate).where(PartEstimate.lot_id == lid)
-        .order_by(desc(PartEstimate.created_at)).limit(1)
+        .order_by(desc(PartEstimate.created_at), desc(PartEstimate.id)).limit(1)
     )).scalar_one_or_none()
     prev_costs, prev_labour, prev_notes = {}, "0", ""
     if prev:
@@ -157,7 +163,10 @@ async def lot_model_matrix_json(
         )).scalars().all()
         # Lines from the per-model estimate are stored as "<model> — <part>";
         # keying on the whole label lets a re-estimate re-fill the exact cell,
-        # and lines from a plain Generate Estimate simply never match.
+        # and lines from a plain Generate Estimate simply never match. When a
+        # batch wrote several grade files, they are byte-identical in content
+        # (see generate_model_estimate), so it does not matter which one of
+        # them "prev" resolves to.
         prev_costs = {l.part_name: str(l.unit_cost) for l in prev_lines}
         prev_labour = str(prev.labour_cost or 0)
         prev_notes = prev.notes or ""
@@ -166,6 +175,7 @@ async def lot_model_matrix_json(
         "ok": True, "lot_number": lot.lot_number, "groups": group_meta(),
         "models": models, "prev_costs": prev_costs,
         "labour_cost": prev_labour, "notes": prev_notes,
+        "grade_options": grade_options(),
     })
 
 
@@ -178,11 +188,19 @@ def _line_label(model: str, part: str) -> str:
     return f"{model[:150 - len(part) - 6]}… — {part}"
 
 
-def _build_model_workbook(*, lot_number, generated_on, generated_by, blocks,
+def _build_model_workbook(*, lot_number, generated_on, generated_by, grade, blocks,
                           unit_price_total, parts_total, labour_cost,
                           total_estimation, notes) -> bytes:
-    """Workbook for the per-model estimate: one block per model, one section
-    per group, mirroring what the operator priced on screen."""
+    """Workbook for the per-model estimate: Sheet 1 is the detailed breakdown
+    (one block per model, one section per group — what the operator priced on
+    screen); Sheet 2 is a compact roll-up, one row per model. Rows with
+    Parts Quantity 0 are left out of both sheets — a status band that needs
+    nothing costs nothing and would only pad the workbook.
+
+    `grade` is stamped in the header of both sheets: when the operator picks
+    more than one grade, every other field in this workbook is identical
+    across the batch — grade is the one thing that tells the files apart.
+    """
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
@@ -199,21 +217,30 @@ def _build_model_workbook(*, lot_number, generated_on, generated_by, blocks,
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     money = '#,##0.00'
 
-    ws["A1"] = "Part Estimate"
-    ws["A1"].font = Font(bold=True, size=14)
-    ws["A2"] = f"Lot Number: {lot_number}"
-    ws["A2"].font = bold
-    ws["A3"] = f"Generated On: {generated_on}"
-    ws["A4"] = f"Generated By: {generated_by}"
+    def _header(sheet, title):
+        sheet["A1"] = title
+        sheet["A1"].font = Font(bold=True, size=14)
+        sheet["A2"] = f"Lot Number: {lot_number}"
+        sheet["A2"].font = bold
+        sheet["A3"] = f"Grade: {grade or '—'}"
+        sheet["A3"].font = bold
+        sheet["A4"] = f"Generated On: {generated_on}"
+        sheet["A5"] = f"Generated By: {generated_by}"
+
+    _header(ws, "Part Estimate")
 
     headers = ["Part", "Note", "Parts Quantity", "Unit Part Price", "Total Part Value"]
-    r = 6
+    r = 7
     for col, title in enumerate(headers, start=1):
         c = ws.cell(row=r, column=col, value=title)
         c.fill, c.font, c.border = head_fill, head_font, border
         c.alignment = Alignment(horizontal="center")
 
     for block in blocks:
+        # A model whose every group is costing 0 (nothing ticked, or every
+        # group left on "Select") contributes nothing to either sheet.
+        if not block["qty"]:
+            continue
         r += 1
         c = ws.cell(row=r, column=1,
                     value=f"{block['model']} ({block['make']} · {block['device_type']})")
@@ -228,6 +255,9 @@ def _build_model_workbook(*, lot_number, generated_on, generated_by, blocks,
             ws.cell(row=r, column=col).border = border
 
         for grp in block["groups"]:
+            lines = [l for l in grp["lines"] if l["qty"]]
+            if not lines:
+                continue
             r += 1
             g = ws.cell(row=r, column=1, value=f"    {grp['heading']}")
             g.font = bold
@@ -235,7 +265,7 @@ def _build_model_workbook(*, lot_number, generated_on, generated_by, blocks,
             for col in range(1, 6):
                 ws.cell(row=r, column=col).fill = group_fill
                 ws.cell(row=r, column=col).border = border
-            for line in grp["lines"]:
+            for line in lines:
                 r += 1
                 ws.cell(row=r, column=1, value=f"        {line['part']}").border = border
                 ws.cell(row=r, column=2, value=line["note"] or "").border = border
@@ -266,6 +296,41 @@ def _build_model_workbook(*, lot_number, generated_on, generated_by, blocks,
     for col, width in (("A", 40), ("B", 34), ("C", 16), ("D", 18), ("E", 20)):
         ws.column_dimensions[col].width = width
 
+    # ── Sheet 2 — Model Summary: one row per priced model ─────────────────────
+    ms = wb.create_sheet("Model Summary")
+    _header(ms, "Model Summary")
+    ms_headers = ["Model", "Make", "Device Type", "Model Count",
+                  "Parts Quantity", "Unit Price", "Total Parts Price"]
+    r2 = 7
+    for col, title in enumerate(ms_headers, start=1):
+        c = ms.cell(row=r2, column=col, value=title)
+        c.fill, c.font, c.border = head_fill, head_font, border
+        c.alignment = Alignment(horizontal="center")
+    total_model_qty = 0
+    for block in blocks:
+        if not block["qty"]:
+            continue
+        r2 += 1
+        total_model_qty += block["qty"]
+        ms.cell(row=r2, column=1, value=block["model"]).border = border
+        ms.cell(row=r2, column=2, value=block["make"]).border = border
+        ms.cell(row=r2, column=3, value=block["device_type"]).border = border
+        ms.cell(row=r2, column=4, value=block["model_count"]).border = border
+        ms.cell(row=r2, column=5, value=block["qty"]).border = border
+        c6 = ms.cell(row=r2, column=6, value=float(block["unit_price_sum"]))
+        c6.border, c6.number_format = border, money
+        c7 = ms.cell(row=r2, column=7, value=float(block["total"]))
+        c7.border, c7.number_format = border, money
+    r2 += 1
+    ms.cell(row=r2, column=1, value="Total").font = bold
+    ms.cell(row=r2, column=5, value=total_model_qty).font = bold
+    tc = ms.cell(row=r2, column=7, value=float(parts_total))
+    tc.font, tc.number_format = bold, money
+    for col in range(1, 8):
+        ms.cell(row=r2, column=col).border = border
+    for col, width in (("A", 30), ("B", 18), ("C", 16), ("D", 14), ("E", 16), ("F", 16), ("G", 18)):
+        ms.column_dimensions[col].width = width
+
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -285,6 +350,7 @@ async def generate_model_estimate(
       included: [model_key, ...],
       statuses: {model_key: {group: status}},
       prices:   {model_key: {"<group>|<part>": {note, unit_cost}}},
+      grades:   [grade_value, ...],   # at least one — see below
       labour_cost, notes
     }
 
@@ -292,6 +358,14 @@ async def generate_model_estimate(
     the status bands, the notes and the prices. Same rule as the plain
     Generate Estimate — a tampered or stale quantity can never reach the
     workbook or the sourcing request.
+
+    Select Grade takes one or more grades. The parts breakdown is identical
+    for every grade chosen — the modal has no per-grade filtering — so this
+    writes ONE workbook per selected grade, each an exact copy of the same
+    priced data with only the Grade field (header + filename + Download-column
+    label) differing. One PartSourcingRequest still covers the whole batch —
+    qty_requested is the batch total, not multiplied by grade count, since
+    every file represents the same underlying parts need.
     """
     import json
 
@@ -313,6 +387,16 @@ async def generate_model_estimate(
     included = set(data.get("included") or [])
     statuses = data.get("statuses") or {}
     prices = data.get("prices") or {}
+    grades = [g for g in (data.get("grades") or []) if g]
+    if not grades:
+        return JSONResponse({"ok": False, "error": "Select at least one Grade"}, status_code=400)
+    valid_grades = {v for v, _l in grade_options()}
+    bad = [g for g in grades if g not in valid_grades]
+    if bad:
+        return JSONResponse({"ok": False, "error": f"Unknown grade(s): {', '.join(bad)}"},
+                            status_code=400)
+    grade_labels = dict(grade_options())
+
     qtys = quantities_for(matrix, statuses)
 
     blocks, lines = [], []
@@ -354,10 +438,11 @@ async def generate_model_estimate(
             block["groups"].append(grp)
         blocks.append(block)
 
+    priced_blocks = [b for b in blocks if b["qty"]]
     if not blocks:
         return JSONResponse({"ok": False, "error": "Select at least one model to estimate"},
                             status_code=400)
-    if not total_qty:
+    if not priced_blocks:
         return JSONResponse(
             {"ok": False, "error": "Every selected group is costing 0 parts — "
                                    "choose a part status before generating"},
@@ -369,52 +454,65 @@ async def generate_model_estimate(
 
     total_products = (await device_counts_by_lot(db)).get(lid, 0)
     stamp = app_now()
-
-    xlsx = _build_model_workbook(
-        lot_number=lot.lot_number, generated_on=stamp.strftime("%d %b %Y %H:%M"),
-        generated_by=current_user.username, blocks=blocks,
-        unit_price_total=unit_price_total, parts_total=parts_total,
-        labour_cost=labour, total_estimation=total_estimation, notes=notes,
-    )
-
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     safe_lot = "".join(ch for ch in (lot.lot_number or "lot") if ch.isalnum() or ch in "-_")
-    stored = f"{uuid.uuid4().hex}.xlsx"
-    download_name = f"Part_Estimate_{safe_lot}_{stamp.strftime('%Y%m%d-%H%M')}.xlsx"
-    with open(os.path.join(UPLOAD_DIR, stored), "wb") as fh:
-        fh.write(xlsx)
 
-    est = PartEstimate(
-        lot_id=lid, lot_number=lot.lot_number, total_products=total_products,
-        total_qty=total_qty, parts_total_cost=parts_total, labour_cost=labour,
-        total_estimation=total_estimation, notes=notes,
-        file_path=stored, file_name=download_name,
-        created_by=current_user.username, created_at=stamp,
-    )
-    db.add(est)
-    await db.flush()
+    created = []
+    for grade in grades:
+        grade_label = grade_labels.get(grade, grade)
+        xlsx = _build_model_workbook(
+            lot_number=lot.lot_number, generated_on=stamp.strftime("%d %b %Y %H:%M"),
+            generated_by=current_user.username, grade=grade_label, blocks=blocks,
+            unit_price_total=unit_price_total, parts_total=parts_total,
+            labour_cost=labour, total_estimation=total_estimation, notes=notes,
+        )
+        safe_grade = "".join(ch for ch in grade_label if ch.isalnum() or ch in "-_") or "grade"
+        stored = f"{uuid.uuid4().hex}.xlsx"
+        download_name = f"Part_Estimate_{safe_lot}_{safe_grade}_{stamp.strftime('%Y%m%d-%H%M')}.xlsx"
+        with open(os.path.join(UPLOAD_DIR, stored), "wb") as fh:
+            fh.write(xlsx)
 
-    for line in lines:
-        db.add(PartEstimateLine(estimate_id=est.id, **line))
+        est = PartEstimate(
+            lot_id=lid, lot_number=lot.lot_number, total_products=total_products,
+            total_qty=total_qty, parts_total_cost=parts_total, labour_cost=labour,
+            total_estimation=total_estimation, notes=notes, grade=grade,
+            file_path=stored, file_name=download_name,
+            created_by=current_user.username, created_at=stamp,
+        )
+        db.add(est)
+        await db.flush()
+        for line in lines:
+            db.add(PartEstimateLine(estimate_id=est.id, **line))
+        created.append(est)
 
+    # One sourcing request for the whole batch — every file in `created`
+    # represents the same total_qty, so the request is not multiplied per
+    # grade. Its estimate_id points at the first file; every file in the
+    # batch (this one plus any siblings) is found by matching lot_id +
+    # created_at, which templates/part_estimation and Part Manager both use
+    # to list "every file from this Generate click" rather than just one.
     db.add(PartSourcingRequest(
         source="production", part_code=None,
         part_name=f"Request for {lot.lot_number}",
         qty_requested=total_qty, raised_by=current_user.username,
-        lot_id=lid, lot_number=lot.lot_number, estimate_id=est.id,
+        lot_id=lid, lot_number=lot.lot_number, estimate_id=created[0].id,
         created_at=stamp,
     ))
 
     await audit(db, user=current_user, action="PART_ESTIMATE_GENERATED",
-                table_name="part_estimates", record_id=str(est.id),
+                table_name="part_estimates", record_id=str(created[0].id),
                 new_value={"lot": lot.lot_number, "mode": "per-model",
-                           "models": len(blocks), "total_qty": total_qty,
+                           "models": len(priced_blocks), "grades": grades,
+                           "files": len(created), "total_qty": total_qty,
                            "total_estimation": str(total_estimation)},
                 request=request)
     await db.commit()
 
-    return JSONResponse({"ok": True, "estimate_id": str(est.id),
-                         "download_url": f"/part-estimation/download/{est.id}"})
+    return JSONResponse({
+        "ok": True,
+        "files": [{"estimate_id": str(e.id), "grade": e.grade,
+                   "download_url": f"/part-estimation/download/{e.id}"} for e in created],
+    })
 
 
 def _build_workbook(*, lot_number, generated_on, generated_by, lines,

@@ -106,8 +106,10 @@
     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#bulkTagModal">
       <i class="bi bi-upload me-1"></i>Upload Tags
     </button>
-    <a href="/devices/export?q={{ q | urlencode }}&stage={{ stage | urlencode }}&lot={{ lot | urlencode }}&grade={{ grade | urlencode }}&category={{ category | urlencode }}&device_type={{ device_type | urlencode }}"
-       class="btn btn-sm btn-outline-success">
+    <a id="exportCsvLink"
+       href="/devices/export?q={{ q | urlencode }}&stage={{ stage | urlencode }}&lot={{ lot | urlencode }}&grade={{ grade | urlencode }}&category={{ category | urlencode }}&device_type={{ device_type | urlencode }}&entity={{ entity | urlencode }}&date_from={{ date_from | urlencode }}&date_to={{ date_to | urlencode }}"
+       class="btn btn-sm btn-outline-success" onclick="return submitExport(event)"
+       title="Exports the selected Tag Numbers, or every filtered result if none are ticked">
       <i class="bi bi-download me-1"></i>Export CSV
     </a>
   </div>
@@ -156,6 +158,13 @@
 </div>
 
 <form id="bulkTrashForm" method="post" action="/trash/bulk/devices" style="display:none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+</form>
+{# Selected-tags export posts here — a ticked selection can run into the
+   hundreds of barcodes, past what a GET querystring should carry. With
+   nothing selected, the Export button uses the plain GET link below instead,
+   which keeps the current filters in the URL (shareable, bookmarkable). #}
+<form id="exportSelectedForm" method="post" action="/devices/export" style="display:none">
   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
 </form>
 {# Single reusable form for the per-row Trash button: rows are server-rendered
@@ -641,6 +650,21 @@ function showLotDetail(l){
   $('#ldTagsBody').html(rows || '<tr><td colspan="4" class="text-center text-muted small py-2">No tags.</td></tr>');
   var modal = new bootstrap.Modal(document.getElementById('lotDetailModal'));
   modal.show();
+}
+
+// Export CSV: a ticked selection exports just those Tag Numbers (POST, since
+// a full-page selection can run into the hundreds of barcodes); with nothing
+// selected the link's own GET href runs instead, unchanged.
+function submitExport(ev){
+  if (devicesSelected.size === 0) return true;   // let the <a href> GET fire
+  ev.preventDefault();
+  var form = document.getElementById('exportSelectedForm');
+  $(form).find('input[name="barcodes"]').remove();
+  Array.from(devicesSelected).forEach(function(bc){
+    $('<input>').attr({ type:'hidden', name:'barcodes', value:bc }).appendTo(form);
+  });
+  form.submit();
+  return false;
 }
 
 function submitBulkTrash(){

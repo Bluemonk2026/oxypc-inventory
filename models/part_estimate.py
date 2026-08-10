@@ -31,6 +31,12 @@ class PartEstimate(Base):
     labour_cost = Column(Numeric(14, 2), nullable=False, default=0)
     total_estimation = Column(Numeric(14, 2), nullable=False, default=0)
 
+    # DeviceGrade value ("A".."E", "scrap") this file was generated for. The
+    # Select Grade dropdown on Part Estimate accepts more than one grade in a
+    # single click — one identical-content workbook is written per grade
+    # chosen, so this is what tells two otherwise-identical files apart, and
+    # what the Download column shows in place of the generic word "Estimate".
+    grade = Column(String(10), nullable=True)
     notes = Column(Text, nullable=True)
     file_path = Column(String(255), nullable=True)           # uploads/part_estimates/<uuid>.xlsx
     file_name = Column(String(255), nullable=True)           # human-facing download name

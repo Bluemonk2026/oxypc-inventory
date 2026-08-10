@@ -494,9 +494,19 @@
             <td class="fw-semibold">
               {% if s.source == 'production' %}
               <a href="/part-estimation">{{ s.part_name }}</a>
-              {% if s.estimate_id %}
-              <div><a class="small" href="/part-estimation/download/{{ s.estimate_id }}">
-                <i class="bi bi-file-earmark-excel me-1"></i>Download estimate</a></div>
+              {# Part Estimate can write several files in one Generate click —
+                 one per Grade selected. All of them, not just the one this
+                 request happens to be linked to. #}
+              {% set _files = estimates_by_batch.get(s.id | string, []) %}
+              {% if _files %}
+              <div class="d-flex flex-wrap gap-1 mt-1">
+                {% for f in _files %}
+                <a class="btn btn-sm btn-outline-success py-0 px-1"
+                   href="/part-estimation/download/{{ f.id }}" title="{{ f.file_name }}">
+                  <i class="bi bi-file-earmark-excel me-1"></i>{{ f.grade or 'Estimate' }}
+                </a>
+                {% endfor %}
+              </div>
               {% endif %}
               {% else %}{{ s.part_name }}{% endif %}
             </td>
@@ -508,14 +518,10 @@
               {% else %}{{ s.source_deal_id or '—' }}{% endif %}
             </td>
             <td class="text-nowrap">
-              {# Production rows carry the estimate workbook AND, once the deal
-                 is closed on the Procurement Dashboard, the same three deal
-                 documents every other sourcing request shows. #}
-              {% if s.source == 'production' and s.estimate_id %}
-              <a class="btn btn-sm btn-outline-success py-0 px-1" title="Part Estimate"
-                 href="/part-estimation/download/{{ s.estimate_id }}"><i class="bi bi-file-earmark-excel"></i></a>
-              {% endif %}
-              {% if s.source == 'production' and not s.estimate_id and not _deal %}
+              {# The estimate workbook(s) live under Part Name now, not here —
+                 this column is deal documents only (Purchase Invoice / PO /
+                 E-way Bill), same as every non-production sourcing request. #}
+              {% if s.source == 'production' and not _deal %}
               <span class="text-muted">—</span>
               {% endif %}
               {% if _deal and _deal.purchase_invoice_path %}

@@ -692,59 +692,34 @@ async def model_summary_tags(
     } for barcode, g, unit_id, unit_type in rows]})
 
 
-@router.get("/export")
-async def export_devices(
-    q: str = "",
-    stage: str = "",
-    lot: str = "",
-    grade: str = "",
-    category: str = "",
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(view_allowed),
-):
-    """Export device search results as CSV.
+_EXPORT_HEADER = [
+    "Barcode", "Lot", "GRN", "Invoice No", "Entity", "Sub-Category", "Brand", "Model", "Device Type",
+    "Serial No", "CPU", "CPU Make", "Generation", "RAM GB", "RAM", "Total RAM Count", "Total RAM Size",
+    "SSD GB", "Storage Type", "Hard Drive",
+    "HDD GB", "Total HDD Count", "Total HDD Size", "Screen Size", "Battery %", "BIOS Pwd", "Color",
+    # ── Hardware / functional (IQC) — blank for a device with no IQC row yet ──
+    "Power On", "Power Status", "HDD Connector", "HDD Casing", "Battery Present", "Battery Cable",
+    "Charging Port", "DVD Drive", "Wi-Fi", "Web Cam", "Speaker", "Fan Working",
+    "Keyboard Working", "Touchpad Working", "HDMI Port", "USB Port", "Audio Jack",
+    "USB A Ports", "USB C Ports", "Ethernet Ports",
+    # ── Cosmetics — one worst-severity column per Parts Consumption group ──
+    "Display Panel Cosmetic", "Bezel Frame Cosmetic", "Screen Cosmetic", "Hinge Cosmetic",
+    "Touchpad Cosmetic", "Bottom Base Cosmetic", "Palmrest Cosmetic",
+    "Device Price", "Grade", "Stage", "Final QC Status", "Stage History",
+    "Floor", "Warehouse", "Notes", "Created", "Updated",
+]
 
-    Filters mirror the main /devices search route exactly (same is_trashed
-    exclusion, same outer join, same category filter) so what's on screen
-    is always what gets exported — a previous version silently diverged
-    from the list route (missing category filter, missing is_trashed
-    filter, and an inner join that dropped devices with no lot assigned
-    yet), which could make the export look "empty" relative to the list.
-    """
-    query = (
-        select(Device, Lot.lot_number)
-        .outerjoin(Lot, Device.lot_id == Lot.id)
-        .where(Device.is_trashed == False)
-    )
-    filters = []
-    if q:
-        q_like = f"%{q}%"
-        filters.append(or_(
-            Device.barcode.ilike(q_like), Device.brand.ilike(q_like),
-            Device.model.ilike(q_like), Device.serial_no.ilike(q_like),
-        ))
-    if stage:
-        try:
-            filters.append(Device.current_stage == DeviceStage(stage))
-        except ValueError:
-            pass
-    if lot:
-        filters.append(Lot.lot_number.ilike(f"%{lot}%"))
-    if grade:
-        filters.append(Device.grade == grade)
-    if category:
-        filters.append(Device.sub_category == category)
-    for f in filters:
-        query = query.where(f)
-    query = query.order_by(Device.updated_at.desc())
-    result = await db.execute(query)
-    rows = result.all()
 
-    # Full stage-history string per device (Tag Number -> every stage it has
-    # passed through, in order) — a single current_stage column doesn't show
-    # the path a device took to get there, which is what this export is for.
+async def _export_rows(db: AsyncSession, query) -> StreamingResponse:
+    """Shared CSV builder for both the filtered export and the selected-tags
+    export — same header, same columns, same cosmetic/hardware lookups,
+    so a selection export can never show fewer fields than a full one."""
+    from services.part_estimate_matrix import PART_GROUPS
+
+    rows = (await db.execute(query)).all()
     device_ids = [device.id for device, _ in rows]
-    movements_by_device = {}
+
+    movements_by_device, iqc_by_device = {}, {}
     if device_ids:
         mv_result = await db.execute(
             select(StageMovement)
@@ -753,6 +728,14 @@ async def export_devices(
         )
         for mv in mv_result.scalars().all():
             movements_by_device.setdefault(mv.device_id, []).append(mv)
+
+        iqc_result = await db.execute(
+            select(IQCInspection).where(IQCInspection.device_id.in_(device_ids))
+        )
+        for iqc in iqc_result.scalars().all():
+            iqc_by_device[iqc.device_id] = iqc
+
+    cosmetic_parts = next(p for g, _h, _f, _s, p in PART_GROUPS if g == "cosmetic")
 
     def _stage_history(device):
         moves = movements_by_device.get(device.id)
@@ -765,25 +748,44 @@ async def export_devices(
             parts.append(f"{label} ({when})" if when else label)
         return " -> ".join(parts)
 
+    def _iqc_cols(iqc):
+        if iqc is None:
+            return [""] * 21
+        return [
+            iqc.power_on, iqc.status, iqc.hdd_connector, iqc.hdd_casing,
+            iqc.battery_present, iqc.battery_cable, iqc.charging_port, iqc.dvd_drive,
+            iqc.wifi_status, iqc.webcam_status, iqc.speaker_status, iqc.fan_working,
+            iqc.keyboard_working, iqc.touchpad_working, iqc.port_hdmi,
+            iqc.port_usb_working, iqc.port_audio_jack,
+            iqc.usb_a_ports, iqc.usb_c_ports, iqc.ethernet_ports,
+        ]
+
+    def _cosmetic_cols(iqc):
+        # Reuses the same worst-severity classifiers Part Estimate prices
+        # against, so this column can never disagree with what a "Major"
+        # filter there would have counted.
+        if iqc is None:
+            return [""] * len(cosmetic_parts)
+        return [fn(iqc, None) for _name, fn in cosmetic_parts]
+
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow([
-        "Barcode", "Lot", "GRN", "Invoice No", "Sub-Category", "Brand", "Model", "Device Type",
-        "Serial No", "CPU", "CPU Make", "Generation", "RAM GB", "RAM", "Total RAM Count", "Total RAM Size",
-        "SSD GB", "Storage Type", "Hard Drive",
-        "HDD GB", "Total HDD Count", "Total HDD Size", "Screen Size", "Battery %", "BIOS Pwd", "Color",
-        "Grade", "Stage", "Final QC Status", "Stage History", "Floor", "Warehouse", "Notes", "Created", "Updated"
-    ])
+    writer.writerow(_EXPORT_HEADER)
     for device, lot_number in rows:
+        iqc = iqc_by_device.get(device.id)
         writer.writerow([
-            device.barcode, lot_number, device.grn_number, device.invoice_number, device.sub_category,
-            device.brand, device.model, device.device_type, device.serial_no,
+            device.barcode, lot_number, device.grn_number, device.invoice_number, device.entity,
+            device.sub_category, device.brand, device.model, device.device_type, device.serial_no,
             device.cpu, device.cpu_make, device.generation, device.ram_gb, device.ram_summary,
             device.total_ram_count, device.total_ram_size, device.storage_gb,
             device.storage_type, device.hdd_summary, device.hdd_capacity_gb,
             device.total_hdd_count, device.total_hdd_size, device.screen_size,
             device.battery_health_pct, "Yes" if device.bios_password else "No",
-            device.color, device.grade,
+            device.color,
+            *_iqc_cols(iqc),
+            *_cosmetic_cols(iqc),
+            device.device_price if device.device_price is not None else "",
+            device.grade,
             STAGE_LABELS.get(device.current_stage, device.current_stage),
             device.final_qc_status or "",
             _stage_history(device),
@@ -797,6 +799,61 @@ async def export_devices(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=devices_export.csv"},
     )
+
+
+@router.get("/export")
+async def export_devices(
+    q: str = "",
+    stage: str = "",
+    lot: str = "",
+    grade: str = "",
+    category: str = "",
+    device_type: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    entity: str = "",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(view_allowed),
+):
+    """Export the current filtered search as CSV — every field the page shows
+    plus Entity, hardware condition, cosmetic condition and device price.
+
+    Filters go through the same _device_search_filters the page's own data
+    endpoint uses, so what's on screen is always what gets exported — a
+    hand-duplicated filter list here previously fell out of step with the
+    page (missing category, missing is_trashed, an inner join that dropped
+    lot-less devices), which made the export look "empty" relative to the list.
+    """
+    query = (
+        select(Device, Lot.lot_number)
+        .outerjoin(Lot, Device.lot_id == Lot.id)
+        .where(Device.is_trashed == False,
+              *_device_search_filters(q, stage, lot, grade, category, device_type,
+                                      date_from, date_to, entity=entity))
+        .order_by(Device.updated_at.desc())
+    )
+    return await _export_rows(db, query)
+
+
+@router.post("/export")
+async def export_devices_selected(
+    barcodes: list[str] = Form(default=[]),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(view_allowed),
+):
+    """Export only the Tag Numbers ticked on the page, same columns as the
+    filtered export. POST (not a long querystring) because a full-page
+    selection can run into the hundreds of tags."""
+    barcodes = [b for b in (barcodes or []) if b]
+    if not barcodes:
+        raise HTTPException(400, "No Tag Numbers selected")
+    query = (
+        select(Device, Lot.lot_number)
+        .outerjoin(Lot, Device.lot_id == Lot.id)
+        .where(Device.is_trashed == False, Device.barcode.in_(barcodes))
+        .order_by(Device.updated_at.desc())
+    )
+    return await _export_rows(db, query)
 
 
 # ── 2. DEVICE DETAIL ─────────────────────────────────────────────────────────

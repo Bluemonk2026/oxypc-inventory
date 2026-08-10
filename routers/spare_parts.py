@@ -23,6 +23,7 @@ from utils.master_data import master_values
 from models.repair import RepairJob, RepairStatus
 from models.engines import SparePartsLedger
 from models.part_request import PartRequest, PartSourcingRequest
+from models.part_estimate import PartEstimate
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from services.audit_engine import audit
 
@@ -148,6 +149,26 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         select(PartSourcingRequest).order_by(PartSourcingRequest.created_at.desc())
     )).scalars().all()
 
+    # ── Every estimate file from the same Generate click as each production
+    # request — Part Estimate can write several files in one click (one per
+    # Grade selected), all sharing the exact created_at stamp and lot_id, but
+    # only ONE PartSourcingRequest is raised per click. Group by that shared
+    # timestamp so the Part Name column can list every file from the batch
+    # instead of the single one the request happens to be linked to.
+    lot_ids = {s.lot_id for s in sourcing if s.source == "production" and s.lot_id}
+    estimates_by_batch = {}
+    if lot_ids:
+        est_rows = (await db.execute(
+            select(PartEstimate).where(
+                PartEstimate.lot_id.in_(lot_ids), PartEstimate.file_name.isnot(None))
+        )).scalars().all()
+        by_lot_and_time = {}
+        for e in est_rows:
+            by_lot_and_time.setdefault((e.lot_id, e.created_at), []).append(e)
+        for s in sourcing:
+            if s.source == "production" and s.lot_id:
+                estimates_by_batch[str(s.id)] = by_lot_and_time.get((s.lot_id, s.created_at), [])
+
     # map source_deal_id (UUID string) -> CRMSourcingDeal for download links + display
     from models.crm import CRMSourcingDeal
     deal_map = {}
@@ -195,7 +216,7 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         "consumed_by_part": consumed_by_part,
         "part_reqs": part_reqs, "faulty_reqs": faulty_reqs, "part_stock": part_stock,
         "part_meta": part_meta, "sourcing": sourcing,
-        "deal_map": deal_map,
+        "deal_map": deal_map, "estimates_by_batch": estimates_by_batch,
         "grn_docs": {},
         "grn_by_part_code": grn_by_part_code,
         "harvest_categories": await master_values(db, "iqc_part_category"),

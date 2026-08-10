@@ -31,15 +31,30 @@
           <td>{{ r.total_products }}</td>
           <td>{{ r.total_parts_required }}</td>
           <td>
-            {# Gated on file_path, not on the estimate existing: after Delete
-               File the estimate row survives (it still pre-fills unit costs)
-               but there is nothing left to download. #}
-            {% if r.estimate and r.estimate.file_path %}
-            <a class="btn btn-sm btn-outline-success py-0 px-2"
-               href="/part-estimation/download/{{ r.estimate.id }}"
-               title="{{ r.estimate.file_name }}">
-              <i class="bi bi-file-earmark-excel me-1"></i>Estimate
-            </a>
+            {# A lot can now carry several attached files — a re-estimate, or
+               one Generate click across several grades. Every one of them is
+               listed, newest first; the link label is the Grade this
+               particular file was generated for (see PartEstimate.grade)
+               rather than the generic word "Estimate", since with several
+               files the grade is the only thing telling them apart. Each has
+               its own inline Delete. #}
+            {% if r.estimates %}
+            <div class="d-flex flex-wrap gap-1">
+              {% for est in r.estimates %}
+              <span class="d-inline-flex align-items-center border rounded px-1">
+                <a class="btn btn-sm btn-outline-success py-0 px-2 border-0"
+                   href="/part-estimation/download/{{ est.id }}"
+                   title="{{ est.file_name }}">
+                  <i class="bi bi-file-earmark-excel me-1"></i>{{ est.grade or 'Estimate' }}
+                </a>
+                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 border-0"
+                        title="Delete this file"
+                        onclick="deleteEstimateFile('{{ est.id }}', '{{ r.lot.lot_number }}', this)">
+                  <i class="bi bi-trash3"></i>
+                </button>
+              </span>
+              {% endfor %}
+            </div>
             {% else %}
             <span class="text-muted">—</span>
             {% endif %}
@@ -58,14 +73,6 @@
                     {% if not r.total_products %}disabled title="This lot has no tags"{% endif %}>
               <i class="bi bi-diagram-3 me-1"></i>Part Estimate
             </button>
-            {# Only offered once a file is actually attached in the Download
-               column — there is nothing to delete before that. #}
-            {% if r.estimate and r.estimate.file_name %}
-            <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 ms-1"
-                    onclick="deleteEstimateFile('{{ r.estimate.id }}', '{{ r.lot.lot_number }}', this)">
-              <i class="bi bi-trash3 me-1"></i>Delete File
-            </button>
-            {% endif %}
           </td>
         </tr>
         {% else %}
@@ -170,6 +177,21 @@
                 <tr class="table-primary fw-semibold">
                   <td colspan="3" class="text-end">Total Estimate Cost</td>
                   <td class="text-end" id="me_grand">0.00</td>
+                </tr>
+                <tr>
+                  <td colspan="3" class="text-end fw-semibold align-middle">
+                    Select Grade
+                    <div class="small text-muted fw-normal">
+                      One identical-content file is written per grade chosen.
+                    </div>
+                  </td>
+                  <td>
+                    <select id="me_grades" class="form-select form-select-sm" multiple size="4">
+                      {% for value, label in grade_options %}
+                      <option value="{{ value }}">{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -386,7 +408,7 @@ function meRenderModel(m, groups, prevCosts, idx) {
 
   var tbl = $('<table>').addClass('table table-sm table-bordered align-middle mb-0 small');
   tbl.append($('<thead>').addClass('table-light').append($('<tr>').append(
-    $('<th>').text('Part'), $('<th>').text('Note'),
+    $('<th>').text('Part'), $('<th>').css('max-width', '160px').text('Note'),
     $('<th>').css('width', '110px').text('Parts Quantity'),
     $('<th>').css('width', '150px').text('Unit Part Price'),
     $('<th>').css('width', '150px').text('Total Part Value'))));
@@ -414,7 +436,7 @@ function meRenderModel(m, groups, prevCosts, idx) {
         .data('counts', counts)
         .append(
           $('<td>').text(part),
-          $('<td>').append($('<input>').attr({ type: 'text', maxlength: 255 })
+          $('<td>').css('max-width', '160px').append($('<input>').attr({ type: 'text', maxlength: 255 })
             .addClass('form-control form-control-sm me-note')),
           $('<td>').addClass('me-qty text-end').text('0'),
           $('<td>').append($('<input>').attr({ type: 'number', step: '0.01', min: '0' })
@@ -464,7 +486,11 @@ function recalcModelEstimate() {
       var total = qty * unit;
       row.find('.me-qty').text(qty);
       row.find('.me-total').text(estMoney(total));
-      row.toggleClass('text-muted', qty === 0);
+      // A row needing nothing is dropped from view entirely, not just muted —
+      // it would otherwise pad out every model's table with rows nobody acts
+      // on. Unit price / note stay intact underneath so switching the group
+      // status back to a band that DOES need this part restores them.
+      row.toggleClass('d-none', qty === 0);
       mQty += qty; mUnit += unit; mTotal += total;
     });
     card.find('.me-model-qty').text(mQty);
@@ -485,6 +511,7 @@ function openModelEstimateModal(lotId, lotNumber) {
   $('#me_body').addClass('d-none');
   $('#me_error').addClass('d-none').text('');
   $('#me_models').empty();
+  $('#me_grades').val([]);
   $('#me_submit').prop('disabled', true);
   new bootstrap.Modal(document.getElementById('modelEstimateModal')).show();
 
@@ -538,16 +565,22 @@ function submitModelEstimate() {
     $('#me_error').removeClass('d-none').text('Select at least one model to estimate.');
     return;
   }
+  var grades = $('#me_grades').val() || [];
+  if (!grades.length) {
+    $('#me_error').removeClass('d-none').text('Select at least one Grade.');
+    return;
+  }
 
   var fd = new FormData();
   fd.append('payload', JSON.stringify({
-    included: included, statuses: statuses, prices: prices,
+    included: included, statuses: statuses, prices: prices, grades: grades,
     labour_cost: parseFloat($('#me_labour').val()) || 0,
     notes: $('#me_notes').val() || ''
   }));
   fd.append('csrf_token', peCsrfToken());
 
   $('#me_submit').prop('disabled', true);
+  $('#me_error').addClass('d-none');
   fetch('/part-estimation/' + meLotId + '/generate-model-estimate', {
     method: 'POST', body: fd, credentials: 'same-origin'
   })
@@ -558,10 +591,13 @@ function submitModelEstimate() {
         $('#me_submit').prop('disabled', false);
         return;
       }
-      window.location.href = d.download_url;
-      setTimeout(function () {
-        window.location.href = '/part-estimation?success=Part+Estimate+generated+and+sent+to+Sourcing';
-      }, 1200);
+      // One file per grade selected — too many to auto-download at once
+      // (browsers block a burst of downloads), so land back on the list and
+      // let the operator pick each one off the Download column.
+      var n = (d.files || []).length;
+      var msg = n === 1 ? 'Part Estimate generated and sent to Sourcing'
+                        : n + ' Part Estimate files generated and sent to Sourcing';
+      window.location.href = '/part-estimation?success=' + encodeURIComponent(msg);
     })
     .catch(function () {
       $('#me_error').removeClass('d-none').text('Could not generate the estimate.');

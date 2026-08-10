@@ -274,12 +274,14 @@ async def device_search_data(
     filtered = total if not search_filters else (
         (await db.execute(count_base.where(*page_filters, *search_filters))).scalar() or 0)
 
-    col_map = {1: Device.barcode, 2: Lot.lot_number, 3: Device.brand, 4: Device.model,
-               5: Device.device_type, 6: Device.cpu, 9: Device.grade, 13: Device.updated_at}
+    # Column 3 is Location ID (inserted after Lot) — every index from Brand
+    # onward shifts by one to make room for it.
+    col_map = {1: Device.barcode, 2: Lot.lot_number, 4: Device.brand, 5: Device.model,
+               6: Device.device_type, 7: Device.cpu, 10: Device.grade, 14: Device.updated_at}
     try:
-        order_col = int(request.query_params.get("order[0][column]", 13))
+        order_col = int(request.query_params.get("order[0][column]", 14))
     except ValueError:
-        order_col = 13
+        order_col = 14
     order_dir = request.query_params.get("order[0][dir]", "desc")
     sort_expr = col_map.get(order_col, Device.updated_at)
     order_by = _asc(sort_expr) if order_dir == "asc" else _desc(sort_expr)
@@ -291,6 +293,19 @@ async def device_search_data(
     )).all()
 
     device_ids = [d.id for d, _ in rows]
+
+    # Location ID column — the device's own location_id FK (Device Detail's
+    # "Location ID" row, not the pickup/placeback movement log), so this page
+    # and Device Detail never disagree about the same field.
+    location_map = {}
+    if device_ids:
+        for did, unit_id in (await db.execute(
+            select(Device.id, StorageLocation.unit_id)
+            .join(StorageLocation, Device.location_id == StorageLocation.id)
+            .where(Device.id.in_(device_ids))
+        )).all():
+            location_map[str(did)] = unit_id
+
     stock_price_map, sale_price_map = {}, {}
     if show_pricing and device_ids:
         for c in (await db.execute(select(DeviceCosting).where(DeviceCosting.device_id.in_(device_ids)))).scalars().all():
@@ -324,6 +339,10 @@ async def device_search_data(
              f'<div style="color:#999999;font-size:12px;">{esc(d.entity) if d.entity else "—"}</div>'),
             (f'<a href="/devices?lot={esc(lot_number)}" class="btn btn-sm py-0 px-2 small text-decoration-none" '
              f'style="background-color:#ffffff;border:1px solid #6C757D;color:#6C757D;">{esc(lot_number)}</a>'),
+            (f'<span class="font-monospace small">{esc(location_map[str(d.id)])}</span>'
+             if str(d.id) in location_map else
+             f'<a href="/locations/device/{d.id}" class="btn btn-xs btn-outline-primary py-0 px-2" '
+             f'style="font-size:.75rem;">Assign</a>'),
             esc(d.brand or "—"), esc(d.model or "—"), esc(d.device_type or "—"), esc(d.cpu or "—"),
             esc(ram), esc(storage),
             (f'<span class="badge bg-{gcls}">{esc(g)}</span>' if g else "—"),

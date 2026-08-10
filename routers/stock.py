@@ -821,8 +821,10 @@ async def stock_in_data(
     filtered = total if not search_filters else (
         (await db.execute(count_base.where(*search_filters))).scalar() or 0)
 
-    col_map = {1: Device.barcode, 2: Lot.lot_number, 3: Device.brand, 4: Device.model,
-               5: Device.device_type, 8: Device.grade}
+    # Column 3 is Location ID (inserted after Lot) — every index from Brand
+    # onward shifts by one to make room for it.
+    col_map = {1: Device.barcode, 2: Lot.lot_number, 4: Device.brand, 5: Device.model,
+               6: Device.device_type, 9: Device.grade}
     try:
         order_col = int(request.query_params.get("order[0][column]", 0))
     except ValueError:
@@ -837,6 +839,18 @@ async def stock_in_data(
     )).all()
 
     device_ids = [d.id for d, _ in rows]
+
+    # Location ID column — same source as Device Detail's own "Location ID"
+    # row (device.location_id), not the pickup/placeback movement log.
+    location_map = {}
+    if device_ids:
+        for did, unit_id in (await db.execute(
+            select(Device.id, StorageLocation.unit_id)
+            .join(StorageLocation, Device.location_id == StorageLocation.id)
+            .where(Device.id.in_(device_ids))
+        )).all():
+            location_map[str(did)] = unit_id
+
     assigned_dept_map = {}
     if device_ids:
         for did, dept in (await db.execute(
@@ -858,6 +872,10 @@ async def stock_in_data(
             f'<input type="checkbox" class="form-check-input stockChk" value="{esc(d.barcode)}">',
             f'<a href="/devices/{esc(d.barcode)}" class="font-monospace text-decoration-none"><code>{esc(d.barcode)}</code></a>',
             f'<span class="badge bg-info text-dark">{esc(lot_number_val)}</span>',
+            (f'<span class="font-monospace small">{esc(location_map[str(d.id)])}</span>'
+             if str(d.id) in location_map else
+             f'<a href="/locations/device/{d.id}" class="btn btn-xs btn-outline-primary py-0 px-2" '
+             f'style="font-size:.75rem;">Assign</a>'),
             esc(d.brand or "—"), esc(d.model or "—"), esc(d.device_type or "—"),
             ram, storage, esc(d.grade or "—"),
             f'<span class="bkt-cell" data-barcode="{esc(d.barcode)}"><span class="text-muted">—</span></span>',

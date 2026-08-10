@@ -13,9 +13,21 @@
 <div class="d-flex justify-content-between align-items-start mb-3">
   <div>
     <h4 class="mb-0 font-monospace fw-bold">{{ device.barcode }}</h4>
-    <small class="text-muted">
+    <small class="text-muted d-block">
       {{ device.brand or '' }} {{ device.model or '' }}
       {% if device.serial_no %} &bull; S/N: {{ device.serial_no }}{% endif %}
+    </small>
+    {# Same source as the "Location ID" row further down in Identity &
+       Location (device.location_id) — kept identical so the two don't ever
+       disagree on the same page. #}
+    <small class="text-muted d-block">
+      Location ID:
+      {% if assigned_location %}
+      <span class="font-monospace">{{ assigned_location.unit_id }}</span>
+      {% else %}
+      <a href="/locations/device/{{ device.id }}" class="btn btn-xs btn-outline-primary py-0 px-2 ms-1"
+         style="font-size:.75rem;" name="assign location">Assign Location</a>
+      {% endif %}
     </small>
   </div>
   <div class="d-flex gap-2">

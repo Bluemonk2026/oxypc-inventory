@@ -191,9 +191,13 @@
             </td>
             <td>{% if consumed %}<span class="badge bg-info text-dark">{{ consumed }}</span>{% else %}0{% endif %}</td>
             <td>{% if sold %}<span class="badge bg-success">{{ sold }}</span>{% else %}0{% endif %}</td>
+            {# Export All / Export Selected read straight from these cells
+               (spExport() below uses td.textContent), so dropping the symbol
+               here is what drops it from the CSV too — no separate export
+               formatting to touch. #}
             {% if can_view_pricing(current_user) %}
-            <td>&#8377;{{ "{:,.2f}".format(part.unit_price) }}</td>
-            <td>&#8377;{{ "{:,.0f}".format(part.unit_price * live_stock) }}</td>
+            <td>{{ "{:,.2f}".format(part.unit_price) }}</td>
+            <td>{{ "{:,.0f}".format(part.unit_price * live_stock) }}</td>
             {% endif %}
             <td>
               <div class="d-flex gap-1 flex-wrap">

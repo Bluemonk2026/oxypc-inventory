@@ -131,6 +131,7 @@
             <th style="width:32px"><input type="checkbox" id="selectAllChk" class="form-check-input" title="Select all on this page"></th>
             <th>Tag Number</th>
             <th>Lot</th>
+            <th>Location ID</th>
             <th>Brand</th>
             <th>Model</th>
             <th>Device Type</th>
@@ -452,7 +453,7 @@ $(document).ready(function() {
     serverSide: true,
     processing: true,
     pageLength: 12,
-    order: [[13, 'desc']],
+    order: [[14, 'desc']],
     searchDelay: 400,
     ajax: {
       url: '/devices/data',

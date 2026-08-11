@@ -596,7 +596,7 @@ def _build_checklist_workbook(*, lot_number, generated_on, generated_by, grade, 
 
     r = header_row + 2
     for g_key, heading, fields in groups:
-        rows_in_group = [f for f in fields if row_totals.get((g_key, f["name"])) is not None]
+        rows_in_group = [name for name, _domain, _fn in fields if row_totals.get((g_key, name)) is not None]
         if not rows_in_group:
             continue
         ws.cell(row=r, column=1, value=heading).font = bold
@@ -604,8 +604,7 @@ def _build_checklist_workbook(*, lot_number, generated_on, generated_by, grade, 
             ws.cell(row=r, column=col).fill = group_fill
             ws.cell(row=r, column=col).border = border
         r += 1
-        for f in rows_in_group:
-            name = f["name"]
+        for name in rows_in_group:
             ws.cell(row=r, column=1, value=f"    {name}").border = border
             for m_idx, mkey in enumerate(model_keys):
                 col = 2 + m_idx * 2
@@ -794,7 +793,7 @@ async def generate_checklist_estimate(
     xlsx = _build_checklist_workbook(
         lot_number=lot.lot_number, generated_on=stamp.strftime("%d %b %Y %H:%M"),
         generated_by=current_user.username, grade=grade_label,
-        groups=checklist_svc.group_meta(), model_keys=model_keys, model_labels=model_labels, cells=cells,
+        groups=checklist_svc.CHECKLIST_GROUPS, model_keys=model_keys, model_labels=model_labels, cells=cells,
         row_totals=row_totals, col_totals=col_totals, grand_total=grand_total,
         labour_cost=labour, total_estimation=total_estimation, severity_label=filters_summary,
         total_parts_count=total_parts_count,

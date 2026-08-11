@@ -52,7 +52,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-3">
+      <div class="col-md-2">
         <label class="form-label small fw-semibold mb-1">Lot Number</label>
         <select name="lot_number" class="form-select form-select-sm">
           <option value="">All Lot Numbers</option>
@@ -61,8 +61,17 @@
           {% endfor %}
         </select>
       </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Entity</label>
+        <select name="entity" class="form-select form-select-sm">
+          <option value="">All Entities</option>
+          {% for e in entity_options %}
+          <option value="{{ e }}" {% if entity == e %}selected{% endif %}>{{ e }}</option>
+          {% endfor %}
+        </select>
+      </div>
       {% include "_date_range_fields.html" %}
-      <div class="col-md-3 d-flex gap-2">
+      <div class="col-md-2 d-flex gap-2">
         <button type="submit" class="btn btn-primary btn-sm flex-grow-1"><i class="bi bi-search me-1"></i>Filter</button>
         <a href="/stock" class="btn btn-outline-secondary btn-sm">Reset</a>
       </div>
@@ -70,6 +79,11 @@
   </div>
 </form>
 <!-- hidden — moved into DataTables toolbar by JS -->
+<div id="entityBadges" class="d-none d-flex flex-wrap gap-2">
+  {% for e, c in entity_counts.items() %}
+  <span class="badge bg-light text-dark border">{{ e }}: <strong>{{ c }}</strong></span>
+  {% endfor %}
+</div>
 <button type="button" id="assignBucketBtn" class="d-none btn btn-sm btn-success" disabled
         data-bs-toggle="modal" data-bs-target="#addToBucketModal">
   <i class="bi bi-box me-1"></i>Assign Bucket/Carton (<span id="bktSelCount">0</span>)
@@ -337,12 +351,12 @@ $(document).ready(function(){
        the button and scan-box slots. #}
     {# No 'f' in the dom string: the card-header #stockScanInput is the single
        search box for this table, so DataTables must not render a second one. #}
-    dom: '<"d-flex align-items-center justify-content-between px-3 py-2 border-bottom"l<"#stkBtnArea"><"#stkScanArea">>t<"d-flex justify-content-end align-items-center gap-3 px-3 py-2"ip>',
+    dom: '<"d-flex align-items-center justify-content-between px-3 py-2 border-bottom"l<"#entityBadgeArea"><"#stkBtnArea"><"#stkScanArea">>t<"d-flex justify-content-end align-items-center gap-3 px-3 py-2"ip>',
     ajax: {
       url: '/stock/data',
       data: function (d) {
         var p = new URLSearchParams(window.location.search);
-        ['device_type', 'lot_number', 'date_from', 'date_to']
+        ['device_type', 'lot_number', 'entity', 'date_from', 'date_to']
           .forEach(function (k) { d[k] = p.get(k) || ''; });
       },
       dataSrc: function (json) { return json.data; },
@@ -372,6 +386,7 @@ $(document).ready(function(){
   // Move hidden Assign button + scan box into the DT toolbar slots — the
   // toolbar is justify-content-between, so the button sits left and the scan
   // box top right, inside the table wrapper.
+  $('#entityBadgeArea').append($('#entityBadges').removeClass('d-none'));
   $('#stkBtnArea').append($('#assignBucketBtn').removeClass('d-none'));
   $('#stkScanArea').append($('#stockScanInput').removeClass('d-none'));
 

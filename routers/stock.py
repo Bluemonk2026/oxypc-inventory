@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, update
 from datetime import datetime as _dt
 from utils.timezone import app_now
-from utils.master_data import master_values
+from utils.master_data import master_values, entity_values
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, DeviceGrade, StageMovement, STAGE_LABELS
@@ -765,7 +765,7 @@ async def lot_detail(lot_id: str, request: Request, db: AsyncSession = Depends(g
     })
 
 
-def _stock_filters(device_type, lot_number, date_from, date_to):
+def _stock_filters(device_type, lot_number, date_from, date_to, entity=""):
     from utils.date_filter import apply_date_range
     # Inventory Stock table is scoped strictly to devices currently AT the
     # Stock In stage — not "has ever had a GRN". A device only leaves this
@@ -777,6 +777,8 @@ def _stock_filters(device_type, lot_number, date_from, date_to):
         w.append(Device.device_type == device_type)
     if lot_number:
         w.append(Lot.lot_number == lot_number)
+    if entity:
+        w.append(Device.entity == entity)
     apply_date_range(w, Device.created_at, date_from, date_to)
     return w
 
@@ -786,6 +788,7 @@ async def stock_in_data(
     request: Request,
     draw: int = 1, start: int = 0, length: int = 25,
     device_type: str = "", lot_number: str = "", date_from: str = "", date_to: str = "",
+    entity: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
 ):
@@ -801,7 +804,7 @@ async def stock_in_data(
     from sqlalchemy import desc as _desc, asc as _asc
     from html import escape
 
-    page_filters = _stock_filters(device_type, lot_number, date_from, date_to)
+    page_filters = _stock_filters(device_type, lot_number, date_from, date_to, entity=entity)
     base = select(Device, Lot.lot_number).join(Lot, Device.lot_id == Lot.id).where(*page_filters)
     count_base = select(func.count()).select_from(Device).join(Lot, Device.lot_id == Lot.id).where(*page_filters)
 
@@ -878,7 +881,9 @@ async def stock_in_data(
         dept = assigned_dept_map.get(str(d.id))
         data.append([
             f'<input type="checkbox" class="form-check-input stockChk" value="{esc(d.barcode)}">',
-            f'<a href="/devices/{esc(d.barcode)}" class="font-monospace text-decoration-none"><code>{esc(d.barcode)}</code></a>',
+            (f'<a href="/devices/{esc(d.barcode)}" class="font-monospace text-decoration-none">'
+             f'<code>{esc(d.barcode)}</code></a>'
+             f'<div style="color:#999999;font-size:12px;">{esc(d.entity) if d.entity else "—"}</div>'),
             f'<span class="badge bg-info text-dark">{esc(lot_number_val)}</span>',
             (f'<span class="font-monospace small">{esc(location_map[str(d.id)])}</span>'
              if str(d.id) in location_map else
@@ -910,10 +915,11 @@ async def stock_in_list(
     lot_number: str = Query(default=""),
     date_from: str = Query(default=""),
     date_to: str = Query(default=""),
+    entity: str = Query(default=""),
 ):
     # Rows for the Inventory Stock table come from /stock/data (DataTables
     # server-side); only the count is needed here.
-    stock_filters = _stock_filters(device_type, lot_number, date_from, date_to)
+    stock_filters = _stock_filters(device_type, lot_number, date_from, date_to, entity=entity)
     count_stmt = (
         select(func.count())
         .select_from(Device)
@@ -967,6 +973,17 @@ async def stock_in_list(
         .order_by(StorageLocation.zone, StorageLocation.unit_id)
     )).scalars().all()
 
+    # Per-entity counts over the currently filtered set (not a separate
+    # unfiltered query) — the summary strip above the Inventory Stock table,
+    # same pattern as All Inventory's entity badges.
+    entity_counts_rows = (await db.execute(
+        select(Device.entity, func.count())
+        .select_from(Device).join(Lot, Device.lot_id == Lot.id)
+        .where(*stock_filters)
+        .group_by(Device.entity)
+    )).all()
+    entity_counts = {(e or "Unassigned"): c for e, c in entity_counts_rows}
+
     return templates.TemplateResponse("lots/stock_in.html", {
         "request": request, "current_user": current_user,
         "analytics": analytics,
@@ -980,6 +997,9 @@ async def stock_in_list(
         "storage_locations": storage_locations,
         "lot_number": lot_number,
         "lot_number_options": lot_number_options,
+        "entity": entity,
+        "entity_options": await entity_values(db),
+        "entity_counts": entity_counts,
         "zone_options": [
             (z.value, ZONE_LABELS.get(z, z.value))
             for z in [ZoneType.workshop, ZoneType.holding, ZoneType.dispatch, ZoneType.showroom, ZoneType.warehouse]

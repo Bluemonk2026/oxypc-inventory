@@ -115,7 +115,10 @@
   </div>
 </div>
 
-<div class="d-flex flex-wrap gap-2 mb-2">
+{# Rendered here, hidden, then moved by JS into the DataTables toolbar slot
+   right after the "Show X entries" length dropdown (see the dom string on
+   #devicesTable's init below). #}
+<div id="entityBadges" class="d-none d-flex flex-wrap gap-2">
   {% for e, c in entity_counts.items() %}
   <span class="badge bg-light text-dark border">{{ e }}: <strong>{{ c }}</strong></span>
   {% endfor %}
@@ -459,7 +462,7 @@ $(document).ready(function() {
       url: '/devices/data',
       data: function (d) {
         var p = new URLSearchParams(window.location.search);
-        ['q', 'stage', 'lot', 'grade', 'category', 'device_type', 'date_from', 'date_to']
+        ['q', 'stage', 'lot', 'grade', 'category', 'device_type', 'employee', 'entity', 'date_from', 'date_to']
           .forEach(function (k) { d[k] = p.get(k) || ''; });
       },
       dataSrc: function (json) { return json.data; },
@@ -467,8 +470,10 @@ $(document).ready(function() {
     columnDefs: [{ orderable: false, targets: [0, -1] }],
     {# 'f' renders the scan box in this toolbar's right slot, inside the table
        wrapper. The 'Search:' label is blanked so it matches the bare scan box
-       on Inventory Manager / Product IQC / Ready to Sale. #}
-    dom: '<"d-flex justify-content-between align-items-center mb-2"lf>t<"d-flex justify-content-end align-items-center gap-3 mt-2"ip>',
+       on Inventory Manager / Product IQC / Ready to Sale. The entity badges
+       (server-rendered, hidden by default) move into '#entityBadgeArea',
+       right after the length ("Show X entries") dropdown. #}
+    dom: '<"d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"l<"#entityBadgeArea">f>t<"d-flex justify-content-end align-items-center gap-3 mt-2"ip>',
     language: { search: '' },
     drawCallback: function () {
       document.querySelectorAll('#devicesTable tbody .rowChk').forEach(function (c) {
@@ -479,6 +484,9 @@ $(document).ready(function() {
     },
   });
   window._dtDevices = dt;
+  // Entity badges live server-rendered but hidden until moved into the
+  // toolbar slot DataTables creates for them (see the dom string above).
+  $('#entityBadgeArea').append($('#entityBadges').removeClass('d-none'));
 
   function updateSel(){
     var n = devicesSelected.size;
@@ -520,7 +528,7 @@ $(document).ready(function() {
     if (checked) {
       var p = new URLSearchParams(window.location.search);
       var params = new URLSearchParams();
-      ['q', 'stage', 'lot', 'grade', 'category', 'device_type', 'date_from', 'date_to']
+      ['q', 'stage', 'lot', 'grade', 'category', 'device_type', 'employee', 'entity', 'date_from', 'date_to']
         .forEach(function (k) { params.set(k, p.get(k) || ''); });
       var r = await fetch('/devices/barcodes?' + params.toString());
       var d = await r.json();

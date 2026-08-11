@@ -380,6 +380,7 @@ async def device_search_data(
 async def device_barcodes(
     q: str = "", stage: str = "", lot: str = "", grade: str = "",
     category: str = "", device_type: str = "", date_from: str = "", date_to: str = "",
+    employee: str = "", entity: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(view_allowed),
 ):
@@ -387,7 +388,9 @@ async def device_barcodes(
     every page and the tag-upload bulk-select feature below. Neither can rely
     on DataTables' serverSide rows() API, which only reaches the currently
     rendered page."""
-    page_filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to)
+    page_filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to, entity=entity)
+    if employee:
+        page_filters.append(await _employee_device_id_filter(db, employee))
     barcodes = (await db.execute(
         select(Device.barcode).join(Lot, Device.lot_id == Lot.id)
         .where(Device.is_trashed == False, *page_filters)

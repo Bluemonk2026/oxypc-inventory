@@ -73,6 +73,14 @@
                     {% if not r.total_products %}disabled title="This lot has no tags"{% endif %}>
               <i class="bi bi-diagram-3 me-1"></i>Part Estimate
             </button>
+            {# Field-by-field checklist matrix (Critical/Hardware/Display
+               Panel/etc.), one column per Model in the lot. Separate from
+               Part Estimate above — different structure, own output type. #}
+            <button type="button" class="btn btn-sm btn-outline-dark py-0 px-2"
+                    onclick="openChecklistEstimateModal('{{ r.lot.id }}', '{{ r.lot.lot_number }}')"
+                    {% if not r.total_products %}disabled title="This lot has no tags"{% endif %}>
+              <i class="bi bi-clipboard2-data me-1"></i>Create Estimate
+            </button>
           </td>
         </tr>
         {% else %}
@@ -217,6 +225,83 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
         <button type="button" class="btn btn-dark" id="me_submit" onclick="submitModelEstimate()" disabled>
+          <i class="bi bi-download me-1"></i>Generate Estimate
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create Estimate modal — field-by-field checklist matrix, one column per Model -->
+<div class="modal fade" id="checklistEstimateModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-fullscreen modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header bg-dark bg-opacity-10">
+        <h5 class="modal-title"><i class="bi bi-clipboard2-data me-2"></i>Create Estimate — <span id="ce_lot_label">—</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="ce_success" class="alert alert-success d-none"></div>
+        <div id="ce_generated" class="d-none mb-2">
+          <div class="small fw-semibold text-muted mb-1">Generated this session:</div>
+          <div id="ce_generated_list" class="d-flex flex-wrap gap-2"></div>
+        </div>
+        <div id="ce_loading" class="text-center text-muted py-4">
+          <div class="spinner-border spinner-border-sm me-2"></div>Loading checklist matrix…
+        </div>
+        <div id="ce_error" class="alert alert-danger d-none"></div>
+        <div id="ce_body" class="d-none">
+          <div class="d-flex align-items-center gap-3 mb-2">
+            <span class="fw-semibold small">Cosmetic Damage Scope:</span>
+            <span class="form-check form-check-inline mb-0">
+              <input class="form-check-input ce-severity" type="checkbox" value="minor" id="ce_sev_minor" checked>
+              <label class="form-check-label small" for="ce_sev_minor">Minor</label>
+            </span>
+            <span class="form-check form-check-inline mb-0">
+              <input class="form-check-input ce-severity" type="checkbox" value="major" id="ce_sev_major" checked>
+              <label class="form-check-label small" for="ce_sev_major">Major</label>
+            </span>
+            <span class="text-muted small">Filters the count shown for fields graded Minor/Major (Scratch, Dent, Broken/Crack, etc.)</span>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered align-middle mb-3" id="ce_table">
+              <thead id="ce_thead" class="table-light small"></thead>
+              <tbody id="ce_tbody" class="small"></tbody>
+              <tfoot>
+                <tr class="table-secondary fw-semibold" id="ce_col_totals_row"></tr>
+              </tfoot>
+            </table>
+          </div>
+          <div class="row g-2 align-items-center mb-2">
+            <div class="col-md-3 text-end fw-semibold">Total Part Price</div>
+            <div class="col-md-2" id="ce_parts_total">0.00</div>
+            <div class="col-md-3 text-end fw-semibold">Total Labour Cost</div>
+            <div class="col-md-2">
+              <input type="number" step="0.01" min="0" class="form-control form-control-sm" id="ce_labour" value="0">
+            </div>
+          </div>
+          <div class="row g-2 align-items-center mb-2">
+            <div class="col-md-3 text-end fw-semibold">Total Estimate</div>
+            <div class="col-md-2 fw-bold" id="ce_grand">0.00</div>
+            <div class="col-md-3 text-end fw-semibold align-self-start">
+              Select Grade(s)
+              <div class="small text-muted fw-normal">One file is generated per grade checked.</div>
+            </div>
+            <div class="col-md-4" id="ce_grades">
+              {% for value, label in grade_options %}
+              <span class="form-check form-check-inline mb-0">
+                <input class="form-check-input ce-grade" type="checkbox" value="{{ value }}"
+                       data-label="{{ label }}" id="ce_grade_{{ value }}">
+                <label class="form-check-label small" for="ce_grade_{{ value }}">{{ label }}</label>
+              </span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-dark" id="ce_submit" onclick="submitChecklistEstimate()" disabled>
           <i class="bi bi-download me-1"></i>Generate Estimate
         </button>
       </div>
@@ -659,6 +744,238 @@ function submitModelEstimate() {
       $('#me_submit').prop('disabled', false);
       $('#me_error').removeClass('d-none').text('Could not generate the estimate.');
     });
+}
+
+/* ── Create Estimate (checklist matrix) ─────────────────────────────────────
+   One column per Model in the lot, one row per checklist field (Critical/
+   Hardware/Display Panel/etc.). Counts come from the server's full No/Yes/
+   Minor/Major/Faulty breakdown per field per model, so the Minor/Major
+   scope checkboxes re-sum entirely client-side — no round trip needed just
+   to toggle the filter. Prices are typed once here; Generate re-sends the
+   severity scope + prices and the server recomputes every count fresh from
+   IQC before writing the file, exactly like Part Estimate does. */
+var ceLotId = null, ceData = null;
+
+function ceSelectedSeverity() {
+  var s = [];
+  if ($('#ce_sev_minor').is(':checked')) s.push('minor');
+  if ($('#ce_sev_major').is(':checked')) s.push('major');
+  return s;
+}
+
+function ceCountFor(counts, domain, severity) {
+  counts = counts || {};
+  if (domain === 'sev') {
+    var n = 0;
+    if (severity.indexOf('minor') !== -1) n += counts.Minor || 0;
+    if (severity.indexOf('major') !== -1) n += counts.Major || 0;
+    return n;
+  }
+  if (domain === 'faulty') return counts.Faulty || 0;
+  return counts.Yes || 0;
+}
+
+function ceRenderTable(d) {
+  var thead = $('#ce_thead').empty();
+  var headRow1 = $('<tr>'), headRow2 = $('<tr>').append($('<th>'));
+  headRow1.append($('<th>').text('Field'));
+  d.models.forEach(function (m) {
+    headRow1.append($('<th>').attr('colspan', 2).addClass('text-center')
+      .text(m.model + ' (' + m.qty + ')'));
+    headRow2.append(
+      $('<th>').addClass('text-center small fw-normal').text('Count'),
+      $('<th>').addClass('text-center small fw-normal').text('Price'));
+  });
+  headRow1.append($('<th>').text('Row Total'));
+  headRow2.append($('<th>'));
+  thead.append(headRow1, headRow2);
+
+  var tbody = $('#ce_tbody').empty();
+  var prevPrices = d.prev_prices || {};
+  d.groups.forEach(function (g) {
+    tbody.append($('<tr>').addClass('table-secondary fw-semibold').append(
+      $('<td>').attr('colspan', d.models.length * 2 + 2).text(g.heading)));
+    g.fields.forEach(function (f) {
+      var row = $('<tr>').addClass('ce-field-row')
+        .attr('data-group', g.key).attr('data-field', f.name).attr('data-domain', f.domain);
+      row.append($('<td>').text(f.name));
+      d.models.forEach(function (m) {
+        var counts = ((m.counts[g.key] || {})[f.name]) || {};
+        var key = m.model + '||' + g.key + '|' + f.name;
+        row.append(
+          $('<td>').addClass('ce-count text-end').data('counts', counts).text('0'),
+          $('<td>').append($('<input>').attr({ type: 'number', step: '0.01', min: '0' })
+            .addClass('form-control form-control-sm text-end ce-price')
+            .val(prevPrices[key] || ''))
+        );
+      });
+      row.append($('<td>').addClass('ce-row-total text-end fw-semibold').text('0.00'));
+      tbody.append(row);
+    });
+  });
+
+  var colTotalsRow = $('#ce_col_totals_row').empty().append($('<td>').text('Column Total'));
+  d.models.forEach(function () {
+    colTotalsRow.append($('<td>').attr('colspan', 2).addClass('ce-col-total text-end'));
+  });
+  colTotalsRow.append($('<td>').addClass('ce-grand-cell text-end'));
+}
+
+function ceRecalc() {
+  if (!ceData) return;
+  var severity = ceSelectedSeverity();
+  var colTotals = ceData.models.map(function () { return 0; });
+  var grand = 0;
+  var anyCount = false;
+
+  $('#ce_tbody .ce-field-row').each(function () {
+    var row = $(this);
+    var domain = row.attr('data-domain');
+    var rowTotal = 0;
+    var counts = row.find('.ce-count');
+    var prices = row.find('.ce-price');
+    counts.each(function (i) {
+      var n = ceCountFor($(this).data('counts'), domain, severity);
+      $(this).text(n);
+      if (n) anyCount = true;
+      var price = parseFloat(prices.eq(i).val()) || 0;
+      var total = n * price;
+      rowTotal += total;
+      colTotals[i] += total;
+      grand += total;
+    });
+    row.find('.ce-row-total').text(estMoney(rowTotal));
+    row.toggleClass('d-none', counts.toArray().every(function (c) { return !ceCountFor($(c).data('counts'), domain, severity); }));
+  });
+
+  $('#ce_col_totals_row .ce-col-total').each(function (i) {
+    $(this).text(estMoney(colTotals[i]));
+  });
+  $('.ce-grand-cell').text(estMoney(grand));
+  $('#ce_parts_total').text(estMoney(grand));
+  var labour = parseFloat($('#ce_labour').val()) || 0;
+  $('#ce_grand').text(estMoney(grand + labour));
+  return anyCount;
+}
+
+$(document).on('input', '.ce-price, #ce_labour', ceRecalc);
+$(document).on('change', '.ce-severity', ceRecalc);
+
+var ceAnyGenerated = false;
+$('#checklistEstimateModal').on('hidden.bs.modal', function () {
+  if (ceAnyGenerated) window.location.reload();
+});
+
+function openChecklistEstimateModal(lotId, lotNumber) {
+  ceAnyGenerated = false;
+  ceLotId = lotId; ceData = null;
+  $('#ce_lot_label').text(lotNumber);
+  $('#ce_loading').removeClass('d-none');
+  $('#ce_body').addClass('d-none');
+  $('#ce_error').addClass('d-none').text('');
+  $('#ce_success').addClass('d-none').text('');
+  $('#ce_generated').addClass('d-none');
+  $('#ce_generated_list').empty();
+  $('#ce_sev_minor, #ce_sev_major').prop('checked', true);
+  $('.ce-grade').prop('checked', false);
+  $('#ce_submit').prop('disabled', true);
+  new bootstrap.Modal(document.getElementById('checklistEstimateModal')).show();
+
+  fetch('/part-estimation/' + lotId + '/checklist-matrix', { credentials: 'same-origin' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      $('#ce_loading').addClass('d-none');
+      if (!d.ok || !d.models || !d.models.length) {
+        $('#ce_error').removeClass('d-none').text('This lot has no tags to estimate.');
+        return;
+      }
+      ceData = d;
+      ceRenderTable(d);
+      $('#ce_labour').val(d.labour_cost || 0);
+      $('#ce_body').removeClass('d-none');
+      $('#ce_submit').prop('disabled', false);
+      ceRecalc();
+    })
+    .catch(function () {
+      $('#ce_loading').addClass('d-none');
+      $('#ce_error').removeClass('d-none').text('Could not load the checklist matrix for this lot.');
+    });
+}
+
+function ceGenerateOne(grade, gradeLabel, severity, prices, labour) {
+  var fd = new FormData();
+  fd.append('payload', JSON.stringify({
+    severity: severity, prices: prices, grade: grade, labour_cost: labour
+  }));
+  fd.append('csrf_token', peCsrfToken());
+  return fetch('/part-estimation/' + ceLotId + '/generate-checklist-estimate', {
+    method: 'POST', body: fd, credentials: 'same-origin'
+  }).then(function (r) { return r.json(); }).then(function (d) {
+    return { grade: grade, gradeLabel: gradeLabel, result: d };
+  });
+}
+
+function submitChecklistEstimate() {
+  var anyCount = ceRecalc();
+  if (!anyCount) {
+    $('#ce_error').removeClass('d-none').text('No fields in this lot have a defect to price.');
+    return;
+  }
+  var grades = [];
+  $('.ce-grade:checked').each(function () {
+    grades.push({ value: $(this).val(), label: $(this).data('label') });
+  });
+  if (!grades.length) {
+    $('#ce_error').removeClass('d-none').text('Select at least one Grade.');
+    return;
+  }
+
+  var severity = ceSelectedSeverity();
+  var prices = {};
+  $('#ce_tbody .ce-field-row').each(function () {
+    var row = $(this), group = row.attr('data-group'), field = row.attr('data-field');
+    row.find('.ce-price').each(function (i) {
+      // Keyed by the lot's unique model_key, not the display Model name —
+      // two different Makes can share a Model name within one lot, and the
+      // server keys prices the same way to avoid collapsing their prices.
+      var mkey = ceData.models[i].key;
+      var val = parseFloat($(this).val()) || 0;
+      if (val) prices[mkey + '||' + group + '|' + field] = val;
+    });
+  });
+  var labour = parseFloat($('#ce_labour').val()) || 0;
+
+  $('#ce_submit').prop('disabled', true);
+  $('#ce_error').addClass('d-none');
+  $('#ce_success').addClass('d-none');
+
+  // Sequential, not parallel — each call is its own commit; running them one
+  // after another keeps the generated-file list in the order the operator
+  // picked the grades, and avoids N simultaneous writes for one lot.
+  var chain = Promise.resolve();
+  grades.forEach(function (g) {
+    chain = chain.then(function () {
+      return ceGenerateOne(g.value, g.label, severity, prices, labour);
+    }).then(function (outcome) {
+      if (!outcome.result.ok) {
+        $('#ce_error').removeClass('d-none')
+          .text((outcome.gradeLabel + ': ') + (outcome.result.error || 'Could not generate the estimate.'));
+        return;
+      }
+      ceAnyGenerated = true;
+      $('#ce_success').removeClass('d-none').text('Estimate file(s) generated and sent to Part Manager.');
+      $('#ce_generated').removeClass('d-none');
+      $('#ce_generated_list').append(
+        $('<a>').addClass('btn btn-sm btn-outline-success py-0 px-2')
+          .attr({ href: outcome.result.download_url, target: '_blank',
+                  title: 'Generated ' + new Date().toLocaleTimeString() })
+          .append($('<i>').addClass('bi bi-file-earmark-excel me-1'), outcome.gradeLabel)
+      );
+    });
+  });
+  chain.finally(function () {
+    $('#ce_submit').prop('disabled', false);
+  });
 }
 </script>
 {% endblock %}

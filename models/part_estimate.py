@@ -41,11 +41,19 @@ class PartEstimate(Base):
     file_path = Column(String(255), nullable=True)           # uploads/part_estimates/<uuid>.xlsx
     file_name = Column(String(255), nullable=True)           # human-facing download name
 
+    # 'flat' = Generate Estimate, 'model_matrix' = Part Estimate,
+    # 'checklist' = Create Estimate. Lets the lot row's Download list and any
+    # future filtering tell the three output types apart without re-deriving
+    # it from which of PartEstimateLine / PartEstimateChecklistLine got rows.
+    estimate_type = Column(String(20), nullable=False, default="flat")
+
     created_by = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=app_now)
 
     lines = relationship("PartEstimateLine", back_populates="estimate",
                          lazy="select", cascade="all, delete-orphan")
+    checklist_lines = relationship("PartEstimateChecklistLine", back_populates="estimate",
+                                   lazy="select", cascade="all, delete-orphan")
 
 
 class PartEstimateLine(Base):
@@ -61,3 +69,31 @@ class PartEstimateLine(Base):
     total_cost = Column(Numeric(14, 2), nullable=False, default=0)
 
     estimate = relationship("PartEstimate", back_populates="lines", lazy="select")
+
+
+class PartEstimateChecklistLine(Base):
+    """One row per (field, model) cell priced on a Create Estimate — the
+    checklist-based matrix (Critical/Hardware/Display Panel/etc., one column
+    per Model in the lot). Kept separate from PartEstimateLine because a
+    checklist cell carries a field-group/field-name/model identity that a
+    flat "<model> — <part>" string would lose, and this table is what lets a
+    generated estimate be re-displayed or re-derived exactly later."""
+    __tablename__ = "part_estimate_checklist_lines"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    estimate_id = Column(UUID(as_uuid=True), ForeignKey("part_estimates.id"),
+                         nullable=False, index=True)
+
+    field_group = Column(String(50), nullable=False)     # e.g. "Display Panel"
+    field_name = Column(String(100), nullable=False)     # e.g. "Scratch"
+    model_name = Column(String(150), nullable=False)
+
+    # "minor" / "major" / "both" — the severity checkbox state active when
+    # this cell's count was computed, for audit/regeneration fidelity.
+    severity_scope = Column(String(10), nullable=True)
+
+    count = Column(Integer, nullable=False, default=0)
+    unit_price = Column(Numeric(12, 2), nullable=False, default=0)
+    line_total = Column(Numeric(14, 2), nullable=False, default=0)
+
+    estimate = relationship("PartEstimate", back_populates="checklist_lines", lazy="select")

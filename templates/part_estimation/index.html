@@ -243,6 +243,7 @@
 #ce_table .ce-price-cell .form-control { width: 100%; min-width: 74px; }
 #ce_table th:first-child, #ce_table td:first-child {
   position: sticky; left: 0; z-index: 2;
+  width: 160px; min-width: 160px; max-width: 160px;
   background: #fff; box-shadow: 2px 0 3px -2px rgba(0,0,0,.25);
 }
 #ce_table thead th:first-child { z-index: 3; background: #f8f9fa; }
@@ -318,20 +319,18 @@
             </table>
           </div>
           <div class="row g-2 align-items-center mb-2">
-            <div class="col-md-3 text-end fw-semibold">Total Part Price</div>
-            <div class="col-md-2" id="ce_parts_total">0.00</div>
-            <div class="col-md-3 text-end fw-semibold">Total Parts Count</div>
-            <div class="col-md-2" id="ce_parts_count">0</div>
-          </div>
-          <div class="row g-2 align-items-center mb-2">
-            <div class="col-md-3 text-end fw-semibold">Total Labour Cost</div>
-            <div class="col-md-2">
+            <div class="col-md-2 text-end fw-semibold">Total Parts Count</div>
+            <div class="col-md-1" id="ce_parts_count">0</div>
+            <div class="col-md-2 text-end fw-semibold">Total Part Price</div>
+            <div class="col-md-1" id="ce_parts_total">0.00</div>
+            <div class="col-md-2 text-end fw-semibold">Total Labour Cost</div>
+            <div class="col-md-1">
               <input type="number" step="0.01" min="0" class="form-control form-control-sm" id="ce_labour" value="0">
             </div>
+            <div class="col-md-2 text-end fw-semibold">Total Estimate</div>
+            <div class="col-md-1 fw-bold" id="ce_grand">0.00</div>
           </div>
           <div class="row g-2 align-items-center mb-2">
-            <div class="col-md-3 text-end fw-semibold">Total Estimate</div>
-            <div class="col-md-2 fw-bold" id="ce_grand">0.00</div>
             <div class="col-md-3 text-end fw-semibold align-self-start">
               Select Grade
               <div class="small text-muted fw-normal">Generate writes one file for this grade. Close the modal,

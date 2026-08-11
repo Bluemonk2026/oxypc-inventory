@@ -4,10 +4,11 @@ A self-contained offline-first PWA (plain HTML/CSS/JS, no build step) for
 demo-unit asset QC, commercial deduction, packing, pickup/courier movement,
 warehouse receipt and 45-day project control.
 
-Served through this router rather than the public /static mount so that the
-Reliance inventory it carries — site names, RRP/MRP and commercial charges —
-sits behind the same login as the rest of OxyPC. Every request requires an
-authenticated session; there is no anonymous access to the files.
+The files live in fieldops_app/ at the project root, deliberately NOT under
+static/ — that directory is mounted publicly by main.py, which would serve the
+Reliance inventory (site names, RRP/MRP, commercial charges) to anyone without
+a login. Everything is served through this router instead, so every request,
+including js/inventory.js, requires an authenticated OxyPC session.
 
 The app keeps its own state in the browser (localStorage) and talks to no
 backend, so nothing here touches the OxyPC database.
@@ -24,7 +25,7 @@ from models.user import User
 router = APIRouter(tags=["fieldops"])
 
 BASE_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "fieldops"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fieldops_app"
 )
 
 # Explicit types: .webmanifest and .svg are not always in the system table.

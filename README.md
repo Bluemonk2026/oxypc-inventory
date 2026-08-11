@@ -15,9 +15,10 @@ exports, SLA escalation and an immutable audit log.
   reconciled to the source costing sheet (₹26,77,637 total charges).
 - Installs to a phone as a PWA and keeps working with no network; state lives in
   the browser, so it touches no OxyPC data or tables.
-- Files in `static/fieldops/`, served by `routers/fieldops.py` **behind the OxyPC
-  login** — the Reliance inventory it carries is not publicly readable.
-- 147 automated checks; see `static/fieldops/README.md` for how to run them.
+- Files in `fieldops_app/` (deliberately not under `static/`, which is mounted
+  publicly), served by `routers/fieldops.py` **behind the OxyPC login** — the
+  Reliance inventory it carries is not anonymously readable.
+- 147 automated checks; see `fieldops_app/README.md` for how to run them.
 
 ## Quick Start
 

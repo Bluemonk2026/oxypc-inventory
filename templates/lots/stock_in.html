@@ -52,7 +52,7 @@
       {# One box covering GRN / Invoice / Tag Number / Model, sitting ahead of
          Device Type. Filters client-side against the Inventory Stock table
          (including its two hidden columns) so it needs no page reload. #}
-      <div class="col-md-3">
+      <div class="col-md-2">
         <label class="form-label small fw-semibold mb-1">Search</label>
         <input type="text" id="stockQuickSearch" class="form-control form-control-sm"
                placeholder="GRN / Invoice / Tag Number / Model" autocomplete="off">
@@ -84,7 +84,20 @@
           {% endfor %}
         </select>
       </div>
-      {% include "_date_range_fields.html" %}
+      {# Narrower than the shared _date_range_fields.html partial (col-md-2
+         each) so all seven filters fit on one row at the md breakpoint —
+         this page has one more filter than the pages that partial was sized
+         for, so its fields are laid out inline here instead of reused. #}
+      <div class="col-md-1">
+        <label class="form-label small fw-semibold mb-1">From</label>
+        <input type="date" name="date_from" class="form-control form-control-sm"
+               value="{{ request.query_params.get('date_from', '') }}">
+      </div>
+      <div class="col-md-1">
+        <label class="form-label small fw-semibold mb-1">To</label>
+        <input type="date" name="date_to" class="form-control form-control-sm"
+               value="{{ request.query_params.get('date_to', '') }}">
+      </div>
       <div class="col-md-2 d-flex gap-2">
         <button type="submit" class="btn btn-primary btn-sm flex-grow-1"><i class="bi bi-search me-1"></i>Filter</button>
         <a href="/stock" class="btn btn-outline-secondary btn-sm">Reset</a>

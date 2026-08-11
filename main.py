@@ -140,6 +140,7 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 from routers.health import router as health_router
 from routers.auth import router as auth_router
 from routers.dashboard import router as dashboard_router
+from routers.fieldops import router as fieldops_router
 from routers.admin import router as admin_router
 from routers.iqc import router as iqc_router
 from routers.stock import router as stock_router
@@ -226,6 +227,7 @@ app.include_router(api_router)
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(dashboard_router)
+app.include_router(fieldops_router)
 app.include_router(admin_router)
 app.include_router(iqc_router)
 app.include_router(stock_router)

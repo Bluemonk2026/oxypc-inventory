@@ -2,6 +2,23 @@
 
 A multi-user inventory management system for laptop/desktop refurbishment businesses.
 
+## Reliance Asset FieldOps — `/fieldops`
+
+A standalone, offline-first field app for the Reliance demo-unit recovery project,
+served at **https://app.oxypc.com/fieldops** and linked from the sidebar.
+
+Serial capture → Rapid QC → Reliance approval → commercial pricing → packing →
+pickup/courier AWB → warehouse GRN → closure, with an executive dashboard, MIS
+exports, SLA escalation and an immutable audit log.
+
+- Loaded with the real inventory master: **3,957 units across 622 locations**,
+  reconciled to the source costing sheet (₹26,77,637 total charges).
+- Installs to a phone as a PWA and keeps working with no network; state lives in
+  the browser, so it touches no OxyPC data or tables.
+- Files in `static/fieldops/`, served by `routers/fieldops.py` **behind the OxyPC
+  login** — the Reliance inventory it carries is not publicly readable.
+- 147 automated checks; see `static/fieldops/README.md` for how to run them.
+
 ## Quick Start
 
 ### Step 1 — Install PostgreSQL (one time)

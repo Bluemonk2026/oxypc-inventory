@@ -47,6 +47,15 @@
       </li>
       {% endif %}
 
+      {# ── Reliance Asset FieldOps — standalone field app, opens in its own tab ── #}
+      <li class="nav-item">
+        <a href="/fieldops/" target="_blank" rel="noopener"
+           class="nav-link {% if request.url.path.startswith('/fieldops') %}active{% endif %}">
+          <i class="bi bi-clipboard-check me-2"></i> Reliance FieldOps
+          <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+        </a>
+      </li>
+
       {# ── ATTENDANCE ──────────────────────────────────────────────────── #}
       {% if has_perm(role,'attendance','enable') or has_perm(role,'attendance_report','enable') %}
       <li class="nav-section">ATTENDANCE</li>

@@ -1,0 +1,24 @@
+{
+  "name": "Reliance Asset FieldOps",
+  "short_name": "FieldOps",
+  "description": "Demo-unit asset QC, commercial deduction, packing, pickup, courier, warehouse receipt and 45-day project control.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#17365D",
+  "theme_color": "#17365D",
+  "lang": "en-IN",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Scan asset", "short_name": "Scan", "url": "./index.html#/scan" },
+    { "name": "Dashboard", "short_name": "Dashboard", "url": "./index.html#/dashboard" },
+    { "name": "Approvals", "short_name": "Approvals", "url": "./index.html#/approvals" }
+  ]
+}

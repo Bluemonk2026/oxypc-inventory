@@ -724,7 +724,7 @@ async def generate_checklist_estimate(
     filters_summary = (
         f"Critical Part Added: {_readable('critical', ('yes', 'no'))} | "
         f"Hardware Damage: {_readable('hardware', ('yes', 'no'))} | "
-        f"Cosmetic Damage Scope: {_readable('cosmetic', ('yes', 'no', 'minor', 'major'))}"
+        f"Cosmetic Damage: {_readable('cosmetic', ('yes', 'no', 'minor', 'major'))}"
     )
 
     prices = data.get("prices") or {}

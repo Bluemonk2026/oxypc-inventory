@@ -257,11 +257,6 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div id="ce_success" class="alert alert-success d-none"></div>
-        <div id="ce_generated" class="d-none mb-2">
-          <div class="small fw-semibold text-muted mb-1">Generated this session:</div>
-          <div id="ce_generated_list" class="d-flex flex-wrap gap-2"></div>
-        </div>
         <div id="ce_loading" class="text-center text-muted py-4">
           <div class="spinner-border spinner-border-sm me-2"></div>Loading checklist matrix…
         </div>
@@ -293,7 +288,7 @@
               <span class="text-muted">HDMI/USB/Audio/Ethernet/Speaker/Wi-Fi/Web Cam/HDD/DVD/Battery</span>
             </div>
             <div class="d-flex align-items-center gap-3">
-              <span class="fw-semibold" style="width:170px">Cosmetic Damage Scope:</span>
+              <span class="fw-semibold" style="width:170px">Cosmetic Damage:</span>
               <span class="form-check form-check-inline mb-0">
                 <input class="form-check-input ce-filter" type="checkbox" data-scope="cosmetic" data-key="yes" id="ce_cos_yes" checked>
                 <label class="form-check-label small" for="ce_cos_yes">Yes</label>
@@ -338,17 +333,17 @@
             <div class="col-md-3 text-end fw-semibold">Total Estimate</div>
             <div class="col-md-2 fw-bold" id="ce_grand">0.00</div>
             <div class="col-md-3 text-end fw-semibold align-self-start">
-              Select Grade(s)
-              <div class="small text-muted fw-normal">One file is generated per grade checked.</div>
+              Select Grade
+              <div class="small text-muted fw-normal">Generate writes one file for this grade. Close the modal,
+                then open Create Estimate again to make a file for another grade.</div>
             </div>
-            <div class="col-md-4" id="ce_grades">
-              {% for value, label in grade_options %}
-              <span class="form-check form-check-inline mb-0">
-                <input class="form-check-input ce-grade" type="checkbox" value="{{ value }}"
-                       data-label="{{ label }}" id="ce_grade_{{ value }}">
-                <label class="form-check-label small" for="ce_grade_{{ value }}">{{ label }}</label>
-              </span>
-              {% endfor %}
+            <div class="col-md-2">
+              <select id="ce_grade" class="form-select form-select-sm">
+                <option value="">Select</option>
+                {% for value, label in grade_options %}
+                <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+              </select>
             </div>
           </div>
         </div>
@@ -937,24 +932,15 @@ function ceRecalc() {
 $(document).on('input', '.ce-price, #ce_labour', ceRecalc);
 $(document).on('change', '.ce-filter', ceRecalc);
 
-var ceAnyGenerated = false;
-$('#checklistEstimateModal').on('hidden.bs.modal', function () {
-  if (ceAnyGenerated) window.location.reload();
-});
-
 function openChecklistEstimateModal(lotId, lotNumber) {
-  ceAnyGenerated = false;
   ceLotId = lotId; ceData = null;
   $('#ce_lot_label').text(lotNumber);
   $('#ce_loading').removeClass('d-none');
   $('#ce_body').addClass('d-none');
   $('#ce_error').addClass('d-none').text('');
-  $('#ce_success').addClass('d-none').text('');
-  $('#ce_generated').addClass('d-none');
-  $('#ce_generated_list').empty();
   $('#ce_crit_yes, #ce_hw_yes, #ce_cos_yes, #ce_cos_minor, #ce_cos_major').prop('checked', true);
   $('#ce_crit_no, #ce_hw_no, #ce_cos_no').prop('checked', false);
-  $('.ce-grade').prop('checked', false);
+  $('#ce_grade').val('');
   $('#ce_submit').prop('disabled', true);
   new bootstrap.Modal(document.getElementById('checklistEstimateModal')).show();
 
@@ -979,31 +965,19 @@ function openChecklistEstimateModal(lotId, lotNumber) {
     });
 }
 
-function ceGenerateOne(grade, gradeLabel, filters, prices, labour) {
-  var fd = new FormData();
-  fd.append('payload', JSON.stringify({
-    filters: filters, prices: prices, grade: grade, labour_cost: labour
-  }));
-  fd.append('csrf_token', peCsrfToken());
-  return fetch('/part-estimation/' + ceLotId + '/generate-checklist-estimate', {
-    method: 'POST', body: fd, credentials: 'same-origin'
-  }).then(function (r) { return r.json(); }).then(function (d) {
-    return { grade: grade, gradeLabel: gradeLabel, result: d };
-  });
-}
-
+// One grade per submit: generate writes one file, the modal closes, and the
+// page reloads so the Download column on the Lots Summary table picks it
+// up — same close-and-reload pattern as the plain Generate Estimate modal.
+// To make a file for another grade, reopen Create Estimate and pick it.
 function submitChecklistEstimate() {
   var anyCount = ceRecalc();
   if (!anyCount) {
     $('#ce_error').removeClass('d-none').text('No fields in this lot have a defect to price.');
     return;
   }
-  var grades = [];
-  $('.ce-grade:checked').each(function () {
-    grades.push({ value: $(this).val(), label: $(this).data('label') });
-  });
-  if (!grades.length) {
-    $('#ce_error').removeClass('d-none').text('Select at least one Grade.');
+  var grade = $('#ce_grade').val();
+  if (!grade) {
+    $('#ce_error').removeClass('d-none').text('Select a Grade.');
     return;
   }
 
@@ -1022,37 +996,33 @@ function submitChecklistEstimate() {
   });
   var labour = parseFloat($('#ce_labour').val()) || 0;
 
+  var fd = new FormData();
+  fd.append('payload', JSON.stringify({
+    filters: filters, prices: prices, grade: grade, labour_cost: labour
+  }));
+  fd.append('csrf_token', peCsrfToken());
+
   $('#ce_submit').prop('disabled', true);
   $('#ce_error').addClass('d-none');
-  $('#ce_success').addClass('d-none');
-
-  // Sequential, not parallel — each call is its own commit; running them one
-  // after another keeps the generated-file list in the order the operator
-  // picked the grades, and avoids N simultaneous writes for one lot.
-  var chain = Promise.resolve();
-  grades.forEach(function (g) {
-    chain = chain.then(function () {
-      return ceGenerateOne(g.value, g.label, filters, prices, labour);
-    }).then(function (outcome) {
-      if (!outcome.result.ok) {
-        $('#ce_error').removeClass('d-none')
-          .text((outcome.gradeLabel + ': ') + (outcome.result.error || 'Could not generate the estimate.'));
+  fetch('/part-estimation/' + ceLotId + '/generate-checklist-estimate', {
+    method: 'POST', body: fd, credentials: 'same-origin'
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.ok) {
+        $('#ce_error').removeClass('d-none').text(d.error || 'Could not generate the estimate.');
+        $('#ce_submit').prop('disabled', false);
         return;
       }
-      ceAnyGenerated = true;
-      $('#ce_success').removeClass('d-none').text('Estimate file(s) generated and sent to Part Manager.');
-      $('#ce_generated').removeClass('d-none');
-      $('#ce_generated_list').append(
-        $('<a>').addClass('btn btn-sm btn-outline-success py-0 px-2')
-          .attr({ href: outcome.result.download_url, target: '_blank',
-                  title: 'Generated ' + new Date().toLocaleTimeString() })
-          .append($('<i>').addClass('bi bi-file-earmark-excel me-1'), outcome.gradeLabel)
-      );
+      window.location.href = d.download_url;
+      setTimeout(function () {
+        window.location.href = '/part-estimation?success=Estimate+generated+and+sent+to+Part+Manager';
+      }, 1200);
+    })
+    .catch(function () {
+      $('#ce_error').removeClass('d-none').text('Could not generate the estimate.');
+      $('#ce_submit').prop('disabled', false);
     });
-  });
-  chain.finally(function () {
-    $('#ce_submit').prop('disabled', false);
-  });
 }
 </script>
 {% endblock %}

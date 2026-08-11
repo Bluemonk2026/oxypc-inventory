@@ -504,6 +504,10 @@ async def device_search(
         select(User.full_name).where(User.status == True).order_by(User.full_name)  # noqa: E712
     )).scalars().all() if n]
     entity_options = await entity_values(db)
+    storage_locations = (await db.execute(
+        select(StorageLocation).where(StorageLocation.is_active == True)  # noqa: E712
+        .order_by(StorageLocation.zone, StorageLocation.unit_id)
+    )).scalars().all()
 
     return templates.TemplateResponse("devices/list.html", {
         "request": request, "current_user": current_user,
@@ -514,6 +518,7 @@ async def device_search(
         "device_type_options": await master_values(db, "device_type"),
         "employee_options": employee_options, "entity_options": entity_options,
         "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
+        "storage_locations": storage_locations,
         "total": total,
         "model_summary": model_summary,
         "lot_summary": lot_summary,

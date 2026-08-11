@@ -962,6 +962,11 @@ async def stock_in_list(
         )).all()
     ]
 
+    storage_locations = (await db.execute(
+        select(StorageLocation).where(StorageLocation.is_active == True)  # noqa: E712
+        .order_by(StorageLocation.zone, StorageLocation.unit_id)
+    )).scalars().all()
+
     return templates.TemplateResponse("lots/stock_in.html", {
         "request": request, "current_user": current_user,
         "analytics": analytics,
@@ -971,6 +976,8 @@ async def stock_in_list(
         "device_type_options": await master_values(db, "device_type"),
         # Consumed by the shared _customise_modal.html "Move to Stage" dropdown.
         "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
+        # Consumed by the shared _customise_modal.html "Location ID" dropdown.
+        "storage_locations": storage_locations,
         "lot_number": lot_number,
         "lot_number_options": lot_number_options,
         "zone_options": [

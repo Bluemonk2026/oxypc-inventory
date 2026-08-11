@@ -5,10 +5,9 @@
    drift apart. Set `customise_return_to` before including to control where the
    POST redirects back to (defaults to the All Inventory list).
 
-   Requires in context: device_type_options, stage_options. #}
+   Requires in context: device_type_options, stage_options, storage_locations. #}
 <!-- Customise (bulk Apply Grade / Device Type / Move to Stage) modal — shared by
-     the Tag Number table (barcodes) and the Lot Based Summary table (lot_numbers).
-     Same fields/backend as the Product IQC Customise modal. -->
+     the Tag Number table (barcodes) and the Lot Based Summary table (lot_numbers). -->
 <div class="modal fade" id="customiseModal" tabindex="-1">
   <div class="modal-dialog">
     <form id="customiseForm" method="post" action="/iqc/bulk-apply-grade-type">
@@ -22,100 +21,72 @@
         </div>
         <div class="modal-body">
           <p class="small text-muted mb-3"><span id="customiseModalCount">0</span> item(s) selected. Leave a field blank to leave it unchanged.</p>
-          <div class="mb-3">
-            <label class="form-label small">Device Type</label>
-            <select name="device_type" class="form-select form-select-sm">
-              <option value="">— Leave unchanged —</option>
-              {% for dt in device_type_options %}
-              <option value="{{ dt }}">{{ dt }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="mb-3">
-            <label class="form-label small">Change Entity</label>
-            <select name="entity" class="form-select form-select-sm">
-              <option value="">— Leave unchanged —</option>
-              {% for e in master_options('entity') %}
-              <option value="{{ e }}">{{ e }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="mb-3">
-            <label class="form-label small">Grade</label>
-            <select name="grade" class="form-select form-select-sm">
-              <option value="">— Leave unchanged —</option>
-              {% for value, label in grade_options() %}
-              <option value="{{ value }}">{{ label }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <!-- Row 1: CPU | CPU Make | Generation (mirrors the IQC form grouping) -->
           <div class="row g-2 mb-2">
-            <div class="col">
-              <label class="form-label small">CPU</label>
-              <input type="text" name="cpu" class="form-control form-control-sm" placeholder="Leave blank">
+            <div class="col-6">
+              <label class="form-label small">Device Type</label>
+              <select name="device_type" class="form-select form-select-sm">
+                <option value="">— Leave unchanged —</option>
+                {% for dt in device_type_options %}
+                <option value="{{ dt }}">{{ dt }}</option>
+                {% endfor %}
+              </select>
             </div>
-            <div class="col">
-              <label class="form-label small">CPU Make</label>
-              <input type="text" name="cpu_make" class="form-control form-control-sm" placeholder="Intel / AMD / Apple">
-            </div>
-            <div class="col">
-              <label class="form-label small">Generation</label>
-              <input type="text" name="generation" class="form-control form-control-sm" placeholder="e.g. 10th Gen">
+            <div class="col-6">
+              <label class="form-label small">Change Entity</label>
+              <select name="entity" class="form-select form-select-sm">
+                <option value="">— Leave unchanged —</option>
+                {% for e in master_options('entity') %}
+                <option value="{{ e }}">{{ e }}</option>
+                {% endfor %}
+              </select>
             </div>
           </div>
-          <!-- Row 2: Total RAM Count | Total RAM Size | RAM (GB) -->
           <div class="row g-2 mb-2">
-            <div class="col">
-              <label class="form-label small">Total RAM Count</label>
-              <input type="text" name="total_ram_count" class="form-control form-control-sm" placeholder="e.g. 2">
+            <div class="col-6">
+              <label class="form-label small">Grade</label>
+              <select name="grade" class="form-select form-select-sm">
+                <option value="">— Leave unchanged —</option>
+                {% for value, label in grade_options() %}
+                <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+              </select>
             </div>
-            <div class="col">
-              <label class="form-label small">Total RAM Size</label>
-              <input type="text" name="total_ram_size" class="form-control form-control-sm" placeholder="e.g. 16GB">
-            </div>
-            <div class="col">
-              <label class="form-label small">RAM (GB)</label>
-              <input type="text" name="ram_gb" class="form-control form-control-sm" placeholder="e.g. 16">
+            <div class="col-6">
+              <label class="form-label small">Move to Stage</label>
+              <select name="to_stage" class="form-select form-select-sm">
+                <option value="">— No change —</option>
+                {% for value, label in stage_options %}
+                <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+              </select>
             </div>
           </div>
-          <!-- Row 3: Total Hard Drive Count | Total Hard Drive Size | Hard Drive -->
           <div class="row g-2 mb-2">
-            <div class="col">
-              <label class="form-label small">Total Hard Drive Count</label>
-              <input type="text" name="total_hdd_count" class="form-control form-control-sm" placeholder="e.g. 1">
+            <div class="col-6">
+              <label class="form-label small">Invoice Number</label>
+              <input type="text" name="invoice_number" class="form-control form-control-sm" placeholder="Leave blank to leave unchanged">
             </div>
-            <div class="col">
-              <label class="form-label small">Total Hard Drive Size</label>
-              <input type="text" name="total_hdd_size" class="form-control form-control-sm" placeholder="e.g. 512GB">
-            </div>
-            <div class="col">
-              <label class="form-label small">Hard Drive</label>
-              <input type="text" name="hdd_summary" class="form-control form-control-sm" placeholder="512GB_SSD_7400_Samsung">
+            <div class="col-6">
+              <label class="form-label small">GRN Number</label>
+              <input type="text" name="grn_number" class="form-control form-control-sm" placeholder="Leave blank to leave unchanged">
             </div>
           </div>
-          <div class="mb-3">
-            <label class="form-label small">Storage (GB)</label>
-            <input type="text" name="storage_gb" class="form-control form-control-sm" placeholder="e.g. 512">
+          <div class="row g-2 mb-1">
+            <div class="col-6">
+              <label class="form-label small">Location ID</label>
+              <select name="location_id" class="form-select form-select-sm">
+                <option value="">— Leave unchanged —</option>
+                {% for loc in storage_locations %}
+                <option value="{{ loc.id }}">{{ loc.unit_id }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small">Device Price</label>
+              <input type="number" step="0.01" name="device_price" class="form-control form-control-sm" placeholder="Leave blank to leave unchanged">
+            </div>
           </div>
-          <div class="mb-3">
-            <label class="form-label small">Invoice Number</label>
-            <input type="text" name="invoice_number" class="form-control form-control-sm" placeholder="Leave blank to leave unchanged">
-          </div>
-          <div class="mb-3">
-            <label class="form-label small">PO Number</label>
-            <input type="text" name="po_number" class="form-control form-control-sm" placeholder="Leave blank to leave unchanged">
-          </div>
-          <div class="mb-2">
-            <label class="form-label small">Move to Stage</label>
-            <select name="to_stage" class="form-select form-select-sm">
-              <option value="">— No change —</option>
-              {% for value, label in stage_options %}
-              <option value="{{ value }}">{{ label }}</option>
-              {% endfor %}
-            </select>
-            <div class="form-text">Moves all selected items to this stage (subject to allowed transitions).</div>
-          </div>
+          <div class="form-text">Move to Stage moves all selected items to that stage (subject to allowed transitions).</div>
         </div>
         <div class="modal-footer py-2">
           <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>

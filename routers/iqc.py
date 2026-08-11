@@ -2,6 +2,7 @@ from templates_config import templates
 import csv
 import io
 from datetime import datetime as _dtnow
+from decimal import Decimal, InvalidOperation
 from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
@@ -12,7 +13,7 @@ from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.lot import Lot, LotLineItem
 from models.iqc_inspection import IQCInspection
-from models.location import StorageLocation
+from models.location import StorageLocation, DeviceLocationLog, LocationAction
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm, require_any_module_perm
 from services.audit_engine import audit
 from services.control_engine import validate_transition
@@ -749,6 +750,9 @@ async def iqc_bulk_apply_grade_type(
     grade: str = Form(""),
     invoice_number: str = Form(""),
     po_number: str = Form(""),
+    grn_number: str = Form(""),
+    location_id: str = Form(""),
+    device_price: str = Form(""),
     cpu: str = Form(""),
     cpu_make: str = Form(""),
     generation: str = Form(""),
@@ -762,18 +766,19 @@ async def iqc_bulk_apply_grade_type(
     to_stage: str = Form(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
-    # Posted from BOTH Product IQC and All Inventory — accept edit rights on
-    # either module so an Inventory Manager can use the Customise modal.
+    # Historically also posted from Product IQC — that modal was removed, but
+    # the endpoint still lives under /iqc and accepts either module's edit
+    # right so both All Inventory and Inventory Manager can use it.
     _perm: User = Depends(require_any_module_perm("iqc", "devices", action="edit")),
 ):
-    """Bulk-apply Device Type, Grade, Invoice Number, PO Number and/or a stage
-    move to a set of devices. Powers the same Customise modal reused across
-    three tables/pages: Product IQC's Tag Number table (barcodes[] directly),
-    Overall Inventory's Tag Number + Lot Based Summary tables (barcodes[] or
-    lot_numbers[]), and the Model Based Summary tables on both pages
-    (model_keys[], each "model|||brand" — resolved to every device in that
-    group). The stage move reuses the same validated-transition engine as
-    every other move-device flow in the app (services/control_engine) — a
+    """Bulk-apply Device Type, Entity, Grade, Invoice Number, GRN Number,
+    Location ID, Device Price and/or a stage move to a set of devices. Powers
+    the shared Customise modal (_customise_modal.html) on Overall Inventory's
+    Tag Number + Lot Based Summary tables (barcodes[] or lot_numbers[]) and
+    the Model Based Summary tables on both All Inventory and Inventory
+    Manager (model_keys[], each "model|||brand" — resolved to every device in
+    that group). The stage move reuses the same validated-transition engine
+    as every other move-device flow in the app (services/control_engine) — a
     barcode whose current stage has no allowed transition to the requested
     stage is skipped and reported, not silently dropped or force-moved."""
     return_to = return_to if return_to in _CUSTOMISE_RETURN_PATHS else "/iqc"
@@ -807,8 +812,12 @@ async def iqc_bulk_apply_grade_type(
     if not barcodes:
         return RedirectResponse(url=f"{return_to}?error=No+devices+selected", status_code=302)
     to_stage = (to_stage or "").strip()
+    grn_number = grn_number.strip()
+    location_id = location_id.strip()
+    device_price = device_price.strip()
     if (not device_type.strip() and not entity.strip() and not grade.strip() and not invoice_number.strip()
-            and not po_number.strip() and not cpu.strip() and not cpu_make.strip()
+            and not po_number.strip() and not grn_number and not location_id and not device_price
+            and not cpu.strip() and not cpu_make.strip()
             and not generation.strip() and not ram_gb.strip() and not storage_gb.strip()
             and not total_ram_count.strip() and not total_ram_size.strip()
             and not total_hdd_count.strip() and not total_hdd_size.strip()
@@ -836,6 +845,27 @@ async def iqc_bulk_apply_grade_type(
             return RedirectResponse(url=f"{return_to}?error=Invalid+grade+{grade.strip()}",
                                     status_code=302)
 
+    # device_price is a Numeric column — reject a non-numeric value up front
+    # rather than failing at commit after every selected device was mutated.
+    new_device_price = None
+    if device_price:
+        try:
+            new_device_price = Decimal(device_price)
+        except InvalidOperation:
+            return RedirectResponse(url=f"{return_to}?error=Invalid+device+price+{device_price}",
+                                    status_code=302)
+
+    # location_id is a StorageLocation FK — validate it resolves to a real,
+    # active location before touching any device.
+    new_location = None
+    if location_id:
+        loc_result = await db.execute(
+            select(StorageLocation).where(StorageLocation.id == location_id)
+        )
+        new_location = loc_result.scalar_one_or_none()
+        if new_location is None:
+            return RedirectResponse(url=f"{return_to}?error=Invalid+location", status_code=302)
+
     is_admin = current_user.role.value == "admin"
     for device in devices:
         if device_type.strip():
@@ -848,6 +878,17 @@ async def iqc_bulk_apply_grade_type(
             device.invoice_number = invoice_number.strip()
         if po_number.strip():
             device.po_number = po_number.strip()
+        if grn_number:
+            device.grn_number = grn_number
+        if new_device_price is not None:
+            device.device_price = new_device_price
+        if new_location is not None:
+            db.add(DeviceLocationLog(
+                device_id=device.id, location_id=new_location.id,
+                action=LocationAction.assigned, actor_id=current_user.id,
+                actor_name=current_user.full_name,
+                notes="Bulk Customise modal — bulk Location ID",
+            ))
         if cpu.strip():
             device.cpu = cpu.strip()
         if cpu_make.strip():
@@ -878,12 +919,14 @@ async def iqc_bulk_apply_grade_type(
             device.current_stage = new_stage
             device.updated_at = app_now()
             db.add(StageMovement(device_id=device.id, from_stage=prev, to_stage=new_stage,
-                                  moved_by=current_user.username, notes="IQC Customise modal — bulk Move to Stage"))
+                                  moved_by=current_user.username, notes="Bulk Customise modal — bulk Move to Stage"))
 
     await audit(db, action="IQC_BULK_GRADE_TYPE_APPLIED", user=current_user,
                 table_name="devices", record_id=",".join(str(d.id) for d in devices)[:50],
                 new_value={"device_type": device_type or None, "grade": grade or None,
                            "invoice_number": invoice_number or None, "po_number": po_number or None,
+                           "grn_number": grn_number or None, "location_id": location_id or None,
+                           "device_price": device_price or None,
                            "cpu": cpu or None, "cpu_make": cpu_make or None,
                            "generation": generation or None,
                            "ram_gb": ram_gb or None, "storage_gb": storage_gb or None,

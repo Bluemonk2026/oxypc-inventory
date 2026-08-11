@@ -949,6 +949,19 @@ async def stock_in_list(
         "ready": _c(DeviceStage.ready_to_sale),
     }
 
+    # ── Entity total cards (slim row above the 4 analytics cards) ───────────
+    # Same scope as the analytics cards above: every active device, regardless
+    # of the page's own filters — a whole-inventory total per entity, not a
+    # Stock-In-stage-scoped count.
+    entity_option_list = await entity_values(db)
+    entity_total_rows = (await db.execute(
+        select(Device.entity, func.count(Device.id))
+        .where(Device.is_active == True)  # noqa: E712
+        .group_by(Device.entity)
+    )).all()
+    entity_total_map = {e: c for e, c in entity_total_rows}
+    entity_totals = [(e, entity_total_map.get(e, 0)) for e in entity_option_list]
+
     # Assigned department, Cost & Parts and Location maps used to be built here
     # from a full device fetch, purely to feed the old inline table's cells.
     # /stock/data now builds the department map itself, per page; Cost & Parts
@@ -998,8 +1011,9 @@ async def stock_in_list(
         "lot_number": lot_number,
         "lot_number_options": lot_number_options,
         "entity": entity,
-        "entity_options": await entity_values(db),
+        "entity_options": entity_option_list,
         "entity_counts": entity_counts,
+        "entity_totals": entity_totals,
         "zone_options": [
             (z.value, ZONE_LABELS.get(z, z.value))
             for z in [ZoneType.workshop, ZoneType.holding, ZoneType.dispatch, ZoneType.showroom, ZoneType.warehouse]

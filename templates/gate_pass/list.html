@@ -3,15 +3,53 @@
 {% block page_title %}Gate Pass{% endblock %}
 {% block content %}
 
+{% if success %}<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>{% endif %}
+
 <div class="card border-0 shadow-sm mb-3">
-  <div class="card-body py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <span class="text-muted small">
-      <i class="bi bi-shield-check me-1"></i>
-      Sold tag numbers ready to exit. Verify the physical goods against the tag
-      number, open the Delivery Challan, then confirm the exit.
-    </span>
-    <input type="text" id="gpSearch" class="form-control form-control-sm font-monospace" style="max-width:320px"
-           placeholder="Scan or type tag / sale number…">
+  <div class="card-body py-2">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+      <span class="text-muted small">
+        <i class="bi bi-shield-check me-1"></i>
+        Sold tag numbers ready to exit. Verify the physical goods against the tag
+        number, open the Delivery Challan, then confirm the exit.
+      </span>
+      <input type="text" id="gpSearch" class="form-control form-control-sm font-monospace" style="max-width:320px"
+             placeholder="Scan or type tag / sale number…">
+    </div>
+    <form class="d-flex flex-wrap gap-2 align-items-center" method="get" action="/gate-pass" id="filterForm">
+      <div>
+        <label class="form-label small fw-semibold mb-1">Sale Date From</label>
+        <input type="date" name="sale_date_from" value="{{ sale_date_from }}" class="form-control form-control-sm">
+      </div>
+      <div>
+        <label class="form-label small fw-semibold mb-1">Sale Date To</label>
+        <input type="date" name="sale_date_to" value="{{ sale_date_to }}" class="form-control form-control-sm">
+      </div>
+      <div>
+        <label class="form-label small fw-semibold mb-1">Lot Number</label>
+        <input type="text" name="lot_number" value="{{ lot_number }}" placeholder="Lot Number"
+               class="form-control form-control-sm" style="width:150px">
+      </div>
+      <div class="align-self-end">
+        <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+        <a href="/gate-pass" class="btn btn-sm btn-outline-secondary">Reset</a>
+      </div>
+      <div class="ms-auto align-self-end">
+        <button type="button" id="bulkExitBtn" class="btn btn-sm btn-success" onclick="bulkConfirmExit()" disabled>
+          <i class="bi bi-box-arrow-right me-1"></i>Confirm Exit
+        </button>
+      </div>
+    </form>
+    {# Hidden forms — single-row exit reuses the existing /exit route; bulk
+       posts a comma-separated list of selected sale ids to /bulk-exit. #}
+    <form id="oneExitForm" action="" method="post" style="display:none">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
+    </form>
+    <form id="bulkExitForm" action="/gate-pass/bulk-exit" method="post" style="display:none">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
+      <input type="hidden" name="sale_ids" id="bulkExitIds">
+    </form>
   </div>
 </div>
 
@@ -21,44 +59,16 @@
       <table id="gpTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark">
           <tr>
+            <th style="width:36px"><input type="checkbox" id="gpSelectAll" title="Select all visible rows"></th>
             <th class="ps-3">Tag Number</th><th>Lot</th><th>Device</th>
             <th>Sale No</th><th>Customer</th><th>Sold At</th>
             <th>Status</th><th>Delivery Challan</th><th>Action</th>
           </tr>
         </thead>
-        <tbody>
-          {% for sale, barcode, brand, model, lot_number in rows %}
-          <tr>
-            <td class="ps-3 font-monospace fw-bold">{{ barcode }}</td>
-            <td class="font-monospace">{{ lot_number or '—' }}</td>
-            <td>{{ [brand, model] | select | join(' ') or '—' }}</td>
-            <td class="font-monospace">{{ sale.sale_number }}</td>
-            <td>{{ sale.customer_name or '—' }}</td>
-            <td>{{ sale.sold_at.strftime('%d-%b-%Y %H:%M') if sale.sold_at else '—' }}</td>
-            <td>
-              {% if sale.delivery_status == 'delivered' %}<span class="badge bg-success">Delivered</span>
-              {% elif sale.delivery_status == 'dispatched' %}<span class="badge bg-info text-dark">Dispatched</span>
-              {% else %}<span class="badge bg-warning text-dark">Ready to Exit</span>{% endif %}
-            </td>
-            <td>
-              <a href="/invoices/waybill/{{ sale.id }}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2">
-                <i class="bi bi-file-earmark-text me-1"></i>DC
-              </a>
-            </td>
-            <td>
-              {% if sale.delivery_status not in ('dispatched', 'delivered') %}
-              <form method="post" action="/gate-pass/{{ sale.id }}/exit" class="d-inline"
-                    onsubmit="return confirm('Confirm goods for {{ barcode }} have exited the gate?')">
-                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-                <button class="btn btn-sm btn-success py-0 px-2"><i class="bi bi-box-arrow-right me-1"></i>Confirm Exit</button>
-              </form>
-              {% else %}<span class="text-muted small">—</span>{% endif %}
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="9" class="text-center text-muted py-4">No sales yet.</td></tr>
-          {% endfor %}
-        </tbody>
+        {# Rows come from /gate-pass/data (server-side DataTables) — a fixed
+           500-row query rendered here previously hid any sale beyond the
+           most recent 500. #}
+        <tbody></tbody>
       </table>
     </div>
   </div>
@@ -66,13 +76,80 @@
 {% endblock %}
 {% block scripts %}
 <script>
-$(document).ready(function(){
-  if ($('#gpTable tbody tr td').length > 1) {
-    var dt = $('#gpTable').DataTable({pageLength: 25, lengthChange: false, order: []});
-    document.getElementById('gpSearch').addEventListener('input', function(){
-      dt.search(this.value).draw();
-    });
-  }
+function gpCsrfToken() {
+  var c = document.cookie.split('; ').find(function (x) { return x.startsWith('csrf_token='); });
+  return c ? c.split('=')[1] : '';
+}
+
+// ── Select all / bulk Confirm Exit ──────────────────────────────────────────
+var gpSelectAll = document.getElementById('gpSelectAll');
+var gpBulkBtn = document.getElementById('bulkExitBtn');
+
+gpSelectAll.addEventListener('change', function () {
+  document.querySelectorAll('#gpTable .row-check:not(:disabled)').forEach(function (cb) {
+    cb.checked = gpSelectAll.checked;
+  });
+  gpUpdateBulkBtn();
+});
+
+document.addEventListener('change', function (e) {
+  if (e.target.classList.contains('row-check')) gpUpdateBulkBtn();
+});
+
+function gpUpdateBulkBtn() {
+  var checked = document.querySelectorAll('#gpTable .row-check:checked').length;
+  gpBulkBtn.disabled = checked === 0;
+  gpBulkBtn.innerHTML = checked > 0
+    ? '<i class="bi bi-box-arrow-right me-1"></i>Confirm Exit (' + checked + ')'
+    : '<i class="bi bi-box-arrow-right me-1"></i>Confirm Exit';
+}
+
+function bulkConfirmExit() {
+  var ids = Array.from(document.querySelectorAll('#gpTable .row-check:checked')).map(function (cb) { return cb.value; });
+  if (!ids.length) return;
+  if (!confirm('Confirm ' + ids.length + ' tag(s) have exited the gate?')) return;
+  document.getElementById('bulkExitIds').value = ids.join(',');
+  document.getElementById('bulkExitForm').submit();
+}
+
+// Single-row Confirm Exit button (delegated — rows are server-rendered by
+// DataTables, not present in the DOM at load time).
+document.addEventListener('click', function (e) {
+  var btn = e.target.closest('.gp-exit-one');
+  if (!btn) return;
+  if (!confirm('Confirm goods for ' + btn.dataset.barcode + ' have exited the gate?')) return;
+  var form = document.getElementById('oneExitForm');
+  form.action = '/gate-pass/' + btn.dataset.id + '/exit';
+  form.submit();
+});
+
+// ── DataTable (server-side) ─────────────────────────────────────────────────
+$(document).ready(function () {
+  var dt = $('#gpTable').DataTable({
+    serverSide: true,
+    processing: true,
+    pageLength: 25,
+    order: [[6, 'desc']],   // Sold At, newest first
+    searchDelay: 400,
+    ajax: {
+      url: '/gate-pass/data',
+      data: function (d) {
+        var p = new URLSearchParams(window.location.search);
+        ['sale_date_from', 'sale_date_to', 'lot_number']
+          .forEach(function (k) { d[k] = p.get(k) || ''; });
+      },
+    },
+    columnDefs: [
+      { orderable: false, targets: [0, 1, 2, 3, 8, 9] },
+    ],
+    drawCallback: function () {
+      gpSelectAll.checked = false;
+      gpUpdateBulkBtn();
+    },
+  });
+  document.getElementById('gpSearch').addEventListener('input', function () {
+    dt.search(this.value).draw();
+  });
 });
 </script>
 {% endblock %}

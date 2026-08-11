@@ -12,7 +12,7 @@ import uuid
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +20,9 @@ from database import get_db
 from templates_config import templates
 from utils.timezone import app_now
 from models.user import User
+from models.device import Device
 from models.lot import Lot
+from models.iqc_inspection import IQCInspection
 from models.part_estimate import PartEstimate, PartEstimateLine, PartEstimateChecklistLine
 from models.part_request import PartSourcingRequest
 from auth.dependencies import require_module_perm, verify_csrf
@@ -32,6 +34,7 @@ from services.part_estimate_matrix import (
     PART_GROUPS, group_meta, lot_model_matrix, quantities_for,
 )
 import services.part_estimate_checklist as checklist_svc
+from routers.iqc import _EXPORT_DEVICE_FIELDS, _EXPORT_INSPECTION_FIELDS
 from utils.grades import grade_options
 
 router = APIRouter(prefix="/part-estimation", tags=["part_estimation"],
@@ -94,6 +97,73 @@ async def part_estimation_page(
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
     })
+
+
+@router.get("/{lot_id}/iqc-data.xlsx")
+async def lot_iqc_data_xlsx(
+    lot_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """IQC Data column — every device ever placed in this lot (any stage, not
+    just IQC), with its full IQCInspection record where one exists. Streamed
+    fresh on every click, same column set as IQC's own /iqc/export-csv so the
+    two exports never drift apart, just in .xlsx instead of .csv."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    lid = _as_uuid(lot_id)
+    lot = (await db.execute(select(Lot).where(Lot.id == lid))).scalar_one_or_none()
+    if not lot:
+        raise HTTPException(404, "Lot not found")
+
+    rows = (await db.execute(
+        select(Device, IQCInspection)
+        .outerjoin(IQCInspection, IQCInspection.device_id == Device.id)
+        .where(Device.lot_id == lid)
+        .order_by(Device.created_at.desc())
+    )).all()
+
+    def _cell(v):
+        if v is None:
+            return ""
+        v = getattr(v, "value", v)
+        if hasattr(v, "strftime"):
+            return v.strftime("%Y-%m-%d %H:%M") if getattr(v, "hour", None) is not None \
+                else v.strftime("%Y-%m-%d")
+        return v
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "IQC Data"
+    headers = (["lot_number", "stage"] + _EXPORT_DEVICE_FIELDS
+               + ["created_at", "updated_at"] + _EXPORT_INSPECTION_FIELDS)
+    head_fill = PatternFill("solid", fgColor="1F3864")
+    head_font = Font(bold=True, color="FFFFFF")
+    for col, title in enumerate(headers, start=1):
+        c = ws.cell(row=1, column=col, value=title)
+        c.fill, c.font = head_fill, head_font
+    for r, (device, insp) in enumerate(rows, start=2):
+        values = (
+            [lot.lot_number or "", _cell(device.current_stage)]
+            + [_cell(getattr(device, f, None)) for f in _EXPORT_DEVICE_FIELDS]
+            + [_cell(device.created_at), _cell(device.updated_at)]
+            + [_cell(getattr(insp, f, None)) if insp else "" for f in _EXPORT_INSPECTION_FIELDS]
+        )
+        for col, val in enumerate(values, start=1):
+            ws.cell(row=r, column=col, value=val)
+    ws.freeze_panes = "A2"
+    ws.column_dimensions["A"].width = 20
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    safe_lot = "".join(ch for ch in (lot.lot_number or "lot") if ch.isalnum() or ch in "-_")
+    filename = f"IQC_Data_{safe_lot}_{app_now().strftime('%Y%m%d-%H%M')}.xlsx"
+    return StreamingResponse(
+        buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @router.get("/{lot_id}/parts")

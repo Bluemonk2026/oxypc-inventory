@@ -17,6 +17,7 @@
         <th>Date of Purchase</th>
         <th>Total Products</th>
         <th>Total Parts Required</th>
+        <th>IQC Data</th>
         <th>Download</th>
         <th>Action</th>
       </tr></thead>
@@ -30,6 +31,13 @@
           <td>{{ r.lot.purchase_date.strftime('%d %b %Y') if r.lot.purchase_date else '—' }}</td>
           <td>{{ r.total_products }}</td>
           <td>{{ r.total_parts_required }}</td>
+          <td>
+            <a class="btn btn-sm btn-outline-secondary py-0 px-2"
+               href="/part-estimation/{{ r.lot.id }}/iqc-data.xlsx"
+               title="Download every device in this lot with its full IQC inspection record">
+              <i class="bi bi-file-earmark-spreadsheet me-1"></i>IQC Data
+            </a>
+          </td>
           <td>
             {# A lot can now carry several attached files — a re-estimate, or
                one Generate click across several grades. Every one of them is
@@ -65,18 +73,17 @@
                     {% if not r.total_parts_required %}disabled title="No parts required for this lot"{% endif %}>
               <i class="bi bi-calculator me-1"></i>Generate Estimate
             </button>
-            {# Per-model costing. Unlike Generate Estimate it stays enabled for
-               a lot with no Required=Yes rows, because its quantities come
-               from the cosmetic status bands rather than the required flag. #}
-            <button type="button" class="btn btn-sm btn-primary py-0 px-2"
-                    onclick="openModelEstimateModal('{{ r.lot.id }}', '{{ r.lot.lot_number }}')"
-                    {% if not r.total_products %}disabled title="This lot has no tags"{% endif %}>
+            {# Superseded by Create Estimate below — kept in the DOM (not
+               removed) in case the per-model/per-group matrix is needed
+               again, but disabled for everyone regardless of tag count. #}
+            <button type="button" class="btn btn-sm btn-primary py-0 px-2" disabled
+                    title="Replaced by Create Estimate">
               <i class="bi bi-diagram-3 me-1"></i>Part Estimate
             </button>
             {# Field-by-field checklist matrix (Critical/Hardware/Display
-               Panel/etc.), one column per Model in the lot. Separate from
-               Part Estimate above — different structure, own output type. #}
-            <button type="button" class="btn btn-sm btn-outline-dark py-0 px-2"
+               Panel/etc.), one column per Model in the lot. Now the primary
+               estimating tool on this page. #}
+            <button type="button" class="btn btn-sm btn-primary py-0 px-2"
                     onclick="openChecklistEstimateModal('{{ r.lot.id }}', '{{ r.lot.lot_number }}')"
                     {% if not r.total_products %}disabled title="This lot has no tags"{% endif %}>
               <i class="bi bi-clipboard2-data me-1"></i>Create Estimate
@@ -84,7 +91,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="text-center text-muted py-4">No lots found.</td></tr>
+        <tr><td colspan="7" class="text-center text-muted py-4">No lots found.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -363,7 +370,7 @@
 <script>
 $(function () {
   if ($('#lotsSummaryTable tbody tr td').length > 1)
-    $('#lotsSummaryTable').DataTable({ order: [[1, 'desc']], columnDefs: [{ orderable: false, targets: [4, 5] }] });
+    $('#lotsSummaryTable').DataTable({ order: [[1, 'desc']], columnDefs: [{ orderable: false, targets: [4, 5, 6] }] });
 });
 
 var estLotId = null;

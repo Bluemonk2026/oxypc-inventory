@@ -330,12 +330,21 @@ async def location_dashboard(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # All active locations
+    # All active locations. "SOLD" is a virtual/convention location some sites
+    # use to park sold devices' location records — it isn't a real ZoneType
+    # member, just a StorageLocation.unit_id an admin can create, so it's
+    # matched by name here rather than a schema field. Hidden unconditionally
+    # so it activates automatically whenever such a row exists.
     loc_query = select(StorageLocation).where(StorageLocation.is_active == True)
     if zone:
         loc_query = loc_query.where(StorageLocation.zone == zone)
     loc_result = await db.execute(loc_query.order_by(StorageLocation.zone, StorageLocation.unit_id))
-    locations = loc_result.scalars().all()
+    locations = [loc for loc in loc_result.scalars().all() if (loc.unit_id or "").strip().upper() != "SOLD"]
+
+    # Tag-number lists on this dashboard exclude devices that have left active
+    # inventory — Sold, Scrapped, and Scrap for Sale (parts-harvest scrap held
+    # for resale, still effectively disposed of for location-tracking purposes).
+    _terminal_stages = (DeviceStage.sold, DeviceStage.scrapped, DeviceStage.scrap_for_sale)
 
     # For each location: get current devices
     # "current" = latest log per device is placed_back / assigned / moved to this location
@@ -358,7 +367,8 @@ async def location_dashboard(
         .where(
             DeviceLocationLog.action.in_([
                 LocationAction.assigned, LocationAction.placed_back, LocationAction.moved
-            ])
+            ]),
+            Device.current_stage.notin_(_terminal_stages),
         )
     )
     current_logs = current_logs_result.all()
@@ -388,7 +398,7 @@ async def location_dashboard(
             select(Device).where(Device.id == log.device_id)
         )
         dev = dev_result.scalar_one_or_none()
-        if dev:
+        if dev and dev.current_stage not in _terminal_stages:
             in_hand_detail.append({"log": log, "device": dev})
 
     # Gap count for header badge

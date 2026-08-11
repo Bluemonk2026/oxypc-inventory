@@ -132,9 +132,12 @@
       var n = S.notifications();
       h += '<div class="section-label">SLA ageing & exceptions</div>';
       h += n.length ? '<div class="card">' + n.slice(0, 6).map(function (x) {
-        return '<a class="card-row link" href="' + x.link + '"><span class="notif-dot ' + x.level + '"></span>' +
+        var inner = '<span class="notif-dot ' + x.level + '"></span>' +
           '<div class="grow"><div class="row-title small">' + U.esc(x.title) + '</div>' +
-          '<div class="small muted">' + U.esc(x.body) + '</div></div></a>';
+          '<div class="small muted">' + U.esc(x.body) + '</div></div>';
+        return x.link
+          ? '<a class="card-row link" href="' + x.link + '">' + inner + '</a>'
+          : '<div class="card-row">' + inner + '</div>';
       }).join('') + '</div>' : U.empty('✅', 'No SLA breaches', 'Everything inside target.');
 
       h += '<div class="pad-x mt8"><button class="btn btn-outline block" data-act="print-dashboard">🖨 Print / PDF executive summary</button></div>';
@@ -455,11 +458,15 @@
       if (!n.length) return U.empty('🔔', 'No alerts', 'All SLAs are inside target.');
       var h = '<div class="pad-x mt8"><button class="btn btn-outline sm" data-act="mark-read">Mark all read</button></div>';
       h += '<div class="card">' + n.map(function (x) {
-        return '<a class="notif-item' + (x.read ? '' : ' unread') + '" href="' + x.link + '">' +
-          '<span class="notif-dot ' + x.level + '"></span>' +
+        var inner = '<span class="notif-dot ' + x.level + '"></span>' +
           '<div class="grow"><div class="notif-title">' + U.esc(x.title) + '</div>' +
           '<div class="notif-body">' + U.esc(x.body) + '</div>' +
-          (x.ts ? '<div class="notif-time">' + U.dt(x.ts) + '</div>' : '') + '</div></a>';
+          (x.ts ? '<div class="notif-time">' + U.dt(x.ts) + '</div>' : '') + '</div>';
+        var cls = 'notif-item' + (x.read ? '' : ' unread');
+        /* no link for anything this role cannot open — see S.notifications() */
+        return x.link
+          ? '<a class="' + cls + '" href="' + x.link + '">' + inner + '</a>'
+          : '<div class="' + cls + '">' + inner + '</div>';
       }).join('') + '</div>';
       h += '<div class="section-label">Escalation matrix (BRD Sec 15)</div><div class="card">' +
         esc('QC awaiting approval', '1 business day', 'Coordinator → Reliance SPOC', 'PMO → Reliance Project Owner', 'PMO Director → National PMO') +

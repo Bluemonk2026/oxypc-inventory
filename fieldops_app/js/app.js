@@ -191,7 +191,13 @@
       el.addEventListener('click', function (ev) {
         var act = el.getAttribute('data-act');
         var fn = RA.actions[act];
-        if (fn) { ev.preventDefault(); fn(el, ev); }
+        if (!fn) return;
+        /* A link that also carries an action — the drawer's menu items — must
+           still follow its href. Suppressing the default killed navigation:
+           the menu closed and went nowhere. */
+        var navigates = el.tagName === 'A' && el.getAttribute('href');
+        if (!navigates) ev.preventDefault();
+        fn(el, ev);
       });
     });
     root.querySelectorAll('[data-live]').forEach(function (el) {
@@ -242,7 +248,11 @@
   /* ---------------- Bootstrap ---------------- */
   function boot() {
     S.load();
-    window.addEventListener('hashchange', RA.render);
+    window.addEventListener('hashchange', function () {
+      var d = document.getElementById('drawer');
+      if (d) d.classList.remove('open');
+      RA.render();
+    });
     window.addEventListener('online', function () {
       U.toast('Back online — syncing queued records', 'success');
       S.syncNow(); RA.render();

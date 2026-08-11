@@ -1290,7 +1290,16 @@
     }
 
     var read = S.db.notifications_read || [];
-    out.forEach(function (n) { n.read = read.indexOf(n.id) > -1; });
+    out.forEach(function (n) {
+      n.read = read.indexOf(n.id) > -1;
+      /* An alert must never hand someone a door they cannot open. Warehouse
+         staff still need to know the deduction matrix is unapproved; they just
+         have no business on the admin screen, so the row stops being a link. */
+      if (n.link) {
+        var target = String(n.link).replace(/^#\//, '').split('/')[0];
+        if (!S.can(target)) n.link = null;
+      }
+    });
     return out.sort(function (a, b) {
       var w = { red: 0, amber: 1, blue: 2, green: 3 };
       return (w[a.level] - w[b.level]) || 0;

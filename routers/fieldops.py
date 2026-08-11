@@ -243,27 +243,44 @@ a.go{display:block;text-align:center;margin-top:14px;color:#2E5FAC;font-weight:7
 
 @router.get("/fieldops/setup", response_class=HTMLResponse)
 async def fieldops_setup_page(request: Request, db: AsyncSession = Depends(get_fieldops_db)):
+    """First-run setup, and the only way back in if the administrator is locked out.
+
+    Whoever controls the host controls the app — there is no way around that, and
+    no other recovery route exists for someone without server access. So this page
+    stays available to a signed-in OxyPC administrator, and every use is audited.
+    """
     if not configured():
         raise HTTPException(status_code=503, detail="FieldOps has no database configured.")
-    if await _admin_exists(db):
-        raise HTTPException(status_code=404, detail="Not found")
 
     who = await _oxypc_admin(request)
+    exists = await _admin_exists(db)
     if not who:
         return HTMLResponse(_SETUP_SHELL % (
-            "<h1>Set up FieldOps</h1>"
-            "<p>No FieldOps administrator exists yet. To create the first one, open this page "
-            "while signed in to OxyPC as an administrator — that is the only proof of ownership "
-            "available before any FieldOps account exists.</p>"
+            "<h1>FieldOps administrator</h1>"
+            "<p>This page creates the FieldOps administrator, or issues a fresh one-time "
+            "password if you are locked out. Open it while signed in to OxyPC as an "
+            "administrator — that is the proof of ownership it checks.</p>"
             "<div class='err'>Not signed in to OxyPC as an administrator.</div>"
             "<a class='go' href='/auth/login'>Sign in to OxyPC first →</a>"), status_code=403)
+
+    if exists:
+        return HTMLResponse(_SETUP_SHELL % (
+            "<h1>Reset the FieldOps administrator</h1>"
+            f"<p>Signed in to OxyPC as <b>{who}</b>. A FieldOps administrator already exists.</p>"
+            "<div class='warn'>This issues a new one-time password for <b>admin</b> and clears "
+            "any lockout. The existing password stops working immediately. Everything else — "
+            "users, records, history — is untouched, and the reset is recorded in the audit "
+            "log.</div>"
+            "<form method='post' action='/fieldops/api/setup'>"
+            "<button type='submit'>Issue a new one-time password</button></form>"
+            "<a class='go' href='/fieldops/login'>Nothing wrong? Go to sign-in →</a>"))
 
     return HTMLResponse(_SETUP_SHELL % (
         "<h1>Set up FieldOps</h1>"
         f"<p>Signed in to OxyPC as <b>{who}</b>. This creates the first FieldOps administrator "
         "and issues a one-time password.</p>"
-        "<div class='warn'>The password is shown once and never again. It must be changed at "
-        "first sign-in, and this page closes permanently afterwards.</div>"
+        "<div class='warn'>The password is shown once and never again, and must be changed at "
+        "first sign-in.</div>"
         "<form method='post' action='/fieldops/api/setup'>"
         "<button type='submit'>Create the administrator</button></form>"))
 
@@ -273,36 +290,48 @@ async def fieldops_setup_page(request: Request, db: AsyncSession = Depends(get_f
 async def fieldops_setup_create(request: Request, db: AsyncSession = Depends(get_fieldops_db)):
     if not configured():
         raise HTTPException(status_code=503, detail="FieldOps has no database configured.")
-    if await _admin_exists(db):
-        raise HTTPException(status_code=404, detail="Not found")
 
     who = await _oxypc_admin(request)
     if not who:
         raise HTTPException(status_code=403, detail="Sign in to OxyPC as an administrator first.")
 
     password = _one_time_password()
-    admin = FieldOpsUser(
-        id="U00",
-        username="admin",
-        name="System Administrator",
-        password_hash=await hash_password_async(password),
-        must_change_password=True,      # single use — replaced at first sign-in
-        role="admin",
-        region="All",
-        sites=[],
-        perms={"allow": [], "deny": []},
-        status="active",
-        created_by=f"setup by OxyPC:{who}",
-    )
-    db.add(admin)
-    audit(db, who, "admin_created", target="admin",
-          detail="first-run setup; one-time password issued", request=request)
+    existing = (await db.execute(
+        select(FieldOpsUser).where(FieldOpsUser.role == "admin").order_by(FieldOpsUser.id)
+    )).scalars().first()
+
+    if existing is not None:
+        existing.password_hash = await hash_password_async(password)
+        existing.must_change_password = True
+        existing.status = "active"
+        existing.failed_logins = 0
+        existing.locked_until = None
+        admin_name = existing.username
+        audit(db, who, "admin_password_reissued", target=admin_name,
+              detail="recovery via setup page; one-time password issued", request=request)
+    else:
+        admin_name = "admin"
+        db.add(FieldOpsUser(
+            id="U00",
+            username=admin_name,
+            name="System Administrator",
+            password_hash=await hash_password_async(password),
+            must_change_password=True,      # single use — replaced at first sign-in
+            role="admin",
+            region="All",
+            sites=[],
+            perms={"allow": [], "deny": []},
+            status="active",
+            created_by=f"setup by OxyPC:{who}",
+        ))
+        audit(db, who, "admin_created", target=admin_name,
+              detail="first-run setup; one-time password issued", request=request)
     await db.commit()
 
     return HTMLResponse(_SETUP_SHELL % (
-        "<h1>Administrator created</h1>"
+        "<h1>One-time password issued</h1>"
         "<div class='warn'>Copy this now — it is not shown again and it works only once.</div>"
-        "<div class='cred'><div class='k'>Username</div><div class='v'>admin</div></div>"
+        f"<div class='cred'><div class='k'>Username</div><div class='v'>{admin_name}</div></div>"
         f"<div class='cred'><div class='k'>One-time password</div><div class='v'>{password}</div></div>"
         "<p>Sign in with it and you will be asked immediately to choose your own password. "
         "After that this setup page is closed for good.</p>"
@@ -323,7 +352,7 @@ async def fieldops_login(
     db: AsyncSession = Depends(get_fieldops_db),
 ):
     if not configured():
-        raise HTTPException(status_code=503, detail="FieldOps is not configured on this server.")
+        return fo_error(503, "FieldOps is not configured on this server.")
 
     username = (body.username or "").strip()
     user = (
@@ -331,10 +360,10 @@ async def fieldops_login(
     ).scalar_one_or_none()
 
     # One message for every failure — never reveal whether an account exists.
-    invalid = HTTPException(status_code=401, detail="Incorrect username or password.")
+    invalid = fo_error(401, "Incorrect username or password.")
 
-    async def refuse(exc: HTTPException, action: str, detail: str):
-        """Record the attempt and commit before raising.
+    async def refuse(response: JSONResponse, action: str, detail: str) -> JSONResponse:
+        """Record the attempt and commit before answering.
 
         The session dependency rolls back on an exception, so anything written
         on a failure path is lost unless it is committed first — which would
@@ -343,28 +372,27 @@ async def fieldops_login(
         """
         audit(db, username, action, detail=detail, request=request)
         await db.commit()
-        raise exc
+        return response
 
     if user is None:
         await verify_password_async(body.password or "", "$2b$12$" + "x" * 53)  # constant-ish work
-        await refuse(invalid, "login_failed", "no such account")
+        return await refuse(invalid, "login_failed", "no such account")
     if is_locked(user):
-        await refuse(
-            HTTPException(status_code=429,
-                          detail="Too many failed attempts. Try again in a few minutes."),
+        return await refuse(
+            fo_error(429, "Too many failed attempts. Try again in a few minutes."),
             "login_blocked", "account locked")
     if user.status != "active":
-        await refuse(HTTPException(status_code=403, detail="This account is inactive."),
-                     "login_failed", "account inactive")
+        return await refuse(fo_error(403, "This account has been deactivated."),
+                            "login_failed", "account inactive")
     if not user.password_hash:
-        await refuse(
-            HTTPException(status_code=403,
-                          detail="No password has been set for this account. Ask your administrator."),
+        return await refuse(
+            fo_error(403, "No password has been set for this account yet. "
+                          "Ask your FieldOps administrator to issue one."),
             "login_failed", "no password set")
     if not await verify_password_async(body.password or "", user.password_hash):
         register_failure(user)
-        await refuse(invalid, "login_failed",
-                     f"wrong password (failures={user.failed_logins})")
+        return await refuse(invalid, "login_failed",
+                            f"wrong password (failures={user.failed_logins})")
 
     register_success(user)
     audit(db, username, "login", detail=f"role={user.role}", request=request)
@@ -648,6 +676,17 @@ class SyncRequest(BaseModel):
 
 def _iso(dt) -> str:
     return dt.isoformat() if dt else ""
+
+
+def fo_error(status_code: int, detail: str) -> JSONResponse:
+    """An API error that survives the trip out.
+
+    The host application registers global handlers for 403/404 and a catch-all
+    for HTTPException, which replace the body with its own wording — "ask an
+    admin to enable it in Master Data" is nonsense here and hides the real
+    reason. Returning the response directly bypasses all of that.
+    """
+    return JSONResponse({"detail": detail, "error": detail}, status_code=status_code)
 
 
 def _authorise(user: FieldOpsUser, change: Change, existing: Optional[FieldOpsRecord]) -> Optional[str]:

@@ -35,7 +35,8 @@
             '<label class="check-row"><input type="checkbox" id="login-remember" checked /> ' +
               '<span>Remember me on this device</span></label>' +
             '<button class="btn btn-primary block" data-act="login">Sign In →</button>' +
-            '<div class="login-hint">Demo access · PIN <b>1234</b> · pick any role to see its workflow</div>' +
+            '<div class="login-hint">Standalone mode — no server reachable, so this device is ' +
+            'running on its own. Hosted, sign-in is issued by your administrator.</div>' +
           '</div>' +
           '<div class="login-footer">DEV IT / Deshwal PMO · BRD v3.0 Source-Aligned<br/>' +
             'Project ' + U.esc(S.db.project.project_id) + ' · ' + S.db.project.scope_assets.toLocaleString('en-IN') +
@@ -58,9 +59,13 @@
   };
 
   A.logout = function () {
-    U.confirm('Sign out?', 'Local data stays on this device. You can sign back in anytime.', function () {
-      S.logout(); location.hash = '#/login'; RA.render();
-    }, 'Sign out');
+    U.confirm('Sign out?',
+      'Captured work already synced stays in the shared store. Anything still queued on ' +
+      'this device will send the next time you sign in.',
+      function () {
+        if (RA.session) RA.session.logout();
+        else { S.logout(); location.hash = '#/login'; RA.render(); }
+      }, 'Sign out');
   };
 
   /* =========================================================
@@ -146,11 +151,7 @@
     return U.pill(s.readiness, 'gray');
   }
 
-  A['sync-now'] = function () {
-    var n = S.syncNow();
-    U.toast(n ? n + ' record(s) synced' : 'Everything already synced', 'success');
-    RA.render();
-  };
+  A['sync-now'] = function () { S.syncNow(); };   // sync.js reports the outcome
   A.goto = function (el) { location.hash = el.getAttribute('data-arg'); };
 
   /* =========================================================

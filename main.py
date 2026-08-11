@@ -458,6 +458,24 @@ async def startup_event():
     print(f"  {APP_NAME} starting...")
     print(f"{'='*50}")
 
+    # ── Reliance FieldOps (standalone app at /fieldops) ───────────────────────
+    # Its own database and accounts. Failures here must never stop OxyPC from
+    # serving: the FieldOps routes report themselves unavailable instead.
+    try:
+        from fieldops_db import configured as _fo_configured, init_fieldops_db
+
+        if _fo_configured():
+            _fo = await init_fieldops_db()
+            if _fo.get("created"):
+                print(f"  [fieldops] accounts created: {', '.join(_fo['created'])}")
+            for _note in _fo.get("notes", []):
+                print(f"  [fieldops] {_note}")
+            print("  [fieldops] ready at /fieldops")
+        else:
+            print("  [fieldops] FIELDOPS_DATABASE_URL not set — /fieldops disabled")
+    except Exception as _fo_err:      # noqa: BLE001 — never block OxyPC startup
+        print(f"  [fieldops] startup skipped: {_fo_err}")
+
     # ── Schema validation + auto-fix (MUST run before serving requests) ────────
     # Checks every ORM table/column exists in the DB, fixes what it can,
     # and raises RuntimeError (aborting startup) if anything is unfixable.

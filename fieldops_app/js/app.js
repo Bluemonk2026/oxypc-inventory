@@ -253,11 +253,27 @@
     window.addEventListener('beforeinstallprompt', function (e) {
       e.preventDefault(); RA.deferredPrompt = e;
     });
-    if (!location.hash) location.hash = S.me() ? D.ROLES[S.me().role].home : '#/login';
-    RA.render();
+    /* Identity comes from the server session, not from this device. */
+    var ready = RA.session ? RA.session.boot() : Promise.resolve({ mode: 'standalone' });
 
-    /* Shared store: push what this device changed, pull what others did. */
-    if (RA.sync) RA.sync.start();
+    ready.then(function (res) {
+      if (res && res.mode === 'redirecting') return;   // heading to the sign-in page
+
+      var me = S.me();
+      if (!location.hash || location.hash === '#/' || location.hash === '#/login') {
+        location.hash = me ? D.ROLES[me.role].home : '#/login';
+      }
+      RA.render();
+
+      /* An administrator has reset this password — nothing else until it changes. */
+      if (me && RA.session && RA.session.state.user &&
+          RA.session.state.user.must_change_password && RA.actions['change-password']) {
+        RA.actions['change-password']({ getAttribute: function () { return 'forced'; } });
+      }
+
+      /* Shared store: push what this device changed, pull what others did. */
+      if (RA.sync) RA.sync.start();
+    });
 
     /* service worker — offline shell + update prompt */
     if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {

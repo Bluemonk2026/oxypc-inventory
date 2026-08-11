@@ -535,6 +535,14 @@
       if (r) r.addEventListener('change', handleRestoreFile);
       var s = document.getElementById('serial-file');
       if (s) s.addEventListener('change', handleSerialFile);
+      var si = document.getElementById('server-import');
+      if (si) si.addEventListener('change', handleServerImport);
+      /* Accounts are authoritative on the server — refresh on entering the tab. */
+      if ((RA.filters.adminTab || 'users') === 'users' && onServer() && !RA._usersFetched) {
+        RA._usersFetched = true;
+        RA.session.listUsers().then(function () { RA.render(); })
+          .catch(function () { RA._usersFetched = false; });
+      }
       /* bulk upload — one handler per dataset */
       [['up-assets', uploadAssets], ['up-serials', uploadSerials], ['up-sites', uploadSites],
        ['up-charges', uploadCharges], ['up-users', uploadUsers]].forEach(function (pair) {
@@ -1092,7 +1100,27 @@
     RA.render();
   };
 
-  /* ---------------- Users & permissions (FR-002) ---------------- */
+  /* ---------------- Users & permissions (FR-002) ----------------
+     Hosted, accounts live on the server and every change is authorised there;
+     standalone (no API) the same screens fall back to the local store. */
+  function onServer() { return RA.session && RA.session.isServer(); }
+
+  function persistUser(payload) {
+    if (onServer()) return RA.session.saveUser(payload);
+    try { return Promise.resolve(S.saveUser(payload)); }
+    catch (e) { return Promise.reject(e); }
+  }
+  function removeUser(id) {
+    if (onServer()) return RA.session.deleteUser(id);
+    try { S.deleteUser(id); return Promise.resolve({ ok: true }); }
+    catch (e) { return Promise.reject(e); }
+  }
+  function afterUserChange(msg) {
+    U.toast(msg, 'success');
+    if (onServer()) RA.session.listUsers().then(RA.render).catch(function () { RA.render(); });
+    else RA.render();
+  }
+
   function adminUsers() {
     var q = (RA.filters.usrQ || '').toLowerCase();
     var list = S.db.users.filter(function (u) {
@@ -1118,22 +1146,29 @@
           ? 'Sites: ' + U.esc(siteNames.slice(0, 3).join(', ')) +
             (siteNames.length > 3 ? ' +' + (siteNames.length - 3) + ' more' : '')
           : 'Sites: per role scope') + '</div>' +
-        (extra || revoked ? '<div class="small">' +
+        '<div class="small">' +
           (extra ? U.pill('+' + extra + ' granted', 'ok') + ' ' : '') +
-          (revoked ? U.pill('−' + revoked + ' revoked', 'fail') : '') + '</div>' : '') +
+          (revoked ? U.pill('−' + revoked + ' revoked', 'fail') + ' ' : '') +
+          (u.has_password === false ? U.pill('no password set', 'warn') + ' ' : '') +
+          (u.must_change_password ? U.pill('must change password', 'blue') : '') +
+        '</div>' +
         '<div class="btn-row mt6">' +
           '<button class="btn btn-outline xs" data-act="usr-edit" data-arg="' + u.id + '">Edit</button>' +
           '<button class="btn btn-outline xs" data-act="usr-sites" data-arg="' + u.id + '">Assign sites</button>' +
           '<button class="btn btn-outline xs" data-act="usr-perms" data-arg="' + u.id + '">Permissions</button>' +
+          '<button class="btn btn-outline xs" data-act="usr-password" data-arg="' + u.id + '">Set password</button>' +
           '<button class="btn btn-outline xs" data-act="usr-toggle" data-arg="' + u.id + '">' +
             (u.status === 'inactive' ? 'Reactivate' : 'Deactivate') + '</button>' +
           '<button class="btn btn-red xs" data-act="usr-delete" data-arg="' + u.id + '">Delete</button>' +
         '</div></div>';
     }).join('') + '</div>';
 
-    h += '<div class="card pad small muted">Demo build: every account signs in with PIN <b>1234</b>. ' +
-      'Production replaces this with OTP / password / enterprise SSO (FR-001) while keeping the same ' +
-      'role, permission and site-assignment model. Every change here is audit-logged.</div>';
+    h += '<div class="card pad small muted">' + (onServer()
+      ? 'Accounts live on the server. Passwords are stored as bcrypt hashes and can only be set, ' +
+        'never read — use <b>Set password</b> to issue or reset one; the user is asked to change it ' +
+        'at their next sign-in. Every change here is recorded in the server audit.'
+      : 'Standalone mode — these accounts exist only on this device. Hosted, they are managed on ' +
+        'the server with real passwords.') + '</div>';
     return h;
   }
 
@@ -1153,6 +1188,8 @@
         U.field('Account status', U.select('ue-status', [
           { v: 'active', l: 'Active' }, { v: 'inactive', l: 'Inactive — cannot sign in' }
         ], u ? (u.status || 'active') : 'active')) +
+        (u ? '' : U.field('Initial password (optional — can be set later)',
+          U.input('ue-password', 'at least 8 characters', '', 'password'))) +
         '<div class="small muted">Changing the role resets module access to that role\'s default. ' +
         'Per-user grants are managed under <b>Permissions</b>.</div>',
       footer: '<button class="btn btn-outline" data-act="modal-close">Cancel</button>' +
@@ -1161,18 +1198,20 @@
         host.querySelector('#ue-save').addEventListener('click', function () {
           try {
             var roleChanged = u && u.role !== U.val('ue-role');
-            var saved = S.saveUser({
+            var payload = {
               id: u ? u.id : null,
-              name: U.val('ue-name'), emp: U.val('ue-emp'),
+              name: U.val('ue-name'), username: U.val('ue-emp'), emp: U.val('ue-emp'),
               role: U.val('ue-role'), region: U.val('ue-region'),
               status: U.val('ue-status'),
               sites: u ? u.sites : [],
               allow: roleChanged ? [] : (u && u.perms ? u.perms.allow : []),
               deny: roleChanged ? [] : (u && u.perms ? u.perms.deny : [])
-            });
-            U.closeModal();
-            U.toast(u ? 'User updated' : 'User ' + saved.name + ' added', 'success');
-            RA.render();
+            };
+            if (!u && U.val('ue-password')) payload.password = U.val('ue-password');
+            persistUser(payload).then(function () {
+              U.closeModal();
+              afterUserChange(u ? 'User updated' : 'User added');
+            }).catch(function (e) { U.toast(e.message, 'error'); });
           } catch (e) { U.toast(e.message, 'error'); }
         });
       }
@@ -1182,15 +1221,12 @@
   A['usr-toggle'] = function (el) {
     var u = S.user(el.getAttribute('data-arg'));
     var next = u.status === 'inactive' ? 'active' : 'inactive';
-    try {
-      S.saveUser({
-        id: u.id, name: u.name, emp: u.emp, role: u.role, region: u.region,
-        status: next, sites: u.sites,
-        allow: (u.perms || {}).allow, deny: (u.perms || {}).deny
-      });
-      U.toast(u.name + ' is now ' + next, 'success');
-      RA.render();
-    } catch (e) { U.toast(e.message, 'error'); }
+    persistUser({
+      id: u.id, name: u.name, emp: u.emp, username: u.emp, role: u.role, region: u.region,
+      status: next, sites: u.sites,
+      allow: (u.perms || {}).allow, deny: (u.perms || {}).deny
+    }).then(function () { afterUserChange(u.name + ' is now ' + next); })
+      .catch(function (e) { U.toast(e.message, 'error'); });
   };
 
   A['usr-delete'] = function (el) {
@@ -1198,8 +1234,8 @@
     U.confirm('Delete ' + u.name + '?',
       'The account is removed permanently. Accounts that already hold QC records must be deactivated instead.',
       function () {
-        try { S.deleteUser(u.id); U.toast('User deleted', 'success'); RA.render(); }
-        catch (e) { U.toast(e.message, 'error'); }
+        removeUser(u.id).then(function () { afterUserChange('User deleted'); })
+          .catch(function (e) { U.toast(e.message, 'error'); });
       }, 'Delete', true);
   };
 
@@ -1273,16 +1309,14 @@
         });
         host.querySelector('#sp-save').addEventListener('click', function () {
           var sites = Object.keys(RA.siteSel).filter(function (k) { return RA.siteSel[k]; });
-          try {
-            S.saveUser({
-              id: u.id, name: u.name, emp: u.emp, role: u.role, region: u.region,
-              status: u.status || 'active', sites: sites,
-              allow: (u.perms || {}).allow, deny: (u.perms || {}).deny
-            });
+          persistUser({
+            id: u.id, name: u.name, emp: u.emp, username: u.emp, role: u.role, region: u.region,
+            status: u.status || 'active', sites: sites,
+            allow: (u.perms || {}).allow, deny: (u.perms || {}).deny
+          }).then(function () {
             U.closeModal();
-            U.toast(sites.length + ' site(s) assigned to ' + u.name, 'success');
-            RA.render();
-          } catch (e) { U.toast(e.message, 'error'); }
+            afterUserChange(sites.length + ' site(s) assigned to ' + u.name);
+          }).catch(function (e) { U.toast(e.message, 'error'); });
         });
       }
     });
@@ -1320,15 +1354,70 @@
             if (cb.checked && !byRole) allow.push(key);
             if (!cb.checked && byRole) deny.push(key);
           });
-          try {
-            S.saveUser({
-              id: u.id, name: u.name, emp: u.emp, role: u.role, region: u.region,
-              status: u.status || 'active', sites: u.sites, allow: allow, deny: deny
-            });
+          persistUser({
+            id: u.id, name: u.name, emp: u.emp, username: u.emp, role: u.role, region: u.region,
+            status: u.status || 'active', sites: u.sites, allow: allow, deny: deny
+          }).then(function () {
             U.closeModal();
-            U.toast('Permissions updated for ' + u.name, 'success');
+            afterUserChange('Permissions updated for ' + u.name);
+          }).catch(function (e) { U.toast(e.message, 'error'); });
+        });
+      }
+    });
+  };
+
+  /* ---------------- passwords ---------------- */
+  A['usr-password'] = function (el) {
+    var u = S.user(el.getAttribute('data-arg'));
+    if (!onServer()) { U.toast('Passwords are managed on the server; this device is standalone.', 'warn'); return; }
+    U.modal({
+      title: 'Set password — ' + u.name,
+      body: '<p class="small muted">Issue a password for <b>' + U.esc(u.emp) + '</b>. ' +
+            'They will be asked to change it the first time they sign in. ' +
+            'Existing passwords cannot be read — only replaced.</p>' +
+            U.field('New password', U.input('pw-new', 'at least 8 characters', '', 'password')) +
+            U.field('Repeat', U.input('pw-again', '', '', 'password')),
+      footer: '<button class="btn btn-outline" data-act="modal-close">Cancel</button>' +
+              '<button class="btn btn-primary" id="pw-go">Set password</button>',
+      onOpen: function (host) {
+        host.querySelector('#pw-go').addEventListener('click', function () {
+          var a = U.val('pw-new'), b = U.val('pw-again');
+          if (a.length < 8) { U.toast('Use at least 8 characters.', 'error'); return; }
+          if (a !== b) { U.toast('The two entries do not match.', 'error'); return; }
+          RA.session.resetPassword(u.id, a).then(function () {
+            U.closeModal();
+            afterUserChange('Password set for ' + u.name);
+          }).catch(function (e) { U.toast(e.message, 'error'); });
+        });
+      }
+    });
+  };
+
+  /* Own password — also the forced change after an admin reset. */
+  A['change-password'] = function (el) {
+    var forced = el && el.getAttribute('data-arg') === 'forced';
+    if (!onServer()) { U.toast('Passwords are managed on the server; this device is standalone.', 'warn'); return; }
+    U.modal({
+      title: forced ? 'Choose a new password' : 'Change password',
+      body: (forced
+              ? '<p class="small">Your administrator has issued this password. Choose your own to continue.</p>'
+              : '') +
+            (forced ? '' : U.field('Current password', U.input('cp-old', '', '', 'password'))) +
+            U.field('New password', U.input('cp-new', 'at least 8 characters', '', 'password')) +
+            U.field('Repeat', U.input('cp-again', '', '', 'password')),
+      footer: (forced ? '' : '<button class="btn btn-outline" data-act="modal-close">Cancel</button>') +
+              '<button class="btn btn-primary" id="cp-go">Save password</button>',
+      onOpen: function (host) {
+        host.querySelector('#cp-go').addEventListener('click', function () {
+          var a = U.val('cp-new'), b = U.val('cp-again');
+          if (a.length < 8) { U.toast('Use at least 8 characters.', 'error'); return; }
+          if (a !== b) { U.toast('The two entries do not match.', 'error'); return; }
+          RA.session.changePassword(forced ? null : U.val('cp-old'), a).then(function () {
+            if (RA.session.state.user) RA.session.state.user.must_change_password = false;
+            U.closeModal();
+            U.toast('Password changed', 'success');
             RA.render();
-          } catch (e) { U.toast(e.message, 'error'); }
+          }).catch(function (e) { U.toast(e.message, 'error'); });
         });
       }
     });
@@ -1407,11 +1496,24 @@
         kv('Movements', String(S.db.movements.length)) + kv('Receipts', String(S.db.receipts.length)) +
         kv('Audit events', String(S.db.audit.length)) + kv('Storage used', (size / 1024).toFixed(0) + ' KB') +
       '</div></div>' +
-      '<div class="card pad"><b>Backup & restore</b>' +
-      '<div class="small muted mt4">Export a full JSON snapshot to move data between devices or hand it to the backend team ' +
-      'as the seed for server persistence.</div>' +
+      (onServer()
+        ? '<div class="card pad"><b>Shared store — bulk export &amp; import</b>' +
+          '<div class="small muted mt4">Everything every device has synced, as one JSON document: ' +
+          'QC records, commercial records, assets, sites, packages, movements, receipts, masters and ' +
+          'the workflow audit, plus the account list (never passwords). Administrator only.</div>' +
+          '<div class="btn-row mt10">' +
+            '<button class="btn btn-outline sm" data-act="server-export">⬇ Export everything</button>' +
+            '<label class="btn btn-outline sm">⬆ Import<input type="file" id="server-import" accept=".json" hidden /></label>' +
+          '</div>' +
+          '<label class="check-row mt8"><input type="checkbox" id="import-replace-server" /> ' +
+          '<span>Replace the shared store instead of merging into it</span></label>' +
+          '<div id="server-import-result" class="small mt8"></div></div>'
+        : '') +
+      '<div class="card pad"><b>This device</b>' +
+      '<div class="small muted mt4">A snapshot of what this device holds — useful for support, or to ' +
+      'move an offline device\'s work onto another machine.</div>' +
       '<div class="btn-row mt10">' +
-        '<button class="btn btn-outline sm" data-act="backup">⬇ Export JSON backup</button>' +
+        '<button class="btn btn-outline sm" data-act="backup">⬇ Export device snapshot</button>' +
         '<label class="btn btn-outline sm">⬆ Restore<input type="file" id="restore-file" accept=".json" hidden /></label>' +
       '</div></div>' +
       '<div class="card pad"><b>Danger zone</b>' +
@@ -1420,6 +1522,52 @@
         '<button class="btn btn-red sm" data-act="reset-demo">Reset to demo data</button>' +
       '</div></div>';
   }
+  A['server-export'] = function () {
+    if (!onServer()) { U.toast('No shared store on this device.', 'warn'); return; }
+    U.toast('Preparing export…', 'info');
+    RA.session.exportAll().then(function (data) {
+      U.download('fieldops_shared_store_' +
+        new Date().toISOString().slice(0, 19).replace(/[:T]/g, '') + '.json',
+        JSON.stringify(data, null, 2), 'application/json');
+      U.toast('Exported ' + (data.records || []).length + ' record(s) and ' +
+              (data.users || []).length + ' account(s)', 'success');
+    }).catch(function (e) { U.toast(e.message, 'error'); });
+  };
+
+  function handleServerImport() {
+    var f = this.files && this.files[0];
+    if (!f) return;
+    var replace = document.getElementById('import-replace-server').checked;
+    var box = document.getElementById('server-import-result');
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      var payload;
+      try { payload = JSON.parse(e.target.result); }
+      catch (err) { box.innerHTML = '<span class="err">That file is not valid JSON.</span>'; return; }
+      var records = payload.records || payload;
+      if (!Array.isArray(records)) {
+        box.innerHTML = '<span class="err">No record list found in that file.</span>';
+        return;
+      }
+      U.confirm(replace ? 'Replace the shared store?' : 'Import into the shared store?',
+        records.length + ' record(s) will be ' + (replace
+          ? 'loaded after clearing everything currently there. Accounts and passwords are untouched.'
+          : 'merged in; existing records with the same id are overwritten.'),
+        function () {
+          box.innerHTML = 'Importing…';
+          RA.session.importAll(records, replace).then(function (out) {
+            box.innerHTML = '<b class="ok-text">✓ Loaded ' + out.loaded + ' record(s)' +
+              (out.skipped ? ', skipped ' + out.skipped : '') + '.</b>';
+            U.toast('Imported ' + out.loaded + ' record(s)', 'success');
+            if (RA.sync) { S.db.sync.cursor = null; RA.sync.run({ full: true }); }
+          }).catch(function (err) {
+            box.innerHTML = '<span class="err">' + U.esc(err.message) + '</span>';
+          });
+        }, replace ? 'Replace' : 'Import', replace);
+    };
+    reader.readAsText(f);
+  }
+
   A.backup = function () {
     U.download('fieldops_backup_' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '') + '.json',
       S.exportJSON(), 'application/json');
@@ -1461,6 +1609,19 @@
           kv('Employee ID', me.emp) + kv('Region', me.region) +
           kv('Data access', r.scope) + kv('Assigned sites', me.sites.length ? me.sites.join(', ') : 'Per role scope') +
         '</div></div>' +
+        (RA.session && RA.session.isServer()
+          ? '<div class="card pad"><b>Sign-in</b>' +
+            '<div class="kv-grid mt8">' +
+              kv('Username', me.emp) +
+              kv('Signed in as', D.ROLES[me.role].label) +
+              kv('Last sign-in', (RA.session.state.user && RA.session.state.user.last_login)
+                ? U.dt(RA.session.state.user.last_login) : 'first session') +
+            '</div>' +
+            '<button class="btn btn-outline sm mt10" data-act="change-password">Change my password</button>' +
+            '<div class="small muted mt6">Your account, role and site assignments are issued by an ' +
+            'administrator. Passwords are stored hashed and can never be read back.</div></div>'
+          : '<div class="card pad warn-card small"><b>Standalone mode.</b> No server session — this ' +
+            'device is running on its own, with no shared store and no server accounts.</div>') +
         '<div class="card pad"><b>Device & sync</b>' +
         '<div class="kv-grid mt8">' +
           kv('Connection', navigator.onLine ? 'Online' : 'Offline') +

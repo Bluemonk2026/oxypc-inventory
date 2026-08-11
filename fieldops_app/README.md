@@ -14,28 +14,30 @@ and keeps working with no network.
 
 ## Run it
 
-**Locally** — any static file server, no build step, no dependencies:
+**Hosted** — <https://app.oxypc.com/fieldops>. It is a standalone application: its
+own sign-in, its own accounts, its own database. It does not appear in the OxyPC
+menu, an OxyPC login grants no access to it, and it reads and writes none of
+OxyPC's data. The two share a domain and a deployment, nothing else.
+
+Anyone can reach the sign-in page; nothing past it is reachable without an account
+that an administrator created — including the inventory master itself.
+
+**Configuration** (set on the server before first start):
+
+| Variable | Purpose |
+|---|---|
+| `FIELDOPS_DATABASE_URL` | its own Postgres database (asyncpg URL). Without it the app reports itself unconfigured and OxyPC is unaffected |
+| `FIELDOPS_ADMIN_PASSWORD` | creates the administrator on first start. Never stored in the repo |
+| `FIELDOPS_ADMIN_USERNAME` | optional, defaults to `admin` |
+| `FIELDOPS_DEMO_PASSWORD` | optional. Gives the ten seeded role accounts a working password; without it they exist with the right roles but cannot sign in until an administrator issues one |
+
+**Standalone / offline** — the folder also runs from any static file server for a
+demo or to run the test suites. With no API reachable it says "this device only":
+no shared store, no server accounts, nothing lost.
 
 ```bash
 python3 -m http.server 8777
 ```
-
-Then open <http://localhost:8777>. Sign in with any role; the demo PIN is `1234`.
-
-**Deploy** — copy the whole folder to any static host or web root
-(the oxypc app, Netlify, Vercel, S3+CloudFront, nginx, Apache, GitHub Pages).
-There is nothing to compile and no server-side runtime.
-
-```
-index.html   manifest.webmanifest   sw.js   css/   js/   icons/
-```
-
-Two requirements only:
-
-1. **Serve over HTTPS** (or localhost). The camera, the service worker and
-   "Add to Home Screen" all require a secure context.
-2. **Serve from a folder root or sub-path** — all paths are relative, so
-   `https://host/fieldops/` works as-is.
 
 Installing on a device: Android/Chrome → menu → *Add to Home screen*;
 iPhone/Safari → Share → *Add to Home Screen*; desktop → install icon in the
@@ -43,24 +45,39 @@ address bar. The app then opens full-screen and runs offline.
 
 ---
 
-## Roles
+## Accounts, roles and rights
 
-Sign-in offers one account per role. Each sees only its own modules (FR-002 RBAC).
+There is no role picker and no shared PIN. Every person has an account created by
+an administrator, with a role, a region, assigned sites and — optionally — module
+grants or revocations on top of the role default.
 
-| Employee ID | Role | Lands on |
-|---|---|---|
-| `qc.eng.04`, `qc.eng.11` | Field QC Engineer | My Day |
-| `coord.west` | Regional Coordinator | Sites |
-| `pmo.national` | PMO / Project Manager | Executive Dashboard |
-| `rel.spoc` | Reliance Site SPOC | Sites (read-only QC) |
-| `rel.qc.appr` | Reliance QC Approver | QC Approvals |
-| `rel.comm` | Commercial Approver | Commercial & Pricing |
-| `pickup.desk` | Packing / Pickup Partner | Packing |
-| `courier.desk` | Courier Desk | Courier / AWB |
-| `wh.mumbai01` | Warehouse User | Warehouse Receipt |
-| `admin` | System Admin | Admin & Masters |
+| Role | Sees |
+|---|---|
+| Field QC Engineer | My Day, their assigned sites, serial capture, QC, packing |
+| Regional Coordinator | Sites in their region, approvals queue (read-only), packing |
+| PMO / Project Manager | Everything except administration |
+| Reliance Site SPOC | Their own site, read-only QC |
+| Reliance QC Approver | The approval queue — the only role that may accept, dispute or re-QC |
+| Commercial Approver | Pricing and the commercial accept/hold decision |
+| Packing / Pickup Partner | Released assets, packing, pickup handover |
+| Courier Desk | Courier jobs and AWB tracking |
+| Warehouse User | Inbound movements, GRN, discrepancies |
+| System Admin | Everything, plus accounts, masters, import/export and deletion |
 
-PIN for every demo account: **1234**.
+**The administrator** creates and edits users, assigns roles and sites, grants or
+revokes individual modules, issues and resets passwords, deactivates accounts, and
+is the only role that can delete data or bulk import/export.
+
+Passwords are bcrypt hashes — they can be set, never read. A password an admin
+issues must be changed by the user at their next sign-in. Eight failed attempts
+lock an account for fifteen minutes, and the sign-in endpoint is rate-limited per
+IP address.
+
+**Rights are enforced on the server, not in the browser.** A device can post
+anything it likes; the sync endpoint checks every change against the account's role
+before accepting it. An engineer cannot approve their own QC, only the commercial
+approver can move a commercial status, only an administrator can delete — and QC
+evidence and the audit log cannot be deleted by anyone, including the administrator.
 
 ---
 
@@ -234,6 +251,8 @@ Still to come before a production rollout, per BRD Sec 21:
 - **FR-001 Authentication** — the demo uses a role picker and a shared PIN.
   Real OTP / password / SSO (SAML/OIDC) is a server concern.
 - **Courier API tracking** — AWB status is entered manually (as the BRD specifies for MVP).
+- **Password self-service** — someone who forgets their password needs an
+  administrator to issue a new one; there is no email reset flow.
 - **Photo retention policy** — pending Reliance confirmation (Open Decision #5).
 
 None of the Day-0 items in BRD Sec 17 are resolved by this build; the app surfaces
@@ -243,7 +262,9 @@ them (deduction matrix unapproved, site readiness unconfirmed) rather than assum
 
 ## Administration
 
-**Admin → Users & permissions** (System Admin only):
+Everything below is **administrator only**, enforced on the server.
+
+**Admin → Users & permissions**:
 
 - **Add / edit users** — name, employee ID (the login), role, region and account status.
   Employee IDs are unique; changing a role resets module access to that role's default.
@@ -256,14 +277,20 @@ them (deduction matrix unapproved, site readiness unconfirmed) rather than assum
   module the role does not have grants it; unticking one it does have revokes it.
   Both the navigation and the routes respect it, so a revoked module disappears and
   its URL returns *Access restricted*.
+- **Set password** — issue or reset a password for anyone. Existing passwords cannot
+  be read, only replaced; the user must choose their own at their next sign-in.
 - **Deactivate / delete** — deactivation blocks sign-in and all access while keeping
-  history. Deletion is refused for the last active admin, for the account you are
-  signed in with, and for anyone holding QC records (deactivate those instead).
+  history. Deletion is refused for the last active administrator and for the account
+  you are signed in with.
 
 Every change is written to the immutable audit log with the before/after detail.
 
 **Admin → Serial mapping** covers bulk serial import, the CSV template and the
 current-mapping export; the full register lives under **Serial register** in the nav.
+
+**Admin → Backup** holds bulk export and import for the whole shared store — every
+record every device has synced, as one JSON document, plus the account list (never
+passwords). Import merges by default, or replaces the store outright.
 
 ### QC & charges
 

@@ -205,6 +205,12 @@
       Y.state.last_error = null;
       Y.state.pushed += (out.accepted || 0);
       Y.state.pulled += applied;
+      /* Shared device: if the signed-in account changed underneath us, the
+         screen is showing someone else's scope. Reload rather than mislead. */
+      if (out.user && Y.state.server_user && out.user.emp !== Y.state.server_user.emp) {
+        location.reload();
+        return { pushed: out.accepted || 0, pulled: applied, reloading: true };
+      }
       Y.state.server_user = out.user || null;
       Y.state.running = false;
       Y._current = null;

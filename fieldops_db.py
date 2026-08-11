@@ -5,9 +5,11 @@ OxyPC's process and domain, and nothing else. This module keeps that promise in
 code — a separate engine on a separate connection string, a separate metadata,
 and no foreign key anywhere into OxyPC's tables.
 
-Configure it with FIELDOPS_DATABASE_URL (asyncpg URL for its own database). If
-that is not set the FieldOps routes report themselves unconfigured and OxyPC
-carries on unaffected — a missing variable must never take the main app down.
+Set FIELDOPS_DATABASE_URL to give it a database of its own. Without that variable
+it falls back to OxyPC's Postgres connection but keeps its own tables and its own
+metadata — no foreign keys either way, and OxyPC's schema tooling never sees these
+tables, so the field project can still be dumped or dropped on its own. Setting the
+variable later moves it to a truly separate database with no code change.
 """
 
 import os
@@ -40,8 +42,16 @@ FIELDOPS_ADMIN_USERNAME = os.environ.get("FIELDOPS_ADMIN_USERNAME", "admin").str
 FIELDOPS_DEMO_PASSWORD = os.environ.get("FIELDOPS_DEMO_PASSWORD", "").strip()
 
 
+# separate-database | shared-database | unavailable
+MODE = "unavailable"
+
+
 def configured() -> bool:
-    return bool(FIELDOPS_DATABASE_URL)
+    return engine is not None
+
+
+def mode() -> str:
+    return MODE
 
 
 class FieldOpsBase(DeclarativeBase):
@@ -53,7 +63,7 @@ _JSON = JSON().with_variant(JSONB, "postgresql")
 engine = None
 SessionLocal = None
 
-if configured():
+if FIELDOPS_DATABASE_URL:
     engine = create_async_engine(
         FIELDOPS_DATABASE_URL,
         pool_size=int(os.environ.get("FIELDOPS_DB_POOL_SIZE", "5")),
@@ -61,6 +71,20 @@ if configured():
         pool_pre_ping=True,
         echo=False,
     )
+    MODE = "separate-database"
+else:
+    # No dedicated connection string: share OxyPC's Postgres, keep our own
+    # tables. Still separable — nothing here is in OxyPC's metadata and no
+    # foreign key crosses between them.
+    try:
+        from database import engine as _oxypc_engine
+
+        engine = _oxypc_engine
+        MODE = "shared-database"
+    except Exception:      # noqa: BLE001 — no database at all; routes report it
+        engine = None
+
+if engine is not None:
     SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 
@@ -161,9 +185,9 @@ class FieldOpsAudit(FieldOpsBase):
 
 
 async def init_fieldops_db():
-    """Create tables and the bootstrap admin. Safe to call on every start."""
+    """Create tables and any bootstrap admin. Safe to call on every start."""
     if not configured():
-        return {"configured": False}
+        return {"configured": False, "mode": MODE}
 
     async with engine.begin() as conn:
         await conn.run_sync(FieldOpsBase.metadata.create_all)
@@ -174,4 +198,5 @@ async def init_fieldops_db():
         result = await seed_accounts(session)
         await session.commit()
     result["configured"] = True
+    result["mode"] = MODE
     return result

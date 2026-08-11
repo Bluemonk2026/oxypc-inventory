@@ -162,6 +162,153 @@ async def fieldops_login_page(user=Depends(current_user_optional)):
     return HTMLResponse(LOGIN_PAGE, headers={"Cache-Control": "no-cache"})
 
 
+# ============================================================ first-run setup
+# Bootstrapping without server access: the very first FieldOps administrator is
+# created from the browser, by someone who is already an OxyPC administrator.
+# The password is generated here, shown exactly once, and must be replaced at
+# first sign-in. Once an administrator exists this route is closed for good —
+# it is the only place FieldOps ever looks at an OxyPC session.
+import secrets
+import string
+
+_PW_ALPHABET = string.ascii_letters + string.digits + "!@#$%^&*-_=+?"
+
+
+def _one_time_password(length: int = 20) -> str:
+    return "".join(secrets.choice(_PW_ALPHABET) for _ in range(length))
+
+
+async def _oxypc_admin(request: Request) -> Optional[str]:
+    """Username of the signed-in OxyPC administrator, or None."""
+    token = request.cookies.get("access_token")
+    if not token:
+        return None
+    try:
+        from jose import jwt as _jwt
+
+        from config import SECRET_KEY as _SK
+        payload = _jwt.decode(token, _SK, algorithms=["HS256"])
+    except Exception:      # noqa: BLE001 — any decode failure is simply "not signed in"
+        return None
+    username = payload.get("sub")
+    if not username:
+        return None
+    try:
+        from database import AsyncSessionLocal
+        from models.user import User as OxyUser
+
+        async with AsyncSessionLocal() as oxydb:
+            row = (await oxydb.execute(
+                select(OxyUser).where(OxyUser.username == username)
+            )).scalar_one_or_none()
+    except Exception:      # noqa: BLE001
+        return None
+    if row is None or not getattr(row, "status", True):
+        return None
+    role = getattr(getattr(row, "role", None), "value", None) or str(getattr(row, "role", ""))
+    return username if role == "admin" else None
+
+
+async def _admin_exists(db: AsyncSession) -> bool:
+    count = (await db.execute(
+        select(func.count(FieldOpsUser.id)).where(FieldOpsUser.role == "admin")
+    )).scalar() or 0
+    return count > 0
+
+
+_SETUP_SHELL = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set up FieldOps</title><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;display:flex;align-items:flex-start;justify-content:center;
+ background:linear-gradient(160deg,#17365D 52%%,#1B6CA8);padding:44px 18px;
+ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#1F2937}
+.wrap{width:100%%;max-width:520px}
+.card{background:#fff;border-radius:16px;padding:24px 20px;box-shadow:0 10px 34px rgba(0,0,0,.28)}
+h1{font-size:20px;color:#17365D;margin-bottom:6px}
+p{font-size:13px;color:#4B5563;line-height:1.55;margin-bottom:12px}
+button{width:100%%;padding:13px;border:none;border-radius:10px;background:#17365D;color:#fff;
+ font-size:15px;font-weight:700;cursor:pointer;min-height:48px}
+.cred{background:#F0F4FA;border:1.5px solid #C3D6F0;border-radius:10px;padding:14px;margin:14px 0}
+.cred .k{font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:.5px;font-weight:700}
+.cred .v{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:18px;font-weight:700;
+ color:#17365D;word-break:break-all;margin-top:2px}
+.warn{background:#FFF8E7;border:1px solid #F5D48A;border-radius:10px;padding:12px;font-size:12px;
+ color:#7A5B00;margin-bottom:12px}
+.err{background:#FDECEC;border:1px solid #F0B9B9;color:#C62828;padding:12px;border-radius:10px;font-size:13px}
+a.go{display:block;text-align:center;margin-top:14px;color:#2E5FAC;font-weight:700;font-size:14px;
+ text-decoration:none}
+</style></head><body><div class="wrap"><div class="card">%s</div></div></body></html>"""
+
+
+@router.get("/fieldops/setup", response_class=HTMLResponse)
+async def fieldops_setup_page(request: Request, db: AsyncSession = Depends(get_fieldops_db)):
+    if not configured():
+        raise HTTPException(status_code=503, detail="FieldOps has no database configured.")
+    if await _admin_exists(db):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    who = await _oxypc_admin(request)
+    if not who:
+        return HTMLResponse(_SETUP_SHELL % (
+            "<h1>Set up FieldOps</h1>"
+            "<p>No FieldOps administrator exists yet. To create the first one, open this page "
+            "while signed in to OxyPC as an administrator — that is the only proof of ownership "
+            "available before any FieldOps account exists.</p>"
+            "<div class='err'>Not signed in to OxyPC as an administrator.</div>"
+            "<a class='go' href='/auth/login'>Sign in to OxyPC first →</a>"), status_code=403)
+
+    return HTMLResponse(_SETUP_SHELL % (
+        "<h1>Set up FieldOps</h1>"
+        f"<p>Signed in to OxyPC as <b>{who}</b>. This creates the first FieldOps administrator "
+        "and issues a one-time password.</p>"
+        "<div class='warn'>The password is shown once and never again. It must be changed at "
+        "first sign-in, and this page closes permanently afterwards.</div>"
+        "<form method='post' action='/fieldops/api/setup'>"
+        "<button type='submit'>Create the administrator</button></form>"))
+
+
+@router.post("/fieldops/api/setup", response_class=HTMLResponse)
+@limiter.limit("5/minute", key_func=ip_key_func)
+async def fieldops_setup_create(request: Request, db: AsyncSession = Depends(get_fieldops_db)):
+    if not configured():
+        raise HTTPException(status_code=503, detail="FieldOps has no database configured.")
+    if await _admin_exists(db):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    who = await _oxypc_admin(request)
+    if not who:
+        raise HTTPException(status_code=403, detail="Sign in to OxyPC as an administrator first.")
+
+    password = _one_time_password()
+    admin = FieldOpsUser(
+        id="U00",
+        username="admin",
+        name="System Administrator",
+        password_hash=await hash_password_async(password),
+        must_change_password=True,      # single use — replaced at first sign-in
+        role="admin",
+        region="All",
+        sites=[],
+        perms={"allow": [], "deny": []},
+        status="active",
+        created_by=f"setup by OxyPC:{who}",
+    )
+    db.add(admin)
+    audit(db, who, "admin_created", target="admin",
+          detail="first-run setup; one-time password issued", request=request)
+    await db.commit()
+
+    return HTMLResponse(_SETUP_SHELL % (
+        "<h1>Administrator created</h1>"
+        "<div class='warn'>Copy this now — it is not shown again and it works only once.</div>"
+        "<div class='cred'><div class='k'>Username</div><div class='v'>admin</div></div>"
+        f"<div class='cred'><div class='k'>One-time password</div><div class='v'>{password}</div></div>"
+        "<p>Sign in with it and you will be asked immediately to choose your own password. "
+        "After that this setup page is closed for good.</p>"
+        "<a class='go' href='/fieldops/login'>Go to the FieldOps sign-in →</a>"))
+
+
 # ============================================================ auth API
 class LoginBody(BaseModel):
     username: str

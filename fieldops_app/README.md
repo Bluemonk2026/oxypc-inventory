@@ -22,12 +22,19 @@ OxyPC's data. The two share a domain and a deployment, nothing else.
 Anyone can reach the sign-in page; nothing past it is reachable without an account
 that an administrator created — including the inventory master itself.
 
-**Configuration** (set on the server before first start):
+**First run — no server access needed.** Sign in to OxyPC as an administrator, then
+open <https://app.oxypc.com/fieldops/setup>. It creates the FieldOps administrator
+and shows a one-time password once. Sign in with it and you are asked immediately to
+choose your own; the issued one stops working and the setup page closes permanently.
+That OxyPC check is the only moment FieldOps ever looks at an OxyPC session — it is
+simply the one proof of ownership available before any FieldOps account exists.
+
+**Optional configuration**, if you do have access to the server's environment:
 
 | Variable | Purpose |
 |---|---|
-| `FIELDOPS_DATABASE_URL` | its own Postgres database (asyncpg URL). Without it the app reports itself unconfigured and OxyPC is unaffected |
-| `FIELDOPS_ADMIN_PASSWORD` | one-time key that creates the administrator on first start. They must change it at first sign-in, after which the variable is never read again — a restart cannot reset a chosen password |
+| `FIELDOPS_DATABASE_URL` | give it a database of its own. Without it the app uses OxyPC's Postgres connection but keeps its own tables and metadata — still no foreign keys either way, still separately dumpable. Setting it later moves the app with no code change |
+| `FIELDOPS_ADMIN_PASSWORD` | creates the administrator at startup instead of via the setup page. One-time: it must be changed at first sign-in, and is never read again once a password is set |
 | `FIELDOPS_ADMIN_USERNAME` | optional, defaults to `admin` |
 | `FIELDOPS_DEMO_PASSWORD` | optional. Gives the ten seeded role accounts a working password; without it they exist with the right roles but cannot sign in until an administrator issues one |
 

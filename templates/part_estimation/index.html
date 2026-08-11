@@ -233,6 +233,22 @@
 </div>
 
 <!-- Create Estimate modal — field-by-field checklist matrix, one column per Model -->
+<style>
+/* Create Estimate matrix: model header text stays on one line (columns are
+   narrow — Count/Price — so wrapping would blow the row height out), and the
+   Field column stays pinned while the model columns scroll underneath it. */
+#ce_table thead th { white-space: nowrap; }
+#ce_table .ce-count { width: 56px; min-width: 56px; }
+#ce_table .ce-price-cell { width: 90px; min-width: 90px; }
+#ce_table .ce-price-cell .form-control { width: 100%; min-width: 74px; }
+#ce_table th:first-child, #ce_table td:first-child {
+  position: sticky; left: 0; z-index: 2;
+  background: #fff; box-shadow: 2px 0 3px -2px rgba(0,0,0,.25);
+}
+#ce_table thead th:first-child { z-index: 3; background: #f8f9fa; }
+#ce_table tbody tr.table-secondary td:first-child { background: #e9ecef; }
+#ce_table tfoot td:first-child { background: #e2e3e5; }
+</style>
 <div class="modal fade" id="checklistEstimateModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-fullscreen modal-dialog-scrollable">
     <div class="modal-content">
@@ -251,19 +267,53 @@
         </div>
         <div id="ce_error" class="alert alert-danger d-none"></div>
         <div id="ce_body" class="d-none">
-          <div class="d-flex align-items-center gap-3 mb-2">
-            <span class="fw-semibold small">Cosmetic Damage Scope:</span>
-            <span class="form-check form-check-inline mb-0">
-              <input class="form-check-input ce-severity" type="checkbox" value="minor" id="ce_sev_minor" checked>
-              <label class="form-check-label small" for="ce_sev_minor">Minor</label>
-            </span>
-            <span class="form-check form-check-inline mb-0">
-              <input class="form-check-input ce-severity" type="checkbox" value="major" id="ce_sev_major" checked>
-              <label class="form-check-label small" for="ce_sev_major">Major</label>
-            </span>
-            <span class="text-muted small">Filters the count shown for fields graded Minor/Major (Scratch, Dent, Broken/Crack, etc.)</span>
+          <div class="d-flex flex-column gap-1 mb-2 small">
+            <div class="d-flex align-items-center gap-3">
+              <span class="fw-semibold" style="width:170px">Critical Part Added:</span>
+              <span class="form-check form-check-inline mb-0">
+                <input class="form-check-input ce-filter" type="checkbox" data-scope="critical" data-key="yes" id="ce_crit_yes" checked>
+                <label class="form-check-label small" for="ce_crit_yes">Yes</label>
+              </span>
+              <span class="form-check form-check-inline mb-0">
+                <input class="form-check-input ce-filter" type="checkbox" data-scope="critical" data-key="no" id="ce_crit_no">
+                <label class="form-check-label small" for="ce_crit_no">No</label>
+              </span>
+              <span class="text-muted">CPU / RAM / Hard Drive</span>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+              <span class="fw-semibold" style="width:170px">Hardware Damage:</span>
+              <span class="form-check form-check-inline mb-0">
+                <input class="form-check-input ce-filter" type="checkbox" data-scope="hardware" data-key="yes" id="ce_hw_yes" checked>
+                <label class="form-check-label small" for="ce_hw_yes">Yes</label>
+              </span>
+              <span class="form-check form-check-inline mb-0">
+                <input class="form-check-input ce-filter" type="checkbox" data-scope="hardware" data-key="no" id="ce_hw_no">
+                <label class="form-check-label small" for="ce_hw_no">No</label>
+              </span>
+              <span class="text-muted">HDMI/USB/Audio/Ethernet/Speaker/Wi-Fi/Web Cam/HDD/DVD/Battery</span>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+              <span class="fw-semibold" style="width:170px">Cosmetic Damage Scope:</span>
+              <span class="form-check form-check-inline mb-0">
+                <input class="form-check-input ce-filter" type="checkbox" data-scope="cosmetic" data-key="yes" id="ce_cos_yes" checked>
+                <label class="form-check-label small" for="ce_cos_yes">Yes</label>
+              </span>
+              <span class="form-check form-check-inline mb-0">
+                <input class="form-check-input ce-filter" type="checkbox" data-scope="cosmetic" data-key="no" id="ce_cos_no">
+                <label class="form-check-label small" for="ce_cos_no">No</label>
+              </span>
+              <span class="form-check form-check-inline mb-0">
+                <input class="form-check-input ce-filter" type="checkbox" data-scope="cosmetic" data-key="minor" id="ce_cos_minor" checked>
+                <label class="form-check-label small" for="ce_cos_minor">Minor</label>
+              </span>
+              <span class="form-check form-check-inline mb-0">
+                <input class="form-check-input ce-filter" type="checkbox" data-scope="cosmetic" data-key="major" id="ce_cos_major" checked>
+                <label class="form-check-label small" for="ce_cos_major">Major</label>
+              </span>
+              <span class="text-muted">Display Panel/Bezel Frame/Screen/Hinge/Touchpad/Bottom Base/Keyboard</span>
+            </div>
           </div>
-          <div class="table-responsive">
+          <div class="table-responsive" id="ce_table_wrap">
             <table class="table table-sm table-bordered align-middle mb-3" id="ce_table">
               <thead id="ce_thead" class="table-light small"></thead>
               <tbody id="ce_tbody" class="small"></tbody>
@@ -275,6 +325,10 @@
           <div class="row g-2 align-items-center mb-2">
             <div class="col-md-3 text-end fw-semibold">Total Part Price</div>
             <div class="col-md-2" id="ce_parts_total">0.00</div>
+            <div class="col-md-3 text-end fw-semibold">Total Parts Count</div>
+            <div class="col-md-2" id="ce_parts_count">0</div>
+          </div>
+          <div class="row g-2 align-items-center mb-2">
             <div class="col-md-3 text-end fw-semibold">Total Labour Cost</div>
             <div class="col-md-2">
               <input type="number" step="0.01" min="0" class="form-control form-control-sm" id="ce_labour" value="0">
@@ -749,30 +803,45 @@ function submitModelEstimate() {
 /* ── Create Estimate (checklist matrix) ─────────────────────────────────────
    One column per Model in the lot, one row per checklist field (Critical/
    Hardware/Display Panel/etc.). Counts come from the server's full No/Yes/
-   Minor/Major/Faulty breakdown per field per model, so the Minor/Major
-   scope checkboxes re-sum entirely client-side — no round trip needed just
-   to toggle the filter. Prices are typed once here; Generate re-sends the
-   severity scope + prices and the server recomputes every count fresh from
-   IQC before writing the file, exactly like Part Estimate does. */
+   Minor/Major/Faulty breakdown per field per model, so the three filter
+   scopes re-sum entirely client-side — no round trip needed just to toggle
+   a checkbox. Prices are typed once here; Generate re-sends the filter
+   selections + prices and the server recomputes every count fresh from IQC
+   before writing the file, exactly like Part Estimate does. */
 var ceLotId = null, ceData = null;
 
-function ceSelectedSeverity() {
-  var s = [];
-  if ($('#ce_sev_minor').is(':checked')) s.push('minor');
-  if ($('#ce_sev_major').is(':checked')) s.push('major');
-  return s;
+// Every group belongs to exactly one of the three filter scopes shown above
+// the table — same three-way split (Critical/Hardware/Cosmetic) the older
+// Part Estimate matrix already uses.
+var CE_GROUP_SCOPE = {
+  critical: 'critical', hardware: 'hardware',
+  display_panel: 'cosmetic', bezel_frame: 'cosmetic', screen_display: 'cosmetic',
+  hinge: 'cosmetic', touchpad: 'cosmetic', bottom_base: 'cosmetic', keyboard: 'cosmetic'
+};
+
+function ceFilters() {
+  var f = { critical: {}, hardware: {}, cosmetic: {} };
+  $('.ce-filter').each(function () {
+    var $c = $(this);
+    f[$c.data('scope')][$c.data('key')] = $c.is(':checked');
+  });
+  return f;
 }
 
-function ceCountFor(counts, domain, severity) {
+function ceCountFor(counts, domain, scopeFilters) {
   counts = counts || {};
+  scopeFilters = scopeFilters || {};
   if (domain === 'sev') {
     var n = 0;
-    if (severity.indexOf('minor') !== -1) n += counts.Minor || 0;
-    if (severity.indexOf('major') !== -1) n += counts.Major || 0;
+    if (scopeFilters.minor) n += counts.Minor || 0;
+    if (scopeFilters.major) n += counts.Major || 0;
     return n;
   }
-  if (domain === 'faulty') return counts.Faulty || 0;
-  return counts.Yes || 0;
+  var posKey = domain === 'faulty' ? 'Faulty' : 'Yes';
+  var n2 = 0;
+  if (scopeFilters.yes) n2 += counts[posKey] || 0;
+  if (scopeFilters.no) n2 += counts.No || 0;
+  return n2;
 }
 
 function ceRenderTable(d) {
@@ -783,8 +852,8 @@ function ceRenderTable(d) {
     headRow1.append($('<th>').attr('colspan', 2).addClass('text-center')
       .text(m.model + ' (' + m.qty + ')'));
     headRow2.append(
-      $('<th>').addClass('text-center small fw-normal').text('Count'),
-      $('<th>').addClass('text-center small fw-normal').text('Price'));
+      $('<th>').addClass('text-center small fw-normal ce-count').text('Count'),
+      $('<th>').addClass('text-center small fw-normal ce-price-cell').text('Price'));
   });
   headRow1.append($('<th>').text('Row Total'));
   headRow2.append($('<th>'));
@@ -797,14 +866,15 @@ function ceRenderTable(d) {
       $('<td>').attr('colspan', d.models.length * 2 + 2).text(g.heading)));
     g.fields.forEach(function (f) {
       var row = $('<tr>').addClass('ce-field-row')
-        .attr('data-group', g.key).attr('data-field', f.name).attr('data-domain', f.domain);
+        .attr('data-group', g.key).attr('data-field', f.name).attr('data-domain', f.domain)
+        .attr('data-scope', CE_GROUP_SCOPE[g.key] || 'cosmetic');
       row.append($('<td>').text(f.name));
       d.models.forEach(function (m) {
         var counts = ((m.counts[g.key] || {})[f.name]) || {};
         var key = m.model + '||' + g.key + '|' + f.name;
         row.append(
           $('<td>').addClass('ce-count text-end').data('counts', counts).text('0'),
-          $('<td>').append($('<input>').attr({ type: 'number', step: '0.01', min: '0' })
+          $('<td>').addClass('ce-price-cell').append($('<input>').attr({ type: 'number', step: '0.01', min: '0' })
             .addClass('form-control form-control-sm text-end ce-price')
             .val(prevPrices[key] || ''))
         );
@@ -823,19 +893,20 @@ function ceRenderTable(d) {
 
 function ceRecalc() {
   if (!ceData) return;
-  var severity = ceSelectedSeverity();
+  var filters = ceFilters();
   var colTotals = ceData.models.map(function () { return 0; });
-  var grand = 0;
+  var grand = 0, partsCount = 0;
   var anyCount = false;
 
   $('#ce_tbody .ce-field-row').each(function () {
     var row = $(this);
     var domain = row.attr('data-domain');
+    var scopeFilters = filters[row.attr('data-scope')] || {};
     var rowTotal = 0;
     var counts = row.find('.ce-count');
     var prices = row.find('.ce-price');
     counts.each(function (i) {
-      var n = ceCountFor($(this).data('counts'), domain, severity);
+      var n = ceCountFor($(this).data('counts'), domain, scopeFilters);
       $(this).text(n);
       if (n) anyCount = true;
       var price = parseFloat(prices.eq(i).val()) || 0;
@@ -843,9 +914,13 @@ function ceRecalc() {
       rowTotal += total;
       colTotals[i] += total;
       grand += total;
+      // "Total Parts Count" = count of parts actually being priced, not
+      // every count on screen — a field with no price entered isn't being
+      // sourced yet, so it shouldn't inflate the quantity total.
+      if (price) partsCount += n;
     });
     row.find('.ce-row-total').text(estMoney(rowTotal));
-    row.toggleClass('d-none', counts.toArray().every(function (c) { return !ceCountFor($(c).data('counts'), domain, severity); }));
+    row.toggleClass('d-none', counts.toArray().every(function (c) { return !ceCountFor($(c).data('counts'), domain, scopeFilters); }));
   });
 
   $('#ce_col_totals_row .ce-col-total').each(function (i) {
@@ -853,13 +928,14 @@ function ceRecalc() {
   });
   $('.ce-grand-cell').text(estMoney(grand));
   $('#ce_parts_total').text(estMoney(grand));
+  $('#ce_parts_count').text(partsCount);
   var labour = parseFloat($('#ce_labour').val()) || 0;
   $('#ce_grand').text(estMoney(grand + labour));
   return anyCount;
 }
 
 $(document).on('input', '.ce-price, #ce_labour', ceRecalc);
-$(document).on('change', '.ce-severity', ceRecalc);
+$(document).on('change', '.ce-filter', ceRecalc);
 
 var ceAnyGenerated = false;
 $('#checklistEstimateModal').on('hidden.bs.modal', function () {
@@ -876,7 +952,8 @@ function openChecklistEstimateModal(lotId, lotNumber) {
   $('#ce_success').addClass('d-none').text('');
   $('#ce_generated').addClass('d-none');
   $('#ce_generated_list').empty();
-  $('#ce_sev_minor, #ce_sev_major').prop('checked', true);
+  $('#ce_crit_yes, #ce_hw_yes, #ce_cos_yes, #ce_cos_minor, #ce_cos_major').prop('checked', true);
+  $('#ce_crit_no, #ce_hw_no, #ce_cos_no').prop('checked', false);
   $('.ce-grade').prop('checked', false);
   $('#ce_submit').prop('disabled', true);
   new bootstrap.Modal(document.getElementById('checklistEstimateModal')).show();
@@ -902,10 +979,10 @@ function openChecklistEstimateModal(lotId, lotNumber) {
     });
 }
 
-function ceGenerateOne(grade, gradeLabel, severity, prices, labour) {
+function ceGenerateOne(grade, gradeLabel, filters, prices, labour) {
   var fd = new FormData();
   fd.append('payload', JSON.stringify({
-    severity: severity, prices: prices, grade: grade, labour_cost: labour
+    filters: filters, prices: prices, grade: grade, labour_cost: labour
   }));
   fd.append('csrf_token', peCsrfToken());
   return fetch('/part-estimation/' + ceLotId + '/generate-checklist-estimate', {
@@ -930,7 +1007,7 @@ function submitChecklistEstimate() {
     return;
   }
 
-  var severity = ceSelectedSeverity();
+  var filters = ceFilters();
   var prices = {};
   $('#ce_tbody .ce-field-row').each(function () {
     var row = $(this), group = row.attr('data-group'), field = row.attr('data-field');
@@ -955,7 +1032,7 @@ function submitChecklistEstimate() {
   var chain = Promise.resolve();
   grades.forEach(function (g) {
     chain = chain.then(function () {
-      return ceGenerateOne(g.value, g.label, severity, prices, labour);
+      return ceGenerateOne(g.value, g.label, filters, prices, labour);
     }).then(function (outcome) {
       if (!outcome.result.ok) {
         $('#ce_error').removeClass('d-none')

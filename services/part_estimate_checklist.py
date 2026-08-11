@@ -98,9 +98,20 @@ def _touch_screen(i, _d):
     return "Faulty" if "faulty" in str(val).strip().lower() else "No"
 
 
+# Every group belongs to exactly one of the three filter scopes the modal
+# shows above the table: Critical Part Added, Hardware Damage, Cosmetic
+# Damage Scope — same three-way split the older Part Estimate matrix uses
+# (Critical/Internal/Cosmetic), just with Hardware standing in for Internal.
+GROUP_SCOPE = {
+    "critical": "critical", "hardware": "hardware",
+    "display_panel": "cosmetic", "bezel_frame": "cosmetic", "screen_display": "cosmetic",
+    "hinge": "cosmetic", "touchpad": "cosmetic", "bottom_base": "cosmetic", "keyboard": "cosmetic",
+}
+
 # (group key, heading, [(field name, domain, classifier)])
-# domain: "yesno" (sums "Yes"), "sev" (sums Minor/Major per the severity
-# filter), "faulty" (sums "Faulty").
+# domain: "yesno" (sums Yes/No per its scope's Yes/No filter), "sev" (sums
+# Minor/Major per the cosmetic scope's Minor/Major filter), "faulty" (sums
+# Faulty/No per its scope's Yes/No filter, Faulty standing in for Yes).
 CHECKLIST_GROUPS = [
     ("critical", "Critical", [
         ("CPU",        "yesno", lambda i, d: "Yes" if d is not None and _blank(d.cpu) else "No"),
@@ -263,25 +274,30 @@ async def lot_checklist_matrix(db: AsyncSession, lot_id) -> list[dict]:
     return out
 
 
-def quantities_for(matrix: list[dict], severity: set) -> dict:
+def quantities_for(matrix: list[dict], filters: dict) -> dict:
     """Server-side re-derivation of every count the modal displayed.
-    {model_key: {group: {field: count}}}. `severity` is the subset of
-    {"minor","major"} that was checked — a "sev" field sums whichever of
-    Minor/Major are selected; "yesno"/"faulty" fields ignore it."""
+    {model_key: {group: {field: count}}}. `filters` is
+    {"critical": {"yes": bool, "no": bool},
+     "hardware": {"yes": bool, "no": bool},
+     "cosmetic": {"yes": bool, "no": bool, "minor": bool, "major": bool}}.
+    A "sev" field sums whichever of Minor/Major its scope has checked;
+    "yesno"/"faulty" fields sum whichever of Yes/No (Faulty standing in for
+    Yes) their scope has checked."""
     out: dict = {}
     for row in matrix:
         per_group = {}
         for g, _h, fields in CHECKLIST_GROUPS:
+            f = filters.get(GROUP_SCOPE[g]) or {}
             per_field = {}
             for name, domain, _fn in fields:
                 counts = row["counts"][g][name]
                 if domain == "sev":
-                    n = (counts.get("Minor", 0) if "minor" in severity else 0) + \
-                        (counts.get("Major", 0) if "major" in severity else 0)
-                elif domain == "faulty":
-                    n = counts.get("Faulty", 0)
+                    n = (counts.get("Minor", 0) if f.get("minor") else 0) + \
+                        (counts.get("Major", 0) if f.get("major") else 0)
                 else:
-                    n = counts.get("Yes", 0)
+                    pos_key = "Faulty" if domain == "faulty" else "Yes"
+                    n = (counts.get(pos_key, 0) if f.get("yes") else 0) + \
+                        (counts.get("No", 0) if f.get("no") else 0)
                 per_field[name] = n
             per_group[g] = per_field
         out[row["key"]] = per_group

@@ -178,6 +178,7 @@
       allow: u.perms.allow.join('|'), deny: u.perms.deny.join('|'),
       was: before ? (before.role + '/' + (before.sites || []).length + ' sites') : ''
     });
+    dirty('user', u.id);
     S.persist();
     return u;
   };
@@ -194,6 +195,7 @@
     if (work) throw new Error('This user has ' + work + ' QC record(s). Set the account to inactive instead of deleting it.');
     S.db.users = S.db.users.filter(function (x) { return x.id !== id; });
     S.audit('user', id, 'delete', { name: u.name, emp: u.emp });
+    gone('user', id);
     S.persist();
   };
 
@@ -245,6 +247,7 @@
     a.serial_captured_at = new Date().toISOString();
     a.serial_captured_by = (S.me() || {}).name || 'unknown';
     S.audit('asset', a.id, 'serial_captured', { from: from, to: s, site: a.site_id, tag: a.tag });
+    dirty('asset', a.id);
     S.persist();
     return a;
   };
@@ -323,6 +326,7 @@
       target.serial = serial;
       target.serial_captured_at = new Date().toISOString();
       target.serial_captured_by = (S.me() || {}).name + ' (import)';
+      dirty('asset', target.id);
       mapped++;
     }
     S.audit('master', 'serials', 'import', { mapped: mapped, errors: errors.length });
@@ -335,13 +339,14 @@
     var me = null;
     try { me = S.me(); } catch (e) { }
     S.db.audit.push({
-      id: 'EV' + (S.db.audit.length + 1),
+      id: 'EV' + S.deviceCode() + '-' + (S.db.audit.length + 1),
       entity: entity, record_id: recordId, action: action,
       user: me ? (me.name + ' (' + D.ROLES[me.role].label + ')') : 'system',
       user_id: me ? me.id : 'system',
       ts: new Date().toISOString(),
       meta: meta || {}
     });
+    dirty('audit', S.db.audit[S.db.audit.length - 1].id);
   };
 
   /* ---------------- Lookups ---------------- */
@@ -370,13 +375,31 @@
     return S.db.sites.slice();
   };
 
-  /* ---------------- ID helpers ---------------- */
+  /* ---------------- ID helpers ----------------
+     Records are minted on the device, offline, and later merged into one
+     shared store — so every id carries a short device code. Without it two
+     engineers working the same day would both create QC-000001 and overwrite
+     each other on sync. */
+  S.deviceCode = function () {
+    if (!S.db.meta) S.db.meta = {};
+    if (!S.db.meta.device) {
+      var chars = 'ACDEFGHJKLMNPQRTUVWXY3456789', c = '';
+      for (var i = 0; i < 3; i++) c += chars[Math.floor(Math.random() * chars.length)];
+      S.db.meta.device = c;
+    }
+    return S.db.meta.device;
+  };
+
   function nextId(kind, prefix, width) {
     S.db.counters[kind] = (S.db.counters[kind] || 0) + 1;
     var n = String(S.db.counters[kind]);
     while (n.length < width) n = '0' + n;
-    return prefix + n;
+    return prefix + S.deviceCode() + '-' + n;
   }
+
+  /* Queue a record for the next sync push (no-op when sync is not loaded). */
+  function dirty(kind, id) { if (RA.sync) RA.sync.markDirty(kind, id); }
+  function gone(kind, id) { if (RA.sync) RA.sync.markDeleted(kind, id); }
 
   /* ---------------- Asset search (BRD FR-005, fuzzy) ---------------- */
   S.searchAssets = function (q, siteId) {
@@ -534,6 +557,7 @@
     asset.qc_id = id;
     asset.status = 'qc_submitted';
     S.audit('qc', id, 'submit', { asset: asset.tag, codes: codes.join('+'), seconds: rec.seconds, version: rec.version });
+    dirty('qc', id); dirty('commercial', 'CM-' + id.slice(3)); dirty('asset', asset.id);
     S.persist();
     return rec;
   };
@@ -556,6 +580,8 @@
     else if (decision === 're_qc') { a.status = 'pending_qc'; a.qc_id = null; }
 
     S.audit('qc', qcId, 'decision:' + decision, { asset: a.tag, reason: reason || '' });
+    dirty('qc', qcId); dirty('asset', a.id);
+    if (cm) dirty('commercial', cm.id);
     S.persist();
     return q;
   };
@@ -568,6 +594,7 @@
     cm.commercial_status = decision;   // accepted | hold | disputed
     cm.updated_at = new Date().toISOString();
     S.audit('commercial', cmId, 'decision:' + decision, { note: note || '' });
+    dirty('commercial', cmId);
     S.persist();
     return cm;
   };
@@ -589,6 +616,7 @@
     if (v.active) S.db.deductions.forEach(function (d) { d.active = false; });
     S.db.deductions.push(v);
     S.audit('deduction_master', 'v' + v.version, 'publish', { rule: rule, status: status, approved_by: approvedBy });
+    dirty('deduction', v.version);
     /* Re-price only records not yet commercially accepted (historic QC keeps its version) */
     if (v.active) {
       S.db.commercial.forEach(function (cm) {
@@ -598,6 +626,7 @@
           cm.deduction_pct = p.pct; cm.deduction_amount = p.deduction_amount;
           cm.revised_price = p.revised_price; cm.master_version = p.version;
           cm.updated_at = new Date().toISOString();
+          dirty('commercial', cm.id);
         }
       });
     }
@@ -699,12 +728,14 @@
     S.audit('rate_card', 'v' + card.version, 'publish', {
       status: status, approved_by: approvedBy, effective_from: effectiveFrom
     });
+    dirty('rate_card', card.version);
 
     var applied = 0;
     if (apply && card.active) {
       var pre = S.previewCharges(card, opts || {});
       pre.rows.forEach(function (row) {
         row.site.costing = row.to;
+        dirty('site', row.site.id);
         applied++;
       });
       S.audit('rate_card', 'v' + card.version, 'apply', {
@@ -736,6 +767,7 @@
     S.audit('site', siteId, 'charges_override', {
       note: note || '', from_total: before.total_charges, to_total: c.total_charges
     });
+    dirty('site', siteId);
     S.persist();
     return s;
   };
@@ -744,6 +776,7 @@
     var s = S.site(siteId);
     s.costing = S.computeCharges(s);
     S.audit('site', siteId, 'charges_recalculated', { total: s.costing.total_charges });
+    dirty('site', siteId);
     S.persist();
     return s;
   };
@@ -820,6 +853,7 @@
       if (get(col.tat)) { s.tat = get(col.tat); s.tat_risk = /30-45|45/.test(s.tat); }
       if (get(col.blackout)) s.blackout = get(col.blackout);
       if (get(col.notes)) s.notes = get(col.notes);
+      dirty('site', s.id);
       updated++;
     }
     S.audit('master', 'sites', 'import_details', { updated: updated, errors: errors.length });
@@ -994,6 +1028,9 @@
     var cm = S.commercialFor(qcId);
     if (cm) cm.commercial_status = 'archived';
     S.audit('qc', qcId, 'archive', { reason: reason || '', asset: a ? a.tag : '' });
+    dirty('qc', qcId);
+    if (a) dirty('asset', a.id);
+    if (cm) dirty('commercial', cm.id);
     S.persist();
     return q;
   };
@@ -1044,7 +1081,10 @@
       status: 'sealed', movement_id: null
     };
     S.db.packages.push(p);
-    assetIds.forEach(function (aid) { var a = S.asset(aid); a.status = 'packed'; a.package_id = id; });
+    assetIds.forEach(function (aid) {
+      var a = S.asset(aid); a.status = 'packed'; a.package_id = id; dirty('asset', aid);
+    });
+    dirty('package', id);
     S.audit('package', id, 'seal', { site: siteId, count: assetIds.length, seal: seal, type: type });
     S.persist();
     return p;
@@ -1073,8 +1113,11 @@
       events: [{ at: new Date().toISOString(), label: 'Picked up from site', by: (S.me() || {}).name }]
     };
     S.db.movements.push(m);
-    pkgs.forEach(function (p) { p.movement_id = id; p.status = 'dispatched'; });
-    assetIds.forEach(function (aid) { var a = S.asset(aid); a.status = 'dispatched'; a.movement_id = id; });
+    pkgs.forEach(function (p) { p.movement_id = id; p.status = 'dispatched'; dirty('package', p.id); });
+    assetIds.forEach(function (aid) {
+      var a = S.asset(aid); a.status = 'dispatched'; a.movement_id = id; dirty('asset', aid);
+    });
+    dirty('movement', id);
     S.audit('movement', id, 'dispatch:' + data.mode, { site: data.site_id, assets: assetIds.length, awb: data.awb || '', vehicle: data.vehicle || '' });
     S.persist();
     return m;
@@ -1085,6 +1128,7 @@
     Object.keys(patch).forEach(function (k) { m[k] = patch[k]; });
     if (eventLabel) m.events.push({ at: new Date().toISOString(), label: eventLabel, by: (S.me() || {}).name });
     S.audit('movement', id, 'update', patch);
+    dirty('movement', id);
     S.persist();
     return m;
   };
@@ -1095,7 +1139,8 @@
     var expected = m.assets.length;
     var received = +data.received_count;
     var id = nextId('rcpt', 'RC-', 5);
-    var grn = 'GRN-' + new Date().getFullYear() + '-' + (1000 + (S.db.counters.grn = (S.db.counters.grn || 0) + 1));
+    var grn = 'GRN-' + new Date().getFullYear() + '-' + S.deviceCode() + '-' +
+              (1000 + (S.db.counters.grn = (S.db.counters.grn || 0) + 1));
     var variance = received - expected;
     var r = {
       id: id, grn: grn, movement_id: m.id, site_id: m.site_id,
@@ -1116,7 +1161,9 @@
       var a = S.asset(aid); if (!a) return;
       a.receipt_id = id;
       a.status = r.discrepancy ? 'received_discrepancy' : 'received';
+      dirty('asset', aid);
     });
+    dirty('receipt', id); dirty('movement', m.id);
     S.audit('receipt', id, 'grn', { grn: grn, expected: expected, received: received, variance: variance, seal: data.seal_status });
     S.persist();
     return r;
@@ -1129,6 +1176,7 @@
     r.resolution = note; r.resolved_at = new Date().toISOString();
     r.resolved_by = (S.me() || {}).name;
     S.audit('receipt', receiptId, 'discrepancy:resolved', { note: note });
+    dirty('receipt', receiptId);
     S.persist();
     return r;
   };
@@ -1140,6 +1188,7 @@
     if (!chk.ok) throw new Error(chk.blockers.join(' '));
     a.status = 'closed';
     S.audit('asset', assetId, 'close', { tag: a.tag });
+    dirty('asset', assetId);
     S.persist();
     return a;
   };

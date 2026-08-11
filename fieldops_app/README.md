@@ -10,10 +10,6 @@ from `Inventory Details_LP TAT & Costing.xlsx` — 3,957 units across 622 locati
 One URL serves phone, tablet and desktop. It installs to the home screen as a PWA
 and keeps working with no network.
 
-**Live at <https://app.oxypc.com/fieldops>**, linked from the OxyPC sidebar and
-served by `routers/fieldops.py` behind the OxyPC login — the Reliance inventory
-this app carries is not anonymously readable.
-
 ---
 
 ## Run it
@@ -182,11 +178,40 @@ When Reliance issues a new inventory file, either:
 
 ---
 
-## Storage, sync and the backend
+## Shared store — devices agree with each other
+
+Submit a QC on the engineer's phone and it appears in the approver's queue; accept
+it there and the unit is released for packing everywhere. Each device still writes
+locally first and keeps working with no network — sync is what makes the devices
+agree, not what makes them work.
+
+- **How** — `js/sync.js` pushes what this device changed and pulls what changed
+  elsewhere in one round trip to `POST /fieldops/api/sync`, every 20 seconds, on
+  reconnect, when the app returns to the foreground, and 1.5 s after any edit.
+- **What travels** — QC records, commercial records, assets, sites, packages,
+  movements, receipts, users, deduction masters, rate cards and the audit log.
+  The 3,957-unit inventory master never travels: every device seeds it identically
+  from `inventory.js`, so only field activity crosses the wire.
+- **Conflicts** — last-write-wins on the device's own edit time, so a phone that was
+  offline for an hour cannot overwrite a decision taken since. QC records are
+  append-only in the app itself (a correction is a new re-QC version), so the cases
+  that matter never contend.
+- **Record ids carry a device code** (`QC-WDL-000012`) — two engineers working
+  offline on the same day can never mint the same id.
+- **Offline** — changes queue on the device and drain automatically on reconnect;
+  the banner shows what is held.
+- **Without the API** — opened from a plain file server, the app reports "this device
+  only" and carries on. Nothing is lost, nothing is shared.
+
+Server side: `routers/fieldops.py` exposes the endpoint behind the OxyPC login, and
+`models/fieldops.py` stores one JSON row per record in `fieldops_records`. That table
+has no foreign keys into inventory, lots or users, so the field project can be
+archived without touching OxyPC data.
+
+## Storage and the backend
 
 The app is **local-first**. All records persist to the device (`localStorage`) and
-survive reload, airplane mode and app restart. The offline banner shows queued
-records; they flush on reconnect.
+survive reload, airplane mode and app restart, then sync to the shared store above.
 
 The seeded master occupies roughly **1.4 MB** of a typical 5 MB budget, leaving room
 for around 40 compressed photos per device before the app starts shedding cached
@@ -194,10 +219,8 @@ image data (records are never lost, and Admin → Data shows the current usage).
 That is sized for a pilot. For the full 45-day national rollout, photos and records
 should sync to a server.
 
-Wiring in a backend is deliberately a small change: every read and write goes
-through `RA.store` in [js/store.js](js/store.js). Replace `S.persist()` and the
-lookup helpers with API calls and the screens are untouched. `Admin → Backup`
-exports the full JSON snapshot, which doubles as the seed payload for the server team.
+`Admin → Backup` exports the full JSON snapshot of a device, useful for support and
+for seeding a fresh environment.
 
 ---
 
@@ -210,8 +233,6 @@ Still to come before a production rollout, per BRD Sec 21:
 
 - **FR-001 Authentication** — the demo uses a role picker and a shared PIN.
   Real OTP / password / SSO (SAML/OIDC) is a server concern.
-- **Server persistence and multi-user sync** — today each device holds its own copy,
-  so a QC submitted on an engineer's phone is not yet visible on the approver's.
 - **Courier API tracking** — AWB status is entered manually (as the BRD specifies for MVP).
 - **Photo retention policy** — pending Reliance confirmation (Open Decision #5).
 
@@ -329,7 +350,16 @@ taps the checklist, submits, approves, prices, packs, dispatches, receives and c
 a unit by clicking the real buttons and filling the real dialogs, then checks the
 dashboard, audit log, offline capture and persistence. It prints `34/34`.
 
-147 checks in total. Each resets local data, so sign in again afterwards.
+```js
+fetch('tools/selftest-sync.js').then(r => r.text()).then(t => eval(t)).then(console.log)
+```
+
+The fifth covers the shared store — push, pull, a second device receiving a QC, a
+remote approval landing back, stale-write rejection and offline drain (`15/15`). It
+needs the app served by the FastAPI route; standalone it reports the API as
+unavailable and stops.
+
+162 checks in total. Each resets local data, so sign in again afterwards.
 
 ## Regenerating the master
 

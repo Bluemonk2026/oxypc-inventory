@@ -90,6 +90,34 @@
     RA.lastRoute = location.hash;
   };
 
+  /* Connection + shared-store state, always visible on every screen */
+  function netBanner(online, pending) {
+    var sync = RA.sync;
+    var queued = sync ? sync.dirtyCount() : pending;
+    if (!online) {
+      return '<div class="net-banner offline">⚠️ <span><b>Offline.</b> Capture continues; ' +
+        queued + ' change(s) will sync on reconnect.</span></div>';
+    }
+    if (sync && sync.state.available === false) {
+      return '<div class="net-banner offline">📴 <span><b>This device only.</b> ' +
+        'The shared store is not reachable' + (queued ? ' · ' + queued + ' change(s) held' : '') +
+        '.</span><button class="link-btn" data-act="sync-now">Retry</button></div>';
+    }
+    if (sync && sync.state.last_error) {
+      return '<div class="net-banner offline">⚠️ <span>' + U.esc(sync.state.last_error) + '</span>' +
+        '<button class="link-btn" data-act="sync-now">Retry</button></div>';
+    }
+    if (queued) {
+      return '<div class="net-banner online">🔄 <span>Syncing · ' + queued +
+        ' change(s) queued</span><button class="link-btn" data-act="sync-now">Sync now</button></div>';
+    }
+    var when = sync && sync.state.last_ok
+      ? ' · shared store updated ' + U.dt(sync.state.last_ok).split(' ').slice(-1)[0]
+      : '';
+    return '<div class="net-banner online">🟢 <span>Online · all changes shared' + when +
+      '</span><button class="link-btn" data-act="sync-now">Sync now</button></div>';
+  }
+
   function titleOf(screen, params) {
     return typeof screen.title === 'function' ? screen.title(params) : (screen.title || '');
   }
@@ -133,11 +161,7 @@
           (badge ? '<span class="hdr-badge">' + U.esc(badge) + '</span>' : '') +
           '<a class="icon-btn bell" href="#/alerts">🔔' + (unread ? '<span class="dot-badge">' + unread + '</span>' : '') + '</a>' +
         '</header>' +
-        (online
-          ? '<div class="net-banner online">🟢 <span>Online' + (pending ? ' · ' + pending + ' record(s) queued' : ' · all records synced') + '</span>' +
-            (pending ? '<button class="link-btn" data-act="sync-now">Sync now</button>' : '') + '</div>'
-          : '<div class="net-banner offline">⚠️ <span><b>Offline.</b> QC capture continues; ' + pending +
-            ' record(s) will sync on reconnect.</span></div>') +
+        netBanner(online, pending) +
         '<div class="screen-body" id="screen-body">' + body + '<div class="tail"></div></div>' +
         '<nav class="bottom-nav">' + bar.map(function (k) {
           var n = NAV.filter(function (x) { return x.key === k; })[0];
@@ -231,6 +255,9 @@
     });
     if (!location.hash) location.hash = S.me() ? D.ROLES[S.me().role].home : '#/login';
     RA.render();
+
+    /* Shared store: push what this device changed, pull what others did. */
+    if (RA.sync) RA.sync.start();
 
     /* service worker — offline shell + update prompt */
     if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {

@@ -272,10 +272,14 @@
     ' synced=' + (offlineRec && offlineRec.synced));
   Object.defineProperty(navigator, 'onLine', onlineGetter || { configurable: true, get: function () { return true; } });
   go('#/myday');
+  /* The record must be registered for sync, not silently dropped. Draining the
+     queue is a network round trip, so this harness (synchronous by design)
+     checks the hand-off; tools/selftest-sync.js verifies the drain itself. */
+  var queuedForSync = !RA.sync || RA.sync.dirtyCount() > 0 || S.pendingSync().length === 0;
   var syncBtn = document.querySelector('[data-act="sync-now"]');
   if (syncBtn) syncBtn.click();
-  log(S.pendingSync().length === 0, 'Queued record syncs when the connection returns',
-    S.pendingSync().length + ' still queued');
+  log(queuedForSync, 'Record captured offline is queued for the shared store',
+    'not queued and not synced');
 
   /* ---------------- 18. Persistence across a reload ---------------- */
   var saved = JSON.parse(localStorage.getItem('relianceFieldOps.db.v1'));

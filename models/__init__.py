@@ -25,6 +25,8 @@ from .dispatch_request import TelecallerDispatchRequest
 from .stock_validation import StockValidation
 from .grn_import import GRNImport
 from .market import MarketAvailability
+# Reliance FieldOps shared store (/fieldops)
+from .fieldops import FieldOpsRecord
 # QA / UAT tracking module
 from .qa_uat import (
     QARequirement, QATestCase, QATestExecution,

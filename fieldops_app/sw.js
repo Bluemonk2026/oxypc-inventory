@@ -1,18 +1,19 @@
 /* Reliance Asset FieldOps — service worker (offline shell) */
-var CACHE = 'fieldops-v3.1.0';
+var CACHE = 'fieldops-v3.2.0';
 var ASSETS = [
   './',
   './index.html',
-  './css/app.css',
-  './js/inventory.js',
-  './js/data.js',
-  './js/store.js',
-  './js/ui.js',
-  './js/screens-field.js',
-  './js/screens-ops.js',
-  './js/screens-admin.js',
-  './js/app.js',
-  './manifest.webmanifest',
+  './css/app.css?v=3.2.0',
+  './js/inventory.js?v=3.2.0',
+  './js/data.js?v=3.2.0',
+  './js/store.js?v=3.2.0',
+  './js/sync.js?v=3.2.0',
+  './js/ui.js?v=3.2.0',
+  './js/screens-field.js?v=3.2.0',
+  './js/screens-ops.js?v=3.2.0',
+  './js/screens-admin.js?v=3.2.0',
+  './js/app.js?v=3.2.0',
+  './manifest.webmanifest?v=3.2.0',
   './icons/icon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png'

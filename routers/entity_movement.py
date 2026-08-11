@@ -74,6 +74,7 @@ async def change_entities(
     request: Request,
     tags: str = Form(""),
     target: str = Form(...),
+    invoice_number: str = Form(""),
     invoice_pdf: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
@@ -95,6 +96,7 @@ async def change_entities(
     from_entities = {d.entity for d in devices if d.entity}
     from_entity = next(iter(from_entities), None)
     notes = "mixed source entities" if len(from_entities) > 1 else None
+    invoice_number = invoice_number.strip()
 
     # SEND TO: entity changes, GRN stays, stage -> Stock In.
     # SOLD TO: entity changes, GRN cleared, stage -> IQC (re-inspection required
@@ -103,6 +105,8 @@ async def change_entities(
     for d in devices:
         prev_stage = d.current_stage
         d.entity = to_entity
+        if invoice_number:
+            d.invoice_number = invoice_number
         if direction == MovementDirection.sold:
             d.grn_number = None
         d.current_stage = target_stage
@@ -133,7 +137,8 @@ async def change_entities(
     await audit(db, user=current_user, action="ENTITY_MOVEMENT_BULK_CHANGE",
                 table_name="devices", record_id=None,
                 new_value={"entity": to_entity, "direction": direction.value,
-                           "tags": len(devices), "missing": len(missing)},
+                           "tags": len(devices), "missing": len(missing),
+                           "invoice_number": invoice_number or None},
                 request=request)
     await db.commit()
 

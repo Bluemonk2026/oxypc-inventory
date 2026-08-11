@@ -27,7 +27,7 @@ that an administrator created — including the inventory master itself.
 | Variable | Purpose |
 |---|---|
 | `FIELDOPS_DATABASE_URL` | its own Postgres database (asyncpg URL). Without it the app reports itself unconfigured and OxyPC is unaffected |
-| `FIELDOPS_ADMIN_PASSWORD` | creates the administrator on first start. Never stored in the repo |
+| `FIELDOPS_ADMIN_PASSWORD` | one-time key that creates the administrator on first start. They must change it at first sign-in, after which the variable is never read again — a restart cannot reset a chosen password |
 | `FIELDOPS_ADMIN_USERNAME` | optional, defaults to `admin` |
 | `FIELDOPS_DEMO_PASSWORD` | optional. Gives the ten seeded role accounts a working password; without it they exist with the right roles but cannot sign in until an administrator issues one |
 

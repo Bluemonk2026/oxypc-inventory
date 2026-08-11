@@ -52,6 +52,11 @@ async def seed_accounts(session) -> dict:
                 username=FIELDOPS_ADMIN_USERNAME,
                 name="System Administrator",
                 password_hash=hash_password(FIELDOPS_ADMIN_PASSWORD),
+                # The bootstrap value is a one-time key: it gets the first
+                # administrator in, and they must replace it before doing
+                # anything else. After that the variable is inert — restarts
+                # never reset a password that has been changed.
+                must_change_password=True,
                 role="admin",
                 region="All",
                 sites=[],
@@ -60,14 +65,17 @@ async def seed_accounts(session) -> dict:
                 created_by="bootstrap",
             )
             session.add(admin)
-            session.add(FieldOpsAudit(actor="bootstrap", action="admin_created",
-                                      target=FIELDOPS_ADMIN_USERNAME,
-                                      detail="created from FIELDOPS_ADMIN_PASSWORD"))
+            session.add(FieldOpsAudit(
+                actor="bootstrap", action="admin_created",
+                target=FIELDOPS_ADMIN_USERNAME,
+                detail="created from FIELDOPS_ADMIN_PASSWORD; must change at first sign-in"))
             created.append(FIELDOPS_ADMIN_USERNAME)
     elif FIELDOPS_ADMIN_PASSWORD and not admin.password_hash:
         # admin exists but has no usable password (e.g. seeded before the var was set)
         admin.password_hash = hash_password(FIELDOPS_ADMIN_PASSWORD)
-        notes.append("Administrator password set from FIELDOPS_ADMIN_PASSWORD.")
+        admin.must_change_password = True
+        notes.append("Administrator password set from FIELDOPS_ADMIN_PASSWORD "
+                     "— it must be changed at first sign-in.")
 
     # ---------- project role accounts ----------
     demo_hash = hash_password(FIELDOPS_DEMO_PASSWORD) if FIELDOPS_DEMO_PASSWORD else None
@@ -93,6 +101,12 @@ async def seed_accounts(session) -> dict:
             )
         )
         created.append(username)
+
+    if FIELDOPS_ADMIN_USERNAME in created:
+        notes.append(
+            "The administrator must change the bootstrap password at first sign-in; "
+            "FIELDOPS_ADMIN_PASSWORD is not read again once one is set."
+        )
 
     if created and not demo_hash:
         notes.append(

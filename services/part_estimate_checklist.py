@@ -169,6 +169,7 @@ CHECKLIST_GROUPS = [
         ("Scratch",            "sev",   _sev("touchpad_scratch")),
         ("Colour Fade",        "yesno", _yesno("touchpad_colour_fade")),
         ("Logicboard Missing", "yesno", _yesno("touchpad_logicboard")),
+        ("Touchpad Working",   "yesno", _working("touchpad_working")),
     ]),
     ("bottom_base", "Bottom Base", [
         ("Scratch",      "sev",   _sev("panel_b_scratch")),
@@ -178,9 +179,10 @@ CHECKLIST_GROUPS = [
         ("Rubber Cut",   "yesno", _yesno("panel_b_rubber_cut")),
     ]),
     ("keyboard", "Keyboard", [
-        ("Key Missing", "yesno", _yesno("keyboard_key_missing")),
-        ("Hard Press",  "yesno", _yesno("keyboard_hard_press")),
-        ("Colour Fade", "yesno", _yesno("keyboard_colour_fade")),
+        ("Key Missing",      "yesno", _yesno("keyboard_key_missing")),
+        ("Hard Press",       "yesno", _yesno("keyboard_hard_press")),
+        ("Colour Fade",      "yesno", _yesno("keyboard_colour_fade")),
+        ("Keyboard Working", "yesno", _working("keyboard_working")),
     ]),
 ]
 
@@ -193,8 +195,8 @@ _IQC_COLS = tuple(dict.fromkeys(_MATRIX_IQC_COLS + (
     "panel_a_broken", "panel_a_missing", "panel_a_dent", "panel_a_colour_fade",
     "panel_c_scratch", "panel_c_broken", "panel_c_missing", "panel_c_dent", "panel_c_colour_fade",
     "panel_b_broken", "panel_b_missing", "panel_b_colour_fade", "panel_b_rubber_cut",
-    "keyboard_key_missing", "keyboard_hard_press", "keyboard_colour_fade",
-    "touchpad_missing", "touchpad_colour_fade", "touchpad_logicboard",
+    "keyboard_key_missing", "keyboard_hard_press", "keyboard_colour_fade", "keyboard_working",
+    "touchpad_missing", "touchpad_colour_fade", "touchpad_logicboard", "touchpad_working",
     "hinge_condition", "port_hdmi", "port_usb_working", "port_audio_jack",
     "battery_cable",
 )))

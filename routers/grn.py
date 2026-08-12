@@ -516,9 +516,26 @@ async def grn_download(grn_id: str, db: AsyncSession = Depends(get_db),
     except ValueError:
         raise HTTPException(404)
     g = (await db.execute(select(GRNImport).where(GRNImport.id == gid))).scalar_one_or_none()
-    if not g or not g.file_path or not os.path.exists(g.file_path):
+    if not g or not g.file_path:
         raise HTTPException(404, "File not found")
-    return FileResponse(g.file_path, filename=g.file_name or "invoice.pdf",
+    # file_path was stored as an ABSOLUTE path at upload time. That path is
+    # only valid on the server that actually wrote the bytes — records synced
+    # in from another environment (e.g. the pre-cutover Railway deployment,
+    # whose container root was "/app") carry a path that never existed on
+    # this box. Re-resolve by basename under this server's own GRN upload
+    # dir before giving up, so any file whose bytes genuinely are present
+    # here (including ones this server itself wrote) still downloads.
+    resolved = g.file_path
+    if not os.path.exists(resolved):
+        candidate = os.path.join(GRN_UPLOAD_DIR, os.path.basename(g.file_path))
+        if os.path.exists(candidate):
+            resolved = candidate
+        else:
+            raise HTTPException(
+                404,
+                "File not found on this server — it may have been uploaded to a "
+                "previous deployment whose files were never migrated here.")
+    return FileResponse(resolved, filename=g.file_name or "invoice.pdf",
                         media_type="application/pdf")
 
 

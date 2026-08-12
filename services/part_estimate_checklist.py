@@ -119,13 +119,13 @@ CHECKLIST_GROUPS = [
         ("Hard Drive", "yesno", _rule("Hard Drive")),
     ]),
     ("hardware", "Hardware", [
-        ("HDMI Working",          "yesno", _working("port_hdmi")),
-        ("USB Working",           "yesno", _working("port_usb_working")),
-        ("Audio jack Working",    "yesno", _working("port_audio_jack")),
-        ("Ethernet Working",      "yesno", _port_count("ethernet_ports")),
-        ("Speaker Working",       "yesno", _rule("Speaker")),
-        ("Wi-Fi working",         "yesno", _rule("Wi-Fi")),
-        ("Web Cam working",       "yesno", _rule("Web Cam")),
+        ("HDMI not working",          "yesno", _working("port_hdmi")),
+        ("USB not working",           "yesno", _working("port_usb_working")),
+        ("Audio jack not working",    "yesno", _working("port_audio_jack")),
+        ("Ethernet not working",      "yesno", _port_count("ethernet_ports")),
+        ("Speaker not working",       "yesno", _rule("Speaker")),
+        ("Wi-Fi not working",         "yesno", _rule("Wi-Fi")),
+        ("Web Cam not working",       "yesno", _rule("Web Cam")),
         ("HDD Connector exist",   "yesno", _rule("HDD Connector")),
         ("DVD Drive exist",       "yesno", _rule("DVD Drive")),
         ("Battery Cable exist",   "yesno", _yesno("battery_cable", defect_value="no", blank_is_defect=True)),
@@ -169,7 +169,7 @@ CHECKLIST_GROUPS = [
         ("Scratch",            "sev",   _sev("touchpad_scratch")),
         ("Colour Fade",        "yesno", _yesno("touchpad_colour_fade")),
         ("Logicboard Missing", "yesno", _yesno("touchpad_logicboard")),
-        ("Touchpad Working",   "yesno", _working("touchpad_working")),
+        ("Touchpad not working", "yesno", _working("touchpad_working")),
     ]),
     ("bottom_base", "Bottom Base", [
         ("Scratch",      "sev",   _sev("panel_b_scratch")),
@@ -182,7 +182,7 @@ CHECKLIST_GROUPS = [
         ("Key Missing",      "yesno", _yesno("keyboard_key_missing")),
         ("Hard Press",       "yesno", _yesno("keyboard_hard_press")),
         ("Colour Fade",      "yesno", _yesno("keyboard_colour_fade")),
-        ("Keyboard Working", "yesno", _working("keyboard_working")),
+        ("Keyboard not working", "yesno", _working("keyboard_working")),
     ]),
 ]
 

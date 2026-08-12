@@ -274,10 +274,6 @@
             <div class="d-flex align-items-center gap-3">
               <span class="fw-semibold" style="width:170px">Critical Part Added:</span>
               <span class="form-check form-check-inline mb-0">
-                <input class="form-check-input ce-filter" type="checkbox" data-scope="critical" data-key="yes" id="ce_crit_yes" checked>
-                <label class="form-check-label small" for="ce_crit_yes">Yes</label>
-              </span>
-              <span class="form-check form-check-inline mb-0">
                 <input class="form-check-input ce-filter" type="checkbox" data-scope="critical" data-key="no" id="ce_crit_no">
                 <label class="form-check-label small" for="ce_crit_no">No</label>
               </span>
@@ -286,10 +282,6 @@
             <div class="d-flex align-items-center gap-3">
               <span class="fw-semibold" style="width:170px">Hardware Damage:</span>
               <span class="form-check form-check-inline mb-0">
-                <input class="form-check-input ce-filter" type="checkbox" data-scope="hardware" data-key="yes" id="ce_hw_yes" checked>
-                <label class="form-check-label small" for="ce_hw_yes">No</label>
-              </span>
-              <span class="form-check form-check-inline mb-0">
                 <input class="form-check-input ce-filter" type="checkbox" data-scope="hardware" data-key="no" id="ce_hw_no">
                 <label class="form-check-label small" for="ce_hw_no">Yes</label>
               </span>
@@ -297,10 +289,6 @@
             </div>
             <div class="d-flex align-items-center gap-3">
               <span class="fw-semibold" style="width:170px">Cosmetic Damage:</span>
-              <span class="form-check form-check-inline mb-0">
-                <input class="form-check-input ce-filter" type="checkbox" data-scope="cosmetic" data-key="yes" id="ce_cos_yes" checked>
-                <label class="form-check-label small" for="ce_cos_yes">Yes</label>
-              </span>
               <span class="form-check form-check-inline mb-0">
                 <input class="form-check-input ce-filter" type="checkbox" data-scope="cosmetic" data-key="no" id="ce_cos_no">
                 <label class="form-check-label small" for="ce_cos_no">No</label>
@@ -821,7 +809,10 @@ var CE_GROUP_SCOPE = {
 };
 
 function ceFilters() {
-  var f = { critical: {}, hardware: {}, cosmetic: {} };
+  // Critical/Hardware/Cosmetic each dropped their "Yes" (defect-present)
+  // checkbox from the UI — that side is always included now; only the
+  // "No"/Minor/Major checkboxes remain as optional add-on toggles.
+  var f = { critical: { yes: true }, hardware: { yes: true }, cosmetic: { yes: true } };
   $('.ce-filter').each(function () {
     var $c = $(this);
     f[$c.data('scope')][$c.data('key')] = $c.is(':checked');
@@ -944,7 +935,7 @@ function openChecklistEstimateModal(lotId, lotNumber) {
   $('#ce_loading').removeClass('d-none');
   $('#ce_body').addClass('d-none');
   $('#ce_error').addClass('d-none').text('');
-  $('#ce_crit_yes, #ce_hw_yes, #ce_cos_yes, #ce_cos_minor, #ce_cos_major').prop('checked', true);
+  $('#ce_cos_minor, #ce_cos_major').prop('checked', true);
   $('#ce_crit_no, #ce_hw_no, #ce_cos_no').prop('checked', false);
   $('#ce_grade').val('');
   $('#ce_submit').prop('disabled', true);

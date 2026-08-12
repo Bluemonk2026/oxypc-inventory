@@ -294,11 +294,11 @@
                 <label class="form-check-label small" for="ce_cos_no">No</label>
               </span>
               <span class="form-check form-check-inline mb-0">
-                <input class="form-check-input ce-filter" type="checkbox" data-scope="cosmetic" data-key="minor" id="ce_cos_minor" checked>
+                <input class="form-check-input ce-filter" type="checkbox" data-scope="cosmetic" data-key="minor" id="ce_cos_minor">
                 <label class="form-check-label small" for="ce_cos_minor">Minor</label>
               </span>
               <span class="form-check form-check-inline mb-0">
-                <input class="form-check-input ce-filter" type="checkbox" data-scope="cosmetic" data-key="major" id="ce_cos_major" checked>
+                <input class="form-check-input ce-filter" type="checkbox" data-scope="cosmetic" data-key="major" id="ce_cos_major">
                 <label class="form-check-label small" for="ce_cos_major">Major</label>
               </span>
               <span class="text-muted">Display Panel/Bezel Frame/Screen/Hinge/Touchpad/Bottom Base/Keyboard</span>
@@ -935,8 +935,7 @@ function openChecklistEstimateModal(lotId, lotNumber) {
   $('#ce_loading').removeClass('d-none');
   $('#ce_body').addClass('d-none');
   $('#ce_error').addClass('d-none').text('');
-  $('#ce_cos_minor, #ce_cos_major').prop('checked', true);
-  $('#ce_crit_no, #ce_hw_no, #ce_cos_no').prop('checked', false);
+  $('#ce_crit_no, #ce_hw_no, #ce_cos_no, #ce_cos_minor, #ce_cos_major').prop('checked', false);
   $('#ce_grade').val('');
   $('#ce_submit').prop('disabled', true);
   new bootstrap.Modal(document.getElementById('checklistEstimateModal')).show();

@@ -810,9 +810,10 @@ var CE_GROUP_SCOPE = {
 
 function ceFilters() {
   // Critical/Hardware/Cosmetic each dropped their "Yes" (defect-present)
-  // checkbox from the UI — that side is always included now; only the
-  // "No"/Minor/Major checkboxes remain as optional add-on toggles.
-  var f = { critical: { yes: true }, hardware: { yes: true }, cosmetic: { yes: true } };
+  // checkbox from the UI. No hardcoded default here — with no checkbox to
+  // select it, that side stays unselected (0) same as every other filter,
+  // until the remaining "No"/Minor/Major checkbox(es) are checked.
+  var f = { critical: {}, hardware: {}, cosmetic: {} };
   $('.ce-filter').each(function () {
     var $c = $(this);
     f[$c.data('scope')][$c.data('key')] = $c.is(':checked');

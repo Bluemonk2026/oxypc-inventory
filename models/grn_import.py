@@ -1,6 +1,6 @@
 import uuid
 from utils.timezone import app_now
-from sqlalchemy import Column, String, DateTime, Integer, Numeric, Boolean
+from sqlalchemy import Column, String, DateTime, Date, Integer, Numeric, Boolean, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID
 from database import Base
 
@@ -13,12 +13,19 @@ class GRNImport(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     grn_number = Column(String(12), unique=True, nullable=False, index=True)  # 12-digit
 
-    lot_number = Column(String(60), nullable=True)       # parsed from invoice PDF (best-effort)
+    lot_number = Column(String(60), nullable=True)       # parsed from invoice PDF (best-effort, free text)
+    lot_id = Column(UUID(as_uuid=True), ForeignKey("lots.id"), nullable=True, index=True)  # mapped Lot (Add Lot / Edit Lot flow)
     invoice_number = Column(String(100), nullable=True)
     invoice_date = Column(String(40), nullable=True)     # text (parsed from PDF, may be free-form)
-    sender_name = Column(String(200), nullable=True)
-    quantity = Column(Integer, nullable=True)
-    amount = Column(Numeric(14, 2), nullable=True)
+    sender_name = Column(String(200), nullable=True)     # "Vendor Name" in UI
+    quantity = Column(Integer, nullable=True)             # "Invoice Quantity" in UI
+    amount = Column(Numeric(14, 2), nullable=True)        # "Invoice Price" in UI
+    purchase_date = Column(Date, nullable=True)
+    grn_date = Column(Date, nullable=True)
+    po_number = Column(String(50), nullable=True)
+    vehicle_number = Column(String(50), nullable=True)
+    e_way_bill = Column(String(50), nullable=True)
+    notes = Column(Text, nullable=True)
     validated = Column(Boolean, default=False, nullable=True)   # set via Validate GRN modal
     received_qty = Column(Integer, nullable=True)               # actual count entered at validation
     validation_ref = Column(String(100), nullable=True)         # GRN reference no. from the modal

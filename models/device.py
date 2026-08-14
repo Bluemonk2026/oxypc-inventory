@@ -24,6 +24,8 @@ class DeviceStage(str, enum.Enum):
     painting = "painting"
     water_sanding = "water_sanding"
     final_qc = "final_qc"
+    final_qc_pass_hold = "final_qc_pass_hold"
+    final_qc_fail_hold = "final_qc_fail_hold"
     ready_to_sale = "ready_to_sale"
     sold = "sold"
     returned = "returned"
@@ -56,6 +58,8 @@ STAGE_LABELS = {
     DeviceStage.painting: "Painting",
     DeviceStage.water_sanding: "Water Sanding",
     DeviceStage.final_qc: "Final QC",
+    DeviceStage.final_qc_pass_hold: "Final QC — Pass Hold",
+    DeviceStage.final_qc_fail_hold: "Final QC — Fail Hold",
     DeviceStage.ready_to_sale: "Ready to Sale",
     DeviceStage.sold: "Sold",
     DeviceStage.returned: "Returned",
@@ -79,6 +83,8 @@ STAGE_COLORS = {
     DeviceStage.painting: "teal",
     DeviceStage.water_sanding: "teal",
     DeviceStage.final_qc: "purple",
+    DeviceStage.final_qc_pass_hold: "success",
+    DeviceStage.final_qc_fail_hold: "warning",
     DeviceStage.ready_to_sale: "success",
     DeviceStage.sold: "dark",
     DeviceStage.returned: "warning",
@@ -126,6 +132,8 @@ class Device(Base):
     bios_password = Column(Boolean, default=False, nullable=True)
     grade = Column(SAEnum(DeviceGrade), nullable=True)
     final_qc_status = Column(String(10), nullable=True, index=True)  # "pass" / "fail" — set on Final QC decision
+    fqc_failure_reason = Column(Text, nullable=True)  # set when final_qc_status="fail"; shown on Devices Failed / Final QC Fail (Bucket) tables
+    fqc_pass_notes = Column(Text, nullable=True)      # set when final_qc_status="pass"; shown on Devices Passed table
     current_stage = Column(SAEnum(DeviceStage), nullable=False, default=DeviceStage.iqc, index=True)
     floor = Column(String(50), nullable=True)          # holds the Zone value (ZoneType) selected on IQC/Edit
     warehouse = Column(String(100), nullable=True)     # legacy free-text; now best-effort mirrors location display_name

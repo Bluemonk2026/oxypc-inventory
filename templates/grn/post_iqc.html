@@ -1,13 +1,13 @@
 {% extends "base.html" %}
-{% block title %}GRN post IQC — OxyPC{% endblock %}
-{% block page_title %}GRN post IQC{% endblock %}
+{% block title %}Create GRN — OxyPC{% endblock %}
+{% block page_title %}Create GRN{% endblock %}
 {% block content %}
 {# Flash messages are rendered once by base.html — rendering them here too
    showed every success/error twice. #}
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
-    <h5 class="fw-bold mb-0"><i class="bi bi-receipt me-2"></i>GRN post IQC</h5>
+    <h5 class="fw-bold mb-0"><i class="bi bi-receipt me-2"></i>Create GRN</h5>
     <span class="text-muted small">Upload an invoice PDF — a 12-digit GRN is generated. Then map it onto IQC'd tag numbers below.</span>
   </div>
   <form action="/grn/upload" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">

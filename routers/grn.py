@@ -749,6 +749,12 @@ async def grn_add_lot(grn_id: str, lot_number: str = Form(...), confirm_merge: s
         g.e_way_bill = existing.e_way_bill or g.e_way_bill
         g.notes = existing.notes or g.notes
         g.lot_number = existing.lot_number
+        # Fill the Lot's own GRN-number field from this GRN if the lot didn't
+        # already have one — read by the "GRN #" column on Product IQC's Lot
+        # Numbers tab and the "GRN System Number" field on Edit Lot, neither
+        # of which look at GRNImport directly.
+        if not existing.grn_system_number:
+            existing.grn_system_number = g.grn_number
     else:
         new_lot = Lot(
             lot_number=lot_number,
@@ -765,6 +771,9 @@ async def grn_add_lot(grn_id: str, lot_number: str = Form(...), confirm_merge: s
             vehicle_number=g.vehicle_number,
             e_way_bill=g.e_way_bill,
             notes=g.notes,
+            # Same reasoning as the merge branch above — Product IQC's Lot
+            # Numbers tab and Edit Lot both read this field, not GRNImport.
+            grn_system_number=g.grn_number,
         )
         db.add(new_lot)
         await db.flush()

@@ -671,6 +671,30 @@ async def assign_bucket_to_production(
     return JSONResponse({"ok": True, "assigned": len(devices)})
 
 
+@router.post("/buckets/{bucket_id}/release")
+async def release_bucket(
+    bucket_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Inventory Manager's Final QC Pass (Buckets) table — 'Release Bucket'
+    action. Removes the bucket_id link from every active device currently
+    in this bucket; devices themselves are untouched (already ready_to_sale
+    by the time a bucket reaches this table)."""
+    try:
+        uid = uuid.UUID(bucket_id)
+    except Exception:
+        raise HTTPException(400, "Invalid bucket ID")
+    devices = (await db.execute(
+        select(Device).where(Device.bucket_id == uid, Device.is_active == True)
+    )).scalars().all()
+    for device in devices:
+        device.bucket_id = None
+        device.updated_at = app_now()
+    await db.commit()
+    return JSONResponse({"ok": True, "released": len(devices)})
+
+
 @router.post("/buckets/{bucket_id}/assign-to-engineer")
 async def assign_bucket_to_engineer(
     bucket_id: str,

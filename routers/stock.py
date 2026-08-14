@@ -29,6 +29,7 @@ from models.part_request import PartRequest
 from models.spare_parts import SparePart
 from models.location import StorageLocation, ZoneType, ZONE_LABELS, UnitType, UNIT_TYPE_LABELS
 from models.work_order import WorkOrder
+from models.bucket import Bucket
 
 _log = logging.getLogger(__name__)
 
@@ -997,6 +998,29 @@ async def stock_in_list(
     )).all()
     entity_counts = {(e or "Unassigned"): c for e, c in entity_counts_rows}
 
+    # ── Final QC Pass (Buckets): devices moved here via Final QC's
+    #    "Move to Inventory" action — still bucket-linked at ready_to_sale,
+    #    awaiting Release Bucket. ────────────────────────────────────────────
+    fqc_pass_rows = (await db.execute(
+        select(Device).where(
+            Device.current_stage == DeviceStage.ready_to_sale,
+            Device.bucket_id.isnot(None),
+            Device.is_active == True,
+        )
+    )).scalars().all()
+    fqc_pass_bucket_ids = {d.bucket_id for d in fqc_pass_rows}
+    fqc_pass_buckets_by_id = {}
+    if fqc_pass_bucket_ids:
+        b_rows = (await db.execute(select(Bucket).where(Bucket.id.in_(fqc_pass_bucket_ids)))).scalars().all()
+        fqc_pass_buckets_by_id = {b.id: b for b in b_rows}
+    fqc_pass_grouped = {}
+    for d in fqc_pass_rows:
+        b = fqc_pass_buckets_by_id.get(d.bucket_id)
+        if not b:
+            continue
+        fqc_pass_grouped.setdefault(b.id, {"bucket_id": str(b.id), "bucket_name": b.name, "bucket_number": b.bucket_number})
+    fqc_pass_buckets = list(fqc_pass_grouped.values())
+
     return templates.TemplateResponse("lots/stock_in.html", {
         "request": request, "current_user": current_user,
         "analytics": analytics,
@@ -1019,6 +1043,7 @@ async def stock_in_list(
             for z in [ZoneType.workshop, ZoneType.holding, ZoneType.dispatch, ZoneType.showroom, ZoneType.warehouse]
         ],
         "unit_type_options": [(u.value, UNIT_TYPE_LABELS.get(u, u.value)) for u in UnitType],
+        "fqc_pass_buckets": fqc_pass_buckets,
     })
 
 

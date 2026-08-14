@@ -167,19 +167,28 @@
   </div>
 </div>
 
-<!-- Allocation table: buckets already allocated to Production -->
+<!-- Final QC Pass (Buckets): buckets released from Final QC's Devices Passed table -->
 <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
-  <h6 class="fw-bold mb-0"><i class="bi bi-diagram-3 me-2"></i>Allocation — Buckets in Production</h6>
+  <h6 class="fw-bold mb-0"><i class="bi bi-patch-check me-2"></i>Final QC Pass (Buckets)</h6>
 </div>
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body p-0">
     <div class="table-responsive">
-      <table id="allocationTable" class="table table-hover mb-0 small">
+      <table class="table table-hover mb-0 small">
         <thead class="table-secondary">
-          <tr><th>Bucket ID</th><th>Location ID</th><th>Total Pass</th><th>Total Fail</th><th>Count of Tag Numbers</th><th>Stage</th><th>Assigned To</th></tr>
+          <tr><th>Bucket Name</th><th>Bucket ID</th><th>Stage</th><th>Action</th></tr>
         </thead>
-        <tbody id="allocationTbody">
-          <tr><td colspan="7" class="text-center text-muted py-3">Loading…</td></tr>
+        <tbody>
+          {% for row in fqc_pass_buckets %}
+          <tr>
+            <td>{{ row.bucket_name or '—' }}</td>
+            <td class="font-monospace">{{ row.bucket_number }}</td>
+            <td><span class="badge bg-success">Ready to Sale</span></td>
+            <td><button class="btn btn-sm btn-outline-danger release-bucket-btn" data-bucket-id="{{ row.bucket_id }}">Release Bucket</button></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="text-center text-muted py-3">No buckets pending release.</td></tr>
+          {% endfor %}
         </tbody>
       </table>
     </div>
@@ -566,7 +575,6 @@ $(document).on('click', '.move-bkt-trc', function(){
     .then(function(d){
       if(d.ok){
         loadBucketTable();
-        loadAllocationTable();
         if (window._loadBucketMap) window._loadBucketMap();
       }
     });
@@ -633,7 +641,6 @@ document.getElementById('bktSubmitBtn').addEventListener('click', function(){
     if(d.ok){
       bootstrap.Modal.getInstance(document.getElementById('addToBucketModal')).hide();
       loadBucketTable();
-      loadAllocationTable();
       bcs.forEach(function(bc){
         var cell = document.querySelector('.bkt-cell[data-barcode="'+bc+'"]');
         if(cell) cell.innerHTML = '<span class="badge bg-warning text-dark">'+d.bucket_number+'</span>';
@@ -645,29 +652,13 @@ document.getElementById('bktSubmitBtn').addEventListener('click', function(){
 var _productionManager = null;
 fetch('/api/production-manager').then(function(r){return r.json();}).then(function(d){ _productionManager = d; });
 
-// ── Allocation table: buckets already handed to Production ─────────────────
-function loadAllocationTable(){
-  fetch('/api/buckets?status=stock_in,trc_pending,validated').then(function(r){return r.json();}).then(function(buckets){
-    var allocated = buckets.filter(function(b){ return b.assigned_to_production; });
-    var tbody = document.getElementById('allocationTbody');
-    if(!allocated.length){
-      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No buckets allocated to Production yet.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = allocated.map(function(b){
-      return '<tr>'+
-        '<td><span class="badge bg-secondary">'+b.bucket_number+'</span></td>'+
-        '<td>'+(b.location_unit_id||'—')+'</td>'+
-        '<td><span class="badge bg-success">'+b.total_pass+'</span></td>'+
-        '<td><span class="badge bg-danger">'+b.total_fail+'</span></td>'+
-        '<td><span class="badge bg-info text-dark">'+b.device_count+'</span></td>'+
-        '<td><span class="badge bg-light text-dark">'+b.status+'</span></td>'+
-        '<td><span class="badge bg-primary">Production</span></td>'+
-      '</tr>';
-    }).join('');
-  });
-}
-loadAllocationTable();
+$(document).on('click', '.release-bucket-btn', function () {
+  var id = $(this).data('bucket-id');
+  if (!confirm('Release this bucket? Tag numbers will be un-linked from it.')) return;
+  var fd = new FormData(); fd.append('csrf_token', getCsrf());
+  fetch('/buckets/' + id + '/release', { method: 'POST', body: fd }).then(function (r) { return r.json(); })
+    .then(function (d) { if (d.ok) { location.reload(); } else { alert(d.detail || 'Release failed'); } });
+});
 
 $(document).on('click', '.assign-prod-btn', function(){
   document.getElementById('apBktId').value = this.dataset.id;
@@ -683,7 +674,6 @@ document.getElementById('apSubmitBtn').addEventListener('click', function(){
   fetch('/buckets/'+id+'/assign-to-production', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
     if(d.ok){
       bootstrap.Modal.getInstance(document.getElementById('assignProdModal')).hide();
-      loadAllocationTable();
       loadBucketTable();
     } else {
       alert(d.detail || 'Failed to assign bucket to production.');

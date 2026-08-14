@@ -97,7 +97,7 @@ async def _bucket_group(db: AsyncSession, stage: DeviceStage, status_val: str):
         if not b:
             continue
         g = grouped.setdefault(b.id, {
-            "bucket_id": str(b.id), "bucket_name": b.name, "bucket_number": b.bucket_number,
+            "bucket_id": str(b.id), "bucket_name": b.name or b.bucket_number, "bucket_number": b.bucket_number,
             "count": 0, "failure_reason": None, "pass_notes": None,
         })
         g["count"] += 1

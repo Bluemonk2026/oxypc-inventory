@@ -5,7 +5,7 @@ All routes require an authenticated session.
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.exc import DBAPIError
 
 from database import get_db
@@ -100,9 +100,14 @@ async def get_lot_meta(
     # A lot can carry several GRNs; the most recent one is what a fresh IQC
     # entry belongs to. Fall back to the lot's own invoice reference when no
     # GRN has been imported yet.
+    # Match via the lot_id FK first (the mapping set by GRN in TRC's Add/Edit
+    # Lot flow) — the free-text lot_number match is kept as a fallback for
+    # older rows that predate that FK, since not every GRN gets lot_number
+    # written back to it.
     grn = (await db.execute(
         select(GRNImport)
-        .where(GRNImport.lot_number == lot.lot_number, GRNImport.is_deleted == False)
+        .where(or_(GRNImport.lot_id == lot.id, GRNImport.lot_number == lot.lot_number),
+               GRNImport.is_deleted == False)
         .order_by(GRNImport.created_at.desc()).limit(1)
     )).scalars().first()
     return JSONResponse({

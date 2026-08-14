@@ -5,19 +5,17 @@
 {# Flash messages are rendered once by base.html — rendering them here too
    showed every success/error twice. #}
 
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <div>
-      <h6 class="fw-bold mb-1"><i class="bi bi-file-earmark-arrow-up me-2"></i>Upload Invoice (post IQC)</h6>
-      <span class="text-muted small">Upload an invoice PDF — a 12-digit GRN is generated. Then map it onto IQC'd tag numbers below.</span>
-    </div>
-    <form action="/grn/upload" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
-      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-      <input type="hidden" name="source" value="post_iqc">
-      <input type="file" name="invoice" accept="application/pdf,.pdf" class="form-control form-control-sm" style="min-width:260px" required>
-      <button type="submit" class="btn btn-primary btn-sm text-nowrap"><i class="bi bi-cloud-upload me-1"></i>Upload Invoice</button>
-    </form>
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h5 class="fw-bold mb-0"><i class="bi bi-receipt me-2"></i>GRN post IQC</h5>
+    <span class="text-muted small">Upload an invoice PDF — a 12-digit GRN is generated. Then map it onto IQC'd tag numbers below.</span>
   </div>
+  <form action="/grn/upload" method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+    <input type="hidden" name="source" value="post_iqc">
+    <input type="file" name="invoice" accept="application/pdf,.pdf" class="form-control form-control-sm" style="min-width:260px" required>
+    <button type="submit" class="btn btn-primary btn-sm text-nowrap"><i class="bi bi-cloud-upload me-1"></i>Upload Invoice</button>
+  </form>
 </div>
 
 <!-- Filter bar -->
@@ -49,6 +47,31 @@
   </div>
 </div>
 
+{# Count cards sit under the filter bar and are derived from the rows the filter
+   leaves visible, so they always describe the same slice of data as the table
+   below rather than the whole dataset — same pattern as GRN with Invoice's
+   (templates/grn/import.html) cards. #}
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-4">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-3 fw-bold text-primary" id="cardTotalQty">0</div>
+      <div class="small text-muted">Total GRN Quantities</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-4">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-3 fw-bold text-success" id="cardDevicesAdded">0</div>
+      <div class="small text-muted">Total Devices Added</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-4">
+    <div class="card border-0 shadow-sm text-center p-3">
+      <div class="fs-3 fw-bold text-warning" id="cardDevicesPending">0</div>
+      <div class="small text-muted">Total Devices Pending</div>
+    </div>
+  </div>
+</div>
+
 <div class="card border-0 shadow-sm mb-4">
   <div class="card-header bg-transparent fw-semibold"><i class="bi bi-receipt me-2"></i>Uploaded GRNs (post IQC)</div>
   <div class="card-body p-0">
@@ -56,7 +79,7 @@
       <table id="grnTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark">
           <tr>
-            <th class="ps-3">GRN</th><th>Lot Number</th><th>Invoice Number</th><th>Date of Invoice</th>
+            <th class="ps-3">GRN</th><th>LOT</th><th>Invoice Number</th><th>Date of Invoice</th>
             <th>Vendor Name</th><th>Quantity</th><th>Stocked</th><th>Amount</th><th>Download</th><th>Action</th>
           </tr>
         </thead>
@@ -272,8 +295,28 @@
 <script src="/static/js/tag-scan-autocheck.js?v={{ ASSET_VERSION }}"></script>
 <script>
 $(document).ready(function(){
+  // Cards are recomputed from the rows that survive the current filter, not from
+  // a server-side total — one code path keeps cards and table in agreement.
+  // Same pattern as GRN with Invoice's (templates/grn/import.html) cards.
+  function refreshCards(rows) {
+    var qty = 0, added = 0;
+    rows.forEach(function (tr) {
+      var cell = tr.querySelector ? tr.querySelector('.grn-stocked') : null;
+      if (!cell) return;
+      qty   += parseInt(cell.getAttribute('data-qty'), 10) || 0;
+      added += parseInt(cell.getAttribute('data-stocked'), 10) || 0;
+    });
+    document.getElementById('cardTotalQty').textContent = qty;
+    document.getElementById('cardDevicesAdded').textContent = added;
+    document.getElementById('cardDevicesPending').textContent = Math.max(0, qty - added);
+  }
+
   if ($('#grnTable tbody tr td').length > 1) {
     var dt = $('#grnTable').DataTable({pageLength: 12, order: []});
+    dt.on('draw.dt', function () {
+      refreshCards(dt.rows({search: 'applied'}).nodes().toArray());
+    });
+    refreshCards(dt.rows({search: 'applied'}).nodes().toArray());
     $.fn.dataTable.ext.search.push(function(settings, data){
       if (settings.nTable.id !== 'grnTable') return true;
       var from = document.getElementById('fFrom').value;
@@ -294,6 +337,8 @@ $(document).ready(function(){
       ['fGrn','fInvoice','fVendor','fFrom','fTo'].forEach(function(id){ document.getElementById(id).value=''; });
       dt.column(0).search('').column(2).search('').column(4).search('').draw();
     });
+  } else {
+    refreshCards([]);
   }
   // Server-side: the Invoice/PO/Device Type filters used to run as a
   // client-side ext.search predicate over rows already in the DOM. They now

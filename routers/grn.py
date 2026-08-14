@@ -748,6 +748,7 @@ async def grn_add_lot(grn_id: str, lot_number: str = Form(...), confirm_merge: s
         g.vehicle_number = existing.vehicle_number or g.vehicle_number
         g.e_way_bill = existing.e_way_bill or g.e_way_bill
         g.notes = existing.notes or g.notes
+        g.lot_number = existing.lot_number
     else:
         new_lot = Lot(
             lot_number=lot_number,
@@ -768,6 +769,7 @@ async def grn_add_lot(grn_id: str, lot_number: str = Form(...), confirm_merge: s
         db.add(new_lot)
         await db.flush()
         g.lot_id = new_lot.id
+        g.lot_number = new_lot.lot_number
 
     await db.commit()
     return JSONResponse({"ok": True})

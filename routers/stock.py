@@ -1018,7 +1018,7 @@ async def stock_in_list(
         b = fqc_pass_buckets_by_id.get(d.bucket_id)
         if not b:
             continue
-        fqc_pass_grouped.setdefault(b.id, {"bucket_id": str(b.id), "bucket_name": b.name, "bucket_number": b.bucket_number})
+        fqc_pass_grouped.setdefault(b.id, {"bucket_id": str(b.id), "bucket_name": b.name or b.bucket_number, "bucket_number": b.bucket_number})
     fqc_pass_buckets = list(fqc_pass_grouped.values())
 
     return templates.TemplateResponse("lots/stock_in.html", {
@@ -1299,7 +1299,7 @@ async def trc_production_list(
         if not b:
             continue
         g = fqc_fail_grouped.setdefault(b.id, {
-            "bucket_id": str(b.id), "bucket_name": b.name, "bucket_number": b.bucket_number,
+            "bucket_id": str(b.id), "bucket_name": b.name or b.bucket_number, "bucket_number": b.bucket_number,
             "count": 0, "failure_reason": None,
         })
         g["count"] += 1

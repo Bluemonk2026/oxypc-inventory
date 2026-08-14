@@ -12,6 +12,7 @@ from sqlalchemy import select, func
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
+from models.bucket import Bucket
 from models.lot import Lot
 from models.iqc_inspection import IQCInspection
 from models.repair import RepairJob
@@ -70,6 +71,38 @@ async def _get_devices_at_stage(db: AsyncSession, stage: DeviceStage):
         .order_by(Device.updated_at.desc())
     )
     return result.all()
+
+
+async def _bucket_group(db: AsyncSession, stage: DeviceStage, status_val: str):
+    """Group active, bucket-linked devices at `stage` (with `final_qc_status`
+    == status_val) by their bucket — feeds the Devices Passed / Devices
+    Failed tables on the Final QC page."""
+    rows = (await db.execute(
+        select(Device).where(
+            Device.current_stage == stage,
+            Device.final_qc_status == status_val,
+            Device.is_active == True,
+            Device.bucket_id.isnot(None),
+        )
+    )).scalars().all()
+    bucket_ids = {d.bucket_id for d in rows}
+    buckets_by_id = {}
+    if bucket_ids:
+        b_rows = (await db.execute(select(Bucket).where(Bucket.id.in_(bucket_ids)))).scalars().all()
+        buckets_by_id = {b.id: b for b in b_rows}
+    grouped = {}
+    for d in rows:
+        b = buckets_by_id.get(d.bucket_id)
+        if not b:
+            continue
+        g = grouped.setdefault(b.id, {
+            "bucket_id": str(b.id), "bucket_name": b.name, "bucket_number": b.bucket_number,
+            "count": 0, "failure_reason": None, "pass_notes": None,
+        })
+        g["count"] += 1
+        g["failure_reason"] = g["failure_reason"] or d.fqc_failure_reason
+        g["pass_notes"] = g["pass_notes"] or d.fqc_pass_notes
+    return list(grouped.values())
 
 
 @router.get("", response_class=HTMLResponse)
@@ -186,12 +219,24 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
                     "updated_price": after_repair_price,
                 }
 
+        bucket_ids_for_page = {d.bucket_id for d, _ in devices if d.bucket_id}
+        bucket_name_map = {}
+        if bucket_ids_for_page:
+            b_rows = (await db.execute(select(Bucket).where(Bucket.id.in_(bucket_ids_for_page)))).scalars().all()
+            bname_by_id = {b.id: b.name for b in b_rows}
+            bucket_name_map = {str(d.id): bname_by_id.get(d.bucket_id, "—") for d, _ in devices if d.bucket_id}
+
+        passed_buckets = await _bucket_group(db, DeviceStage.final_qc_pass_hold, "pass")
+        failed_buckets = await _bucket_group(db, DeviceStage.final_qc_fail_hold, "fail")
+
         return templates.TemplateResponse("cosmetic/final_qc.html", {
             "request": request, "current_user": current_user,
             "stage": stage, "stage_label": STAGE_LABELS[stage],
             "devices": devices, "iqc_map": iqc_map, "repairs_map": repairs_map,
             "parts_map": parts_map, "price_map": price_map,
             "pipeline": COSMETIC_NAV_STAGES, "stage_labels": STAGE_LABELS,
+            "bucket_name_map": bucket_name_map,
+            "passed_buckets": passed_buckets, "failed_buckets": failed_buckets,
         })
 
     return templates.TemplateResponse("cosmetic/stage.html", {
@@ -211,6 +256,7 @@ async def advance_stage(
     target: str = Form(""),
     final_qc_status: str = Form("pass"),
     failure_reason: str = Form(""),
+    pass_notes: str = Form(""),
     grade: str = Form(""),
     warehouse: str = Form(""),
     updated_make: str = Form(""),
@@ -250,17 +296,21 @@ async def advance_stage(
         _is_fail = final_qc_status.strip().lower() == "fail"
         device.final_qc_status = "fail" if _is_fail else "pass"
         if _is_fail:
-            device.current_stage = DeviceStage.cleaning
+            # Hold here instead of auto-advancing to Cleaning — the device now
+            # sits in the "Devices Failed" table until a human clicks
+            # "Move to Production" (see /cosmetic/final-qc/move-to-production).
+            device.fqc_failure_reason = (failure_reason or "").strip() or None
+            device.current_stage = DeviceStage.final_qc_fail_hold
             device.updated_at = app_now()
             movement = StageMovement(
-                device_id=device.id, from_stage=current, to_stage=DeviceStage.cleaning,
+                device_id=device.id, from_stage=current, to_stage=DeviceStage.final_qc_fail_hold,
                 moved_by=current_user.username,
                 notes=f"Final QC Failed — {failure_reason or 'Rework'}. {notes}"
             )
             db.add(movement)
             await db.commit()
             return RedirectResponse(
-                url="/cosmetic/final_qc?error=Final+QC+Failed,+sent+back+for+rework",
+                url="/cosmetic/final_qc?error=Final+QC+Failed+for+" + barcode,
                 status_code=302
             )
 
@@ -310,6 +360,23 @@ async def advance_stage(
             except Exception:
                 pass  # pricing snapshot must never block the QC pass itself
 
+        # Hold here instead of auto-advancing to Ready to Sale — the device
+        # now sits in the "Devices Passed" table until a human clicks
+        # "Move to Inventory" (see /cosmetic/final-qc/move-to-inventory).
+        device.fqc_pass_notes = (pass_notes or "").strip() or None
+        device.current_stage = DeviceStage.final_qc_pass_hold
+        device.updated_at = app_now()
+        db.add(StageMovement(
+            device_id=device.id, from_stage=current, to_stage=DeviceStage.final_qc_pass_hold,
+            moved_by=current_user.username,
+            notes=f"Final QC Passed — {pass_notes or ''}".strip(),
+        ))
+        await db.commit()
+        return RedirectResponse(
+            url="/cosmetic/final_qc?success=Final+QC+Passed+for+" + barcode,
+            status_code=302
+        )
+
     prev = current
     device.current_stage = next_stage
     device.updated_at = app_now()
@@ -326,6 +393,67 @@ async def advance_stage(
 
     stage_name = next_stage.value
     return RedirectResponse(url=f"/cosmetic/{stage_name}?success=Device+{barcode}+moved+to+{stage_name.replace('_', '+')}", status_code=302)
+
+
+@router.post("/final-qc/move-to-inventory/{bucket_id}")
+async def fqc_move_to_inventory(bucket_id: str, db: AsyncSession = Depends(get_db),
+                                 current_user: User = Depends(allowed)):
+    """Devices Passed → Final QC Pass (Buckets) on Inventory Manager."""
+    import uuid as _u
+    try:
+        bid = _u.UUID(bucket_id)
+    except ValueError:
+        raise HTTPException(404)
+    devices = (await db.execute(
+        select(Device).where(
+            Device.bucket_id == bid,
+            Device.current_stage == DeviceStage.final_qc_pass_hold,
+            Device.is_active == True,
+        )
+    )).scalars().all()
+    if not devices:
+        raise HTTPException(404, "No devices found in this bucket at Final QC Pass Hold.")
+    for device in devices:
+        device.current_stage = DeviceStage.ready_to_sale
+        device.updated_at = app_now()
+        db.add(StageMovement(
+            device_id=device.id, from_stage=DeviceStage.final_qc_pass_hold, to_stage=DeviceStage.ready_to_sale,
+            moved_by=current_user.username, notes="Moved to Inventory from Final QC Pass",
+        ))
+    await db.commit()
+    return {"ok": True, "moved": len(devices)}
+
+
+@router.post("/final-qc/move-to-production/{bucket_id}")
+async def fqc_move_to_production(bucket_id: str, db: AsyncSession = Depends(get_db),
+                                  current_user: User = Depends(allowed)):
+    """Devices Failed → Final QC Fail (Bucket) on Production Manager, ready for Assign."""
+    import uuid as _u
+    try:
+        bid = _u.UUID(bucket_id)
+    except ValueError:
+        raise HTTPException(404)
+    devices = (await db.execute(
+        select(Device).where(
+            Device.bucket_id == bid,
+            Device.current_stage == DeviceStage.final_qc_fail_hold,
+            Device.is_active == True,
+        )
+    )).scalars().all()
+    if not devices:
+        raise HTTPException(404, "No devices found in this bucket at Final QC Fail Hold.")
+    for device in devices:
+        device.current_stage = DeviceStage.l1
+        device.updated_at = app_now()
+        db.add(StageMovement(
+            device_id=device.id, from_stage=DeviceStage.final_qc_fail_hold, to_stage=DeviceStage.l1,
+            moved_by=current_user.username, notes="Moved to Production from Final QC Fail",
+        ))
+    bucket = (await db.execute(select(Bucket).where(Bucket.id == bid))).scalar_one_or_none()
+    if bucket:
+        bucket.assigned_to_production = False
+    await db.commit()
+    return {"ok": True, "moved": len(devices)}
 
 
 @router.post("/send-to-cosmetic")

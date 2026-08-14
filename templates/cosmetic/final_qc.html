@@ -106,6 +106,10 @@
             <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
             <input type="hidden" name="barcode" value="{{ device.barcode }}">
             <div class="mb-2">
+              <label class="form-label small mb-0 text-muted">Bucket</label>
+              <div class="fw-semibold small">{{ bucket_name_map.get(device.id|string, '—') }}</div>
+            </div>
+            <div class="mb-2">
               <label class="form-label small">Final Status</label>
               <select name="final_qc_status" class="form-select form-select-sm fqc-status-select">
                 {% for s in master_options('cosmetic_final_qc_status') %}<option value="{{ s }}">{{ s | title }}</option>{% endfor %}
@@ -126,6 +130,10 @@
                 <option {{ 'selected' if device.grade and device.grade.value == 'B' }}>B</option>
                 <option {{ 'selected' if device.grade and device.grade.value == 'C' }}>C</option>
               </select>
+            </div>
+            <div class="mb-2 fqc-pass-only">
+              <label class="form-label small">Pass Notes</label>
+              <input type="text" name="pass_notes" class="form-control form-control-sm" placeholder="Remarks">
             </div>
             <div class="mb-2 fqc-fail-only">
               <label class="form-label small">Final Notes</label>
@@ -148,6 +156,68 @@
 {% else %}
 <div class="card border-0 shadow-sm"><div class="card-body text-center text-muted py-5">No devices awaiting Final QC.</div></div>
 {% endif %}
+
+<ul class="nav nav-tabs mt-4" id="fqcResultTabs">
+  <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#fqcPassedTab">Devices Passed</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#fqcFailedTab">Devices Failed</a></li>
+</ul>
+<div class="tab-content border border-top-0 p-3">
+  <div class="tab-pane fade show active" id="fqcPassedTab">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr><th>Bucket Name</th><th>Bucket ID</th><th>Count of Tag Numbers</th><th>Stage</th><th>Pass Notes</th><th>Action</th></tr></thead>
+      <tbody>
+        {% for row in passed_buckets %}
+        <tr>
+          <td>{{ row.bucket_name or '—' }}</td>
+          <td class="font-monospace small">{{ row.bucket_number }}</td>
+          <td>{{ row.count }}</td>
+          <td><span class="badge bg-success">Final QC — Pass Hold</span></td>
+          <td class="small">{{ row.pass_notes or '—' }}</td>
+          <td><button class="btn btn-sm btn-success fqc-move-inv" data-bucket-id="{{ row.bucket_id }}">Move to Inventory</button></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-3">No devices awaiting inventory move.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="tab-pane fade" id="fqcFailedTab">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr><th>Bucket Name</th><th>Bucket ID</th><th>Count of Tag Numbers</th><th>Stage</th><th>Failure Reason</th><th>Action</th></tr></thead>
+      <tbody>
+        {% for row in failed_buckets %}
+        <tr>
+          <td>{{ row.bucket_name or '—' }}</td>
+          <td class="font-monospace small">{{ row.bucket_number }}</td>
+          <td>{{ row.count }}</td>
+          <td><span class="badge bg-warning text-dark">Final QC — Fail Hold</span></td>
+          <td class="small">{{ row.failure_reason or '—' }}</td>
+          <td><button class="btn btn-sm btn-primary fqc-move-prod" data-bucket-id="{{ row.bucket_id }}">Move to Production</button></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-3">No failed devices awaiting production hand-off.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+$(document).on('click', '.fqc-move-inv', function () {
+  var id = $(this).data('bucket-id');
+  var csrf = "{{ request.cookies.get('csrf_token','') }}";
+  if (!confirm('Move this bucket to inventory?')) return;
+  $.post('/cosmetic/final-qc/move-to-inventory/' + id, { csrf_token: csrf }).done(function () { location.reload(); })
+    .fail(function (xhr) { alert(xhr.responseJSON && xhr.responseJSON.detail || 'Move failed'); });
+});
+$(document).on('click', '.fqc-move-prod', function () {
+  var id = $(this).data('bucket-id');
+  var csrf = "{{ request.cookies.get('csrf_token','') }}";
+  if (!confirm('Move this bucket to production?')) return;
+  $.post('/cosmetic/final-qc/move-to-production/' + id, { csrf_token: csrf }).done(function () { location.reload(); })
+    .fail(function (xhr) { alert(xhr.responseJSON && xhr.responseJSON.detail || 'Move failed'); });
+});
+</script>
 
 <script>
 // 1/4 card list -> switches which device's 3/4 detail pane is shown.

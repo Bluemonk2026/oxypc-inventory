@@ -56,14 +56,22 @@
       <table id="grnTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark">
           <tr>
-            <th class="ps-3">GRN</th><th>Invoice Number</th><th>Date of Invoice</th>
+            <th class="ps-3">GRN</th><th>Lot Number</th><th>Invoice Number</th><th>Date of Invoice</th>
             <th>Vendor Name</th><th>Quantity</th><th>Stocked</th><th>Amount</th><th>Download</th><th>Action</th>
           </tr>
         </thead>
         <tbody>
           {% for g in grns %}
+          {% set _lot = lots_by_id.get(g.lot_id) if lots_by_id is defined and g.lot_id else None %}
           <tr id="grn-{{ g.grn_number }}">
             <td class="ps-3"><span class="font-monospace fw-bold">{{ g.grn_number }}</span></td>
+            <td>
+              {% if _lot %}
+              <a href="/lots/{{ _lot.id }}" class="text-decoration-none fw-semibold">{{ _lot.lot_number }}</a>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
             <td>{{ g.invoice_number or '—' }}</td>
             <td>{{ g.invoice_date or '—' }}</td>
             <td>{{ g.sender_name or '—' }}</td>
@@ -83,11 +91,22 @@
             <td class="text-nowrap">
               <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
                       data-bs-toggle="modal" data-bs-target="#editGrnModal"
-                      data-id="{{ g.id }}" data-inv="{{ g.invoice_number or '' }}" data-date="{{ g.invoice_date or '' }}"
+                      data-id="{{ g.id }}" data-grn-number="{{ g.grn_number }}"
+                      data-lot-number="{{ _lot.lot_number if _lot else '' }}"
+                      data-inv="{{ g.invoice_number or '' }}" data-date="{{ g.invoice_date or '' }}"
                       data-sender="{{ g.sender_name or '' }}" data-qty="{{ g.quantity if g.quantity is not none else '' }}"
-                      data-amount="{{ g.amount if g.amount is not none else '' }}">
+                      data-amount="{{ g.amount if g.amount is not none else '' }}"
+                      data-purchase-date="{{ g.purchase_date.isoformat() if g.purchase_date else '' }}"
+                      data-grn-date="{{ g.grn_date.isoformat() if g.grn_date else '' }}"
+                      data-po="{{ g.po_number or '' }}" data-vehicle="{{ g.vehicle_number or '' }}"
+                      data-eway="{{ g.e_way_bill or '' }}" data-notes="{{ g.notes or '' }}">
                 <i class="bi bi-pencil"></i> Edit
               </button>
+              {% if _lot %}
+              <a href="/lots/{{ _lot.id }}/edit" class="btn btn-sm btn-outline-secondary py-0 px-2"><i class="bi bi-box-seam"></i> Edit Lot</a>
+              {% else %}
+              <button type="button" class="btn btn-sm btn-outline-success py-0 px-2 add-lot-btn" data-grn-id="{{ g.id }}"><i class="bi bi-box-seam"></i> Add Lot</button>
+              {% endif %}
               <button type="button" class="btn btn-sm btn-warning py-0 px-2 map-grn-btn"
                       data-id="{{ g.id }}" data-grn="{{ g.grn_number }}">
                 <i class="bi bi-link-45deg"></i> Map this GRN
@@ -101,7 +120,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="9" class="text-center text-muted py-4">No GRN imports yet. Upload an invoice to begin.</td></tr>
+          <tr><td colspan="10" class="text-center text-muted py-4">No GRN imports yet. Upload an invoice to begin.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -175,22 +194,74 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div class="mb-2"><label class="form-label fw-semibold">Invoice Number</label>
-          <input type="text" name="invoice_number" id="e_inv" class="form-control"></div>
-        <div class="mb-2"><label class="form-label fw-semibold">Date of Invoice</label>
-          <input type="date" name="invoice_date" id="e_date" class="form-control"></div>
-        <div class="mb-2"><label class="form-label fw-semibold">Vendor Name</label>
+        <div class="row g-2">
+          <div class="col-6"><label class="form-label fw-semibold">GRN Number</label>
+            <input type="text" id="e_grn_number" class="form-control" readonly></div>
+          <div class="col-6"><label class="form-label fw-semibold">Lot Number</label>
+            <input type="text" id="e_lot_number" class="form-control" readonly placeholder="— Not mapped —"></div>
+        </div>
+        <div class="mb-2 mt-2"><label class="form-label fw-semibold">Vendor Name</label>
           <input type="text" name="sender_name" id="e_sender" class="form-control"></div>
         <div class="row g-2">
-          <div class="col-6"><label class="form-label fw-semibold">Quantity</label>
-            <input type="number" name="quantity" id="e_qty" class="form-control" min="0"></div>
-          <div class="col-6"><label class="form-label fw-semibold">Amount</label>
-            <input type="text" name="amount" id="e_amount" class="form-control"></div>
+          <div class="col-6"><label class="form-label fw-semibold">Purchase Date</label>
+            <input type="date" name="purchase_date" id="e_purchase_date" class="form-control"></div>
+          <div class="col-6"><label class="form-label fw-semibold">GRN Date</label>
+            <input type="date" name="grn_date" id="e_grn_date" class="form-control"></div>
         </div>
+        <div class="mb-2"><label class="form-label fw-semibold">Date of Invoice</label>
+          <input type="date" name="invoice_date" id="e_date" class="form-control"></div>
+        <div class="row g-2">
+          <div class="col-6"><label class="form-label fw-semibold">Invoice Price</label>
+            <input type="text" name="amount" id="e_amount" class="form-control"></div>
+          <div class="col-6"><label class="form-label fw-semibold">Invoice Quantity</label>
+            <input type="number" name="quantity" id="e_qty" class="form-control" min="0"></div>
+        </div>
+        <div class="mb-2"><label class="form-label fw-semibold">Invoice Number</label>
+          <input type="text" name="invoice_number" id="e_inv" class="form-control"></div>
+        <div class="row g-2">
+          <div class="col-6"><label class="form-label fw-semibold">PO Number</label>
+            <input type="text" name="po_number" id="e_po" class="form-control"></div>
+          <div class="col-6"><label class="form-label fw-semibold">Vehicle Number</label>
+            <input type="text" name="vehicle_number" id="e_vehicle" class="form-control"></div>
+        </div>
+        <div class="mb-2"><label class="form-label fw-semibold">E-Way Bill Number</label>
+          <input type="text" name="e_way_bill" id="e_eway" class="form-control"></div>
+        <div class="mb-2"><label class="form-label fw-semibold">Notes</label>
+          <textarea name="notes" id="e_notes" class="form-control" rows="2"></textarea></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
         <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Add Lot modal -->
+<div class="modal fade" id="addLotModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form id="addLotForm" class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-box-seam me-2"></i>Add Lot</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="al_grn_id">
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Lot Number</label>
+          <input type="text" id="al_lot_number" class="form-control" required>
+        </div>
+        <div class="alert alert-warning d-none" id="al_existing_warning">
+          This Lot Number already exists.
+          <div class="form-check mt-1">
+            <input class="form-check-input" type="checkbox" id="al_confirm_merge">
+            <label class="form-check-label" for="al_confirm_merge">Are you sure want to add tags in this Lot</label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
       </div>
     </form>
   </div>
@@ -208,20 +279,20 @@ $(document).ready(function(){
       var from = document.getElementById('fFrom').value;
       var to   = document.getElementById('fTo').value;
       if (!from && !to) return true;
-      var d = (data[2] || '').trim();  // Date of Invoice — column 2 since Lot Number was removed
+      var d = (data[3] || '').trim();  // Date of Invoice — column 3 now that Lot Number is column 1
       if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
       if (from && d < from) return false;
       if (to && d > to) return false;
       return true;
     });
     document.getElementById('fGrn').addEventListener('input', function(){ dt.column(0).search(this.value).draw(); });
-    document.getElementById('fInvoice').addEventListener('input', function(){ dt.column(1).search(this.value).draw(); });
-    document.getElementById('fVendor').addEventListener('input', function(){ dt.column(3).search(this.value).draw(); });
+    document.getElementById('fInvoice').addEventListener('input', function(){ dt.column(2).search(this.value).draw(); });
+    document.getElementById('fVendor').addEventListener('input', function(){ dt.column(4).search(this.value).draw(); });
     document.getElementById('fFrom').addEventListener('change', function(){ dt.draw(); });
     document.getElementById('fTo').addEventListener('change', function(){ dt.draw(); });
     document.getElementById('fReset').addEventListener('click', function(){
       ['fGrn','fInvoice','fVendor','fFrom','fTo'].forEach(function(id){ document.getElementById(id).value=''; });
-      dt.column(0).search('').column(1).search('').column(3).search('').draw();
+      dt.column(0).search('').column(2).search('').column(4).search('').draw();
     });
   }
   // Server-side: the Invoice/PO/Device Type filters used to run as a
@@ -307,11 +378,51 @@ var em = document.getElementById('editGrnModal');
 if (em) { em.addEventListener('show.bs.modal', function(e){
   var b = e.relatedTarget;
   document.getElementById('editGrnForm').action = '/grn/' + b.getAttribute('data-id') + '/edit';
+  document.getElementById('e_grn_number').value = b.getAttribute('data-grn-number') || '';
+  document.getElementById('e_lot_number').value = b.getAttribute('data-lot-number') || '';
   document.getElementById('e_inv').value = b.getAttribute('data-inv') || '';
   document.getElementById('e_date').value = b.getAttribute('data-date') || '';
   document.getElementById('e_sender').value = b.getAttribute('data-sender') || '';
   document.getElementById('e_qty').value = b.getAttribute('data-qty') || '';
   document.getElementById('e_amount').value = b.getAttribute('data-amount') || '';
+  document.getElementById('e_purchase_date').value = b.getAttribute('data-purchase-date') || '';
+  document.getElementById('e_grn_date').value = b.getAttribute('data-grn-date') || '';
+  document.getElementById('e_po').value = b.getAttribute('data-po') || '';
+  document.getElementById('e_vehicle').value = b.getAttribute('data-vehicle') || '';
+  document.getElementById('e_eway').value = b.getAttribute('data-eway') || '';
+  document.getElementById('e_notes').value = b.getAttribute('data-notes') || '';
 });}
+
+// Add Lot modal wiring
+document.querySelectorAll('.add-lot-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.getElementById('al_grn_id').value = this.getAttribute('data-grn-id');
+    document.getElementById('al_lot_number').value = '';
+    document.getElementById('al_existing_warning').classList.add('d-none');
+    document.getElementById('al_confirm_merge').checked = false;
+    new bootstrap.Modal(document.getElementById('addLotModal')).show();
+  });
+});
+document.getElementById('al_lot_number').addEventListener('blur', function(){
+  var v = this.value.trim();
+  if (!v) return;
+  fetch('/grn/lots/check?lot_number=' + encodeURIComponent(v)).then(function(r){ return r.json(); }).then(function(resp){
+    document.getElementById('al_existing_warning').classList.toggle('d-none', !resp.exists);
+  });
+});
+document.getElementById('addLotForm').addEventListener('submit', function(e){
+  e.preventDefault();
+  var fd = new FormData();
+  fd.append('csrf_token', document.querySelector('#editGrnForm input[name="csrf_token"]').value);
+  fd.append('lot_number', document.getElementById('al_lot_number').value.trim());
+  fd.append('confirm_merge', document.getElementById('al_confirm_merge').checked ? '1' : '');
+  fetch('/grn/' + document.getElementById('al_grn_id').value + '/add-lot', {method:'POST', body:fd})
+    .then(function(r){
+      if (!r.ok) { return r.json().then(function(j){ throw new Error(j.detail || 'Failed'); }); }
+      return r.json();
+    })
+    .then(function(){ location.reload(); })
+    .catch(function(err){ alert(err.message); });
+});
 </script>
 {% endblock %}

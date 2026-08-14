@@ -181,7 +181,7 @@
         <tbody>
           {% for row in fqc_pass_buckets %}
           <tr>
-            <td>{{ row.bucket_name or '—' }}</td>
+            <td><a href="#" class="text-decoration-none view-bkt-tags" data-id="{{ row.bucket_id }}" data-number="{{ row.bucket_number }}">{{ row.bucket_name or '—' }}</a></td>
             <td class="font-monospace">{{ row.bucket_number }}</td>
             <td><span class="badge bg-success">Ready to Sale</span></td>
             <td><button class="btn btn-sm btn-outline-danger release-bucket-btn" data-bucket-id="{{ row.bucket_id }}">Release Bucket</button></td>

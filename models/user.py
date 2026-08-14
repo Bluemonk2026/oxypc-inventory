@@ -22,6 +22,7 @@ class UserRole(str, enum.Enum):
     spare_parts_manager = "spare_parts_manager"
     telecaller = "telecaller"
     sales_manager = "sales_manager"
+    cosmetic_manager = "cosmetic_manager"
 
 
 ROLE_LABELS = {
@@ -36,6 +37,7 @@ ROLE_LABELS = {
     UserRole.spare_parts_manager: "Parts Manager",
     UserRole.telecaller: "Telecaller Sales",
     UserRole.sales_manager: "Sales Manager",
+    UserRole.cosmetic_manager: "Cosmetic Manager",
 }
 
 

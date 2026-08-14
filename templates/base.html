@@ -785,6 +785,12 @@
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
       </div>
       {% endif %}
+      {% if request.query_params.get('warning') %}
+      <div class="alert alert-warning alert-dismissible fade show py-2" role="alert">
+        <i class="bi bi-exclamation-triangle me-2"></i>{{ request.query_params.get('warning') | replace('+', ' ') }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+      {% endif %}
     </div>
 
     <!-- Content -->

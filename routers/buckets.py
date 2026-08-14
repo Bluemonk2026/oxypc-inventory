@@ -30,9 +30,16 @@ FALLBACK_WAREHOUSES = [
 
 # L1 and L2 engineers share the merged /repair/l1 queue and the l2 stage is retired, so an
 # L2 assignment lands in l1 — routing it to DeviceStage.l2 would strand the whole bucket.
-DEPT_TO_STAGE = {"L1 Engineer": "l1", "L2 Engineer": "l1"}
-DEPT_TO_ROLE  = {"L1 Engineer": "l1_engineer", "L2 Engineer": "l2_engineer"}
-STAGE_ENUM    = {"l1": DeviceStage.l1}
+DEPT_TO_STAGE = {
+    "L1 Engineer": "l1", "L2 Engineer": "l1",
+    # Assign Bucket modal's 3 radio options (Production Manager):
+    "L1/L2 Repair": "l1", "Stress Test": "qc_check", "Cosmetic Repair": "cleaning",
+}
+DEPT_TO_ROLE = {
+    "L1 Engineer": "l1_engineer", "L2 Engineer": "l2_engineer",
+    "L1/L2 Repair": "l1_engineer", "Stress Test": "qc_inspector", "Cosmetic Repair": "cosmetic_manager",
+}
+STAGE_ENUM = {"l1": DeviceStage.l1, "qc_check": DeviceStage.qc_check, "cleaning": DeviceStage.cleaning}
 
 
 async def _gen_work_id(db: AsyncSession) -> str:
@@ -200,10 +207,13 @@ async def bucket_engineers(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Returns L1 and L2 engineers for the Assign Bucket modal."""
+    """Returns engineers for the Assign Bucket modal's Select Engineer dropdown —
+    L1/L2 Repair, Stress Test (QC Handler), and Cosmetic Repair (Cosmetic
+    Manager) roles, filtered client-side by whichever radio is selected."""
     rows = (await db.execute(
         select(User).where(
-            User.role.in_([UserRole.l1_engineer, UserRole.l2_engineer]),
+            User.role.in_([UserRole.l1_engineer, UserRole.l2_engineer,
+                           UserRole.qc_inspector, UserRole.cosmetic_manager]),
             User.status == True,
         ).order_by(User.full_name)
     )).scalars().all()

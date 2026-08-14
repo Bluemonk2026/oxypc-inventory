@@ -218,17 +218,24 @@
           <input type="number" id="asgBktCount" class="form-control" readonly>
         </div>
         <div class="mb-2">
-          <label class="form-label fw-semibold">Select Repair Level</label>
-          <select id="asgRepairLevel" class="form-select">
-            <option value="">— Select Level —</option>
-            <option value="L1 Engineer">L1 Engineer</option>
-            <option value="L2 Engineer">L2 Engineer</option>
-          </select>
+          <label class="form-label fw-semibold d-block">Repair Type</label>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input asg-level-radio" type="radio" name="asgLevel" id="asgLevelL1L2" value="L1/L2 Repair" checked>
+            <label class="form-check-label" for="asgLevelL1L2">L1/L2 Repair</label>
+          </div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input asg-level-radio" type="radio" name="asgLevel" id="asgLevelStress" value="Stress Test">
+            <label class="form-check-label" for="asgLevelStress">Stress Test</label>
+          </div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input asg-level-radio" type="radio" name="asgLevel" id="asgLevelCosmetic" value="Cosmetic Repair">
+            <label class="form-check-label" for="asgLevelCosmetic">Cosmetic Repair</label>
+          </div>
         </div>
         <div class="mb-2">
           <label class="form-label fw-semibold">Select Engineer</label>
-          <select id="asgEngineer" class="form-select" disabled>
-            <option value="">— Select Level first —</option>
+          <select id="asgEngineer" class="form-select">
+            <option value="">— Select Engineer —</option>
           </select>
         </div>
       </div>
@@ -385,9 +392,7 @@ function loadTrcBuckets(){
         document.getElementById('asgBktId').value = this.dataset.id;
         document.getElementById('asgBktNum').value = this.dataset.number;
         document.getElementById('asgBktCount').value = this.dataset.count;
-        document.getElementById('asgRepairLevel').value = '';
-        document.getElementById('asgEngineer').innerHTML = '<option value="">— Select Level first —</option>';
-        document.getElementById('asgEngineer').disabled = true;
+        resetAsgLevel();
         new bootstrap.Modal(document.getElementById('bktAssignModal')).show();
       });
     });
@@ -395,24 +400,35 @@ function loadTrcBuckets(){
 }
 loadTrcBuckets();
 
-// Repair level → filter engineers
-document.getElementById('asgRepairLevel').addEventListener('change', function(){
-  var level = this.value;
-  var roleKey = level === 'L1 Engineer' ? 'l1_engineer' : level === 'L2 Engineer' ? 'l2_engineer' : '';
+// Repair type radio → role key used to filter the Select Engineer dropdown
+var ASG_LEVEL_ROLE = {
+  'L1/L2 Repair': 'l1_engineer',
+  'Stress Test': 'qc_inspector',
+  'Cosmetic Repair': 'cosmetic_manager',
+};
+function populateEngineersForLevel(){
+  var checked = document.querySelector('input[name="asgLevel"]:checked');
+  var roleKey = checked ? ASG_LEVEL_ROLE[checked.value] : '';
   var sel = document.getElementById('asgEngineer');
   sel.innerHTML = '<option value="">— Select Engineer —</option>';
-  if(!roleKey){ sel.disabled=true; return; }
   var filtered = _engineers.filter(function(e){ return e.role === roleKey; });
   filtered.forEach(function(e){ sel.add(new Option(e.name, e.id)); });
-  sel.disabled = filtered.length === 0;
+}
+function resetAsgLevel(){
+  document.getElementById('asgLevelL1L2').checked = true;
+  populateEngineersForLevel();
+}
+document.querySelectorAll('.asg-level-radio').forEach(function(r){
+  r.addEventListener('change', populateEngineersForLevel);
 });
 
 // Assign submit
 document.getElementById('asgBktSubmit').addEventListener('click', function(){
   var id = document.getElementById('asgBktId').value;
-  var dept = document.getElementById('asgRepairLevel').value;
+  var checkedLevel = document.querySelector('input[name="asgLevel"]:checked');
+  var dept = checkedLevel ? checkedLevel.value : '';
   var engId = document.getElementById('asgEngineer').value;
-  if(!dept){ alert('Please select repair level.'); return; }
+  if(!dept){ alert('Please select a repair type.'); return; }
   if(!engId){ alert('Please select an engineer.'); return; }
   var fd = new FormData();
   fd.append('csrf_token', getCsrf());
@@ -435,9 +451,7 @@ document.querySelectorAll('.rl-fqc-assign-btn').forEach(function(btn){
     document.getElementById('asgBktId').value = this.dataset.id;
     document.getElementById('asgBktNum').value = this.dataset.number;
     document.getElementById('asgBktCount').value = this.dataset.count;
-    document.getElementById('asgRepairLevel').value = '';
-    document.getElementById('asgEngineer').innerHTML = '<option value="">— Select Level first —</option>';
-    document.getElementById('asgEngineer').disabled = true;
+    resetAsgLevel();
     new bootstrap.Modal(document.getElementById('bktAssignModal')).show();
   });
 });

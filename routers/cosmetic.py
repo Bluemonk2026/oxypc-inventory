@@ -2,6 +2,7 @@
 Cosmetic Refurbishment Pipeline
 Stages: QC Check → Cleaning → Dry Sanding → Masking → Painting → Water Sanding → Final QC → Ready to Sale
 """
+import uuid
 from templates_config import templates
 from datetime import datetime
 from utils.timezone import app_now
@@ -229,6 +230,12 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
         passed_buckets = await _bucket_group(db, DeviceStage.final_qc_pass_hold, "pass")
         failed_buckets = await _bucket_group(db, DeviceStage.final_qc_fail_hold, "fail")
 
+        # All active buckets, for the now-editable Bucket dropdown on the
+        # Final QC Decision tab (previously read-only display text).
+        all_buckets = (await db.execute(
+            select(Bucket).order_by(Bucket.created_at.desc())
+        )).scalars().all()
+
         return templates.TemplateResponse("cosmetic/final_qc.html", {
             "request": request, "current_user": current_user,
             "stage": stage, "stage_label": STAGE_LABELS[stage],
@@ -237,6 +244,7 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
             "pipeline": COSMETIC_NAV_STAGES, "stage_labels": STAGE_LABELS,
             "bucket_name_map": bucket_name_map,
             "passed_buckets": passed_buckets, "failed_buckets": failed_buckets,
+            "all_buckets": all_buckets,
         })
 
     return templates.TemplateResponse("cosmetic/stage.html", {
@@ -257,6 +265,7 @@ async def advance_stage(
     final_qc_status: str = Form("pass"),
     failure_reason: str = Form(""),
     pass_notes: str = Form(""),
+    bucket_id: str = Form(""),
     grade: str = Form(""),
     warehouse: str = Form(""),
     updated_make: str = Form(""),
@@ -286,6 +295,17 @@ async def advance_stage(
 
     # Final QC: apply spec corrections + handle fail
     if current == DeviceStage.final_qc:
+        # Bucket field is now editable on this page (was previously a
+        # read-only display, so devices arriving without a bucket had no way
+        # to get one set here). The dropdown always posts either a real
+        # bucket id or "" for "— None —" — both are an explicit choice.
+        if bucket_id:
+            try:
+                device.bucket_id = uuid.UUID(bucket_id)
+            except ValueError:
+                pass
+        else:
+            device.bucket_id = None
         if updated_make: device.brand = updated_make
         if updated_model: device.model = updated_model
         if updated_cpu: device.cpu = updated_cpu
@@ -310,7 +330,7 @@ async def advance_stage(
             db.add(movement)
             await db.commit()
             return RedirectResponse(
-                url="/cosmetic/final_qc?error=Final+QC+Failed+for+" + barcode,
+                url="/cosmetic/final_qc?warning=Final+QC+Failed+for+" + barcode + "+%E2%80%94+recorded+successfully",
                 status_code=302
             )
 

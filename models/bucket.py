@@ -30,3 +30,16 @@ class Bucket(Base):
     assigned_to_production = Column(Boolean, nullable=False, default=False)
     assigned_to_production_by = Column(String(50), nullable=True)
     assigned_to_production_at = Column(DateTime, nullable=True)
+
+    # Set by Production Manager's own "Assign Bucket" action (routers/buckets.py
+    # assign_bucket), distinct from assigned_to_production above (which only
+    # records the Inventory Manager -> Production hand-off). Bucket Allocation
+    # tab = assigned_to_production=True and dept_assigned=False; Buckets in
+    # Repair Line = both True. Deliberately NOT inferred from device stage —
+    # a bucket keeps accepting new devices via "Add to Bucket" long after it's
+    # been handed to production, so devices can sit at stock_in indefinitely
+    # even on an already-allocated bucket, and a device-stage check silently
+    # hid buckets with zero devices still exactly at trc_production.
+    dept_assigned = Column(Boolean, nullable=False, default=False, server_default="false")
+    dept_assigned_by = Column(String(50), nullable=True)
+    dept_assigned_at = Column(DateTime, nullable=True)

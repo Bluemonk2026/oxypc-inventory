@@ -338,16 +338,16 @@ fetch('/api/bucket-engineers').then(function(r){return r.json();}).then(function
 
 function loadTrcBuckets(){
   // Bucket Allocation = buckets handed over from Inventory Manager
-  // (assigned_to_production) that are STILL waiting for someone to run
-  // this page's own Assign Bucket action — i.e. their devices haven't left
-  // trc_production yet. The moment Assign Bucket runs, devices move to
-  // l1/qc_check/cleaning (see routers/buckets.py assign_bucket's
-  // DEPT_TO_STAGE), so with_stage=trc_production naturally drops a bucket
-  // off this table as soon as it's actually assigned — that's the signal,
-  // not a second read of assigned_to_production (which assign_bucket also
-  // sets, so relying on it alone never let an assigned bucket disappear).
-  fetch('/api/buckets?status=trc_pending,validated&with_stage=trc_production').then(function(r){return r.json();}).then(function(allBuckets){
-    var buckets = allBuckets.filter(function(b){ return b.assigned_to_production; });
+  // (assigned_to_production=True) that this page's own Assign Bucket action
+  // hasn't touched yet (dept_assigned=False). Deliberately NOT keyed off
+  // device stage — a bucket keeps accepting new devices via "Add to Bucket"
+  // long after being sent to production, so devices can sit at stock_in
+  // indefinitely even on an already-allocated bucket, and some real buckets
+  // have zero devices still exactly at trc_production even though they
+  // genuinely are awaiting assignment. dept_assigned is a real column set
+  // only by Assign Bucket itself, so it can't drift out of sync like that.
+  fetch('/api/buckets?status=trc_pending,validated').then(function(r){return r.json();}).then(function(allBuckets){
+    var buckets = allBuckets.filter(function(b){ return b.assigned_to_production && !b.dept_assigned; });
     var tbody = document.getElementById('trcBucketTbody');
     if(!buckets.length){
       tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No buckets with tags in TRC Production.</td></tr>';

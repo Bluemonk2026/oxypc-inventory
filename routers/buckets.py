@@ -136,6 +136,7 @@ async def list_buckets(
         "device_count": count_map.get(str(b.id), 0),
         "received_qty": b.received_qty,
         "assigned_to_production": bool(b.assigned_to_production),
+        "dept_assigned": bool(b.dept_assigned),
         "total_pass": pass_map.get(str(b.id), 0),
         "total_fail": fail_map.get(str(b.id), 0),
     } for b in rows])
@@ -536,6 +537,15 @@ async def assign_bucket(
         bucket.assigned_to_production = True
         bucket.assigned_to_production_by = current_user.username
         bucket.assigned_to_production_at = app_now()
+
+    # dept_assigned is the authoritative "this bucket has been handed to a
+    # specific department/engineer" flag — Bucket Allocation tab excludes it,
+    # Buckets in Repair Line requires it. Deliberately independent of device
+    # stage (see the field's own comment in models/bucket.py).
+    if devices:
+        bucket.dept_assigned = True
+        bucket.dept_assigned_by = current_user.username
+        bucket.dept_assigned_at = app_now()
 
     await db.commit()
     return JSONResponse({"ok": True, "assigned": len(devices)})

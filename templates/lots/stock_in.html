@@ -133,7 +133,7 @@
   <div class="card-body p-0">
     <div class="table-responsive">
       <table id="stockTable" class="table table-hover mb-0 small">
-        <thead class="table-dark"><tr><th style="width:32px"><input type="checkbox" id="selectAllStock" class="form-check-input"></th><th>Tag Number</th><th>Lot</th><th>Location ID</th><th>Brand</th><th>Model</th><th>Device Type</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Inside Bucket</th><th>Assigned User</th><th>Action</th><th>GRN</th><th>Invoice</th></tr></thead>
+        <thead class="table-dark"><tr><th style="width:32px"><input type="checkbox" id="selectAllStock" class="form-check-input"></th><th>Tag Number</th><th>Lot</th><th>Location ID</th><th>Brand</th><th>Model</th><th>Device Type</th><th>Grade</th><th>Inside Bucket</th><th>Assigned User</th><th>Action</th><th>GRN</th><th>Invoice</th></tr></thead>
         {# Rows are supplied by /stock/data (DataTables server-side). GRN and
            Invoice are hidden via DataTables' columnDefs (visible:false) below,
            not a d-none class — that pairing broke the moment rows stopped being
@@ -405,7 +405,7 @@ $(document).ready(function(){
       var m = /value="([^"]+)"/.exec(data[0] || '');
       if (m) { row.setAttribute('data-barcode', m[1]); }
     },
-    columnDefs: [{ orderable: false, targets: [0, 10, 12] }, { visible: false, targets: [13, 14] }],
+    columnDefs: [{ orderable: false, targets: [0, 8, 10] }, { visible: false, targets: [11, 12] }],
     drawCallback: function () {
       // Re-apply the persistent Set to whichever rows this draw rendered —
       // scanning/searching narrows the table to matching rows via ajax, so a

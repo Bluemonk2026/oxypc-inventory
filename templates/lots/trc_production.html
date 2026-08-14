@@ -337,13 +337,16 @@ var _engineers = [];
 fetch('/api/bucket-engineers').then(function(r){return r.json();}).then(function(list){ _engineers = list; });
 
 function loadTrcBuckets(){
-  // Key off assigned_to_production directly (the flag Inventory Manager's
-  // "Assign to Production" action sets) rather than requiring devices to
-  // have already transitioned to the trc_production stage — that stage
-  // side-channel could lag behind the flag (or never catch up if a device
-  // skipped ahead in its own pipeline), silently hiding an assigned bucket
-  // from this table. Matches loadProdAllocationTable()'s own filter below.
-  fetch('/api/buckets?status=trc_pending,validated').then(function(r){return r.json();}).then(function(allBuckets){
+  // Bucket Allocation = buckets handed over from Inventory Manager
+  // (assigned_to_production) that are STILL waiting for someone to run
+  // this page's own Assign Bucket action — i.e. their devices haven't left
+  // trc_production yet. The moment Assign Bucket runs, devices move to
+  // l1/qc_check/cleaning (see routers/buckets.py assign_bucket's
+  // DEPT_TO_STAGE), so with_stage=trc_production naturally drops a bucket
+  // off this table as soon as it's actually assigned — that's the signal,
+  // not a second read of assigned_to_production (which assign_bucket also
+  // sets, so relying on it alone never let an assigned bucket disappear).
+  fetch('/api/buckets?status=trc_pending,validated&with_stage=trc_production').then(function(r){return r.json();}).then(function(allBuckets){
     var buckets = allBuckets.filter(function(b){ return b.assigned_to_production; });
     var tbody = document.getElementById('trcBucketTbody');
     if(!buckets.length){

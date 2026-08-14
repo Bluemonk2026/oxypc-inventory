@@ -826,9 +826,10 @@ async def stock_in_data(
         (await db.execute(count_base.where(*search_filters))).scalar() or 0)
 
     # Column 3 is Location ID (inserted after Lot) — every index from Brand
-    # onward shifts by one to make room for it.
+    # onward shifts by one to make room for it. RAM/Storage columns were
+    # removed from the table entirely, so Grade moved from 9 to 7.
     col_map = {1: Device.barcode, 2: Lot.lot_number, 4: Device.brand, 5: Device.model,
-               6: Device.device_type, 9: Device.grade}
+               6: Device.device_type, 7: Device.grade}
     try:
         order_col = int(request.query_params.get("order[0][column]", 0))
     except ValueError:
@@ -877,8 +878,6 @@ async def stock_in_data(
 
     data = []
     for d, lot_number_val in rows:
-        ram = f"{d.ram_gb}GB" if d.ram_gb else "—"
-        storage = f"{d.storage_gb}GB" if d.storage_gb else "—"
         dept = assigned_dept_map.get(str(d.id))
         data.append([
             f'<input type="checkbox" class="form-check-input stockChk" value="{esc(d.barcode)}">',
@@ -891,7 +890,7 @@ async def stock_in_data(
              f'<a href="/locations/device/{d.id}" class="btn btn-xs btn-outline-primary py-0 px-2" '
              f'style="font-size:.75rem;">Assign</a>'),
             esc(d.brand or "—"), esc(d.model or "—"), esc(d.device_type or "—"),
-            ram, storage, esc(d.grade or "—"),
+            esc(d.grade or "—"),
             f'<span class="bkt-cell" data-barcode="{esc(d.barcode)}"><span class="text-muted">—</span></span>',
             (f'<span class="badge bg-secondary">{esc(dept)}</span>' if dept else '<span class="text-muted">—</span>'),
             # Every row here is already at Stock In (see _stock_filters), so

@@ -1273,12 +1273,46 @@ async def trc_production_list(
         .order_by(Device.updated_at.desc())
     )).all()
 
+    # ── Final QC Fail (Bucket): buckets whose devices arrived here via Final
+    #    QC's "Move to Production" action — l1 stage, not yet assigned
+    #    (assigned_to_production still False). Once "Assign" is used they
+    #    drop off this list and appear in the ordinary "Buckets in Repair
+    #    Line" allocation table instead. ───────────────────────────────────
+    fqc_fail_rows = (await db.execute(
+        select(Device).where(
+            Device.current_stage == DeviceStage.l1,
+            Device.final_qc_status == "fail",
+            Device.is_active == True,
+            Device.bucket_id.isnot(None),
+        )
+    )).scalars().all()
+    fqc_fail_bucket_ids = {d.bucket_id for d in fqc_fail_rows}
+    fqc_fail_buckets_by_id = {}
+    if fqc_fail_bucket_ids:
+        b_rows = (await db.execute(
+            select(Bucket).where(Bucket.id.in_(fqc_fail_bucket_ids), Bucket.assigned_to_production == False)
+        )).scalars().all()
+        fqc_fail_buckets_by_id = {b.id: b for b in b_rows}
+    fqc_fail_grouped = {}
+    for d in fqc_fail_rows:
+        b = fqc_fail_buckets_by_id.get(d.bucket_id)
+        if not b:
+            continue
+        g = fqc_fail_grouped.setdefault(b.id, {
+            "bucket_id": str(b.id), "bucket_name": b.name, "bucket_number": b.bucket_number,
+            "count": 0, "failure_reason": None,
+        })
+        g["count"] += 1
+        g["failure_reason"] = g["failure_reason"] or d.fqc_failure_reason
+    fqc_fail_buckets = list(fqc_fail_grouped.values())
+
     return templates.TemplateResponse("lots/trc_production.html", {
         "request": request, "devices": devices, "current_user": current_user,
         "assigned_dept_map": assigned_dept_map, "departments": STOCK_DEPARTMENTS,
         "cost_parts_map": cost_parts_map, "location_map": location_map,
         "repair_line_devices": repair_line_devices, "assigned_name_map": assigned_name_map,
         "total": total, "scrap_devices": scrap_devices,
+        "fqc_fail_buckets": fqc_fail_buckets,
     })
 
 

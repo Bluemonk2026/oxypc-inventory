@@ -327,6 +327,7 @@ async def toggle_location(
 async def location_dashboard(
     request: Request,
     zone: str = "",
+    unit_type: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -338,6 +339,8 @@ async def location_dashboard(
     loc_query = select(StorageLocation).where(StorageLocation.is_active == True)
     if zone:
         loc_query = loc_query.where(StorageLocation.zone == zone)
+    if unit_type:
+        loc_query = loc_query.where(StorageLocation.unit_type == unit_type)
     loc_result = await db.execute(loc_query.order_by(StorageLocation.zone, StorageLocation.unit_id))
     locations = [loc for loc in loc_result.scalars().all() if (loc.unit_id or "").strip().upper() != "SOLD"]
 
@@ -413,6 +416,8 @@ async def location_dashboard(
         "zone_types": list(ZoneType),
         "zone_labels": ZONE_LABELS,
         "selected_zone": zone,
+        "unit_types": list(UnitType),
+        "selected_unit_type": unit_type,
         "gap_count": len(gap_ids),
     })
 

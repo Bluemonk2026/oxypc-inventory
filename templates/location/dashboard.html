@@ -5,17 +5,29 @@
 {% block content %}
 <!-- Header bar -->
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div class="d-flex gap-2 align-items-center">
-    {% for z in zone_types %}
-    <a href="/locations/dashboard?zone={{ z.value }}"
-       class="btn btn-sm {% if selected_zone == z.value %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-      {{ zone_labels[z] }}
-    </a>
-    {% endfor %}
-    {% if selected_zone %}
-    <a href="/locations/dashboard" class="btn btn-sm btn-outline-danger">Clear</a>
+  <form method="get" class="row g-2 align-items-end">
+    <div class="col-auto">
+      <label class="form-label small mb-0">Location Zone</label>
+      <select name="zone" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="">All Zones</option>
+        {% for z in zone_types %}
+        <option value="{{ z.value }}" {% if selected_zone == z.value %}selected{% endif %}>{{ zone_labels[z] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label small mb-0">Location Type</label>
+      <select name="unit_type" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="">All Types</option>
+        {% for t in unit_types %}
+        <option value="{{ t.value }}" {% if selected_unit_type == t.value %}selected{% endif %}>{{ t.value|title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if selected_zone or selected_unit_type %}
+    <div class="col-auto"><a href="/locations/dashboard" class="btn btn-sm btn-outline-danger">Clear</a></div>
     {% endif %}
-  </div>
+  </form>
   <div class="d-flex gap-2">
     <a href="/locations/gaps" class="btn btn-sm btn-outline-danger">
       <i class="bi bi-exclamation-triangle me-1"></i>
@@ -27,6 +39,16 @@
     <a href="/locations/master" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-gear me-1"></i> Manage Locations
     </a>
+  </div>
+</div>
+
+<!-- Card search boxes -->
+<div class="row g-2 mb-3">
+  <div class="col-auto">
+    <input type="text" id="locIdSearch" class="form-control form-control-sm" placeholder="Search Location ID…" style="width:220px">
+  </div>
+  <div class="col-auto">
+    <input type="text" id="binLocSearch" class="form-control form-control-sm" placeholder="Search Bin Location…" style="width:220px">
   </div>
 </div>
 
@@ -53,7 +75,7 @@
 <div class="row g-3">
   {% for loc in locations %}
   {% set devices = loc_map[loc.id | string] %}
-  <div class="col-md-4 col-lg-3">
+  <div class="col-md-4 col-lg-3 location-card" data-unit-id="{{ loc.unit_id or '' }}" data-slot="{{ loc.slot or '' }}">
     <div class="card shadow-sm border-0 h-100">
       <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center
                   {% if devices | length == 0 %}bg-light{% else %}bg-primary bg-opacity-10{% endif %}">
@@ -149,5 +171,23 @@ async function lookupDevice() {
 document.getElementById('quickBarcode').addEventListener('keydown', e => {
   if (e.key === 'Enter') lookupDevice();
 });
+
+// Card search — filters the already-rendered card grid client-side (cards are
+// fully server-rendered on load, no pagination, so no need for a round-trip).
+function filterLocationCards() {
+  var idQ = (document.getElementById('locIdSearch').value || '').trim().toLowerCase();
+  var slotQ = (document.getElementById('binLocSearch').value || '').trim().toLowerCase();
+  document.querySelectorAll('.location-card').forEach(function (card) {
+    var uid = (card.dataset.unitId || '').toLowerCase();
+    var slot = (card.dataset.slot || '').toLowerCase();
+    var idMatch = !idQ || uid.indexOf(idQ) !== -1;
+    var slotMatch = !slotQ || slot.indexOf(slotQ) !== -1;
+    card.style.display = (idMatch && slotMatch) ? '' : 'none';
+  });
+}
+var _locIdSearchEl = document.getElementById('locIdSearch');
+var _binLocSearchEl = document.getElementById('binLocSearch');
+if (_locIdSearchEl) _locIdSearchEl.addEventListener('input', filterLocationCards);
+if (_binLocSearchEl) _binLocSearchEl.addEventListener('input', filterLocationCards);
 </script>
 {% endblock %}

@@ -215,23 +215,6 @@
 </div>
 
 <script>
-$(document).on('click', '.fqc-move-inv', function () {
-  var id = $(this).data('bucket-id');
-  var csrf = "{{ request.cookies.get('csrf_token','') }}";
-  if (!confirm('Move this bucket to inventory?')) return;
-  $.post('/cosmetic/final-qc/move-to-inventory/' + id, { csrf_token: csrf }).done(function () { location.reload(); })
-    .fail(function (xhr) { alert(xhr.responseJSON && xhr.responseJSON.detail || 'Move failed'); });
-});
-$(document).on('click', '.fqc-move-prod', function () {
-  var id = $(this).data('bucket-id');
-  var csrf = "{{ request.cookies.get('csrf_token','') }}";
-  if (!confirm('Move this bucket to production?')) return;
-  $.post('/cosmetic/final-qc/move-to-production/' + id, { csrf_token: csrf }).done(function () { location.reload(); })
-    .fail(function (xhr) { alert(xhr.responseJSON && xhr.responseJSON.detail || 'Move failed'); });
-});
-</script>
-
-<script>
 // 1/4 card list -> switches which device's 3/4 detail pane is shown.
 (function () {
   document.querySelectorAll('.fqc-card').forEach(function (card) {
@@ -276,5 +259,27 @@ $(document).on('click', '.fqc-move-prod', function () {
     });
   });
 })();
+</script>
+{% endblock %}
+{% block scripts %}
+<script>
+// Must live in block scripts (renders after base.html's jQuery <script src>
+// tag) — block content renders BEFORE jQuery loads, so putting these two
+// jQuery-dependent handlers there left $ undefined and both buttons
+// silently did nothing on click.
+$(document).on('click', '.fqc-move-inv', function () {
+  var id = $(this).data('bucket-id');
+  var csrf = "{{ request.cookies.get('csrf_token','') }}";
+  if (!confirm('Move this bucket to inventory?')) return;
+  $.post('/cosmetic/final-qc/move-to-inventory/' + id, { csrf_token: csrf }).done(function () { location.reload(); })
+    .fail(function (xhr) { alert(xhr.responseJSON && xhr.responseJSON.detail || 'Move failed'); });
+});
+$(document).on('click', '.fqc-move-prod', function () {
+  var id = $(this).data('bucket-id');
+  var csrf = "{{ request.cookies.get('csrf_token','') }}";
+  if (!confirm('Move this bucket to production?')) return;
+  $.post('/cosmetic/final-qc/move-to-production/' + id, { csrf_token: csrf }).done(function () { location.reload(); })
+    .fail(function (xhr) { alert(xhr.responseJSON && xhr.responseJSON.detail || 'Move failed'); });
+});
 </script>
 {% endblock %}

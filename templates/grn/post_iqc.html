@@ -186,7 +186,7 @@
 
 <!-- Edit GRN modal -->
 <div class="modal fade" id="editGrnModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <form method="post" id="editGrnForm" class="modal-content">
       <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
       <div class="modal-header">
@@ -195,38 +195,38 @@
       </div>
       <div class="modal-body">
         <div class="row g-2">
-          <div class="col-6"><label class="form-label fw-semibold">GRN Number</label>
+          <div class="col-md-4"><label class="form-label fw-semibold">GRN Number</label>
             <input type="text" id="e_grn_number" class="form-control" readonly></div>
-          <div class="col-6"><label class="form-label fw-semibold">Lot Number</label>
+          <div class="col-md-4"><label class="form-label fw-semibold">Lot Number</label>
             <input type="text" id="e_lot_number" class="form-control" readonly placeholder="— Not mapped —"></div>
+          <div class="col-md-4"><label class="form-label fw-semibold">Vendor Name</label>
+            <input type="text" name="sender_name" id="e_sender" class="form-control"></div>
         </div>
-        <div class="mb-2 mt-2"><label class="form-label fw-semibold">Vendor Name</label>
-          <input type="text" name="sender_name" id="e_sender" class="form-control"></div>
-        <div class="row g-2">
-          <div class="col-6"><label class="form-label fw-semibold">Purchase Date</label>
+        <div class="row g-2 mt-1">
+          <div class="col-md-4"><label class="form-label fw-semibold">Date of Invoice</label>
+            <input type="date" name="invoice_date" id="e_date" class="form-control"></div>
+          <div class="col-md-4"><label class="form-label fw-semibold">Purchase Date</label>
             <input type="date" name="purchase_date" id="e_purchase_date" class="form-control"></div>
-          <div class="col-6"><label class="form-label fw-semibold">GRN Date</label>
+          <div class="col-md-4"><label class="form-label fw-semibold">GRN Date</label>
             <input type="date" name="grn_date" id="e_grn_date" class="form-control"></div>
         </div>
-        <div class="mb-2"><label class="form-label fw-semibold">Date of Invoice</label>
-          <input type="date" name="invoice_date" id="e_date" class="form-control"></div>
-        <div class="row g-2">
-          <div class="col-6"><label class="form-label fw-semibold">Invoice Price</label>
+        <div class="row g-2 mt-1">
+          <div class="col-md-4"><label class="form-label fw-semibold">Invoice Number</label>
+            <input type="text" name="invoice_number" id="e_inv" class="form-control"></div>
+          <div class="col-md-4"><label class="form-label fw-semibold">Invoice Price</label>
             <input type="text" name="amount" id="e_amount" class="form-control"></div>
-          <div class="col-6"><label class="form-label fw-semibold">Invoice Quantity</label>
+          <div class="col-md-4"><label class="form-label fw-semibold">Invoice Quantity</label>
             <input type="number" name="quantity" id="e_qty" class="form-control" min="0"></div>
         </div>
-        <div class="mb-2"><label class="form-label fw-semibold">Invoice Number</label>
-          <input type="text" name="invoice_number" id="e_inv" class="form-control"></div>
-        <div class="row g-2">
-          <div class="col-6"><label class="form-label fw-semibold">PO Number</label>
+        <div class="row g-2 mt-1">
+          <div class="col-md-4"><label class="form-label fw-semibold">PO Number</label>
             <input type="text" name="po_number" id="e_po" class="form-control"></div>
-          <div class="col-6"><label class="form-label fw-semibold">Vehicle Number</label>
+          <div class="col-md-4"><label class="form-label fw-semibold">Vehicle Number</label>
             <input type="text" name="vehicle_number" id="e_vehicle" class="form-control"></div>
+          <div class="col-md-4"><label class="form-label fw-semibold">E-Way Bill Number</label>
+            <input type="text" name="e_way_bill" id="e_eway" class="form-control"></div>
         </div>
-        <div class="mb-2"><label class="form-label fw-semibold">E-Way Bill Number</label>
-          <input type="text" name="e_way_bill" id="e_eway" class="form-control"></div>
-        <div class="mb-2"><label class="form-label fw-semibold">Notes</label>
+        <div class="mb-2 mt-2"><label class="form-label fw-semibold">Notes</label>
           <textarea name="notes" id="e_notes" class="form-control" rows="2"></textarea></div>
       </div>
       <div class="modal-footer">

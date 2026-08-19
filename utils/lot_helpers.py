@@ -1,4 +1,5 @@
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils.timezone import app_now
 from models.lot import Lot
@@ -44,6 +45,15 @@ async def get_or_create_unassigned_lot(db: AsyncSession) -> Lot:
     Device to Lot, so making the Lot field optional on IQC Entry / Device Edit
     is implemented by silently attaching un-lotted devices to this sentinel
     Lot rather than allowing a NULL FK.
+
+    Check-then-insert has a real race window the first time this ever runs
+    (or any time the row has been removed): two IQC Entry submissions with no
+    Lot selected, close enough together, can both see "missing" and both try
+    to INSERT lot_number='UNASSIGNED', which is UNIQUE — the loser's flush()
+    raised an unhandled IntegrityError that surfaced to that user as a raw
+    500 (observed: the row's own created_at shows exactly this happening in
+    production). Recover by re-reading — the winner's row is what we want
+    anyway.
     """
     existing = await db.execute(select(Lot).where(Lot.lot_number == UNASSIGNED_LOT_NUMBER))
     lot = existing.scalar_one_or_none()
@@ -57,5 +67,12 @@ async def get_or_create_unassigned_lot(db: AsyncSession) -> Lot:
         purchase_date=app_now(),
     )
     db.add(lot)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        existing = await db.execute(select(Lot).where(Lot.lot_number == UNASSIGNED_LOT_NUMBER))
+        lot = existing.scalar_one_or_none()
+        if not lot:
+            raise  # something other than the expected race — don't swallow it
     return lot

@@ -1192,8 +1192,21 @@ async def iqc_create(
 
     if not (lot_id or "").strip():
         from utils.lot_helpers import get_or_create_unassigned_lot
-        unassigned = await get_or_create_unassigned_lot(db)
-        lot_id = str(unassigned.id)
+        try:
+            unassigned = await get_or_create_unassigned_lot(db)
+            lot_id = str(unassigned.id)
+        except Exception as exc:
+            # Belt-and-suspenders on top of get_or_create_unassigned_lot's own
+            # race handling — any other failure resolving the fallback Lot
+            # (not just the known unique-constraint race) still degrades to a
+            # clean form error instead of an unhandled 500.
+            await db.rollback()
+            lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
+            lots = lots_result.scalars().all()
+            return templates.TemplateResponse("iqc/form.html", {
+                "request": request, "lots": lots, "current_user": current_user,
+                "error": f"Could not resolve a Lot for this device: {str(exc)[:180]}",
+            })
     elif not _is_uuid(lot_id):
         lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
         lots = lots_result.scalars().all()

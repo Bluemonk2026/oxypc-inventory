@@ -158,6 +158,106 @@ async def l1l2_start(
     return RedirectResponse(url="/repair/l1?success=Repair+started", status_code=302)
 
 
+@router.post("/bulk-part-request")
+async def bulk_part_request(
+    request: Request,
+    part_label: str = Form(...),
+    part_category: str = Form(""),
+    request_type: str = Form("new"),
+    csrf_token: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Bulk Part Request table on L1/L2 — raise one PartRequest per tag in the
+    L1 queue that still needs `part_label`, instead of opening each tag.
+
+    Scope matches the Tag Number table above it: active devices at stage l1.
+    A tag that already has an open request for this part is skipped, so the
+    action is safe to press twice.
+    """
+    devices = (await db.execute(
+        select(Device).where(Device.current_stage == DeviceStage.l1, Device.is_active == True)
+    )).scalars().all()
+    if not devices:
+        return RedirectResponse(url="/repair/l1?error=No+devices+in+the+queue", status_code=302)
+
+    device_ids = [d.id for d in devices]
+    iqc_rows = (await db.execute(
+        select(IQCInspection).where(IQCInspection.device_id.in_(device_ids))
+    )).scalars().all()
+    iqc_by_dev = {}
+    for iqc in iqc_rows:
+        iqc_by_dev.setdefault(str(iqc.device_id), iqc)
+
+    # Tags that already have a live request for this part — don't duplicate.
+    existing = {
+        str(did) for (did,) in (await db.execute(
+            select(PartRequest.device_id).where(
+                PartRequest.device_id.in_(device_ids),
+                PartRequest.part_name == part_label,
+                PartRequest.status.in_(["requested", "handed_over", "procure"]),
+            )
+        )).all()
+    }
+
+    # Resolve one SparePart for the whole batch, the same way the per-tag
+    # modal's server-side fallback does.
+    conds = [SparePart.name.ilike(f"%{part_label}%")]
+    if part_category.strip():
+        conds.append(SparePart.category == part_category.strip())
+    sp_match = (await db.execute(
+        select(SparePart).where(or_(*conds)).order_by(SparePart.qty_in_stock.desc())
+    )).scalars().first()
+
+    wo_rows = (await db.execute(
+        select(WorkOrder).where(WorkOrder.device_id.in_(device_ids),
+                                WorkOrder.status != "completed")
+        .order_by(WorkOrder.assigned_at.desc())
+    )).scalars().all()
+    wo_by_dev = {}
+    for wo in wo_rows:
+        wo_by_dev.setdefault(str(wo.device_id), wo)
+
+    raised = 0
+    for dev in devices:
+        did = str(dev.id)
+        if did in existing:
+            continue
+        iqc = iqc_by_dev.get(did)
+        needed = any(r["required"] and r["label"] == part_label
+                     for r in compute_required(iqc, dev))
+        if not needed:
+            continue
+        wo = wo_by_dev.get(did)
+        db.add(PartRequest(
+            work_order_id=wo.id if wo else None,
+            work_id=wo.work_id if wo else None,
+            device_id=dev.id, barcode=dev.barcode, stage="l1",
+            part_id=sp_match.id if sp_match else None,
+            part_name=part_label,
+            part_category=part_category.strip() or None,
+            request_type=(request_type or "new").strip(),
+            requested_by=current_user.username,
+            engineer_name=current_user.full_name,
+            qty_requested=1, status="requested",
+        ))
+        raised += 1
+
+    await audit(db, user=current_user, action="BULK_PART_REQUESTED",
+                table_name="part_requests", record_id=part_label,
+                new_value={"part": part_label, "request_type": request_type, "raised": raised},
+                notes=f"Bulk {request_type} request for {part_label} on {raised} tag(s)",
+                request=request)
+    await db.commit()
+    if not raised:
+        return RedirectResponse(
+            url="/repair/l1?success=No+new+requests+needed+for+" + part_label.replace(" ", "+"),
+            status_code=302)
+    return RedirectResponse(
+        url=f"/repair/l1?success={raised}+request(s)+raised+for+" + part_label.replace(" ", "+"),
+        status_code=302)
+
+
 @router.post("/request-l3l4")
 async def request_l3l4(
     request: Request,
@@ -343,7 +443,7 @@ async def l3l4_list(request: Request,
     bucket_ids = [d.bucket_id for _, d, _ in rows if d.bucket_id]
     if bucket_ids:
         bkt_rows = (await db.execute(select(Bucket).where(Bucket.id.in_(bucket_ids)))).scalars().all()
-        bkt_by_id = {str(b.id): b.bucket_number for b in bkt_rows}
+        bkt_by_id = {str(b.id): (b.name or b.bucket_number) for b in bkt_rows}
         for _, d, _ln in rows:
             if d.bucket_id:
                 bucket_map[str(d.id)] = bkt_by_id.get(str(d.bucket_id), "")
@@ -622,6 +722,51 @@ async def repair_list(stage: str, request: Request,
         for did, cnt in pr_rows:
             parts_requested_map[str(did)] = cnt
 
+    # ── Bulk Part Request table ──────────────────────────────────────────────
+    # Rolls the per-device Parts Consumption rows up to one row per part name
+    # across every tag currently shown in the Tag Number table above, so an
+    # engineer can raise one request for the whole queue instead of opening
+    # each tag. Counts mirror exactly what Device Detail shows per tag:
+    #   Total Quantity  — tags where compute_required() says Required = Yes
+    #   Total Requested — requests at 'handed_over' (the Verify button state)
+    #   Total Changed   — requests at 'received'   (the Part Changed state)
+    bulk_parts: list = []
+    if device_ids:
+        required_counts: dict = {}
+        for did_str, dev in dev_by_id.items():
+            iqc = iqc_by_dev.get(did_str)
+            for row in compute_required(iqc, dev):
+                if not row["required"]:
+                    continue
+                entry = required_counts.setdefault(
+                    row["label"],
+                    {"label": row["label"], "category": row["category"],
+                     "qty": 0, "requested": 0, "changed": 0},
+                )
+                entry["qty"] += 1
+
+        if required_counts:
+            status_rows = (await db.execute(
+                select(PartRequest.part_name, PartRequest.status, func.count(PartRequest.id))
+                .where(PartRequest.device_id.in_(device_ids),
+                       PartRequest.status.in_(["handed_over", "received"]))
+                .group_by(PartRequest.part_name, PartRequest.status)
+            )).all()
+            for pname, pstatus, cnt in status_rows:
+                entry = required_counts.get(pname)
+                if not entry:
+                    continue
+                if pstatus == "handed_over":
+                    entry["requested"] += cnt
+                elif pstatus == "received":
+                    entry["changed"] += cnt
+
+        # Downgrade is only meaningful for the two upgradeable components,
+        # matching the same condition Device Detail uses for its button.
+        for entry in required_counts.values():
+            entry["can_downgrade"] = entry["label"] in ("RAM", "Hard Drive")
+        bulk_parts = sorted(required_counts.values(), key=lambda e: e["label"])
+
     # ── Timeline pause/resume (item 32): a device is "blocked" while any of
     # its required parts currently has 0 live stock in Part Master. While
     # blocked, the WorkOrder's elapsed-days clock freezes; once every required
@@ -701,7 +846,7 @@ async def repair_list(stage: str, request: Request,
         bkt_rows = (await db.execute(
             select(Bucket).where(Bucket.id.in_(bucket_ids))
         )).scalars().all()
-        bkt_by_id = {str(b.id): b.bucket_number for b in bkt_rows}
+        bkt_by_id = {str(b.id): (b.name or b.bucket_number) for b in bkt_rows}
         for device, _ in devices:
             if device.bucket_id:
                 bucket_map[str(device.id)] = bkt_by_id.get(str(device.bucket_id), "")
@@ -727,6 +872,7 @@ async def repair_list(stage: str, request: Request,
         "parts_alert_map": parts_alert_map,
         "parts_required_map": parts_required_map,
         "parts_requested_map": parts_requested_map,
+        "bulk_parts": bulk_parts,
         "bucket_map": bucket_map,
         "started_ids": {str(j.device_id) for j, *_ in open_jobs},
         "total": total,

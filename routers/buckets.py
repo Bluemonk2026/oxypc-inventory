@@ -378,6 +378,44 @@ async def rename_bucket(
     return JSONResponse({"ok": True, "name": bucket.name or ""})
 
 
+async def _move_bucket_devices_to_trc(db: AsyncSession, bucket: Bucket, username: str) -> int:
+    """Move every active device in a bucket to DeviceStage.trc_production and
+    write the StageMovement audit row for each.
+
+    Shared by both routes that hand a bucket to Production, so the two cannot
+    drift: /assign-to-production (Stock Inward Movement) and /move-to-trc
+    (Inventory Manager's "Move to Production"). Devices already at
+    trc_production are skipped rather than re-stamped.
+    """
+    devices = (await db.execute(
+        select(Device).where(Device.bucket_id == bucket.id, Device.is_active == True)
+    )).scalars().all()
+
+    moved = 0
+    for device in devices:
+        prev_stage = device.current_stage
+        if prev_stage == DeviceStage.trc_production:
+            continue
+        prev_mv = (await db.execute(
+            select(StageMovement).where(
+                StageMovement.device_id == device.id,
+                StageMovement.to_stage == prev_stage,
+                StageMovement.exited_at == None,
+            ).order_by(StageMovement.moved_at.desc())
+        )).scalars().first()
+        if prev_mv:
+            prev_mv.exited_at = app_now()
+        device.current_stage = DeviceStage.trc_production
+        device.updated_at = app_now()
+        db.add(StageMovement(
+            device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.trc_production,
+            moved_by=username,
+            notes=f"Bucket {bucket.bucket_number} moved to Production by {username}",
+        ))
+        moved += 1
+    return moved
+
+
 @router.post("/buckets/{bucket_id}/move-to-trc")
 async def move_bucket_to_trc(
     bucket_id: str,
@@ -402,8 +440,12 @@ async def move_bucket_to_trc(
         bucket.assigned_to_production = True
         bucket.assigned_to_production_by = current_user.username
         bucket.assigned_to_production_at = app_now()
+    # Handing the bucket to Production must also move its devices onto the
+    # Production Manager's stage — without this the bucket appears there but
+    # its tag numbers are still sitting at stock_in.
+    moved = await _move_bucket_devices_to_trc(db, bucket, current_user.username)
     await db.commit()
-    return JSONResponse({"ok": True})
+    return JSONResponse({"ok": True, "moved": moved})
 
 
 @router.post("/buckets/{bucket_id}/validate")
@@ -658,28 +700,7 @@ async def assign_bucket_to_production(
     if bucket.assigned_to_production:
         raise HTTPException(400, "Bucket already assigned to production")
 
-    devices = (await db.execute(
-        select(Device).where(Device.bucket_id == uid, Device.is_active == True)
-    )).scalars().all()
-
-    for device in devices:
-        prev_stage = device.current_stage
-        prev_mv = (await db.execute(
-            select(StageMovement).where(
-                StageMovement.device_id == device.id,
-                StageMovement.to_stage == prev_stage,
-                StageMovement.exited_at == None,
-            ).order_by(StageMovement.moved_at.desc())
-        )).scalars().first()
-        if prev_mv:
-            prev_mv.exited_at = app_now()
-        device.current_stage = DeviceStage.trc_production
-        device.updated_at = app_now()
-        db.add(StageMovement(
-            device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.trc_production,
-            moved_by=current_user.username,
-            notes=f"Bucket {bucket.bucket_number} assigned to Production by {current_user.username}",
-        ))
+    moved = await _move_bucket_devices_to_trc(db, bucket, current_user.username)
 
     bucket.assigned_to_production = True
     bucket.assigned_to_production_by = current_user.username

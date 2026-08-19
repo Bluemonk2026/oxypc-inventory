@@ -240,7 +240,7 @@ async def create_part(
     name: str = Form(...),
     category: str = Form(...),
     unit_price: str = Form("0"),
-    min_stock_alert: int = Form(5),
+    min_stock_alert: int = Form(0),
     supplier: str = Form(""),
     notes: str = Form(""),
     db: AsyncSession = Depends(get_db),
@@ -276,7 +276,7 @@ async def update_part(
     category: str = Form(...),
     unit_price: str = Form("0"),
     qty_in_stock: int = Form(None),
-    min_stock_alert: int = Form(5),
+    min_stock_alert: int = Form(0),
     supplier: str = Form(""),
     notes: str = Form(""),
     db: AsyncSession = Depends(get_db),
@@ -475,7 +475,11 @@ async def bulk_upload_parts(
                 match_q = match_q.where(SparePart.model.is_(None))
             existing_part = (await db.execute(match_q)).scalars().first()
             if existing_part:
-                existing_part.qty_in_stock = int(existing_part.qty_in_stock or 0) + qty
+                # Part Master bulk upload is a master-data load, not a goods
+                # receipt: In Stock is set to exactly what the file says. It
+                # previously accumulated (+= qty), so re-uploading the same
+                # file multiplied stock by the number of uploads.
+                existing_part.qty_in_stock = qty
                 if crate_number:
                     existing_part.crate_number = crate_number
                 if price_raw:
@@ -485,7 +489,7 @@ async def bulk_upload_parts(
             else:
                 db.add(SparePart(
                     part_code=part_id, name=part_name, category=category,
-                    unit_price=price, qty_in_stock=qty, min_stock_alert=5,
+                    unit_price=price, qty_in_stock=qty, min_stock_alert=0,
                     supplier=vendor_name, source=source,
                     make=make, model=model, crate_number=crate_number,
                 ))

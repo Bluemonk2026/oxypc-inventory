@@ -83,6 +83,58 @@
     </div>
   </div>
 
+  <!-- Bulk Part Request — one row per part across every tag in the table above -->
+  <div class="row mt-3">
+    <div class="col-12">
+      <div class="card shadow-sm">
+        <div class="card-header bg-white d-flex align-items-center justify-content-between">
+          <h6 class="mb-0"><i class="bi bi-basket me-2"></i>Bulk Part Request</h6>
+          <small class="text-muted">Parts required across the {{ devices|length }} tag{{ 's' if devices|length != 1 else '' }} listed above</small>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Part Name</th>
+                <th class="text-center">Total Quantity</th>
+                <th class="text-center">Total Requested</th>
+                <th class="text-center">Total Changed</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for bp in (bulk_parts or []) %}
+              <tr>
+                <td class="fw-semibold">{{ bp.label }}</td>
+                <td class="text-center"><span class="badge bg-warning text-dark">{{ bp.qty }}</span></td>
+                <td class="text-center"><span class="badge bg-{{ 'primary' if bp.requested else 'light text-muted border' }}">{{ bp.requested }}</span></td>
+                <td class="text-center"><span class="badge bg-{{ 'success' if bp.changed else 'light text-muted border' }}">{{ bp.changed }}</span></td>
+                <td>
+                  <div class="d-flex gap-1 flex-wrap">
+                    <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
+                            onclick="openBulkPartRequest('new', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }})">
+                      <i class="bi bi-bag-plus"></i> Normal Request</button>
+                    <button type="button" class="btn btn-sm btn-outline-warning py-0 px-2"
+                            onclick="openBulkPartRequest('replace', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }})">
+                      <i class="bi bi-arrow-repeat"></i> Replace Request</button>
+                    {% if bp.can_downgrade %}
+                    <button type="button" class="btn btn-sm btn-outline-dark py-0 px-2"
+                            onclick="openBulkPartRequest('downgrade', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }})">
+                      <i class="bi bi-arrow-down-circle"></i> Downgrade</button>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="text-center text-muted py-3">No parts are marked Required for the tags currently listed.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <!-- Request to L3/L4 modal -->
@@ -116,6 +168,30 @@
 {% block scripts %}
 <script>
 $(document).ready(function(){ $('#l1Table').DataTable({}); });
+
+// Bulk Part Request — raises one PartRequest per tag that needs the part,
+// for every tag currently listed in the Tag Number table above.
+function openBulkPartRequest(requestType, partLabel, category, qty) {
+  var verb = requestType === 'replace' ? 'Replace Request'
+           : (requestType === 'downgrade' ? 'Downgrade' : 'Normal Request');
+  if (!confirm(verb + ' for "' + partLabel + '" across ' + qty +
+               ' tag' + (qty === 1 ? '' : 's') + '?\n\n' +
+               'One request is raised per tag that still needs this part. ' +
+               'Tags that already have an open request are skipped.')) return;
+  var form = document.createElement('form');
+  form.method = 'post';
+  form.action = '/repair/bulk-part-request';
+  function add(n, v) {
+    var i = document.createElement('input');
+    i.type = 'hidden'; i.name = n; i.value = v; form.appendChild(i);
+  }
+  add('csrf_token', '{{ request.cookies.get("csrf_token","") }}');
+  add('part_label', partLabel);
+  add('part_category', category || '');
+  add('request_type', requestType);
+  document.body.appendChild(form);
+  form.submit();
+}
 (function(){
   var rlModal = new bootstrap.Modal(document.getElementById('requestL3L4Modal'));
   document.querySelectorAll('.request-l3l4-btn').forEach(function(btn){

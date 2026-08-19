@@ -170,7 +170,20 @@ def _iqc_date_filter(date_from, date_to):
     return Device.id.in_(q)
 
 
-def _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to, entity=""):
+def _exclude_sold(exclude_sold: str, fs: str) -> bool:
+    """Resolve the All Inventory "Exclude Sold" checkbox.
+
+    An unchecked HTML checkbox submits nothing, so a bare absent value is
+    ambiguous: it means either "first page load" or "user unticked it". The
+    form carries a hidden fs=1 marker, so absence of fs means first load →
+    default the filter ON; presence of fs means trust the checkbox.
+    """
+    if not fs:
+        return True
+    return exclude_sold in ("1", "true", "on", "yes")
+
+
+def _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to, entity="", exclude_sold=False):
     """Filter clauses shared by the Inventory Search page and its data endpoint.
 
     `employee` is deliberately NOT handled here — Device has no direct
@@ -203,6 +216,11 @@ def _device_search_filters(q, stage, lot, grade, category, device_type, date_fro
         w.append(Device.device_type == device_type)
     if entity:
         w.append(Device.entity == entity)
+    # "Exclude Sold" filter — on by default so All Inventory shows live stock
+    # rather than the full historical device list. Skipped when the user has
+    # explicitly asked for the sold stage, which would otherwise return nothing.
+    if exclude_sold and stage != DeviceStage.sold.value:
+        w.append(Device.current_stage != DeviceStage.sold)
     iqc_filter = _iqc_date_filter(date_from, date_to)
     if iqc_filter is not None:
         w.append(iqc_filter)
@@ -234,7 +252,7 @@ async def device_search_data(
     draw: int = 1, start: int = 0, length: int = 25,
     q: str = "", stage: str = "", lot: str = "", grade: str = "",
     category: str = "", device_type: str = "", date_from: str = "", date_to: str = "",
-    employee: str = "", entity: str = "",
+    employee: str = "", entity: str = "", exclude_sold: str = "", fs: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(view_allowed),
 ):
@@ -253,7 +271,8 @@ async def device_search_data(
     role = getattr(current_user.role, "value", current_user.role)
     show_pricing = _cvp(role)
 
-    page_filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to, entity=entity)
+    page_filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to,
+                                     entity=entity, exclude_sold=_exclude_sold(exclude_sold, fs))
     if employee:
         page_filters.append(await _employee_device_id_filter(db, employee))
     base = select(Device, Lot.lot_number).join(Lot, Device.lot_id == Lot.id).where(Device.is_trashed == False)
@@ -380,7 +399,7 @@ async def device_search_data(
 async def device_barcodes(
     q: str = "", stage: str = "", lot: str = "", grade: str = "",
     category: str = "", device_type: str = "", date_from: str = "", date_to: str = "",
-    employee: str = "", entity: str = "",
+    employee: str = "", entity: str = "", exclude_sold: str = "", fs: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(view_allowed),
 ):
@@ -388,7 +407,8 @@ async def device_barcodes(
     every page and the tag-upload bulk-select feature below. Neither can rely
     on DataTables' serverSide rows() API, which only reaches the currently
     rendered page."""
-    page_filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to, entity=entity)
+    page_filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to,
+                                     entity=entity, exclude_sold=_exclude_sold(exclude_sold, fs))
     if employee:
         page_filters.append(await _employee_device_id_filter(db, employee))
     barcodes = (await db.execute(
@@ -459,6 +479,8 @@ async def device_search(
     date_to: str = "",
     employee: str = "",
     entity: str = "",
+    exclude_sold: str = "",
+    fs: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(view_allowed),
 ):
@@ -472,7 +494,8 @@ async def device_search(
     so fetching the full result set here would cost real query time and memory
     for output nothing on the page uses.
     """
-    filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to, entity=entity)
+    filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to,
+                                     entity=entity, exclude_sold=_exclude_sold(exclude_sold, fs))
     if employee:
         filters.append(await _employee_device_id_filter(db, employee))
 
@@ -518,6 +541,7 @@ async def device_search(
         "stages": DeviceStage, "stage_labels": STAGE_LABELS,
         "q": q, "stage": stage, "lot": lot, "grade": grade, "category": category,
         "device_type": device_type, "employee": employee, "entity": entity,
+        "exclude_sold": _exclude_sold(exclude_sold, fs),
         "device_type_options": await master_values(db, "device_type"),
         "employee_options": employee_options, "entity_options": entity_options,
         "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
@@ -1127,7 +1151,8 @@ async def device_detail(
         select(SparePart).order_by(SparePart.category, SparePart.name)
     )
     all_spare_parts = [
-        {"id": str(sp.id), "name": sp.name, "category": sp.category, "model": sp.model}
+        {"id": str(sp.id), "name": sp.name, "category": sp.category,
+         "make": sp.make, "model": sp.model}
         for sp in all_parts_result.scalars().all()
     ]
 

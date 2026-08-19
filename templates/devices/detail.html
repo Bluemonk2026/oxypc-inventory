@@ -277,19 +277,18 @@
                   </select>
                 </div>
                 <div class="col-md-6">
-                  <label class="form-label form-label-sm mb-1">Model</label>
-                  <select id="pr_part_model" class="form-select form-select-sm" required
-                          onchange="prSelectModel()">
+                  <label class="form-label form-label-sm mb-1">Part Make</label>
+                  <select name="part_make" id="pr_part_make" class="form-select form-select-sm"
+                          onchange="prFillPartModels()">
                     <option value="">— Select a part name first —</option>
                   </select>
                 </div>
                 <div class="col-md-6">
-                  <label class="form-label form-label-sm mb-1">Part Capacity</label>
-                  <input type="text" name="part_capacity" id="pr_part_capacity" class="form-control form-control-sm" placeholder="e.g. 8GB, 256GB">
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label form-label-sm mb-1">Type</label>
-                  <input type="text" name="part_type" id="pr_part_type" class="form-control form-control-sm" placeholder="e.g. DDR4, SSD">
+                  <label class="form-label form-label-sm mb-1">Part Model</label>
+                  <select name="part_model" id="pr_part_model" class="form-select form-select-sm"
+                          onchange="prSelectModel()">
+                    <option value="">— Select a part make first —</option>
+                  </select>
                 </div>
                 <div class="col-md-6">
                   <label class="form-label form-label-sm mb-1">Quantity</label>
@@ -325,15 +324,42 @@
             return '<option value="' + nm + '">' + sp.name + '</option>';
           }).join('');
         }
+        prFillPartMakes();
+      }
+
+      // Part Name -> Part Make -> Part Model, all sourced from Part Master.
+      function prFillPartMakes() {
+        var name = document.getElementById('pr_part_name').value;
+        var makeSel = document.getElementById('pr_part_make');
+        document.getElementById('pr_part_id').value = '';
+        if (!name) {
+          makeSel.innerHTML = '<option value="">— Select a part name first —</option>';
+          document.getElementById('pr_part_model').innerHTML =
+            '<option value="">— Select a part make first —</option>';
+          return;
+        }
+        var seen = {};
+        var makes = ALL_SPARE_PARTS.filter(function(sp) {
+          if (sp.name !== name) return false;
+          var mk = sp.make || '';
+          if (seen[mk]) return false;
+          seen[mk] = true;
+          return true;
+        });
+        makeSel.innerHTML = makes.map(function(sp) {
+          var mk = (sp.make || '').replace(/"/g,'&quot;');
+          return '<option value="' + mk + '">' + (sp.make || '— Not specified —') + '</option>';
+        }).join('');
         prFillPartModels();
       }
 
       function prFillPartModels() {
         var name = document.getElementById('pr_part_name').value;
+        var make = document.getElementById('pr_part_make').value;
         var modelSel = document.getElementById('pr_part_model');
         document.getElementById('pr_part_id').value = '';
         var matches = ALL_SPARE_PARTS.filter(function(sp) {
-          return sp.name === name;
+          return sp.name === name && (sp.make || '') === make;
         });
         var seen = {};
         matches = matches.filter(function(sp) {
@@ -351,16 +377,19 @@
         }
         modelSel.innerHTML = matches.map(function(sp) {
           var label = sp.model || '— Not specified —';
-          return '<option value="' + sp.id + '">' + label + '</option>';
+          var val = (sp.model || '').replace(/"/g,'&quot;');
+          return '<option value="' + val + '" data-part-id="' + sp.id + '">' + label + '</option>';
         }).join('');
         if (matches.length === 1) {
-          modelSel.value = matches[0].id;
+          modelSel.selectedIndex = 0;
         }
         prSelectModel();
       }
 
       function prSelectModel() {
-        var pid = document.getElementById('pr_part_model').value || '';
+        var sel = document.getElementById('pr_part_model');
+        var opt = sel.options[sel.selectedIndex];
+        var pid = (opt && opt.getAttribute('data-part-id')) || '';
         document.getElementById('pr_part_id').value = pid;
         // Part Category is no longer a visible field — the hidden value that
         // still backs the server's fuzzy-match fallback is derived from
@@ -379,8 +408,7 @@
         _prRowPartId = matchedPartId || '';
         document.getElementById('pr_request_type').value = requestType;
         document.getElementById('pr_qty').value = qty || 1;
-        document.getElementById('pr_part_capacity').value = '';
-        document.getElementById('pr_part_type').value = '';
+
         document.getElementById('pr_modal_title').innerHTML = requestType === 'replace'
           ? '<i class="bi bi-arrow-repeat me-2"></i>Replace Part'
           : '<i class="bi bi-bag-plus me-2"></i>New Part Request';

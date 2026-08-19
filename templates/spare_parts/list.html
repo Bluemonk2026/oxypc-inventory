@@ -11,51 +11,51 @@
 {% endif %}
 
 <!-- ── Summary Cards (counts reflect all tables across all tabs) ── -->
-<div class="row g-3 mb-4">
-  <div class="col-6 col-md-2">
-    <div class="card border-0 shadow-sm text-center p-3">
+<div class="d-flex flex-nowrap gap-2 mb-4 overflow-auto" id="partsCards">
+  <div style="flex:1 1 0; min-width:130px;">
+    <div class="card border-0 shadow-sm text-center p-2 h-100">
       <div class="fs-3 fw-bold text-primary">{{ total_qty }}</div>
       <div class="text-muted small"><i class="bi bi-boxes me-1"></i>Total Quantities</div>
     </div>
   </div>
-  <div class="col-6 col-md-2">
-    <div class="card border-0 shadow-sm text-center p-3">
+  <div style="flex:1 1 0; min-width:130px;">
+    <div class="card border-0 shadow-sm text-center p-2 h-100">
       <div class="fs-3 fw-bold text-success">{{ total_new }} <span class="fs-6 text-muted">/</span> {{ total_harvest }}</div>
       <div class="text-muted small"><i class="bi bi-recycle me-1"></i>Total New / Harvest</div>
     </div>
   </div>
-  <div class="col-6 col-md-2">
-    <div class="card border-0 shadow-sm text-center p-3">
+  <div style="flex:1 1 0; min-width:130px;">
+    <div class="card border-0 shadow-sm text-center p-2 h-100">
       <div class="fs-3 fw-bold text-primary">{{ total_part_types }}</div>
       <div class="text-muted small">Part Types</div>
     </div>
   </div>
-  <div class="col-6 col-md-2">
-    <div class="card border-0 shadow-sm text-center p-3 {{ 'border-danger' if below_min_count > 0 else '' }}">
+  <div style="flex:1 1 0; min-width:130px;">
+    <div class="card border-0 shadow-sm text-center p-2 h-100 {{ 'border-danger' if below_min_count > 0 else '' }}">
       <div class="fs-3 fw-bold {{ 'text-danger' if below_min_count > 0 else 'text-success' }}">{{ below_min_count }}</div>
       <div class="text-muted small">Below Min Stock</div>
     </div>
   </div>
-  <div class="col-6 col-md-2">
-    <div class="card border-0 shadow-sm text-center p-3 {{ 'border-danger' if out_of_stock_count > 0 else '' }}">
+  <div style="flex:1 1 0; min-width:130px;">
+    <div class="card border-0 shadow-sm text-center p-2 h-100 {{ 'border-danger' if out_of_stock_count > 0 else '' }}">
       <div class="fs-3 fw-bold {{ 'text-danger' if out_of_stock_count > 0 else 'text-success' }}">{{ out_of_stock_count }}</div>
       <div class="text-muted small">Out of Stock</div>
     </div>
   </div>
-  <div class="col-6 col-md-2">
-    <div class="card border-0 shadow-sm text-center p-3">
+  <div style="flex:1 1 0; min-width:130px;">
+    <div class="card border-0 shadow-sm text-center p-2 h-100">
       <div class="fs-3 fw-bold text-warning">{{ part_requested_count }} <span class="fs-6 text-muted">/</span> {{ part_sourced_count }}</div>
       <div class="text-muted small">Requested / Sourced</div>
     </div>
   </div>
-  <div class="col-6 col-md-2">
-    <div class="card border-0 shadow-sm text-center p-3">
+  <div style="flex:1 1 0; min-width:130px;">
+    <div class="card border-0 shadow-sm text-center p-2 h-100">
       <div class="fs-3 fw-bold text-info">{{ consumed_this_month }}</div>
       <div class="text-muted small">Consumed This Month</div>
     </div>
   </div>
-  <div class="col-6 col-md-2">
-    <div class="card border-0 shadow-sm text-center p-3">
+  <div style="flex:1 1 0; min-width:130px;">
+    <div class="card border-0 shadow-sm text-center p-2 h-100">
       <div class="fs-3 fw-bold text-success">&#8377;{{ "{:,.0f}".format(total_stock_value) }}</div>
       <div class="text-muted small">Total Stock Value</div>
     </div>
@@ -308,7 +308,10 @@
         </tr></thead>
         <tbody>
           {% for r in part_reqs %}
-          {% set stock = part_stock.get(r.part_id|string, 0) %}
+          {# Qty Available comes from Part Master by NAME (New + Harvest summed).
+             Most requests carry a stale part_id pointing at a trashed row, so
+             keying on the id alone showed 0. #}
+          {% set stock = stock_by_name.get((r.part_name or '')|lower|trim, part_stock.get(r.part_id|string, 0)) %}
           {% set available = r.part_id and stock > 0 %}
           <tr>
             <td><input type="checkbox" class="form-check-input sp-cb" data-tbl="partReqTable"></td>
@@ -388,7 +391,10 @@
         </tr></thead>
         <tbody>
           {% for r in faulty_reqs %}
-          {% set stock = part_stock.get(r.part_id|string, 0) %}
+          {# Qty Available comes from Part Master by NAME (New + Harvest summed).
+             Most requests carry a stale part_id pointing at a trashed row, so
+             keying on the id alone showed 0. #}
+          {% set stock = stock_by_name.get((r.part_name or '')|lower|trim, part_stock.get(r.part_id|string, 0)) %}
           {% set available = r.part_id and stock > 0 %}
           <tr>
             <td class="font-monospace">{% if r.work_id %}<a href="/workid-status?highlight={{ r.work_id }}" class="text-decoration-none" title="View in WorkID Status">{{ r.work_id }}</a>{% else %}—{% endif %}</td>

@@ -162,6 +162,17 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         group_stock[_group_key(p)] = group_stock.get(_group_key(p), 0) + _live(p)
 
     part_stock = {str(p.id): group_stock.get(_group_key(p), 0) for p in parts}
+
+    # Qty Available is resolved by part NAME, not by the request's stored
+    # part_id. 88% of live part_requests carry a part_id that is NULL or points
+    # at a since-trashed Part Master row, so keying on the id showed 0 for
+    # almost every request. Summing every active row with the same name also
+    # gives the New + Harvest total the page is meant to show.
+    stock_by_name: dict = {}
+    for p in parts:
+        k = (p.name or "").strip().lower()
+        if k:
+            stock_by_name[k] = stock_by_name.get(k, 0) + _live(p)
     part_meta = {
         str(p.id): {"crate": p.crate_number, "make": p.make, "model": p.model}
         for p in parts
@@ -229,6 +240,7 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     return templates.TemplateResponse("spare_parts/list.html", {
         "request": request, "parts": parts, "current_user": current_user,
         "purchases": purchases, "consumptions": consumptions,
+        "stock_by_name": stock_by_name,
         "total_part_types": total_part_types,
         "total_qty": total_qty,
         "total_new": total_new,

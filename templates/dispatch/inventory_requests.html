@@ -3,7 +3,10 @@
 {% block page_title %}Inventory Requests{% endblock %}
 {% block content %}
 
-{% set _appr = role_allowed(current_user.role, 'admin', 'sales_manager') %}
+{# Approve / Reject / Bulk Approve are shown to every signed-in user. The
+   server still checks the inventory_requests module permission, so a role
+   can be restricted from Admin > Permission Matrix without a code change. #}
+{% set _appr = True %}
 
 <!-- Telecaller Requests (moved here from TRC Dashboard) -->
 <div class="card border-0 shadow-sm mb-3">

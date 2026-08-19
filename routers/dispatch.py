@@ -22,7 +22,7 @@ from models.device import Device, DeviceStage, StageMovement
 from models.lot import Lot
 from models.sales import Sale, Return as SaleReturn
 from models.dispatch_request import TelecallerDispatchRequest
-from auth.dependencies import get_current_user, require_roles, verify_csrf
+from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from services.audit_engine import audit
 from utils.warranty import warranty_from_sold_at, latest_sold_at_map
 
@@ -31,7 +31,13 @@ router = APIRouter(tags=["dispatch"], dependencies=[Depends(verify_csrf)])
 view_allowed = require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.sales,
                              UserRole.sales_manager, UserRole.telecaller)
 request_allowed = require_roles(UserRole.admin, UserRole.sales, UserRole.sales_manager, UserRole.telecaller)
-approve_allowed = require_roles(UserRole.admin, UserRole.sales_manager)
+# Approve / Reject / Bulk Approve on Inventory Requests are open to every
+# signed-in user rather than admin + sales_manager only. Access is still
+# governed by the permission matrix: has_perm() defaults to ALLOW when a role
+# has no explicit row, so this is "everyone by default, restrict per role from
+# Admin > Permission Matrix" rather than an unconditional grant.
+approve_allowed = get_current_user
+approve_perm = require_module_perm("inventory_requests", "edit")
 
 
 def _as_uuid(v):
@@ -408,7 +414,8 @@ def _apply_approval(r: TelecallerDispatchRequest, current_user: User) -> bool:
 
 @router.post("/dispatch/{req_id}/approve")
 async def approve_dispatch(req_id: str, request: Request, db: AsyncSession = Depends(get_db),
-                           current_user: User = Depends(approve_allowed)):
+                           current_user: User = Depends(approve_allowed),
+                           _perm: User = Depends(approve_perm)):
     r = (await db.execute(
         select(TelecallerDispatchRequest).where(TelecallerDispatchRequest.id == _as_uuid(req_id))
     )).scalar_one_or_none()
@@ -426,7 +433,8 @@ async def approve_dispatch(req_id: str, request: Request, db: AsyncSession = Dep
 @router.post("/dispatch/bulk-approve")
 async def bulk_approve_dispatch(request: Request, ids: list[str] = Form([]),
                                 db: AsyncSession = Depends(get_db),
-                                current_user: User = Depends(approve_allowed)):
+                                current_user: User = Depends(approve_allowed),
+                                _perm: User = Depends(approve_perm)):
     """Approve every ticked row from one of the Inventory Requests tables.
 
     Deliberately set-based: one IN query for the whole batch. The database
@@ -464,7 +472,8 @@ async def bulk_approve_dispatch(request: Request, ids: list[str] = Form([]),
 @router.post("/dispatch/{req_id}/reject")
 async def reject_dispatch(req_id: str, request: Request, notes: str = Form(...),
                           db: AsyncSession = Depends(get_db),
-                          current_user: User = Depends(approve_allowed)):
+                          current_user: User = Depends(approve_allowed),
+                          _perm: User = Depends(approve_perm)):
     r = (await db.execute(
         select(TelecallerDispatchRequest).where(TelecallerDispatchRequest.id == _as_uuid(req_id))
     )).scalar_one_or_none()

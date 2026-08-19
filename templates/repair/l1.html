@@ -234,7 +234,7 @@ $(document).ready(function(){ $('#l1Table').DataTable({}); });
 const ALL_SPARE_PARTS = {{ all_spare_parts | tojson }};
 
 function bpFillNames(preselect) {
-  var sel = document.getElementById('bp_part_name');
+  var sel = $id('bp_part_name');
   var seen = {};
   var names = ALL_SPARE_PARTS.filter(function(sp) {
     var n = sp.name || '';
@@ -257,8 +257,8 @@ function bpFillNames(preselect) {
 }
 
 function bpFillMakes() {
-  var name = document.getElementById('bp_part_name').value;
-  var mk = document.getElementById('bp_part_make');
+  var name = $id('bp_part_name').value;
+  var mk = $id('bp_part_make');
   if (!name) {
     mk.innerHTML = '<option value="">— Select a part name first —</option>';
     document.getElementById('bp_part_model').innerHTML = '<option value="">— Select a part make first —</option>';
@@ -289,9 +289,9 @@ function bpFillMakes() {
 }
 
 function bpFillModels() {
-  var name = document.getElementById('bp_part_name').value;
-  var make = document.getElementById('bp_part_make').value;
-  var md = document.getElementById('bp_part_model');
+  var name = $id('bp_part_name').value;
+  var make = $id('bp_part_make').value;
+  var md = $id('bp_part_model');
   var matches = ALL_SPARE_PARTS.filter(function(sp) {
     return (sp.name || '') === name && (sp.make || '') === make;
   });
@@ -301,6 +301,12 @@ function bpFillModels() {
                (sp.model || '— Not specified —') + '</option>';
       }).join('')
     : '<option value="">— None in Part Master —</option>';
+}
+
+function $id(id) {
+  var el = document.getElementById(id);
+  if (!el) throw new Error('missing element #' + id + ' — reload the page (Ctrl+F5)');
+  return el;
 }
 
 function openBulkPartRequest(requestType, partLabel, category, qty) {
@@ -313,25 +319,26 @@ function openBulkPartRequest(requestType, partLabel, category, qty) {
 }
 
 function _openBulkPartRequest(requestType, partLabel, category, qty) {
-  document.getElementById('bp_request_type').value = requestType;
-  document.getElementById('bp_part_label').value = partLabel;
-  document.getElementById('bp_part_category').value = category || '';
-  document.getElementById('bp_dg_wrap').style.display =
-    requestType === 'downgrade' ? '' : 'none';
-  document.getElementById('bp_title').innerHTML =
+  $id('bp_request_type').value = requestType;
+  $id('bp_part_label').value = partLabel;
+  $id('bp_part_category').value = category || '';
+  $id('bp_dg_wrap').style.display = requestType === 'downgrade' ? '' : 'none';
+  $id('bp_title').innerHTML =
     requestType === 'replace' ? '<i class="bi bi-arrow-repeat me-2"></i>Replace Request'
     : (requestType === 'downgrade' ? '<i class="bi bi-arrow-down-circle me-2"></i>Downgrade'
        : '<i class="bi bi-bag-plus me-2"></i>New Part Request');
-  document.getElementById('bp_scope').innerHTML =
+  $id('bp_scope').innerHTML =
     '<i class="bi bi-info-circle me-1"></i>Applies to <strong>' + qty + '</strong> tag' +
     (qty === 1 ? '' : 's') + ' needing <strong>' + partLabel +
     '</strong>. Tags with an open request are skipped.';
   bpFillNames(partLabel);
-  new bootstrap.Modal(document.getElementById('bulkPartModal')).show();
+  new bootstrap.Modal($id('bulkPartModal')).show();
 }
 
 (function(){
-  var rlModal = new bootstrap.Modal(document.getElementById('requestL3L4Modal'));
+  var rlEl = document.getElementById('requestL3L4Modal');
+  if (!rlEl) return;
+  var rlModal = new bootstrap.Modal(rlEl);
   document.querySelectorAll('.request-l3l4-btn').forEach(function(btn){
     btn.addEventListener('click', function(){
       document.getElementById('rl_device').value = btn.dataset.device;

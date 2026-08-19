@@ -164,6 +164,10 @@ async def bulk_part_request(
     part_label: str = Form(...),
     part_category: str = Form(""),
     request_type: str = Form("new"),
+    part_name: str = Form(""),
+    part_make: str = Form(""),
+    part_model: str = Form(""),
+    downgrade_type: str = Form(""),
     csrf_token: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -202,12 +206,23 @@ async def bulk_part_request(
 
     # Resolve one SparePart for the whole batch, the same way the per-tag
     # modal's server-side fallback does.
-    conds = [SparePart.name.ilike(f"%{part_label}%")]
-    if part_category.strip():
-        conds.append(SparePart.category == part_category.strip())
-    sp_match = (await db.execute(
-        select(SparePart).where(or_(*conds)).order_by(SparePart.qty_in_stock.desc())
-    )).scalars().first()
+    sp_match = None
+    if part_name.strip():
+        exact = select(SparePart).where(SparePart.name == part_name.strip())
+        if part_make.strip():
+            exact = exact.where(SparePart.make == part_make.strip())
+        if part_model.strip():
+            exact = exact.where(SparePart.model == part_model.strip())
+        sp_match = (await db.execute(
+            exact.order_by(SparePart.qty_in_stock.desc())
+        )).scalars().first()
+    if not sp_match:
+        conds = [SparePart.name.ilike(f"%{part_label}%")]
+        if part_category.strip():
+            conds.append(SparePart.category == part_category.strip())
+        sp_match = (await db.execute(
+            select(SparePart).where(or_(*conds)).order_by(SparePart.qty_in_stock.desc())
+        )).scalars().first()
 
     wo_rows = (await db.execute(
         select(WorkOrder).where(WorkOrder.device_id.in_(device_ids),
@@ -237,6 +252,9 @@ async def bulk_part_request(
             part_name=part_label,
             part_category=part_category.strip() or None,
             request_type=(request_type or "new").strip(),
+            downgrade_type=downgrade_type.strip() or None,
+            part_make=part_make.strip() or None,
+            part_model=part_model.strip() or None,
             requested_by=current_user.username,
             engineer_name=current_user.full_name,
             qty_requested=1, status="requested",
@@ -873,6 +891,16 @@ async def repair_list(stage: str, request: Request,
         "parts_required_map": parts_required_map,
         "parts_requested_map": parts_requested_map,
         "bulk_parts": bulk_parts,
+        # Feeds the Bulk Part Request modals' Name -> Make -> Model cascade,
+        # the same shape Device Detail passes to its own request modals.
+        "all_spare_parts": [
+            {"id": str(sp.id), "name": sp.name, "category": sp.category,
+             "make": sp.make, "model": sp.model}
+            for sp in (await db.execute(
+                select(SparePart).where(SparePart.is_trashed == False)
+                .order_by(SparePart.category, SparePart.name)
+            )).scalars().all()
+        ],
         "bucket_map": bucket_map,
         "started_ids": {str(j.device_id) for j, *_ in open_jobs},
         "total": total,

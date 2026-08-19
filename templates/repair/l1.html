@@ -83,6 +83,8 @@
     </div>
   </div>
 
+</div>
+
   <!-- Bulk Part Request — one row per part across every tag in the table above -->
   <div class="row mt-3">
     <div class="col-12">
@@ -135,6 +137,64 @@
     </div>
   </div>
 
+<!-- Bulk Part Request modal — same fields and cascade as Device Detail's
+     New/Replace Request modal, but applied to every tag in the queue. -->
+<div class="modal fade" id="bulkPartModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" action="/repair/bulk-part-request" id="bulkPartForm">
+      <div class="modal-content">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+        <input type="hidden" name="request_type" id="bp_request_type" value="new">
+        <input type="hidden" name="part_label" id="bp_part_label">
+        <input type="hidden" name="part_category" id="bp_part_category">
+        <div class="modal-header">
+          <h6 class="modal-title fw-semibold" id="bp_title"><i class="bi bi-bag-plus me-2"></i>New Part Request</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-info py-2 small mb-3" id="bp_scope"></div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label form-label-sm mb-1">Part Name</label>
+              <select name="part_name" id="bp_part_name" class="form-select form-select-sm" required
+                      onchange="bpFillMakes()">
+                <option value="">— Select —</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label form-label-sm mb-1">Part Make</label>
+              <select name="part_make" id="bp_part_make" class="form-select form-select-sm" onchange="bpFillModels()">
+                <option value="">— Select a part name first —</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label form-label-sm mb-1">Part Model</label>
+              <select name="part_model" id="bp_part_model" class="form-select form-select-sm">
+                <option value="">— Select a part make first —</option>
+              </select>
+            </div>
+            <div class="col-md-6" id="bp_dg_wrap" style="display:none">
+              <label class="form-label form-label-sm mb-1 d-block">Downgrade Type</label>
+              <div class="d-flex gap-3">
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="downgrade_type" id="bp_dg_normal" value="normal" checked>
+                  <label class="form-check-label small" for="bp_dg_normal">Normal</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="downgrade_type" id="bp_dg_replace" value="replace">
+                  <label class="form-check-label small" for="bp_dg_replace">Replace</label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-check-lg me-1"></i>Raise Requests</button>
+        </div>
+      </div>
+    </form>
+  </div>
 </div>
 
 <!-- Request to L3/L4 modal -->
@@ -169,29 +229,88 @@
 <script>
 $(document).ready(function(){ $('#l1Table').DataTable({}); });
 
-// Bulk Part Request — raises one PartRequest per tag that needs the part,
-// for every tag currently listed in the Tag Number table above.
-function openBulkPartRequest(requestType, partLabel, category, qty) {
-  var verb = requestType === 'replace' ? 'Replace Request'
-           : (requestType === 'downgrade' ? 'Downgrade' : 'Normal Request');
-  if (!confirm(verb + ' for "' + partLabel + '" across ' + qty +
-               ' tag' + (qty === 1 ? '' : 's') + '?\n\n' +
-               'One request is raised per tag that still needs this part. ' +
-               'Tags that already have an open request are skipped.')) return;
-  var form = document.createElement('form');
-  form.method = 'post';
-  form.action = '/repair/bulk-part-request';
-  function add(n, v) {
-    var i = document.createElement('input');
-    i.type = 'hidden'; i.name = n; i.value = v; form.appendChild(i);
+// Bulk Part Request — opens the same Name -> Make -> Model modal as Device
+// Detail, then raises one request per tag in the queue that needs the part.
+const ALL_SPARE_PARTS = {{ all_spare_parts | tojson }};
+
+function bpFillNames(preselect) {
+  var sel = document.getElementById('bp_part_name');
+  var seen = {};
+  var names = ALL_SPARE_PARTS.filter(function(sp) {
+    if (seen[sp.name]) return false;
+    seen[sp.name] = true; return true;
+  });
+  sel.innerHTML = '<option value="">— Select —</option>' + names.map(function(sp) {
+    return '<option value="' + sp.name.replace(/"/g,'&quot;') + '">' + sp.name + '</option>';
+  }).join('');
+  if (preselect) {
+    var has = Array.prototype.some.call(sel.options, function(o){ return o.value === preselect; });
+    if (!has) {
+      var o = document.createElement('option');
+      o.value = preselect; o.textContent = preselect; sel.appendChild(o);
+    }
+    sel.value = preselect;
   }
-  add('csrf_token', '{{ request.cookies.get("csrf_token","") }}');
-  add('part_label', partLabel);
-  add('part_category', category || '');
-  add('request_type', requestType);
-  document.body.appendChild(form);
-  form.submit();
+  bpFillMakes();
 }
+
+function bpFillMakes() {
+  var name = document.getElementById('bp_part_name').value;
+  var mk = document.getElementById('bp_part_make');
+  if (!name) {
+    mk.innerHTML = '<option value="">— Select a part name first —</option>';
+    document.getElementById('bp_part_model').innerHTML = '<option value="">— Select a part make first —</option>';
+    return;
+  }
+  var seen = {};
+  var makes = ALL_SPARE_PARTS.filter(function(sp) {
+    if (sp.name !== name) return false;
+    var k = sp.make || '';
+    if (seen[k]) return false;
+    seen[k] = true; return true;
+  });
+  mk.innerHTML = makes.length
+    ? makes.map(function(sp) {
+        return '<option value="' + (sp.make || '').replace(/"/g,'&quot;') + '">' +
+               (sp.make || '— Not specified —') + '</option>';
+      }).join('')
+    : '<option value="">— None in Part Master —</option>';
+  bpFillModels();
+}
+
+function bpFillModels() {
+  var name = document.getElementById('bp_part_name').value;
+  var make = document.getElementById('bp_part_make').value;
+  var md = document.getElementById('bp_part_model');
+  var matches = ALL_SPARE_PARTS.filter(function(sp) {
+    return sp.name === name && (sp.make || '') === make;
+  });
+  md.innerHTML = matches.length
+    ? matches.map(function(sp) {
+        return '<option value="' + (sp.model || '').replace(/"/g,'&quot;') + '">' +
+               (sp.model || '— Not specified —') + '</option>';
+      }).join('')
+    : '<option value="">— None in Part Master —</option>';
+}
+
+function openBulkPartRequest(requestType, partLabel, category, qty) {
+  document.getElementById('bp_request_type').value = requestType;
+  document.getElementById('bp_part_label').value = partLabel;
+  document.getElementById('bp_part_category').value = category || '';
+  document.getElementById('bp_dg_wrap').style.display =
+    requestType === 'downgrade' ? '' : 'none';
+  document.getElementById('bp_title').innerHTML =
+    requestType === 'replace' ? '<i class="bi bi-arrow-repeat me-2"></i>Replace Request'
+    : (requestType === 'downgrade' ? '<i class="bi bi-arrow-down-circle me-2"></i>Downgrade'
+       : '<i class="bi bi-bag-plus me-2"></i>New Part Request');
+  document.getElementById('bp_scope').innerHTML =
+    '<i class="bi bi-info-circle me-1"></i>Applies to <strong>' + qty + '</strong> tag' +
+    (qty === 1 ? '' : 's') + ' needing <strong>' + partLabel +
+    '</strong>. Tags with an open request are skipped.';
+  bpFillNames(partLabel);
+  new bootstrap.Modal(document.getElementById('bulkPartModal')).show();
+}
+
 (function(){
   var rlModal = new bootstrap.Modal(document.getElementById('requestL3L4Modal'));
   document.querySelectorAll('.request-l3l4-btn').forEach(function(btn){

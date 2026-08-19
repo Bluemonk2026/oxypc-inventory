@@ -93,6 +93,17 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     )
     total_stock_value = sum(float(p.unit_price or 0) * int(p.qty_in_stock or 0) for p in parts)
 
+    # Total Quantities / Total New / Total Harvest — same definitions the Parts
+    # Dashboard uses, so the two pages cannot disagree: quantity is live stock
+    # (on hand minus handed-over-but-not-yet-deducted), New/Harvest are row
+    # counts by source.
+    def _live(p):
+        return max(0, int(p.qty_in_stock or 0) - consumed_by_part.get(str(p.id), 0))
+
+    total_qty = sum(_live(p) for p in parts)
+    total_new = sum(1 for p in parts if (p.source or "new") != "harvest")
+    total_harvest = sum(1 for p in parts if p.source == "harvest")
+
     part_requested_count = (await db.execute(
         select(func.count(PartRequest.id)).where(PartRequest.status == "requested")
     )).scalar() or 0
@@ -135,10 +146,22 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     )).scalars().all()
     part_reqs = [r for r in all_part_reqs if r.request_type != "faulty"]
     faulty_reqs = [r for r in all_part_reqs if r.request_type == "faulty"]
-    part_stock = {
-        str(p.id): max(0, int(p.qty_in_stock or 0) - consumed_by_part.get(str(p.id), 0))
-        for p in parts
-    }
+    # Qty Available on the Part Requests / Faulty Requests tables sums the New
+    # and Harvest rows for the same physical part. Part Master keeps them as
+    # separate rows (different `source`), but an engineer asking for a Keyboard
+    # can be given either, so showing only the matched row's stock understated
+    # what is actually on the shelf. Grouped on name+make+model so it stays a
+    # like-for-like total rather than lumping every "Panel" together.
+    def _group_key(p):
+        return ((p.name or "").strip().lower(),
+                (p.make or "").strip().lower(),
+                (p.model or "").strip().lower())
+
+    group_stock: dict = {}
+    for p in parts:
+        group_stock[_group_key(p)] = group_stock.get(_group_key(p), 0) + _live(p)
+
+    part_stock = {str(p.id): group_stock.get(_group_key(p), 0) for p in parts}
     part_meta = {
         str(p.id): {"crate": p.crate_number, "make": p.make, "model": p.model}
         for p in parts
@@ -207,6 +230,9 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         "request": request, "parts": parts, "current_user": current_user,
         "purchases": purchases, "consumptions": consumptions,
         "total_part_types": total_part_types,
+        "total_qty": total_qty,
+        "total_new": total_new,
+        "total_harvest": total_harvest,
         "below_min_count": below_min_count,
         "out_of_stock_count": out_of_stock_count,
         "part_requested_count": part_requested_count,

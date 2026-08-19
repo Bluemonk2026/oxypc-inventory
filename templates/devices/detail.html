@@ -425,30 +425,59 @@
         nameSel.setAttribute('required', 'required');
 
         prFillPartNames();
-        if (matchedPartId) {
-          // Drive the Name + Model selects so the matched SparePart resolves.
-          var matched = ALL_SPARE_PARTS.filter(function(sp) { return sp.id === matchedPartId; })[0];
+
+        // Prefill Name -> Make -> Model in cascade order. Each step must run
+        // after the one before it has populated its select, otherwise the next
+        // filters on an empty value and comes back blank.
+        var matched = matchedPartId
+          ? ALL_SPARE_PARTS.filter(function(sp) { return sp.id === matchedPartId; })[0]
+          : null;
+
+        // Fall back to matching on the row's label when the row had no Part
+        // Master id (Parts Consumption labels like "RAM" are a fixed list and
+        // do not always correspond to a SparePart row).
+        if (!matched && partLabel) {
+          matched = ALL_SPARE_PARTS.filter(function(sp) { return sp.name === partLabel; })[0];
+        }
+
+        if (matched) {
+          var hasName = Array.prototype.some.call(nameSel.options, function(o) {
+            return o.value === matched.name;
+          });
+          if (!hasName) {
+            var nOpt = document.createElement('option');
+            nOpt.value = matched.name;
+            nOpt.textContent = matched.name;
+            nameSel.appendChild(nOpt);
+          }
+          nameSel.value = matched.name;
+
+          prFillPartMakes();
+          var makeSel = document.getElementById('pr_part_make');
+          makeSel.value = matched.make || '';
+
+          prFillPartModels();
+          // Model options carry the model text as their value and the
+          // SparePart id on data-part-id, so select by the id.
           var modelSel = document.getElementById('pr_part_model');
-          if (matched) {
-            var hasName = Array.prototype.some.call(nameSel.options, function(o) { return o.value === matched.name; });
-            if (!hasName) {
-              var nOpt = document.createElement('option');
-              nOpt.value = matched.name;
-              nOpt.textContent = matched.name;
-              nameSel.appendChild(nOpt);
-            }
-            nameSel.value = matched.name;
-            prFillPartModels();
-          }
-          var hasModel = Array.prototype.some.call(modelSel.options, function(o) { return o.value === matchedPartId; });
-          if (!hasModel) {
-            var mOpt = document.createElement('option');
-            mOpt.value = matchedPartId;
-            mOpt.textContent = (matched && matched.model) || partLabel || 'Selected part';
-            modelSel.appendChild(mOpt);
-          }
-          modelSel.value = matchedPartId;
+          Array.prototype.forEach.call(modelSel.options, function(o, i) {
+            if (o.getAttribute('data-part-id') === matched.id) modelSel.selectedIndex = i;
+          });
           prSelectModel();
+        } else if (partLabel) {
+          // No Part Master match at all — keep the label visible so the
+          // engineer can still submit, and leave Make/Model for them to pick.
+          var hasLabel = Array.prototype.some.call(nameSel.options, function(o) {
+            return o.value === partLabel;
+          });
+          if (!hasLabel) {
+            var lOpt = document.createElement('option');
+            lOpt.value = partLabel;
+            lOpt.textContent = partLabel;
+            nameSel.appendChild(lOpt);
+          }
+          nameSel.value = partLabel;
+          prFillPartMakes();
         }
 
         new bootstrap.Modal(document.getElementById('partRequestModal')).show();

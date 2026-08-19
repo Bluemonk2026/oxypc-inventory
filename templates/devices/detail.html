@@ -312,15 +312,16 @@
         var nameSel = document.getElementById('pr_part_name');
         var seen = {};
         var names = ALL_SPARE_PARTS.filter(function(sp) {
-          if (seen[sp.name]) return false;
-          seen[sp.name] = true;
+          var n = sp.name || '';
+          if (!n || seen[n]) return false;
+          seen[n] = true;
           return true;
         });
         if (!names.length) {
           nameSel.innerHTML = '<option value="">No parts available</option>';
         } else {
           nameSel.innerHTML = '<option value="">— Select —</option>' + names.map(function(sp) {
-            var nm = sp.name.replace(/"/g,'&quot;');
+            var nm = (sp.name || '').replace(/"/g,'&quot;');
             return '<option value="' + nm + '">' + sp.name + '</option>';
           }).join('');
         }
@@ -340,11 +341,19 @@
         }
         var seen = {};
         var makes = ALL_SPARE_PARTS.filter(function(sp) {
-          if (sp.name !== name) return false;
+          if ((sp.name || '') !== name) return false;
           var mk = sp.make || '';
           if (seen[mk]) return false;
           seen[mk] = true;
           return true;
+        });
+        // Real makes first — a blank "not specified" row sorting to the top made
+        // the field look wrong even when proper values existed underneath.
+        makes.sort(function(a, b) {
+          var A = a.make || '', B = b.make || '';
+          if (!A && B) return 1;
+          if (A && !B) return -1;
+          return A.localeCompare(B);
         });
         makeSel.innerHTML = makes.map(function(sp) {
           var mk = (sp.make || '').replace(/"/g,'&quot;');
@@ -359,7 +368,7 @@
         var modelSel = document.getElementById('pr_part_model');
         document.getElementById('pr_part_id').value = '';
         var matches = ALL_SPARE_PARTS.filter(function(sp) {
-          return sp.name === name && (sp.make || '') === make;
+          return (sp.name || '') === name && (sp.make || '') === make;
         });
         var seen = {};
         matches = matches.filter(function(sp) {

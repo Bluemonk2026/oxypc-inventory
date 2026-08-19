@@ -115,7 +115,7 @@
                   <div class="d-flex gap-1 flex-wrap">
                     <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
                             onclick="openBulkPartRequest('new', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }})">
-                      <i class="bi bi-bag-plus"></i> Normal Request</button>
+                      <i class="bi bi-bag-plus"></i> New Request</button>
                     <button type="button" class="btn btn-sm btn-outline-warning py-0 px-2"
                             onclick="openBulkPartRequest('replace', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }})">
                       <i class="bi bi-arrow-repeat"></i> Replace Request</button>
@@ -237,11 +237,13 @@ function bpFillNames(preselect) {
   var sel = document.getElementById('bp_part_name');
   var seen = {};
   var names = ALL_SPARE_PARTS.filter(function(sp) {
-    if (seen[sp.name]) return false;
-    seen[sp.name] = true; return true;
+    var n = sp.name || '';
+    if (!n || seen[n]) return false;
+    seen[n] = true; return true;
   });
   sel.innerHTML = '<option value="">— Select —</option>' + names.map(function(sp) {
-    return '<option value="' + sp.name.replace(/"/g,'&quot;') + '">' + sp.name + '</option>';
+    var n = sp.name || '';
+    return '<option value="' + n.replace(/"/g,'&quot;') + '">' + n + '</option>';
   }).join('');
   if (preselect) {
     var has = Array.prototype.some.call(sel.options, function(o){ return o.value === preselect; });
@@ -264,10 +266,18 @@ function bpFillMakes() {
   }
   var seen = {};
   var makes = ALL_SPARE_PARTS.filter(function(sp) {
-    if (sp.name !== name) return false;
+    if ((sp.name || '') !== name) return false;
     var k = sp.make || '';
     if (seen[k]) return false;
     seen[k] = true; return true;
+  });
+  // Real makes before any blank, so the field never opens on "Not specified"
+  // when proper values exist underneath.
+  makes.sort(function(a, b) {
+    var A = a.make || '', B = b.make || '';
+    if (!A && B) return 1;
+    if (A && !B) return -1;
+    return A.localeCompare(B);
   });
   mk.innerHTML = makes.length
     ? makes.map(function(sp) {
@@ -283,7 +293,7 @@ function bpFillModels() {
   var make = document.getElementById('bp_part_make').value;
   var md = document.getElementById('bp_part_model');
   var matches = ALL_SPARE_PARTS.filter(function(sp) {
-    return sp.name === name && (sp.make || '') === make;
+    return (sp.name || '') === name && (sp.make || '') === make;
   });
   md.innerHTML = matches.length
     ? matches.map(function(sp) {
@@ -294,6 +304,15 @@ function bpFillModels() {
 }
 
 function openBulkPartRequest(requestType, partLabel, category, qty) {
+  try {
+    _openBulkPartRequest(requestType, partLabel, category, qty);
+  } catch (e) {
+    console.error('Bulk Part Request failed to open:', e);
+    alert('Could not open the request form: ' + e.message);
+  }
+}
+
+function _openBulkPartRequest(requestType, partLabel, category, qty) {
   document.getElementById('bp_request_type').value = requestType;
   document.getElementById('bp_part_label').value = partLabel;
   document.getElementById('bp_part_category').value = category || '';

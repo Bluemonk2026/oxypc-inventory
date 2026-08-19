@@ -1148,7 +1148,8 @@ async def device_detail(
     # ── All active spare parts, for the New Request/Replace modal's
     #    Part Category -> Part Name cascade (client-side filtered). ──────────
     all_parts_result = await db.execute(
-        select(SparePart).order_by(SparePart.category, SparePart.name)
+        select(SparePart).where(SparePart.is_trashed == False)
+        .order_by(SparePart.category, SparePart.name)
     )
     all_spare_parts = [
         {"id": str(sp.id), "name": sp.name, "category": sp.category,

@@ -152,7 +152,10 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <div class="alert alert-info py-2 small mb-3" id="bp_scope"></div>
+          <!-- no-autohide: app.js removes .alert-info from the DOM 4s after
+               page load; without it this element vanishes and the modal only
+               opens once. -->
+          <div class="alert alert-info no-autohide py-2 small mb-3" id="bp_scope"></div>
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label form-label-sm mb-1">Part Name</label>

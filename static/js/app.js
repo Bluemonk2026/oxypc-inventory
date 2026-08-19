@@ -7,6 +7,10 @@
 document.addEventListener('DOMContentLoaded', function () {
   setTimeout(function () {
     document.querySelectorAll('.alert.alert-success:not(.no-autohide), .alert.alert-info:not(.no-autohide)').forEach(function (el) {
+      // close() REMOVES the node. An alert inside a modal is a scope/preview
+      // panel the modal's JS writes into every time it opens, never a flash
+      // message — removing it makes the modal work exactly once per page load.
+      if (el.closest('.modal')) return;
       var bsAlert = bootstrap.Alert.getOrCreateInstance(el);
       if (bsAlert) bsAlert.close();
     });

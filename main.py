@@ -413,11 +413,30 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
                          detail=(str(exc.errors()) if DEBUG else None))
 
 
+def _log_unhandled(request: Request, exc: Exception, status: int) -> None:
+    """Print and file-log a full traceback for an unhandled error.
+
+    The database handlers below used to return a 500 page without logging
+    anything, so a DB-level failure (value too long for a column, bad enum,
+    dropped connection) surfaced to the user as "500" and left no trace at all
+    in the server log — nothing to diagnose from afterwards. Every path that
+    ends in a 5xx logs the same way the generic handler does.
+    """
+    msg = (f"\n{'='*60}\n{status} {request.method} {request.url}\n"
+           f"{type(exc).__name__}: {exc}\n{_tb.format_exc()}{'='*60}")
+    print(msg, flush=True)
+    try:
+        _err_logger.error(msg)
+    except Exception:
+        pass
+
+
 @app.exception_handler(DBAPIError)
 async def db_api_error_handler(request: Request, exc: DBAPIError):
     msg = str(exc).lower()
     if ("invalid input" in msg and "uuid" in msg) or "invalid uuid" in msg:
         return _render_error(request, 404, message="The record you requested doesn't exist.")
+    _log_unhandled(request, exc, 500)
     return _render_error(request, 500, message="A database error occurred.")
 
 
@@ -426,6 +445,7 @@ async def db_programming_error_handler(request: Request, exc: ProgrammingError):
     msg = str(exc).lower()
     if ("invalid input" in msg and "uuid" in msg) or "invalid uuid" in msg:
         return _render_error(request, 404, message="The record you requested doesn't exist.")
+    _log_unhandled(request, exc, 500)
     return _render_error(request, 500, message="A database error occurred.")
 
 
@@ -434,6 +454,7 @@ async def db_data_error_handler(request: Request, exc: DataError):
     msg = str(exc).lower()
     if ("invalid input" in msg and "uuid" in msg) or "invalid uuid" in msg:
         return _render_error(request, 422, message="That identifier isn't in a valid format.")
+    _log_unhandled(request, exc, 500)
     return _render_error(request, 500, message="A database error occurred.")
 
 

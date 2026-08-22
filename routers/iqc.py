@@ -22,6 +22,75 @@ from utils.grades import parse_grade
 from routers.devices import _build_model_summary
 
 router = APIRouter(prefix="/iqc", tags=["iqc"], dependencies=[Depends(verify_csrf)])
+
+
+def _keep_after_rollback(db, obj):
+    """Detach `obj` so it stays readable once the session is rolled back.
+
+    session.rollback() expires every instance the session manages. The next
+    attribute read then triggers a lazy refresh, and under async SQLAlchemy that
+    implicit IO raises MissingGreenlet. Since these error paths roll back and
+    *then* render a template that reads current_user, the friendly form error
+    turned into a 500 — the failure users were actually hitting. Detaching first
+    keeps the already-loaded values usable without further IO.
+    """
+    try:
+        db.expunge(obj)
+    except Exception:
+        pass
+
+
+def _iqc_form_boundary(fn):
+    """Never let New IQC Entry fail with a bare 500.
+
+    The handler guards the failures it can predict (bad UUID, bad enum,
+    constraint violations at flush/commit), but anything it did not predict
+    reached the user as an opaque "500" with the whole form wiped — and, since
+    the technician cannot report what they cannot see, with nothing to diagnose
+    from either.
+
+    Any unhandled exception now rolls back, logs a full traceback server-side,
+    and re-renders the form with the actual error text on screen, so the person
+    hitting it can read and report it. HTTPException is left alone: 403s and
+    redirects from the auth layer are deliberate control flow, not faults.
+    """
+    import functools
+    import traceback as _tb
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            db = kwargs.get("db")
+            request = kwargs.get("request")
+            current_user = kwargs.get("current_user")
+            print(f"\n{'='*60}\nIQC ENTRY FAILED for "
+                  f"{getattr(current_user, 'username', '?')} "
+                  f"barcode={kwargs.get('barcode', '?')!r}\n"
+                  f"{type(exc).__name__}: {exc}\n{_tb.format_exc()}{'='*60}",
+                  flush=True)
+            lots = []
+            if db is not None:
+                try:
+                    if current_user is not None:
+                        _keep_after_rollback(db, current_user)
+                    await db.rollback()
+                    lots = (await db.execute(
+                        select(Lot).order_by(Lot.lot_number))).scalars().all()
+                except Exception:
+                    lots = []
+            return templates.TemplateResponse("iqc/form.html", {
+                "request": request, "lots": lots, "current_user": current_user,
+                "prefill_lot_id": kwargs.get("lot_id", ""),
+                "prefill_grn": kwargs.get("grn_number", ""),
+                "error": f"Could not save this IQC entry — {type(exc).__name__}: "
+                         f"{str(exc)[:300]}. Please screenshot this message.",
+            }, status_code=200)
+
+    return wrapper
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.iqc_inspector,
                          UserRole.sales_manager)
 
@@ -1042,6 +1111,7 @@ async def iqc_new_form(request: Request, db: AsyncSession = Depends(get_db),
 
 
 @router.post("/new")
+@_iqc_form_boundary
 async def iqc_create(
     request: Request,
     barcode: str = Form(...),
@@ -1200,6 +1270,7 @@ async def iqc_create(
             # race handling — any other failure resolving the fallback Lot
             # (not just the known unique-constraint race) still degrades to a
             # clean form error instead of an unhandled 500.
+            _keep_after_rollback(db, current_user)
             await db.rollback()
             lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
             lots = lots_result.scalars().all()
@@ -1299,6 +1370,7 @@ async def iqc_create(
         # than as an opaque 500 at commit time.
         await db.flush()
     except Exception as exc:
+        _keep_after_rollback(db, current_user)
         await db.rollback()
         lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
         lots = lots_result.scalars().all()

@@ -113,3 +113,12 @@ pe_harness.html
 static/pe_harness.html
 _probe_*.py
 _probe_*.js
+
+# One-off read-only diagnostic scripts copied onto the servers. The internal
+# server's autodeploy refuses to run while its working tree is dirty, so these
+# are ignored rather than left untracked where they would block every deploy.
+_db_fingerprint.py
+_id_dump.py
+_export_internal_only.py
+_check_masterdata_widths.py
+ids_supabase.json

@@ -169,6 +169,73 @@ def test_new_user_can_submit_iqc_entry(app_client, make_user, role):
         )
 
 
+def test_save_error_renders_form_not_500(app_client, make_user):
+    """A rejected save must re-render the form, not 500.
+
+    This is the failure users were hitting. The handler catches the DB error and
+    re-renders — but `db.rollback()` expires every ORM instance, so the template
+    reading `current_user` triggered a lazy refresh, and that implicit IO raises
+    MissingGreenlet under async SQLAlchemy. The friendly error became a 500.
+
+    Driven here with a duplicate tag number, the everyday way a save is
+    rejected: submit the same barcode twice.
+    """
+    username, password = make_user("iqc_inspector")
+    _login(app_client, username, password)
+    app_client.get("/iqc/new")
+    csrf = app_client.cookies.get("csrf_token") or "dummy"
+    barcode = f"ITEST{uuid.uuid4().hex[:10].upper()}"
+
+    payload = {"csrf_token": csrf, "barcode": barcode, "lot_id": "",
+               "power_on": "Yes", "status": "Power On"}
+
+    first = app_client.post("/iqc/new", data=payload, follow_redirects=False)
+    assert first.status_code in (200, 302), f"first save failed: {first.status_code}"
+
+    second = app_client.post("/iqc/new", data=payload, follow_redirects=False)
+    assert second.status_code != 500, (
+        f"duplicate tag returned 500 instead of a form error:\n{second.text[:2000]}"
+    )
+    assert second.status_code == 200
+
+
+def test_unexpected_failure_shows_form_error_not_500(app_client, make_user, monkeypatch):
+    """An unforeseen exception must surface on the form, never as a bare 500.
+
+    The handler guards the failures it predicts; this covers everything it
+    doesn't. Simulated by making the audit write blow up, which sits in the
+    middle of the save path and was previously unguarded.
+    """
+    import routers.iqc as iqc_router
+
+    async def _boom(*a, **kw):
+        raise RuntimeError("simulated unexpected failure")
+
+    monkeypatch.setattr(iqc_router, "audit", _boom)
+
+    username, password = make_user("iqc_inspector")
+    _login(app_client, username, password)
+    app_client.get("/iqc/new")
+    csrf = app_client.cookies.get("csrf_token") or "dummy"
+
+    r = app_client.post(
+        "/iqc/new",
+        data={
+            "csrf_token": csrf,
+            "barcode": f"ITEST{uuid.uuid4().hex[:10].upper()}",
+            "lot_id": "",
+            "power_on": "Yes",
+        },
+        follow_redirects=False,
+    )
+
+    assert r.status_code != 500, "boundary did not catch the failure"
+    assert r.status_code == 200
+    assert "Could not save this IQC entry" in r.text, (
+        "the error text should be on screen so a technician can report it"
+    )
+
+
 @pytest.mark.parametrize("role", NEW_USER_ROLES)
 def test_new_user_can_open_iqc_list(app_client, make_user, role):
     """The IQC list is where a save lands — it must not 500 for a new user."""

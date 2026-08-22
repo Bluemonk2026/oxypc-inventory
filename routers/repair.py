@@ -751,17 +751,22 @@ async def repair_list(stage: str, request: Request,
     bulk_parts: list = []
     if device_ids:
         required_counts: dict = {}
+        # Every part gets a row, not just the ones IQC flagged Required — an
+        # engineer finds faults at the bench the inspection never recorded, and
+        # a part missing from this table cannot be requested for the queue at
+        # all. Total Quantity still counts only the tags where the part IS
+        # Required, so the column keeps its meaning and a part nobody needs
+        # simply shows 0.
         for did_str, dev in dev_by_id.items():
             iqc = iqc_by_dev.get(did_str)
             for row in compute_required(iqc, dev):
-                if not row["required"]:
-                    continue
                 entry = required_counts.setdefault(
                     row["label"],
                     {"label": row["label"], "category": row["category"],
                      "qty": 0, "requested": 0, "changed": 0},
                 )
-                entry["qty"] += 1
+                if row["required"]:
+                    entry["qty"] += 1
 
         if required_counts:
             status_rows = (await db.execute(

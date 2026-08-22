@@ -32,9 +32,17 @@ def test_delete_sets_status_false_and_admin_cannot_delete_self(app_client, make_
     r = app_client.post(f"/admin/users/{user_id}/delete", data={"csrf_token": csrf}, follow_redirects=False)
     assert r.status_code == 302, r.text[:500]
 
+    # Deleted (status=False) users disappear from the default list — same
+    # soft-delete-hides-by-default convention as is_trashed/is_active
+    # elsewhere in this app. Showing "Inactive" but still listed is exactly
+    # the "Delete doesn't work" symptom this replaces.
     html2 = app_client.get("/admin/users", follow_redirects=True).text
-    row2 = html2.split(f">{target_username}<", 1)[1].split("</tr>", 1)[0]
-    assert "Inactive" in row2
+    assert f">{target_username}<" not in html2
+
+    # Still findable/recoverable via Show Inactive.
+    html3 = app_client.get("/admin/users", params={"show_inactive": "on"}, follow_redirects=True).text
+    row3 = html3.split(f">{target_username}<", 1)[1].split("</tr>", 1)[0]
+    assert "Inactive" in row3
 
     # Self-delete guarded server-side too, not just hidden in the UI.
     admin_id_row = html.split(f">{admin_username}<", 1)[1]

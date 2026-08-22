@@ -21,6 +21,15 @@
         <label class="form-label form-label-sm mb-1 text-muted small">Last Login</label>
         <input type="date" name="last_login_date" value="{{ last_login_date_filter }}" class="form-control form-control-sm">
       </div>
+      <div class="form-check mb-1">
+        {# Deleted users (status=False) are excluded by default — same
+           soft-delete-hides-by-default convention as is_trashed/is_active
+           everywhere else in this app. Check this to find and re-enable one. #}
+        <input class="form-check-input" type="checkbox" name="show_inactive" id="showInactiveChk"
+               {% if show_inactive_filter %}checked{% endif %}
+               onchange="this.form.submit()">
+        <label class="form-check-label small" for="showInactiveChk">Show Inactive</label>
+      </div>
       <button class="btn btn-sm btn-outline-primary">Filter</button>
       <a href="/admin/users" class="btn btn-sm btn-outline-secondary">Clear</a>
     </form>

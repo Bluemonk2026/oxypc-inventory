@@ -118,6 +118,7 @@ async def list_users(
     request: Request,
     role: str = Query(default=""),
     last_login_date: str = Query(default=""),
+    show_inactive: str = Query(default=""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -130,6 +131,14 @@ async def list_users(
             query = query.where(func.date(User.last_login) == day)
         except ValueError:
             pass
+    # Delete (User Management's own soft-delete) sets status=False — without
+    # this filter that row just sat there re-labeled "Inactive" instead of
+    # disappearing, which read as "the button doesn't work". Same pattern as
+    # is_trashed/is_active everywhere else in this app: soft-deleted rows are
+    # excluded from the default list, recoverable via Show Inactive.
+    show_inactive_on = show_inactive == "on"
+    if not show_inactive_on:
+        query = query.where(User.status == True)
     result = await db.execute(query.order_by(User.created_at.desc()))
     users = result.scalars().all()
     role_choices, role_label_map = await _role_data(db)
@@ -143,6 +152,7 @@ async def list_users(
         "request": request, "users": users, "current_user": current_user,
         "role_choices": role_choices, "role_label_map": role_label_map,
         "role_filter": role, "last_login_date_filter": last_login_date,
+        "show_inactive_filter": show_inactive_on,
         "today_login_count": today_login_count,
     })
 

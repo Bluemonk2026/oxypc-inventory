@@ -414,8 +414,7 @@ $(document).ready(function(){
   // client-side ext.search predicate over rows already in the DOM. They now
   // travel to /grn/post-iqc/data as query params instead, since the row set
   // itself is fetched a page at a time rather than filtered after the fact.
-  window.dtPend =
-  var dtPend = $('#pendingTable').DataTable({
+  var dtPend = window.dtPend = $('#pendingTable').DataTable({
     serverSide: true,
     processing: true,
     pageLength: 12,

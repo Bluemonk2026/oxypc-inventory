@@ -46,9 +46,7 @@
             <th>Type</th>
             <th>Tag Number</th>
             <th>Make / Model</th>
-            <th>CPU</th>
-            <th>RAM</th>
-            <th>HDD</th>
+            <th>Quantity</th>
             <th>Lot</th>
             <th>From</th>
             <th>To</th>
@@ -71,11 +69,13 @@
                 <span class="badge bg-secondary">{{ t.transfer_type | replace('_', ' ') | title }}</span>
               {% endif %}
             </td>
-            <td><a href="/devices/{{ t.barcode }}" class="font-monospace fw-semibold text-decoration-none">{{ t.barcode or '—' }}</a></td>
+            <td>
+              {% if t.barcode %}
+              <a href="/devices/{{ t.barcode }}" class="font-monospace fw-semibold text-decoration-none">{{ t.barcode }}</a>
+              {% else %}—{% endif %}
+            </td>
             <td>{{ (t.make or '') ~ ' ' ~ (t.model or '') | trim or '—' }}</td>
-            <td>{{ t.cpu or '—' }}</td>
-            <td>{{ t.ram or '—' }}</td>
-            <td>{{ t.hdd or '—' }}</td>
+            <td>{{ t.quantity if t.quantity is not none else '—' }}</td>
             <td class="font-monospace text-muted">{{ t.lot_number or '—' }}</td>
             <td class="text-muted">{{ t.from_warehouse }}</td>
             <td class="fw-semibold">{{ t.to_warehouse }}</td>

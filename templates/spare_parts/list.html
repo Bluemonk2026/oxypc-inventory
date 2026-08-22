@@ -16,47 +16,63 @@
 }
 </style>
 
-{# One filter bar definition shared by Part Master, Part Requests and Faulty
-   Request. Each instance is bound to its table by id; the JS in `scripts`
-   reads these inputs and matches them against the data-* keys on each row. #}
-{% macro filter_bar(table_id, categories, part_names, added_as) -%}
-<div class="d-flex flex-wrap align-items-end gap-2 px-3 py-2 border-bottom bg-light"
+{# Per-table "Added As" filter — the one field that genuinely differs per
+   tab (each has its own set of sources). Date range / Category / Part Name
+   used to be repeated on every tab; they now live once in the global filter
+   bar above the summary tiles instead. Checkboxes (not a dropdown) so more
+   than one source can be shown at a time; the JS in `scripts` reads the
+   checked values and matches them against each row's data-addedas. #}
+{% macro filter_bar(table_id, added_as) -%}
+<div class="d-flex flex-wrap align-items-center gap-3 px-3 py-2 border-bottom bg-light"
      data-filterbar="{{ table_id }}">
-  <div>
-    <label class="form-label small text-muted mb-0">Added From</label>
-    <input type="date" class="form-control form-control-sm sp-f" data-f="from" style="min-width:140px">
+  <span class="small text-muted fw-semibold">Added As</span>
+  {% for a in added_as %}
+  <div class="form-check form-check-inline mb-0">
+    <input class="form-check-input sp-f" type="checkbox" value="{{ a }}" id="{{ table_id }}_as_{{ loop.index }}">
+    <label class="form-check-label small" for="{{ table_id }}_as_{{ loop.index }}">{{ a }}</label>
   </div>
-  <div>
-    <label class="form-label small text-muted mb-0">Added To</label>
-    <input type="date" class="form-control form-control-sm sp-f" data-f="to" style="min-width:140px">
-  </div>
-  <div>
-    <label class="form-label small text-muted mb-0">Category</label>
-    <select class="form-select form-select-sm sp-f" data-f="category" style="min-width:150px">
-      <option value="">All</option>
-      {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
-    </select>
-  </div>
-  <div>
-    <label class="form-label small text-muted mb-0">Added As</label>
-    <select class="form-select form-select-sm sp-f" data-f="addedas" style="min-width:130px">
-      <option value="">All</option>
-      {% for a in added_as %}<option value="{{ a }}">{{ a }}</option>{% endfor %}
-    </select>
-  </div>
-  <div>
-    <label class="form-label small text-muted mb-0">Part Name</label>
-    <select class="form-select form-select-sm sp-f" data-f="partname" style="min-width:180px">
-      <option value="">All</option>
-      {% for n in part_names %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
-    </select>
-  </div>
+  {% endfor %}
   <button type="button" class="btn btn-outline-secondary btn-sm" onclick="spClearFilters('{{ table_id }}')">
     <i class="bi bi-x-circle me-1"></i>Clear
   </button>
   <span class="text-muted small ms-auto" data-filtercount="{{ table_id }}"></span>
 </div>
 {%- endmacro %}
+
+{# Global filter bar — Added From/To, Category, Part Name. Applies to Part
+   Master, Part Requests and Faulty Request (the three tables whose rows
+   carry a single category/part-name/added-date); NOT Sourcing Requests, and
+   not Parts Consumption, whose rows are rolled up per tag across possibly
+   several different parts and dates and so have no single value to match. #}
+<div class="d-flex flex-wrap align-items-end gap-2 px-3 py-2 border rounded bg-light mb-3" id="globalFilterBar">
+  <div>
+    <label class="form-label small text-muted mb-0">Added From</label>
+    <input type="date" class="form-control form-control-sm sp-gf" data-f="from" style="min-width:140px">
+  </div>
+  <div>
+    <label class="form-label small text-muted mb-0">Added To</label>
+    <input type="date" class="form-control form-control-sm sp-gf" data-f="to" style="min-width:140px">
+  </div>
+  <div>
+    <label class="form-label small text-muted mb-0">Category</label>
+    <select class="form-select form-select-sm sp-gf" data-f="category" style="min-width:170px">
+      <option value="">All</option>
+      {% for c in harvest_categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="form-label small text-muted mb-0">Part Name</label>
+    {# Wired to the Spare Part Names master dropdown, same source as Add Harvest Part. #}
+    <select class="form-select form-select-sm sp-gf" data-f="partname" style="min-width:190px">
+      <option value="">All</option>
+      {% for n in part_names %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+    </select>
+  </div>
+  <button type="button" class="btn btn-outline-secondary btn-sm" onclick="spClearGlobalFilters()">
+    <i class="bi bi-x-circle me-1"></i>Clear
+  </button>
+  <span class="text-muted small">Filters Part Master, Part Requests and Faulty Request.</span>
+</div>
 
 {% if request.query_params.get('success') %}
 <div class="alert alert-success alert-dismissible fade show">
@@ -192,7 +208,7 @@
         </button>
       </div>
     </div>
-    {{ filter_bar('partsTable', filter_categories, filter_part_names, ['New', 'Harvest']) }}
+    {{ filter_bar('partsTable', ['New', 'Harvest']) }}
     <div class="table-responsive">
       <table id="partsTable" class="table table-hover mb-0 small">
         <thead class="table-dark">
@@ -367,7 +383,7 @@
         </button>
       </div>
     </div>
-    {{ filter_bar('partReqTable', filter_categories, filter_part_names, ['New', 'Replace', 'Downgrade']) }}
+    {{ filter_bar('partReqTable', ['New', 'Replace', 'Downgrade']) }}
     <div class="table-responsive">
       <table id="partReqTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark"><tr>
@@ -467,7 +483,7 @@
         </button>
       </div>
     </div>
-    {{ filter_bar('faultyReqTable', filter_categories, filter_part_names, ['Faulty']) }}
+    {{ filter_bar('faultyReqTable', ['Faulty']) }}
     <div class="table-responsive">
       <table id="faultyReqTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark"><tr>
@@ -870,6 +886,10 @@
               <input type="text" id="hv_lot_number" name="lot_number" class="form-control form-control-sm">
             </div>
             <div class="col-md-4">
+              <label class="form-label small fw-semibold">Part Model</label>
+              <input type="text" name="part_model" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-4">
               <label class="form-label small fw-semibold">Part Category</label>
               <select name="category" class="form-select form-select-sm">
                 <option value="">— Select —</option>
@@ -893,20 +913,16 @@
               </select>
             </div>
             <div class="col-md-4">
-              <label class="form-label small fw-semibold">Part Model</label>
-              <input type="text" name="part_model" class="form-control form-control-sm">
+              <label class="form-label small fw-semibold">Price (₹)</label>
+              <input type="number" name="price" step="0.01" min="0" class="form-control form-control-sm">
             </div>
-            <div class="col-md-3">
-              <label class="form-label small fw-semibold">Low Stock Alert</label>
-              <input type="number" name="min_stock_alert" class="form-control form-control-sm" min="0" value="5">
-            </div>
-            <div class="col-md-3">
+            <div class="col-md-4">
               <label class="form-label small fw-semibold">Physical Qty</label>
               <input type="number" name="physical_qty" id="hv_phys_qty" class="form-control form-control-sm" min="1" value="1">
             </div>
-            <div class="col-md-3">
-              <label class="form-label small fw-semibold">Price (₹)</label>
-              <input type="number" name="price" step="0.01" min="0" class="form-control form-control-sm">
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Low Stock Alert</label>
+              <input type="number" name="min_stock_alert" class="form-control form-control-sm" min="0" value="5">
             </div>
             <div class="col-md-12">
               <label class="form-label small fw-semibold">Product Description</label>
@@ -1184,14 +1200,30 @@ function spBulkRequestAction(tbl, action) {
   .catch(function() { alert('Network error — please try again.'); });
 }
 
-// ── Column filters (date range / category / added-as / part name) ──────────
+// ── Column filters (date range / category / part name / added-as) ──────────
 // Matched against the data-* keys on each row rather than cell text, so badge
-// markup and label changes cannot break filtering.
+// markup and label changes cannot break filtering. Date/Category/Part Name
+// live once in the global bar above the tiles and apply to all three tables
+// below; Added As is per-table (each has its own set of sources) and is now
+// a checkbox group, so several values can be checked at once.
+var GLOBAL_FILTER_TABLES = ['partsTable', 'partReqTable', 'faultyReqTable'];
+
+function spGlobalFilterValues() {
+  var v = {};
+  document.querySelectorAll('#globalFilterBar .sp-gf').forEach(function(el) {
+    var val = (el.value || '').trim();
+    if (val) v[el.dataset.f] = val;
+  });
+  return v;
+}
+
 function spFilterValues(tbl) {
   var bar = document.querySelector('[data-filterbar="' + tbl + '"]');
   if (!bar) return null;
-  var v = {};
-  bar.querySelectorAll('.sp-f').forEach(function(el) { v[el.dataset.f] = (el.value || '').trim(); });
+  var v = GLOBAL_FILTER_TABLES.indexOf(tbl) !== -1 ? spGlobalFilterValues() : {};
+  var checked = Array.prototype.slice.call(bar.querySelectorAll('.sp-f:checked'))
+    .map(function(el) { return el.value; });
+  if (checked.length) v.addedas = checked;
   return v;
 }
 
@@ -1201,7 +1233,7 @@ function spRowMatches(tr, v) {
   if (v.from && (!added || added < v.from)) return false;
   if (v.to && (!added || added > v.to)) return false;
   if (v.category && (tr.getAttribute('data-category') || '') !== v.category) return false;
-  if (v.addedas && (tr.getAttribute('data-addedas') || '') !== v.addedas) return false;
+  if (v.addedas && v.addedas.indexOf(tr.getAttribute('data-addedas') || '') === -1) return false;
   if (v.partname && (tr.getAttribute('data-partname') || '') !== v.partname) return false;
   return true;
 }
@@ -1244,8 +1276,13 @@ function spApplyFilters(tbl) {
 function spClearFilters(tbl) {
   var bar = document.querySelector('[data-filterbar="' + tbl + '"]');
   if (!bar) return;
-  bar.querySelectorAll('.sp-f').forEach(function(el) { el.value = ''; });
+  bar.querySelectorAll('.sp-f').forEach(function(el) { el.checked = false; });
   spApplyFilters(tbl);
+}
+
+function spClearGlobalFilters() {
+  document.querySelectorAll('#globalFilterBar .sp-gf').forEach(function(el) { el.value = ''; });
+  GLOBAL_FILTER_TABLES.forEach(spApplyFilters);
 }
 
 document.querySelectorAll('[data-filterbar]').forEach(function(bar) {
@@ -1253,6 +1290,10 @@ document.querySelectorAll('[data-filterbar]').forEach(function(bar) {
   bar.querySelectorAll('.sp-f').forEach(function(el) {
     el.addEventListener('change', function() { spApplyFilters(tbl); });
   });
+});
+
+document.querySelectorAll('#globalFilterBar .sp-gf').forEach(function(el) {
+  el.addEventListener('change', function() { GLOBAL_FILTER_TABLES.forEach(spApplyFilters); });
 });
 
 // ── Parts Consumption tab: search by Tag Number / Lot Number ──────────────

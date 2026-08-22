@@ -414,6 +414,79 @@ async def create_transfer(
     return RedirectResponse(url=f"/transfers?success={msg}", status_code=302)
 
 
+@router.post("/transfers/new/parts")
+async def create_parts_transfer(
+    request: Request,
+    part_name: str = Form(...),
+    quantity: int = Form(...),
+    transfer_type: str = Form(...),
+    assigned_user_id: str = Form(""),
+    transfer_date: str = Form(""),
+    notes: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+    _perm: User = Depends(require_module_perm("transfers", "add")),
+):
+    """Move Parts tab — a spare-parts stock movement, not tied to a specific
+    device. Part Name lands in `model` (the same cell the list table already
+    shows as "Make / Model"); quantity in the dedicated `quantity` column."""
+    if quantity < 1:
+        return RedirectResponse(url="/transfers/new?error=Quantity+must+be+at+least+1", status_code=302)
+
+    try:
+        t_date = datetime.strptime(transfer_date, "%Y-%m-%d") if transfer_date else app_now()
+    except Exception:
+        t_date = app_now()
+
+    assign_uid = None
+    if assigned_user_id:
+        try:
+            assign_uid = uuid.UUID(assigned_user_id)
+        except Exception:
+            assign_uid = None
+    assigned_user = (
+        (await db.execute(select(User).where(User.id == assign_uid))).scalar_one_or_none()
+        if assign_uid else None
+    )
+    if not assigned_user:
+        return RedirectResponse(url="/transfers/new?error=Select+an+employee+to+assign", status_code=302)
+
+    transfer = StockTransfer(
+        device_id=None,
+        move_kind="parts",
+        transfer_type=transfer_type,
+        from_warehouse="—",
+        to_warehouse="—",
+        transferred_by=current_user.username,
+        received_by=assigned_user.full_name or assigned_user.username,
+        model=part_name,
+        category="Spare Part",
+        quantity=quantity,
+        transfer_date=t_date,
+        notes=notes or None,
+        created_by=current_user.username,
+    )
+    db.add(transfer)
+    await db.flush()
+
+    await create_notification(
+        db, user_id=assigned_user.id, title="Parts Assigned to You",
+        message=f"{quantity} x {part_name} has been assigned to you.",
+        notification_type="info",
+    )
+
+    await audit(db, user=current_user, action="STOCK_TRANSFER",
+                table_name="stock_transfers", record_id=str(transfer.id),
+                new_value={"part_name": part_name, "quantity": quantity,
+                           "transfer_type": transfer_type},
+                request=request)
+    await db.commit()
+
+    return RedirectResponse(
+        url=f"/transfers?success=Moved+{quantity}+x+{part_name.replace(' ', '+')}",
+        status_code=302)
+
+
 async def _move_devices_bulk(
     db: AsyncSession, request: Request, current_user: User,
     devices: list, move_kind: str, bucket_id, lot_id, group_label: str,

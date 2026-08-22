@@ -837,16 +837,28 @@ function ceCountFor(counts, domain, scopeFilters) {
   return n2;
 }
 
+// One light color per Model column, so a wide matrix (many models side by
+// side) is easy to scan without losing your place. Hashed from the model
+// name rather than picked truly at random, so the same model keeps the same
+// color every time the modal is reopened instead of reshuffling on redraw.
+function ceModelColor(name) {
+  var hash = 0;
+  for (var i = 0; i < name.length; i++) { hash = (hash * 31 + name.charCodeAt(i)) | 0; }
+  var hue = Math.abs(hash) % 360;
+  return 'hsl(' + hue + ', 70%, 93%)';
+}
+
 function ceRenderTable(d) {
   var thead = $('#ce_thead').empty();
   var headRow1 = $('<tr>'), headRow2 = $('<tr>').append($('<th>'));
   headRow1.append($('<th>').text('Field'));
   d.models.forEach(function (m) {
+    var color = ceModelColor(m.model);
     headRow1.append($('<th>').attr('colspan', 2).addClass('text-center')
-      .text(m.model + ' (' + m.qty + ')'));
+      .css('background-color', color).text(m.model + ' (' + m.qty + ')'));
     headRow2.append(
-      $('<th>').addClass('text-center small fw-normal ce-count').text('Count'),
-      $('<th>').addClass('text-center small fw-normal ce-price-cell').text('Price'));
+      $('<th>').addClass('text-center small fw-normal ce-count').css('background-color', color).text('Count'),
+      $('<th>').addClass('text-center small fw-normal ce-price-cell').css('background-color', color).text('Price'));
   });
   headRow1.append($('<th>').text('Row Total'));
   headRow2.append($('<th>'));
@@ -865,9 +877,10 @@ function ceRenderTable(d) {
       d.models.forEach(function (m) {
         var counts = ((m.counts[g.key] || {})[f.name]) || {};
         var key = m.model + '||' + g.key + '|' + f.name;
+        var color = ceModelColor(m.model);
         row.append(
-          $('<td>').addClass('ce-count text-end').data('counts', counts).text('0'),
-          $('<td>').addClass('ce-price-cell').append($('<input>').attr({ type: 'number', step: '0.01', min: '0' })
+          $('<td>').addClass('ce-count text-end').css('background-color', color).data('counts', counts).text('0'),
+          $('<td>').addClass('ce-price-cell').css('background-color', color).append($('<input>').attr({ type: 'number', step: '0.01', min: '0' })
             .addClass('form-control form-control-sm text-end ce-price')
             .val(prevPrices[key] || ''))
         );
@@ -878,8 +891,9 @@ function ceRenderTable(d) {
   });
 
   var colTotalsRow = $('#ce_col_totals_row').empty().append($('<td>').text('Column Total'));
-  d.models.forEach(function () {
-    colTotalsRow.append($('<td>').attr('colspan', 2).addClass('ce-col-total text-end'));
+  d.models.forEach(function (m) {
+    colTotalsRow.append($('<td>').attr('colspan', 2).addClass('ce-col-total text-end')
+      .css('background-color', ceModelColor(m.model)));
   });
   colTotalsRow.append($('<td>').addClass('ce-grand-cell text-end'));
 }

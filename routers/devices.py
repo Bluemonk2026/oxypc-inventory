@@ -456,11 +456,29 @@ async def device_upload_tags(
     if not tags:
         return JSONResponse({"found": [], "not_found": [], "errors": errors})
 
-    existing = set((await db.execute(
-        select(Device.barcode).where(Device.barcode.in_(tags), Device.is_trashed == False)
-    )).scalars().all())
-    found = [t for t in tags if t in existing]
-    not_found = [t for t in tags if t not in existing]
+    # Matched case-insensitively: tag numbers get typed into spreadsheets by
+    # hand and come back lowercase, while the stored barcode is upper. An exact
+    # IN() reported every one of those as "not found" against a tag that plainly
+    # exists.
+    rows = (await db.execute(
+        select(Device.barcode).where(
+            func.upper(Device.barcode).in_([t.upper() for t in tags]),
+            Device.is_trashed == False,
+        )
+    )).scalars().all()
+    # Return the barcode as STORED, not as typed — the page ticks rows by exact
+    # barcode string, so echoing the user's casing back would select nothing.
+    by_upper = {}
+    for stored in rows:
+        by_upper.setdefault((stored or "").upper(), []).append(stored)
+
+    found, not_found = [], []
+    for t in tags:
+        matches = by_upper.get(t.upper())
+        if matches:
+            found.extend(matches)
+        else:
+            not_found.append(t)
 
     return JSONResponse({"found": found, "not_found": not_found, "errors": errors})
 

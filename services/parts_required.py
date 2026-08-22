@@ -184,6 +184,31 @@ LEGACY_LABELS = {
 }
 
 
+# Optical-drive parts only make sense on a desktop chassis; on the laptop
+# queue they are two rows that can never be needed.
+DESKTOP_ONLY = {"DVD Drive", "DVD Drive Cover"}
+
+
+def _is_desktop(device):
+    """True / False / None for "is this a desktop", where None means unknown.
+
+    Matched on a substring, case-insensitively, because production carries both
+    "Desktop" (1,132 tags) and "DESKTOP" (28) - an equality check would leak the
+    DVD rows back onto the shouted ones.
+
+    Unknown is deliberately NOT treated as "not a desktop": 8,684 live tags have
+    no device_type recorded at all, and hiding the rows there would leave an
+    engineer with no way to request a DVD drive for a machine that has one. A
+    blank type is missing data, not evidence of a laptop.
+    """
+    if device is None:
+        return None
+    value = (getattr(device, "device_type", None) or "").strip().lower()
+    if not value:
+        return None
+    return "desktop" in value
+
+
 def rules_by_label():
     """{label -> required_fn}, keyed by BOTH the current label and every name
     it used to carry.
@@ -239,6 +264,10 @@ def extra_master_labels():
 def compute_required(iqc, device, include_master_extras=False):
     """Return [{label, category, keyword, required, section}] for the parts list.
 
+    The DVD Drive / DVD Drive Cover rows are omitted for a tag whose
+    device_type says it is not a desktop, so the list length is device
+    dependent - do not assume it equals len(PARTS_MATRIX).
+
     `include_master_extras` appends any Spare Part Name configured in Master
     Data that the matrix does not carry. Only Device Detail passes it: the
     repair queues and cosmetic pages use this to COUNT required parts, and an
@@ -246,8 +275,13 @@ def compute_required(iqc, device, include_master_extras=False):
     always answer No.
     """
     i = iqc if iqc is not None else _NullIQC()
+    desktop = _is_desktop(device)
     rows = []
     for label, category, keyword, fn, section in PARTS_MATRIX:
+        # Drop the optical-drive rows only when the tag is KNOWN to be
+        # something other than a desktop. See _is_desktop on why unknown shows.
+        if label in DESKTOP_ONLY and desktop is False:
+            continue
         try:
             required = bool(fn(i, device))
         except Exception:

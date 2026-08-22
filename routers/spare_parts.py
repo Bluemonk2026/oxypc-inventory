@@ -284,6 +284,9 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         "grn_docs": {},
         "grn_by_part_code": grn_by_part_code,
         "harvest_categories": await master_values(db, "iqc_part_category"),
+        # Spare Part Names / Spare Part Brands for the Add Harvest Part modal.
+        "part_names": await master_values(db, "part_category"),
+        "part_brands": await master_values(db, "spare_part_brand"),
         # Filter dropdown options. Built from the rows actually on the page —
         # a master-data list would offer categories and names that match
         # nothing here and read as a broken filter.
@@ -344,6 +347,13 @@ async def edit_part_form(part_id: str, request: Request,
         raise HTTPException(404, "Part not found")
     return templates.TemplateResponse("spare_parts/edit_form.html", {
         "request": request, "part": part, "categories": await master_values(db, "iqc_part_category"),
+        # Spare Part Names / Spare Part Brands master dropdowns, wired to Part
+        # Name and Part Make. part.name / part.make are injected as a fallback
+        # option in the template when not present in these lists, so an older
+        # row's value is never silently blanked by a select that doesn't
+        # contain it.
+        "part_names": await master_values(db, "part_category"),
+        "part_brands": await master_values(db, "spare_part_brand"),
         "current_user": current_user, "error": None,
     })
 

@@ -137,3 +137,6 @@ before.txt
 after.txt
 _tag_check.py
 _tags_probe.txt
+_brand_probe.py
+_internal_check.py
+_seed_local_brands.py

@@ -284,11 +284,19 @@
           </div>
           <div class="col-md-3">
             <label class="form-label small fw-semibold">Part Name</label>
-            <input type="text" id="li_part_name" class="form-control form-control-sm">
+            {# Wired to the Spare Part Names master dropdown. #}
+            <select id="li_part_name" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              {% for n in part_names %}<option>{{ n }}</option>{% endfor %}
+            </select>
           </div>
           <div class="col-md-3">
             <label class="form-label small fw-semibold">Part Brand</label>
-            <input type="text" id="li_part_brand" class="form-control form-control-sm">
+            {# Wired to the Spare Part Brands master dropdown. #}
+            <select id="li_part_brand" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              {% for b in part_brands %}<option>{{ b }}</option>{% endfor %}
+            </select>
           </div>
           <div class="col-md-3">
             <label class="form-label small fw-semibold">Part Model</label>

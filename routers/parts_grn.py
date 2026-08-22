@@ -129,6 +129,8 @@ async def grn_new_form(request: Request, db: AsyncSession = Depends(get_db),
         "request": request, "current_user": current_user,
         "grn": None, "grn_number": grn_number, "line_items": [],
         "main_categories": MAIN_CATEGORIES, "categories": await master_values(db, "iqc_part_category"),
+        "part_names": await master_values(db, "part_category"),
+        "part_brands": await master_values(db, "spare_part_brand"),
     })
 
 
@@ -285,6 +287,12 @@ async def grn_detail(grn_id: str, request: Request, db: AsyncSession = Depends(g
         "request": request, "current_user": current_user,
         "grn": grn, "grn_number": grn.grn_number, "line_items": line_items,
         "main_categories": MAIN_CATEGORIES, "categories": await master_values(db, "iqc_part_category"),
+        # The Add Line Item modal is hidden on this read-only detail view
+        # (`ro = grn is not none` in the template), so these are unused here —
+        # included anyway so the shared template never renders with one
+        # branch wired and the other not.
+        "part_names": await master_values(db, "part_category"),
+        "part_brands": await master_values(db, "spare_part_brand"),
     })
 
 

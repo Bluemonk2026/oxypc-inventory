@@ -38,11 +38,33 @@
             </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">Part Name</label>
-              <input type="text" name="name" class="form-control" value="{{ part.name }}" required>
+              {# Wired to the Spare Part Names master dropdown. If this row's
+                 name is not in that list — a handful of parts predate the
+                 2026-08 name consolidation — it is injected as an extra
+                 option so editing the part never silently renames it. #}
+              <select name="name" class="form-select" required>
+                {% for n in part_names %}
+                <option {% if n == part.name %}selected{% endif %}>{{ n }}</option>
+                {% endfor %}
+                {% if part.name and part.name not in part_names %}
+                <option value="{{ part.name }}" selected>{{ part.name }} (not in Spare Part Names)</option>
+                {% endif %}
+              </select>
             </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">Part Make</label>
-              <input type="text" name="make" class="form-control" value="{{ part.make or '' }}" placeholder="e.g. Samsung">
+              {# Wired to the Spare Part Brands master dropdown. Same fallback
+                 as above — a blank dropdown here (e.g. before it is seeded on
+                 a given server) must not blank out an existing make. #}
+              <select name="make" class="form-select">
+                <option value="">— Select —</option>
+                {% for b in part_brands %}
+                <option {% if b == part.make %}selected{% endif %}>{{ b }}</option>
+                {% endfor %}
+                {% if part.make and part.make not in part_brands %}
+                <option value="{{ part.make }}" selected>{{ part.make }} (not in Spare Part Brands)</option>
+                {% endif %}
+              </select>
             </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">Part Model</label>

@@ -144,3 +144,14 @@ _dup_tags.py
 _dup_tags2.py
 _dup_tags_export.py
 _dup_tags_export.csv
+_dup_tags5.py
+_dup_upload_impact.py
+_dup_unsold_export.py
+_dup_unsold_export.csv
+_softtrash_phantom_rows.py
+_verify_softtrash.py
+_verify_41.py
+_softtrash_lowercase_41.py
+_softtrash_uppercase_39.py
+_verify_39.py
+_dup_check_internal.py

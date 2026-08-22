@@ -101,3 +101,18 @@ def test_cosmetic_filter_offers_yes_not_no(app_client, make_user):  # noqa: F811
     # Minor / Major are untouched.
     assert 'data-scope="cosmetic" data-key="minor"' in html
     assert 'data-scope="cosmetic" data-key="major"' in html
+
+
+def test_hardware_filter_key_matches_its_yes_label(app_client, make_user):  # noqa: F811
+    """Hardware Damage was labelled 'Yes' but keyed data-key="no" — ticking it
+    filtered for the opposite of what it said. Same bug already fixed on
+    Cosmetic; this pins the same fix on Hardware."""
+    username, password = make_user("inventory_manager")
+    _login(app_client, username, password)
+    html = app_client.get("/part-estimation", follow_redirects=True).text
+
+    assert 'data-scope="hardware" data-key="yes"' in html
+    assert 'data-scope="hardware" data-key="no"' not in html
+    hw_block = html.split('Hardware Damage:', 1)[1].split('</div>', 1)[0]
+    assert 'id="ce_hw_yes"' in hw_block
+    assert '>Yes<' in hw_block

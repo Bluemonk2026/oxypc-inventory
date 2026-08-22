@@ -34,6 +34,11 @@ class SparePart(Base):
     crate_number = Column(String(50), nullable=True)
     make = Column(String(100), nullable=True)
     model = Column(String(100), nullable=True)
+    # Supplier's lot/batch reference for the intake this part came in on, typed
+    # on Edit Part. Free text on purpose — vendors label lots inconsistently and
+    # this is a traceability note, not a foreign key to lots.lot_number.
+    # Additive; auto-provisioned by db_validator like the three above.
+    part_lot = Column(String(50), nullable=True)
     # New / Replace / Upgrade / Downgrade — manually classified on Part Master. Additive.
     part_type = Column(String(20), nullable=True)
     # Quantity sold as a spare part via Ready to Sale Parts → New Parts Sale.

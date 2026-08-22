@@ -645,12 +645,20 @@ async def grn_create_manual(
     po_number: str = Form(""), vehicle_number: str = Form(""),
     e_way_bill: str = Form(""), notes: str = Form(""),
     source: str = Form("post_iqc"),
+    # Optional, unlike the upload path's File(...). An empty file input still
+    # posts an UploadFile with a blank filename, so presence is decided by
+    # reading the bytes, not by the object being non-None.
+    invoice: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db), current_user: User = Depends(allowed),
 ):
-    """Create a GRN by hand, with no invoice PDF.
+    """Create a GRN by hand, with an optional invoice PDF.
 
     Covers goods that arrive without an invoice, or whose invoice follows
     later — the upload path cannot express that, since it requires a file.
+    When a PDF is attached here it is stored and served like an uploaded one,
+    but deliberately not parsed: the operator has already typed the fields, and
+    letting a best-effort parse overwrite them is how the upload path produces
+    wrong vendors and amounts.
     The GRN number is generated server-side by the same allocator the upload
     path uses, and the lot is left unmapped: mapping happens afterwards, on the
     tag list below, exactly as it does for an uploaded GRN.
@@ -694,8 +702,23 @@ async def grn_create_manual(
             return None
 
     grn_number = await _next_grn_12(db)
+
+    # Store the attachment, if any, under the same directory and naming scheme
+    # the upload path uses so the existing download route resolves it unchanged.
+    file_name = file_path = file_hash = None
+    if invoice is not None:
+        data = await invoice.read()
+        if data:
+            os.makedirs(GRN_UPLOAD_DIR, exist_ok=True)
+            file_hash = hashlib.sha256(data).hexdigest()
+            file_name = (invoice.filename or "invoice.pdf").replace("/", "_").replace("\\", "_")
+            file_path = os.path.join(GRN_UPLOAD_DIR, f"{grn_number}_{file_name}")
+            with open(file_path, "wb") as f:
+                f.write(data)
+
     db.add(GRNImport(
         grn_number=grn_number,
+        file_name=file_name, file_path=file_path, file_hash=file_hash,
         invoice_number=inv_no or None,
         invoice_date=invoice_date or None,
         sender_name=sender_name or None,

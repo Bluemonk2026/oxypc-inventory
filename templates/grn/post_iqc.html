@@ -218,7 +218,7 @@
      mapping the GRN onto tags. -->
 <div class="modal fade" id="addGrnModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
-    <form method="post" action="/grn/create-manual" class="modal-content">
+    <form method="post" action="/grn/create-manual" enctype="multipart/form-data" class="modal-content">
       <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
       <input type="hidden" name="source" value="post_iqc">
       <div class="modal-header">
@@ -230,32 +230,40 @@
           <i class="bi bi-info-circle me-1"></i>A 12-digit GRN number is generated on save.
         </div>
         <div class="row g-2">
-          <div class="col-md-4"><label class="form-label fw-semibold">Vendor Name</label>
-            <input type="text" name="sender_name" class="form-control"></div>
           <div class="col-md-4"><label class="form-label fw-semibold">Date of Invoice</label>
             <input type="date" name="invoice_date" class="form-control"></div>
           <div class="col-md-4"><label class="form-label fw-semibold">Purchase Date</label>
             <input type="date" name="purchase_date" class="form-control"></div>
-        </div>
-        <div class="row g-2 mt-1">
           <div class="col-md-4"><label class="form-label fw-semibold">GRN Date</label>
             <input type="date" name="grn_date" class="form-control"></div>
+        </div>
+        <div class="row g-2 mt-1">
           <div class="col-md-4"><label class="form-label fw-semibold">Invoice Number</label>
             <input type="text" name="invoice_number" class="form-control"></div>
           <div class="col-md-4"><label class="form-label fw-semibold">Invoice Price</label>
             <input type="text" name="amount" class="form-control"></div>
-        </div>
-        <div class="row g-2 mt-1">
           <div class="col-md-4"><label class="form-label fw-semibold">Invoice Quantity</label>
             <input type="number" name="quantity" class="form-control" min="0"></div>
+        </div>
+        <div class="row g-2 mt-1">
           <div class="col-md-4"><label class="form-label fw-semibold">PO Number</label>
             <input type="text" name="po_number" class="form-control"></div>
           <div class="col-md-4"><label class="form-label fw-semibold">Vehicle Number</label>
             <input type="text" name="vehicle_number" class="form-control"></div>
-        </div>
-        <div class="row g-2 mt-1">
           <div class="col-md-4"><label class="form-label fw-semibold">E-Way Bill Number</label>
             <input type="text" name="e_way_bill" class="form-control"></div>
+        </div>
+        <div class="row g-2 mt-1">
+          <div class="col-md-4"><label class="form-label fw-semibold">Vendor Name</label>
+            <input type="text" name="sender_name" class="form-control"></div>
+          {# Optional here, unlike the header upload form: the whole point of
+             Add GRN is receiving goods whose invoice has not arrived yet. When
+             a PDF is attached it is stored and downloadable exactly as an
+             uploaded GRN's is, but its fields are not parsed — what is typed
+             above wins. #}
+          <div class="col-md-8"><label class="form-label fw-semibold">Upload Invoice</label>
+            <input type="file" name="invoice" accept="application/pdf,.pdf" class="form-control">
+            <div class="form-text">Optional — attach the invoice PDF if you have it.</div></div>
         </div>
         <div class="mb-2 mt-2"><label class="form-label fw-semibold">Notes</label>
           <textarea name="notes" class="form-control" rows="2"></textarea></div>

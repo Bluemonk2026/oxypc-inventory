@@ -332,6 +332,9 @@ async def update_part(
     min_stock_alert: int = Form(0),
     supplier: str = Form(""),
     notes: str = Form(""),
+    part_lot: str = Form(""),
+    make: str = Form(""),
+    model: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
 ):
@@ -341,6 +344,11 @@ async def update_part(
         raise HTTPException(404, "Part not found")
     part.name = name; part.category = category; part.unit_price = float(unit_price)
     part.min_stock_alert = min_stock_alert; part.supplier = supplier or None; part.notes = notes or None
+    # Lot/make/model are optional and blank-means-clear, so an operator can
+    # correct a wrong make by emptying the box rather than typing a placeholder.
+    part.part_lot = part_lot.strip() or None
+    part.make = make.strip() or None
+    part.model = model.strip() or None
     if qty_in_stock is not None:
         new_qty = max(0, int(qty_in_stock))
         old_qty = int(part.qty_in_stock or 0)

@@ -3,7 +3,7 @@
 {% block page_title %}Edit Spare Part{% endblock %}
 {% block content %}
 <div class="row justify-content-center">
-  <div class="col-lg-6">
+  <div class="col-lg-9">
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-transparent fw-semibold"><i class="bi bi-pencil me-2"></i>Edit: {{ part.part_code }} — {{ part.name }}</div>
       <div class="card-body">
@@ -11,11 +11,18 @@
         <form action="/spare-parts/{{ part.id }}/edit" method="post">
           <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
           <div class="row g-3">
-            <div class="col-md-6">
+            <!-- Three fixed rows, three fields each: identity (code/lot/category),
+                 description (name/make/model), then stock economics. Part Code
+                 stays read-only — it is the generated key the ledger joins on. -->
+            <div class="col-md-4">
               <label class="form-label fw-semibold">Part Code</label>
               <input type="text" class="form-control font-monospace" value="{{ part.part_code }}" readonly disabled>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Part Lot</label>
+              <input type="text" name="part_lot" class="form-control" value="{{ part.part_lot or '' }}" placeholder="Vendor lot / batch ref">
+            </div>
+            <div class="col-md-4">
               <label class="form-label fw-semibold">Part Category</label>
               <select name="category" class="form-select" required>
                 {% for cat in categories %}
@@ -23,23 +30,31 @@
                 {% endfor %}
               </select>
             </div>
-            <div class="col-12">
+            <div class="col-md-4">
               <label class="form-label fw-semibold">Part Name</label>
               <input type="text" name="name" class="form-control" value="{{ part.name }}" required>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Part Make</label>
+              <input type="text" name="make" class="form-control" value="{{ part.make or '' }}" placeholder="e.g. Samsung">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Part Model</label>
+              <input type="text" name="model" class="form-control" value="{{ part.model or '' }}" placeholder="e.g. M471A1K43CB1">
+            </div>
+            <div class="col-md-4">
               <label class="form-label fw-semibold">Unit Price (₹)</label>
               <div class="input-group">
                 <span class="input-group-text">₹</span>
                 <input type="number" name="unit_price" class="form-control" value="{{ part.unit_price }}" min="0" step="0.01">
               </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
               <label class="form-label fw-semibold">In Stock (qty)</label>
               <input type="number" name="qty_in_stock" class="form-control" value="{{ part.qty_in_stock or 0 }}" min="0">
             </div>
-            <div class="col-md-6">
-              <label class="form-label">Low Stock Alert (qty)</label>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Low Stock Alert (qty)</label>
               <input type="number" name="min_stock_alert" class="form-control" value="{{ part.min_stock_alert }}" min="0">
             </div>
             <div class="col-12">

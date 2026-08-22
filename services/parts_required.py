@@ -69,77 +69,97 @@ def _damaged(*vals):
     return False
 
 
-# Labels are the IQC Entry form's hardware field names (templates/iqc/form.html)
-# so a Parts Consumption row reads with the same name the technician saw at IQC.
+# The fixed part list, in the order the shop floor reads it: MAIN PARTS then
+# ADDITIONAL PARTS, matching the "Spare Part Names" master dropdown.
+#
+# Each entry: (label, category, name_keyword, required_fn, section)
+#  - category / name_keyword match SparePart rows for stock status. They are
+#    deliberately NOT renamed alongside the label: "Bezel" still matches stock
+#    spelled "Bazel", because those are the keys the Part Master rows carry.
+#  - required_fn(iqc, device) -> bool. A part with no IQC field behind it gets
+#    `lambda i, d: False` - Required stays No and it is requested by hand.
+MAIN, ADDITIONAL = "MAIN PARTS", "ADDITIONAL PARTS"
+
+
+def _battery_required(i, d):
+    """Shared by Internal and External Battery.
+
+    IQC records one battery per device - there is no separate external-battery
+    field - so both rows read the same signal. They stay two rows because they
+    are two different parts to pick and price from Stores.
+    """
+    return (_is(i.battery_present, "No") or _is_sentinel(i.battery_present)
+            or (d is not None and d.battery_health_pct is not None
+                and d.battery_health_pct < 40))
+
+
 PARTS_MATRIX = [
-    # RAM required when RAM = "Not Available" (blank → stored as None)
-    ("RAM",               "RAM",        "ram",      lambda i, d: d is not None and d.ram_gb is None),
-    # Hard Drive required when SSD Capacity OR Storage Type = "Not Available"
-    ("Hard Drive",        "SSD",        "ssd",      lambda i, d: d is not None and (d.storage_gb is None or not d.storage_type)),
-    # HDD Connector required when HDD connector faulty/unclear OR HDD Capacity = "Not Available"
-    ("HDD Connector",     "HDD",        "hdd",      lambda i, d: _is(i.hdd_connector, "No") or _is_sentinel(i.hdd_connector)
-                          or (d is not None and d.hdd_capacity_gb is None)),
-    ("Internal Battery",  "Battery",    "battery",  lambda i, d: _is(i.battery_present, "No") or _is_sentinel(i.battery_present)
-                          or (d is not None and d.battery_health_pct is not None and d.battery_health_pct < 40)),
-    ("Adapter",           "Charger",    "charger",  lambda i, d: False),
-    ("Speaker",           "Other",      "speaker",  lambda i, d: _faulty(i.speaker_status) or _is_sentinel(i.speaker_status)),
-    ("Wi-Fi",             "Other",      "wifi",     lambda i, d: _faulty(i.wifi_status) or _is_sentinel(i.wifi_status)),
-    ("Web Cam",           "Other",      "webcam",   lambda i, d: _faulty(i.webcam_status) or _is_sentinel(i.webcam_status)),
-    # ── Remaining IQC hardware fields (item 3d) — one Parts Consumption row per
-    #    component captured on the IQC Entry form. Required when the field
-    #    reports a fault / "No"; count-only fields (Ethernet ports) never
-    #    auto-flag (mirrors the Adapter/Charger row). ────────────────────────
-    ("HDMI Port",         "HDMI Port",  "hdmi",     lambda i, d: _is(i.port_hdmi, "No") or _faulty(i.port_hdmi)),
-    ("USB Ports",         "USB Port",   "usb",      lambda i, d: _is(i.port_usb_working, "No") or _faulty(i.port_usb_working)),
-    ("Audio Jack",        "Audio Jack", "audio",    lambda i, d: _is(i.port_audio_jack, "No") or _faulty(i.port_audio_jack)),
-    ("Ethernet Ports",    "Ethernet Port", "ethernet", lambda i, d: False),
-    ("Charging Port",     "Charging Port", "charging", lambda i, d: _is(i.charging_port, "No") or _faulty(i.charging_port)),
-    ("DVD Drive",         "DVD Drive",  "dvd",      lambda i, d: _is(i.dvd_drive, "No") or _faulty(i.dvd_drive)),
-    ("Fan Working",       "Fan",        "fan",      lambda i, d: _is(i.fan_working, "No") or _faulty(i.fan_working)),
-    ("Motherboard",       "Motherboard", "motherboard", lambda i, d: _is(i.status, "No Display") or _is(i.power_on, "No")),
-    # ── Body / display assembly, kept together at the foot of the table ──────
-    # These eight are the parts an engineer strips the chassis to reach, so
-    # they sit last and in the order the machine comes apart: lid, bezel,
-    # screen, hinges, then the base half. The sequence is fixed by the
-    # business, not derived — do not re-sort this block.
-    #
-    # The four cosmetic panels are Required when that panel is recorded
-    # broken, missing or dented. A scratch or a faded colour is refinished at
-    # the Paint stage, not replaced, so those fields are not consulted.
-    ("Display Panel",     "Body",   "display panel", lambda i, d: _damaged(
-        i.panel_a_broken, i.panel_a_missing, i.panel_a_dent)),
-    # Label is "Bezel"; the category and keyword stay "Bazel" because that is
-    # how the spare-part rows are spelled in master data and they are the
-    # stock-matching keys. Rename those in Master Data if you want them to
-    # agree — the display label does not depend on it.
-    ("Bezel",             "Bazel",  "bazel",         lambda i, d: _damaged(
-        i.panel_c_broken, i.panel_c_missing, i.panel_c_dent)),
-    ("Display",           "Screen",     "screen",   lambda i, d: _is(i.status, "No Display")
+    # -- MAIN PARTS ----------------------------------------------------------
+    ("RAM",               "RAM",        "ram",      lambda i, d: d is not None and d.ram_gb is None, MAIN),
+    ("Hard Drive",        "SSD",        "ssd",      lambda i, d: d is not None and (d.storage_gb is None or not d.storage_type), MAIN),
+    ("Bezel",             "Bazel",      "bazel",    lambda i, d: _damaged(
+        i.panel_c_broken, i.panel_c_missing, i.panel_c_dent), MAIN),
+    ("Panel",             "Body",       "display panel", lambda i, d: _damaged(
+        i.panel_a_broken, i.panel_a_missing, i.panel_a_dent), MAIN),
+    ("Screen",            "Screen",     "screen",   lambda i, d: _is(i.status, "No Display")
                           or _damaged(i.screen_broken) or _is(i.screen_line, "Yes")
                           or _is(i.screen_dot, "Yes") or _is(i.screen_flickering, "Yes")
                           or _is(i.screen_missing, "Yes") or _is(i.screen_functional, "No")
-                          or _is_unknown(i.screen_functional)),
-    ("Hinge",             "Other",      "hinge",    lambda i, d: _is(i.screen_hinge_broken, "Yes") or _is_unknown(i.screen_hinge_broken)),
-    ("Touchpad",          "Other",      "touchpad", lambda i, d: _is(i.touchpad_working, "No") or _is_unknown(i.touchpad_working)
-                          or _is(i.touchpad_missing, "Yes")),
-    ("Bottom Base",       "Body",   "bottom base",   lambda i, d: _damaged(
-        i.panel_b_broken, i.panel_b_missing, i.panel_b_rubber_cut)),
+                          or _is_unknown(i.screen_functional), MAIN),
+    ("Hinge",             "Other",      "hinge",    lambda i, d: _is(i.screen_hinge_broken, "Yes") or _is_unknown(i.screen_hinge_broken), MAIN),
+    ("Bottom Base",       "Body",       "bottom base", lambda i, d: _damaged(
+        i.panel_b_broken, i.panel_b_missing, i.panel_b_rubber_cut), MAIN),
     ("Keyboard",          "Keyboard",   "keyboard", lambda i, d: _is(i.keyboard_working, "No") or _is_unknown(i.keyboard_working)
-                          or _is(i.keyboard_key_missing, "Yes")),
-    ("Palm rest",         "Body",   "palm rest",     lambda i, d: _damaged(
-        i.panel_d_broken, i.panel_d_missing, i.panel_d_dent)),
+                          or _is(i.keyboard_key_missing, "Yes"), MAIN),
+    ("Internal Battery",  "Battery",    "battery",  _battery_required, MAIN),
+    ("External Battery",  "Battery",    "external battery", _battery_required, MAIN),
+    ("Camera",            "Other",      "webcam",   lambda i, d: _faulty(i.webcam_status) or _is_sentinel(i.webcam_status), MAIN),
+    ("DC Jack",           "Charging Port", "charging", lambda i, d: _is(i.charging_port, "No") or _faulty(i.charging_port), MAIN),
+    # Ethernet is captured as a port count, not a pass/fail, so it never
+    # auto-flags - a count of zero is a spec, not a fault.
+    ("LAN Port",          "Ethernet Port", "ethernet", lambda i, d: False, MAIN),
+    ("USB Port",          "USB Port",   "usb",      lambda i, d: _is(i.port_usb_working, "No") or _faulty(i.port_usb_working), MAIN),
+    ("HDMI Port",         "HDMI Port",  "hdmi",     lambda i, d: _is(i.port_hdmi, "No") or _faulty(i.port_hdmi), MAIN),
+    ("Audio Jack",        "Audio Jack", "audio",    lambda i, d: _is(i.port_audio_jack, "No") or _faulty(i.port_audio_jack), MAIN),
+    ("Speaker",           "Other",      "speaker",  lambda i, d: _faulty(i.speaker_status) or _is_sentinel(i.speaker_status), MAIN),
+    ("Fan Working",       "Fan",        "fan",      lambda i, d: _is(i.fan_working, "No") or _faulty(i.fan_working), MAIN),
+    ("Motherboard",       "Motherboard", "motherboard", lambda i, d: _is(i.status, "No Display") or _is(i.power_on, "No"), MAIN),
+    ("Logic Card",        "Other",      "touchpad", lambda i, d: _is(i.touchpad_working, "No") or _is_unknown(i.touchpad_working)
+                          or _is(i.touchpad_missing, "Yes"), MAIN),
+    ("Wi-Fi Card",        "Other",      "wifi",     lambda i, d: _faulty(i.wifi_status) or _is_sentinel(i.wifi_status), MAIN),
+    ("DVD Drive",         "DVD Drive",  "dvd",      lambda i, d: _is(i.dvd_drive, "No") or _faulty(i.dvd_drive), MAIN),
+    # -- ADDITIONAL PARTS ----------------------------------------------------
+    # Covers and cables are not inspected at IQC, so none of them can derive a
+    # Required flag. They exist here so an engineer can request one against the
+    # tag instead of typing free text, which is what produced the unmatchable
+    # "HDD Connector/Caddy" and "M.2 SSD" rows in request history.
+    ("RAM Cover",         "Body",       "ram cover",        lambda i, d: False, ADDITIONAL),
+    ("DVD Drive Cover",   "Body",       "dvd drive cover",  lambda i, d: False, ADDITIONAL),
+    ("Hinge Cover",       "Body",       "hinge cover",      lambda i, d: False, ADDITIONAL),
+    ("Hard Drive Cover",  "Body",       "hard drive cover", lambda i, d: False, ADDITIONAL),
+    ("HDD Connector",     "HDD",        "hdd",      lambda i, d: _is(i.hdd_connector, "No") or _is_sentinel(i.hdd_connector)
+                          or (d is not None and d.hdd_capacity_gb is None), ADDITIONAL),
+    ("Touchpad Cover",    "Body",       "palm rest", lambda i, d: _damaged(
+        i.panel_d_broken, i.panel_d_missing, i.panel_d_dent), ADDITIONAL),
+    ("Touchpad Cable",    "Other",      "touchpad cable",   lambda i, d: False, ADDITIONAL),
+    ("Camera Cable",      "Other",      "camera cable",     lambda i, d: False, ADDITIONAL),
+    ("Battery Cable",     "Other",      "battery cable",    lambda i, d: False, ADDITIONAL),
 ]
 
-# The eight rows above must stay last and in this order. compute_required
-# preserves PARTS_MATRIX order, so a stray edit that moves one of them would
-# silently reorder the Device Detail table; the assertion below turns that
-# into an import-time failure instead.
-_BODY_TAIL = ["Display Panel", "Bezel", "Display", "Hinge",
-              "Touchpad", "Bottom Base", "Keyboard", "Palm rest"]
-assert [row[0] for row in PARTS_MATRIX[-len(_BODY_TAIL):]] == _BODY_TAIL, (
-    "PARTS_MATRIX tail order changed — Parts Consumption expects "
-    f"{_BODY_TAIL}, found {[row[0] for row in PARTS_MATRIX[-len(_BODY_TAIL):]]}"
-)
+# The list must stay in the order above - it is the order the floor strips a
+# machine, fixed by the business rather than derived - and every MAIN row must
+# precede every ADDITIONAL one or the Device Detail headings interleave. A
+# stray edit that breaks either becomes an import-time failure rather than a
+# silently reordered table.
+_MATRIX_LABELS = [r[0] for r in PARTS_MATRIX]
+assert len(_MATRIX_LABELS) == len(set(_MATRIX_LABELS)), (
+    "PARTS_MATRIX has a duplicate label")
+_sections = [r[4] for r in PARTS_MATRIX]
+assert _sections == sorted(_sections, key=lambda x: 0 if x == MAIN else 1), (
+    "PARTS_MATRIX sections interleave - every MAIN row must precede ADDITIONAL")
+assert _MATRIX_LABELS[:8] == ["RAM", "Hard Drive", "Bezel", "Panel", "Screen",
+                              "Hinge", "Bottom Base", "Keyboard"], (
+    "PARTS_MATRIX head order changed: %s" % _MATRIX_LABELS[:8])
 
 
 # Older labels that PartRequest.part_name rows may still carry in the database.
@@ -147,11 +167,41 @@ assert [row[0] for row in PARTS_MATRIX[-len(_BODY_TAIL):]] == _BODY_TAIL, (
 # rename without this map would orphan every historical / in-flight request.
 # New label -> tuple of previously used labels.
 LEGACY_LABELS = {
-    "Display": ("Screen / Display",),
-    "Adapter": ("Adapter / Charger",),
+    # The 2026-08 consolidation onto the shop-floor part names. Every rename
+    # needs an entry here: without one the Requested / Verify pill silently
+    # disappears from every in-flight request raised under the old name.
+    "Panel":          ("Display Panel",),
+    "Screen":         ("Display", "Screen / Display"),
+    "Camera":         ("Web Cam", "Webcam"),
+    "DC Jack":        ("Charging Port",),
+    "LAN Port":       ("Ethernet Ports", "Ethernet Port"),
+    "USB Port":       ("USB Ports", "USB ports"),
+    "Logic Card":     ("Touchpad",),
+    "Wi-Fi Card":     ("Wi-Fi",),
+    "Touchpad Cover": ("Palm rest",),
     # Shipped as "Bazel Frame" for one day before being renamed.
-    "Bezel": ("Bazel Frame",),
+    "Bezel":          ("Bazel Frame",),
 }
+
+
+def rules_by_label():
+    """{label -> required_fn}, keyed by BOTH the current label and every name
+    it used to carry.
+
+    Part Estimation asks for its rules by name ("Wi-Fi", "Web Cam", "Touchpad")
+    and those names are its own column headers, stored against historical
+    estimates — so they cannot simply be renamed alongside the parts list. The
+    aliases keep those lookups resolving to the same classifier instead of
+    raising KeyError at import.
+    """
+    rules = {label: fn for label, _c, _k, fn, _s in PARTS_MATRIX}
+    for current, olds in LEGACY_LABELS.items():
+        fn = rules.get(current)
+        if fn is None:
+            continue
+        for old in olds:
+            rules.setdefault(old, fn)
+    return rules
 
 
 class _NullIQC:
@@ -161,14 +211,52 @@ class _NullIQC:
         return None
 
 
-def compute_required(iqc, device):
-    """Return list of {label, category, keyword, required} for the fixed parts list."""
+def extra_master_labels():
+    """Spare Part Names configured in Master Data that PARTS_MATRIX does not know.
+
+    Reads the warm in-memory master cache, so this stays synchronous and costs
+    no query — and it refreshes the moment an admin adds a value, because
+    /admin/master calls refresh_master_cache() on every edit.
+
+    A name added to the dropdown has no IQC field behind it by definition, so
+    it can only ever appear under ADDITIONAL PARTS with Required = No. Matching
+    is case-insensitive: "ram cover" typed into the dropdown must not produce a
+    second row alongside the matrix's "RAM Cover".
+    """
+    from utils.master_data import master_options
+
+    known = {lbl.strip().lower() for lbl in _MATRIX_LABELS}
+    seen, extras = set(known), []
+    for value in master_options("part_category"):
+        key = (value or "").strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        extras.append(value.strip())
+    return extras
+
+
+def compute_required(iqc, device, include_master_extras=False):
+    """Return [{label, category, keyword, required, section}] for the parts list.
+
+    `include_master_extras` appends any Spare Part Name configured in Master
+    Data that the matrix does not carry. Only Device Detail passes it: the
+    repair queues and cosmetic pages use this to COUNT required parts, and an
+    extra can never be required, so including it there would only add rows that
+    always answer No.
+    """
     i = iqc if iqc is not None else _NullIQC()
     rows = []
-    for label, category, keyword, fn in PARTS_MATRIX:
+    for label, category, keyword, fn, section in PARTS_MATRIX:
         try:
             required = bool(fn(i, device))
         except Exception:
             required = False
-        rows.append({"label": label, "category": category, "keyword": keyword, "required": required})
+        rows.append({"label": label, "category": category, "keyword": keyword,
+                     "required": required, "section": section})
+    if include_master_extras:
+        for label in extra_master_labels():
+            rows.append({"label": label, "category": "Other",
+                         "keyword": label.strip().lower(),
+                         "required": False, "section": ADDITIONAL})
     return rows

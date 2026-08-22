@@ -36,7 +36,7 @@ _IQC_COLS = (
     "panel_d_broken", "panel_d_missing", "panel_d_dent",
 )
 
-PART_LABELS = [label for label, _c, _k, _fn in PARTS_MATRIX]
+PART_LABELS = [row[0] for row in PARTS_MATRIX]
 
 
 def _active(stmt):

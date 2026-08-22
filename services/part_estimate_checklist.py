@@ -25,14 +25,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.device import Device
 from models.iqc_inspection import IQCInspection
-from services.parts_required import PARTS_MATRIX
+from services.parts_required import rules_by_label
 from services.part_estimate_matrix import (
     _DEVICE_COLS as _MATRIX_DEVICE_COLS,
     _IQC_COLS as _MATRIX_IQC_COLS,
     model_key,
 )
 
-_RULES = {label: fn for label, _c, _k, fn in PARTS_MATRIX}
+_RULES = rules_by_label()
 
 
 def _rule(label):

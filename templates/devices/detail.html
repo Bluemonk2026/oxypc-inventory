@@ -187,7 +187,18 @@
           </thead>
           <tbody>
             {% set _eng = True %}{# Parts Consumption actions visible to all roles #}
+            {% set _ns = namespace(section='') %}
             {% for p in parts_consumption %}
+            {# Section heading emitted on the first row of each group. The rows
+               arrive pre-sorted (MAIN then ADDITIONAL, asserted in
+               services/parts_required.py), so a change of section is always a
+               genuine boundary rather than an interleave. #}
+            {% if p.section and p.section != _ns.section %}
+            {% set _ns.section = p.section %}
+            <tr class="table-light">
+              <td colspan="5" class="ps-3 small fw-bold text-uppercase text-muted">{{ p.section }}</td>
+            </tr>
+            {% endif %}
             <tr>
               <td class="ps-3 small fw-semibold">{{ p.label }}</td>
               <td>{% if p.required %}<span class="badge bg-warning text-dark">Yes</span>{% else %}<span class="badge bg-light text-muted border">No</span>{% endif %}</td>

@@ -1011,7 +1011,9 @@ async def device_detail(
 
     # ── Parts Consumption (#10): fixed parts list, IQC-driven Required flag,
     #    live stock status, and any existing engineer part-request state. ───────
-    required_rows = compute_required(iqc_inspection, device)
+    # include_master_extras: anything the admin adds to the Spare Part Names
+    # dropdown shows up under ADDITIONAL PARTS without a code change.
+    required_rows = compute_required(iqc_inspection, device, include_master_extras=True)
     pna_parts = set((await db.execute(
         select(DevicePNAPart.part_name).where(
             DevicePNAPart.device_id == device.id,
@@ -1141,6 +1143,7 @@ async def device_detail(
             existing = req_by_partid.get(str(sp.id))
         parts_consumption.append({
             "label": row["label"],
+            "section": row["section"],
             "category": sp.category if sp else row["category"],
             "required": row["required"],
             "matched": sp is not None,

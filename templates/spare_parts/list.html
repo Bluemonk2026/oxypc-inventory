@@ -2,6 +2,19 @@
 {% block title %}Spare Parts — OxyPC{% endblock %}
 {% block page_title %}Spare Parts Inventory{% endblock %}
 {% block content %}
+<style>
+/* Actions/Action column on the 4 request-style tables never wraps its
+   buttons onto a second line — the column widens instead, and the table's
+   own .table-responsive wrapper scrolls sideways if the page is too narrow
+   to fit it, matching how every other wide column on these tables already
+   behaves. */
+#partsTable td:last-child, #partsTable th:last-child,
+#partReqTable td:last-child, #partReqTable th:last-child,
+#faultyReqTable td:last-child, #faultyReqTable th:last-child,
+#sourcingTable td:last-child, #sourcingTable th:last-child {
+  white-space: nowrap;
+}
+</style>
 
 {# One filter bar definition shared by Part Master, Part Requests and Faulty
    Request. Each instance is bound to its table by id; the JS in `scripts`
@@ -92,8 +105,8 @@
   </div>
   <div style="flex:1 1 0; min-width:130px;">
     <div class="card border-0 shadow-sm text-center p-2 h-100">
-      <div class="fs-3 fw-bold text-info">{{ consumed_this_month }}</div>
-      <div class="text-muted small">Consumed This Month</div>
+      <div class="fs-3 fw-bold text-info">{{ total_consumed }}</div>
+      <div class="text-muted small">Consumed</div>
     </div>
   </div>
   <div style="flex:1 1 0; min-width:130px;">
@@ -135,6 +148,13 @@
     </button>
   </li>
   <li class="nav-item flex-fill text-center" role="presentation">
+    <button class="nav-link w-100" id="parts-consumption-tab" data-bs-toggle="tab"
+            data-bs-target="#partsConsumptionTab" type="button" role="tab">
+      <i class="bi bi-clipboard-data me-1"></i>Parts Consumption
+      <span class="badge bg-secondary ms-1">{{ tag_consumption_rows|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item flex-fill text-center" role="presentation">
     <button class="nav-link w-100" id="sourcing-tab" data-bs-toggle="tab"
             data-bs-target="#sourcingTab" type="button" role="tab">
       <i class="bi bi-box-arrow-in-down me-1"></i>Sourcing Requests
@@ -155,34 +175,21 @@
         <button class="btn btn-outline-secondary btn-sm" onclick="spExport('partsTable',false)">
           <i class="bi bi-file-earmark-arrow-down me-1"></i>Export All
         </button>
-        <button id="expSel_partsTable" class="btn btn-outline-info btn-sm" onclick="spExport('partsTable',true)" disabled>
+        <button id="expSel_partsTable" class="btn btn-outline-info btn-sm d-none" onclick="spExport('partsTable',true)" disabled>
           <i class="bi bi-download me-1"></i>Export Selected
         </button>
-        <button id="delSel_partsTable" class="btn btn-outline-danger btn-sm" onclick="spBulkDelete()" disabled>
+        <button id="delSel_partsTable" class="btn btn-outline-danger btn-sm d-none" onclick="spBulkDelete()" disabled>
           <i class="bi bi-trash3 me-1"></i>Delete Selected
         </button>
         <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addPartModal">
           <i class="bi bi-plus-circle me-1"></i>Add Part
         </button>
-        <a href="/spare-parts/bulk-template" class="btn btn-outline-secondary btn-sm">
-          <i class="bi bi-download me-1"></i>Download Sample
-        </a>
-        <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('bulkUploadNewInput').click()">
+        <button type="button" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#uploadNewModal">
           <i class="bi bi-cloud-upload me-1"></i>Upload New
         </button>
-        <button type="button" class="btn btn-outline-warning btn-sm" onclick="document.getElementById('bulkUploadHarvestInput').click()">
+        <button type="button" class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#uploadHarvestModal">
           <i class="bi bi-cloud-upload me-1"></i>Upload Harvest
         </button>
-        <form id="bulkUploadNewForm" method="post" action="/spare-parts/bulk-upload" enctype="multipart/form-data" class="d-none">
-          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-          <input type="hidden" name="source" value="new">
-          <input type="file" name="file" id="bulkUploadNewInput" accept=".csv" onchange="document.getElementById('bulkUploadNewForm').submit()">
-        </form>
-        <form id="bulkUploadHarvestForm" method="post" action="/spare-parts/bulk-upload" enctype="multipart/form-data" class="d-none">
-          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-          <input type="hidden" name="source" value="harvest">
-          <input type="file" name="file" id="bulkUploadHarvestInput" accept=".csv" onchange="document.getElementById('bulkUploadHarvestForm').submit()">
-        </form>
       </div>
     </div>
     {{ filter_bar('partsTable', filter_categories, filter_part_names, ['New', 'Harvest']) }}
@@ -258,7 +265,7 @@
             {% endif %}
             <td class="text-nowrap">{{ part.created_at | ist_date if part.created_at else '—' }}</td>
             <td>
-              <div class="d-flex gap-1 flex-wrap">
+              <div class="d-flex gap-1">
                 <a href="/spare-parts/{{ part.id }}/edit"
                    class="btn btn-xs btn-outline-primary btn-sm py-0 px-2">Edit</a>
                 <form method="post" action="/spare-parts/{{ part.id }}/procure" class="d-inline">
@@ -290,7 +297,7 @@
         <button class="btn btn-outline-secondary btn-sm" onclick="spExport('consumptionTable',false)">
           <i class="bi bi-file-earmark-arrow-down me-1"></i>Export All
         </button>
-        <button id="expSel_consumptionTable" class="btn btn-outline-info btn-sm" onclick="spExport('consumptionTable',true)" disabled>
+        <button id="expSel_consumptionTable" class="btn btn-outline-info btn-sm d-none" onclick="spExport('consumptionTable',true)" disabled>
           <i class="bi bi-download me-1"></i>Export Selected
         </button>
         <a href="/spare-parts/consume" class="btn btn-warning btn-sm">
@@ -347,7 +354,7 @@
         <button class="btn btn-outline-secondary btn-sm" onclick="spExport('partReqTable',false)">
           <i class="bi bi-file-earmark-arrow-down me-1"></i>Export All
         </button>
-        <button id="expSel_partReqTable" class="btn btn-outline-info btn-sm" onclick="spExport('partReqTable',true)" disabled>
+        <button id="expSel_partReqTable" class="btn btn-outline-info btn-sm d-none" onclick="spExport('partReqTable',true)" disabled>
           <i class="bi bi-download me-1"></i>Export Selected
         </button>
         <button id="bulkHandover_partReqTable" class="btn btn-outline-success btn-sm"
@@ -412,7 +419,7 @@
               {% endif %}
             </td>
             <td>
-              <div class="d-flex gap-1 flex-wrap align-items-center">
+              <div class="d-flex gap-1 align-items-center">
                 {% if r.status == 'requested' %}
                 <button class="btn btn-sm btn-success py-0 px-2" data-bs-toggle="modal" data-bs-target="#handoverModal"
                         data-req="{{ r.id }}" data-part="{{ r.part_name }}" data-eng="{{ r.engineer_name or r.requested_by }}"
@@ -447,7 +454,7 @@
         <button class="btn btn-outline-secondary btn-sm" onclick="spExport('faultyReqTable',false)">
           <i class="bi bi-file-earmark-arrow-down me-1"></i>Export All
         </button>
-        <button id="expSel_faultyReqTable" class="btn btn-outline-info btn-sm" onclick="spExport('faultyReqTable',true)" disabled>
+        <button id="expSel_faultyReqTable" class="btn btn-outline-info btn-sm d-none" onclick="spExport('faultyReqTable',true)" disabled>
           <i class="bi bi-download me-1"></i>Export Selected
         </button>
         <button id="bulkHandover_faultyReqTable" class="btn btn-outline-success btn-sm"
@@ -505,7 +512,7 @@
               {% endif %}
             </td>
             <td>
-              <div class="d-flex gap-1 flex-wrap align-items-center">
+              <div class="d-flex gap-1 align-items-center">
                 {% if r.status == 'requested' %}
                 <button class="btn btn-sm btn-success py-0 px-2" data-bs-toggle="modal" data-bs-target="#handoverModal"
                         data-req="{{ r.id }}" data-part="{{ r.part_name }}" data-eng="{{ r.engineer_name or r.requested_by }}"
@@ -551,6 +558,48 @@
     </div>
   </div>
 
+  <!-- ── TAB: Parts Consumption — parts consumed per tag number. Source is
+       the same "Part Changed" (status == 'received') PartRequest rows the
+       Device Detail page's own Parts Consumed table uses, rolled up by
+       device so each tag shows one row here instead of one per part. ── -->
+  <div class="tab-pane fade p-0" id="partsConsumptionTab" role="tabpanel">
+    <div class="d-flex justify-content-between align-items-center p-3 border-bottom flex-wrap gap-2">
+      <span class="text-muted small">{{ tag_consumption_rows|length }} tag(s) with parts consumed</span>
+      <div class="d-flex gap-2 flex-wrap align-items-center">
+        <input type="text" id="pcSearch" class="form-control form-control-sm" style="min-width:220px"
+               placeholder="Search Tag Number / Lot Number" oninput="pcFilter()">
+        <button class="btn btn-outline-secondary btn-sm" onclick="spExport('partsConsumptionTable',false)">
+          <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
+        </button>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table id="partsConsumptionTable" class="table table-hover mb-0 small">
+        <thead class="table-dark">
+          <tr>
+            <th>Tag Number</th><th>Lot Number</th>
+            <th>Total Parts Changed</th><th>Total Parts Amount</th><th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in tag_consumption_rows %}
+          <tr data-tag="{{ row.tag_number or '' }}" data-lot="{{ row.lot_number or '' }}">
+            <td><a href="/devices/{{ row.tag_number }}" class="font-monospace text-decoration-none">{{ row.tag_number }}</a></td>
+            <td>
+              {% if row.lot_number %}<a href="/lots?q={{ row.lot_number | urlencode }}">{{ row.lot_number }}</a>{% else %}—{% endif %}
+            </td>
+            <td><span class="badge bg-info text-dark">{{ row.parts_changed }}</span></td>
+            <td>{{ row.total_qty }}</td>
+            <td class="fw-semibold">&#8377;{{ "{:,.2f}".format(row.total_amount) }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-center text-muted py-4">No parts consumed yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- ── TAB 5: Pending Requests For Part Sourcing (#15, synced read-only from CRM) ── -->
   <div class="tab-pane fade p-0" id="sourcingTab" role="tabpanel">
     <div class="d-flex justify-content-between align-items-center p-3 border-bottom flex-wrap gap-2">
@@ -559,7 +608,7 @@
         <button class="btn btn-outline-secondary btn-sm" onclick="spExport('sourcingTable',false)">
           <i class="bi bi-file-earmark-arrow-down me-1"></i>Export All
         </button>
-        <button id="expSel_sourcingTable" class="btn btn-outline-info btn-sm" onclick="spExport('sourcingTable',true)" disabled>
+        <button id="expSel_sourcingTable" class="btn btn-outline-info btn-sm d-none" onclick="spExport('sourcingTable',true)" disabled>
           <i class="bi bi-download me-1"></i>Export Selected
         </button>
       </div>
@@ -750,6 +799,56 @@
   </div>
 </div>
 
+<!-- Upload New Parts modal -->
+<div class="modal fade" id="uploadNewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form id="bulkUploadNewForm" method="post" action="/spare-parts/bulk-upload" enctype="multipart/form-data" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="source" value="new">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-cloud-upload me-2"></i>Upload New Parts</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <a href="/spare-parts/bulk-template" class="btn btn-outline-secondary btn-sm mb-3">
+          <i class="bi bi-download me-1"></i>Download Sample File
+        </a>
+        <label class="form-label small fw-semibold">CSV File</label>
+        <input type="file" name="file" accept=".csv" class="form-control form-control-sm" required>
+      </div>
+      <div class="modal-footer">
+        <button type="submit" class="btn btn-success"><i class="bi bi-cloud-upload me-1"></i>Upload</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Upload Harvest Parts modal -->
+<div class="modal fade" id="uploadHarvestModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form id="bulkUploadHarvestForm" method="post" action="/spare-parts/bulk-upload" enctype="multipart/form-data" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="source" value="harvest">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-cloud-upload me-2"></i>Upload Harvest Parts</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <a href="/spare-parts/bulk-template" class="btn btn-outline-secondary btn-sm mb-3">
+          <i class="bi bi-download me-1"></i>Download Sample File
+        </a>
+        <label class="form-label small fw-semibold">CSV File</label>
+        <input type="file" name="file" accept=".csv" class="form-control form-control-sm" required>
+      </div>
+      <div class="modal-footer">
+        <button type="submit" class="btn btn-warning"><i class="bi bi-cloud-upload me-1"></i>Upload</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Harvest Part modal -->
 <div class="modal fade" id="harvestModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
@@ -769,6 +868,13 @@
             <div class="col-md-4">
               <label class="form-label small fw-semibold">Lot Number</label>
               <input type="text" id="hv_lot_number" name="lot_number" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Part Category</label>
+              <select name="category" class="form-select form-select-sm">
+                <option value="">— Select —</option>
+                {% for c in harvest_categories %}<option>{{ c }}</option>{% endfor %}
+              </select>
             </div>
             <div class="col-md-4">
               <label class="form-label small fw-semibold">Part Name</label>
@@ -799,30 +905,8 @@
               <input type="number" name="physical_qty" id="hv_phys_qty" class="form-control form-control-sm" min="1" value="1">
             </div>
             <div class="col-md-3">
-              <label class="form-label small fw-semibold">Invoice Qty</label>
-              <input type="number" id="hv_inv_qty" class="form-control form-control-sm" readonly value="1">
-            </div>
-            <div class="col-md-3">
               <label class="form-label small fw-semibold">Price (₹)</label>
               <input type="number" name="price" step="0.01" min="0" class="form-control form-control-sm">
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold">Main Category</label>
-              <select name="main_category" class="form-select form-select-sm">
-                <option value="">— Select —</option>
-                <option>Hardware</option><option>Accessories</option><option>Consumables</option><option>Other</option>
-              </select>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold">Part Category</label>
-              <select name="category" class="form-select form-select-sm">
-                <option value="">— Select —</option>
-                {% for c in harvest_categories %}<option>{{ c }}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold">Invoice Ref</label>
-              <input type="text" name="invoice_ref" class="form-control form-control-sm">
             </div>
             <div class="col-md-12">
               <label class="form-label small fw-semibold">Product Description</label>
@@ -879,12 +963,9 @@ if (_hm) {
   });
 }
 
-// Harvest modal — generate Part ID on open, sync invoice qty
+// Harvest modal — generate Part ID on open
 document.getElementById('harvestModal').addEventListener('show.bs.modal', function() {
   document.getElementById('hv_part_id').value = String(Math.floor(Math.random() * 90000000) + 10000000);
-});
-document.getElementById('hv_phys_qty').addEventListener('input', function() {
-  document.getElementById('hv_inv_qty').value = this.value;
 });
 function submitHarvestPart() {
   var form = document.getElementById('harvestForm');
@@ -918,10 +999,15 @@ function spExport(tableId, selectedOnly) {
   var table = document.getElementById(tableId);
   if (!table) return;
   var ths = Array.from(table.querySelectorAll('thead th'));
+  // Only skip the first column when it's the select-all checkbox column —
+  // tables without row checkboxes (e.g. Parts Consumption) start their first
+  // real header right there and must not lose it to a hardcoded skip.
+  var skipFirst = !!ths[0].querySelector('input');
+  var startIdx = skipFirst ? 1 : 0;
   var lastTxt = ths[ths.length - 1].textContent.trim().toLowerCase();
   var skipLast = (lastTxt === 'action' || lastTxt === 'actions');
   var endIdx = skipLast ? ths.length - 1 : ths.length;
-  var headers = ths.slice(1, endIdx).map(function(th) {
+  var headers = ths.slice(startIdx, endIdx).map(function(th) {
     return '"' + th.textContent.trim().replace(/"/g, '""') + '"';
   });
   var rows = [];
@@ -931,7 +1017,7 @@ function spExport(tableId, selectedOnly) {
       var cb = tr.querySelector('input.sp-cb');
       if (!cb || !cb.checked) return;
     }
-    var cells = Array.from(tr.cells).slice(1, endIdx);
+    var cells = Array.from(tr.cells).slice(startIdx, endIdx);
     rows.push(cells.map(function(td) {
       return '"' + td.textContent.trim().replace(/\s+/g, ' ').replace(/"/g, '""') + '"';
     }).join(','));
@@ -1012,10 +1098,13 @@ function submitSourcingReupload() {
 // ── Select-All checkboxes ──────────────────────────────────────────────────
 function spToggleSelButtons(tbl) {
   var anyChecked = document.querySelectorAll('#' + tbl + ' .sp-cb:checked').length > 0;
+  // Export Selected / Delete Selected only make sense once something is
+  // selected, so they stay out of the toolbar entirely until then instead of
+  // sitting there greyed out.
   var exp = document.getElementById('expSel_' + tbl);
-  if (exp) exp.disabled = !anyChecked;
+  if (exp) { exp.disabled = !anyChecked; exp.classList.toggle('d-none', !anyChecked); }
   var del = document.getElementById('delSel_' + tbl);
-  if (del) del.disabled = !anyChecked;
+  if (del) { del.disabled = !anyChecked; del.classList.toggle('d-none', !anyChecked); }
   ['bulkHandover_', 'bulkDelete_'].forEach(function(prefix) {
     var b = document.getElementById(prefix + tbl);
     if (b) b.disabled = !anyChecked;
@@ -1165,5 +1254,14 @@ document.querySelectorAll('[data-filterbar]').forEach(function(bar) {
     el.addEventListener('change', function() { spApplyFilters(tbl); });
   });
 });
+
+// ── Parts Consumption tab: search by Tag Number / Lot Number ──────────────
+function pcFilter() {
+  var q = document.getElementById('pcSearch').value.trim().toLowerCase();
+  document.querySelectorAll('#partsConsumptionTable tbody tr[data-tag]').forEach(function(tr) {
+    var hay = (tr.dataset.tag + ' ' + tr.dataset.lot).toLowerCase();
+    tr.style.display = (!q || hay.indexOf(q) !== -1) ? '' : 'none';
+  });
+}
 </script>
 {% endblock %}

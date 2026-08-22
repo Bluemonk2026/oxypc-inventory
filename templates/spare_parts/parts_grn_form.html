@@ -196,9 +196,9 @@
         <thead class="table-secondary">
           <tr>
             <th>Part ID</th><th>GRN No</th><th>Lot No</th><th>Vendor</th>
-            <th>Invoice No</th><th>Part Name</th><th>Brand</th><th>Model</th>
+            <th>Invoice No</th><th>Category</th><th>Part Name</th><th>Brand</th><th>Model</th>
             <th>Inv Qty</th><th>Phys Qty</th><th>Price</th>
-            <th>Main Cat</th><th>Category</th><th>Vehicle</th><th>Invoice Ref</th><th>Remarks</th>
+            <th>Vehicle</th><th>Remarks</th>
             {% if not ro %}<th>Action</th>{% endif %}
           </tr>
         </thead>
@@ -210,16 +210,14 @@
             <td>{{ li.lot_number or '—' }}</td>
             <td>{{ li.vendor_name or '—' }}</td>
             <td>{{ li.invoice_number or '—' }}</td>
+            <td>{{ li.category or '—' }}</td>
             <td>{{ li.part_name or '—' }}</td>
             <td>{{ li.part_brand or '—' }}</td>
             <td>{{ li.part_model or '—' }}</td>
             <td>{{ li.invoice_qty or '—' }}</td>
             <td>{{ li.physical_qty or '—' }}</td>
             <td>{% if li.price %}₹{{ "{:,.2f}".format(li.price) }}{% else %}—{% endif %}</td>
-            <td>{{ li.main_category or '—' }}</td>
-            <td>{{ li.category or '—' }}</td>
             <td>{{ li.vehicle_number or '—' }}</td>
-            <td>{{ li.invoice_ref or '—' }}</td>
             <td>{{ li.remarks or '—' }}</td>
           </tr>
           {% endfor %}
@@ -279,8 +277,11 @@
             <input type="text" id="li_product_description" class="form-control form-control-sm">
           </div>
           <div class="col-md-3">
-            <label class="form-label small fw-semibold">Item Name</label>
-            <input type="text" id="li_item_name" class="form-control form-control-sm">
+            <label class="form-label small fw-semibold">Part Category</label>
+            <select id="li_category" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              {% for c in categories %}<option>{{ c }}</option>{% endfor %}
+            </select>
           </div>
           <div class="col-md-3">
             <label class="form-label small fw-semibold">Part Name</label>
@@ -319,26 +320,8 @@
             <input type="number" id="li_price" class="form-control form-control-sm" step="0.01" min="0">
           </div>
           <div class="col-md-3">
-            <label class="form-label small fw-semibold">Main Category</label>
-            <select id="li_main_category" class="form-select form-select-sm">
-              <option value="">— Select —</option>
-              {% for c in main_categories %}<option>{{ c }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="col-md-3">
-            <label class="form-label small fw-semibold">Part Category</label>
-            <select id="li_category" class="form-select form-select-sm">
-              <option value="">— Select —</option>
-              {% for c in categories %}<option>{{ c }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="col-md-3">
             <label class="form-label small fw-semibold">Vehicle Number</label>
             <input type="text" id="li_vehicle_number" class="form-control form-control-sm">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label small fw-semibold">Invoice Ref</label>
-            <input type="text" id="li_invoice_ref" class="form-control form-control-sm">
           </div>
           <div class="col-md-6">
             <label class="form-label small fw-semibold">Remarks</label>
@@ -387,7 +370,6 @@ function addLineItem() {
     vendor_name: document.getElementById('li_vendor_name').value,
     invoice_number: document.getElementById('li_invoice_number').value,
     product_description: document.getElementById('li_product_description').value,
-    item_name: document.getElementById('li_item_name').value,
     part_name: document.getElementById('li_part_name').value,
     part_brand: document.getElementById('li_part_brand').value,
     part_model: document.getElementById('li_part_model').value,
@@ -395,23 +377,20 @@ function addLineItem() {
     invoice_qty: document.getElementById('li_invoice_qty').value,
     physical_qty: document.getElementById('li_physical_qty').value,
     price: document.getElementById('li_price').value,
-    main_category: document.getElementById('li_main_category').value,
     category: document.getElementById('li_category').value,
     vehicle_number: document.getElementById('li_vehicle_number').value,
-    invoice_ref: document.getElementById('li_invoice_ref').value,
     remarks: document.getElementById('li_remarks').value,
   };
   lineItems.push(item);
   renderLineItems();
   updateHiddenJson();
   // reset fields
-  ['li_lot_number','li_product_description','li_item_name','li_part_name',
+  ['li_lot_number','li_product_description','li_part_name',
    'li_part_brand','li_part_model','li_invoice_qty','li_physical_qty',
-   'li_price','li_invoice_ref','li_remarks'].forEach(function(id) {
+   'li_price','li_remarks'].forEach(function(id) {
     document.getElementById(id).value = '';
   });
   document.getElementById('li_min_stock_alert').value = '5';
-  document.getElementById('li_main_category').value = '';
   document.getElementById('li_category').value = '';
   bootstrap.Modal.getInstance(document.getElementById('addItemModal')).hide();
 }
@@ -425,7 +404,7 @@ function removeLineItem(idx) {
 function renderLineItems() {
   var tbody = document.getElementById('lineItemsTbody');
   if (lineItems.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="17" class="text-center text-muted py-3">No items added yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="15" class="text-center text-muted py-3">No items added yet.</td></tr>';
     return;
   }
   tbody.innerHTML = lineItems.map(function(item) {
@@ -435,16 +414,14 @@ function renderLineItems() {
       '<td>' + (item.lot_number || '—') + '</td>' +
       '<td>' + (item.vendor_name || '—') + '</td>' +
       '<td>' + (item.invoice_number || '—') + '</td>' +
+      '<td>' + (item.category || '—') + '</td>' +
       '<td>' + (item.part_name || '—') + '</td>' +
       '<td>' + (item.part_brand || '—') + '</td>' +
       '<td>' + (item.part_model || '—') + '</td>' +
       '<td>' + (item.invoice_qty || '—') + '</td>' +
       '<td>' + (item.physical_qty || '—') + '</td>' +
       '<td>' + (item.price ? '₹' + parseFloat(item.price).toLocaleString('en-IN', {minimumFractionDigits:2}) : '—') + '</td>' +
-      '<td>' + (item.main_category || '—') + '</td>' +
-      '<td>' + (item.category || '—') + '</td>' +
       '<td>' + (item.vehicle_number || '—') + '</td>' +
-      '<td>' + (item.invoice_ref || '—') + '</td>' +
       '<td>' + (item.remarks || '—') + '</td>' +
       '<td><button type="button" class="btn btn-xs btn-outline-danger btn-sm py-0 px-2" onclick="removeLineItem(' + item._idx + ')"><i class="bi bi-trash"></i></button></td>' +
       '</tr>';

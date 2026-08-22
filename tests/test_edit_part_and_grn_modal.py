@@ -8,7 +8,7 @@ import pytest
 
 from tests.test_iqc_new_user import _login, make_user  # noqa: F401  (fixture)
 
-EDIT_PART_FIELDS = ["part_lot", "category", "name", "make", "model",
+EDIT_PART_FIELDS = ["part_lot", "model", "category", "name", "make",
                     "unit_price", "qty_in_stock", "min_stock_alert"]
 
 
@@ -40,7 +40,10 @@ def test_edit_part_rows_are_in_the_asked_order(app_client, make_user):  # noqa: 
     pos = [html.index(f'name="{f}"') for f in EDIT_PART_FIELDS]
     assert pos == sorted(pos), (
         "Edit Part fields are out of order; expected "
-        "(Code, Lot, Category) (Name, Make, Model) (Price, Stock, Alert)")
+        "(Code, Lot, Model) (Category, Name, Make) (Price, Stock, Alert)")
+    # Part Code carries no name attribute (generated, never submitted), so its
+    # row position is checked by label text instead — it must lead Part Lot.
+    assert html.index("Part Code") < html.index('name="part_lot"')
 
 
 def test_add_grn_modal_orders_vendor_then_invoice_after_eway(app_client, make_user):  # noqa: F811

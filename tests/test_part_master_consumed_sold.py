@@ -9,7 +9,7 @@ import pytest
 
 from tests.test_iqc_new_user import _login, make_user  # noqa: F401  (fixture)
 
-EDIT_FIELDS = ["crate_number", "part_lot", "category", "name", "make", "model",
+EDIT_FIELDS = ["crate_number", "part_lot", "model", "category", "name", "make",
                "unit_price", "qty_in_stock", "min_stock_alert"]
 
 
@@ -61,7 +61,10 @@ def test_part_master_renders(app_client, make_user):  # noqa: F811
         assert header in r.text
 
 
-def test_edit_part_hides_code_and_adds_crate(app_client, make_user):  # noqa: F811
+def test_edit_part_shows_code_readonly_and_adds_crate(app_client, make_user):  # noqa: F811
+    """Part Code is back in the form (grouped with Part Lot / Part Model per a
+    later request) but stays disabled with no name attr, so it still can
+    never be submitted or edited — only ever displayed."""
     username, password = make_user("spare_parts_manager")
     _login(app_client, username, password)
     html = app_client.get(f"/spare-parts/{_first_edit_id(app_client)}/edit",
@@ -69,14 +72,16 @@ def test_edit_part_hides_code_and_adds_crate(app_client, make_user):  # noqa: F8
 
     # Pick the edit form by its action — base.html renders a logout form first.
     form = html.split('action="/spare-parts/', 1)[1].split("</form>", 1)[0]
-    assert "Part Code" not in form, "Part Code should be gone from the form"
+    assert "Part Code" in form
+    assert 'name="part_code"' not in form, "Part Code must stay non-submittable"
     assert 'name="crate_number"' in form
     assert "Crate Number" in form
 
     pos = [form.index(f'name="{f}"') for f in EDIT_FIELDS]
     assert pos == sorted(pos), (
         "Edit Part fields out of order; expected "
-        "(Crate, Lot, Category) (Name, Make, Model) (Price, Stock, Alert)")
+        "(Crate) (Code, Lot, Model) (Category, Name, Make) (Price, Stock, Alert)")
+    assert form.index("Part Code") < form.index('name="part_lot"')
 
 
 def test_tiles_use_one_live_definition_deducting_both():

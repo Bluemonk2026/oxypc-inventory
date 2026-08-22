@@ -11,22 +11,26 @@
         <form action="/spare-parts/{{ part.id }}/edit" method="post">
           <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
           <div class="row g-3">
-            {# Three fixed rows, three fields each: identity (crate/lot/category),
-               description (name/make/model), then stock economics.
-
-               The generated part code is not a field here. It is never editable
-               and the card header already prints it, so it stays out of the form
-               entirely rather than sitting as a disabled input — that keeps the
-               first row three live fields wide like the other two. These are
-               Jinja comments, not HTML ones: an HTML comment would ship the note
-               to every browser that opens the page. #}
-            <div class="col-md-4">
+            {# Crate Number gets its own row so Row 1 / Row 2 below stay
+               exactly the three fields each they're specified as.
+               Row 1: Part Code (generated, never editable — no name attr so
+               it is never submitted) / Part Lot / Part Model.
+               Row 2: Part Category / Part Name / Part Make. #}
+            <div class="col-md-12">
               <label class="form-label fw-semibold">Crate Number</label>
               <input type="text" name="crate_number" class="form-control" value="{{ part.crate_number or '' }}" placeholder="Crate the part arrived in">
             </div>
             <div class="col-md-4">
+              <label class="form-label fw-semibold">Part Code</label>
+              <input type="text" class="form-control" value="{{ part.part_code }}" disabled>
+            </div>
+            <div class="col-md-4">
               <label class="form-label fw-semibold">Part Lot</label>
               <input type="text" name="part_lot" class="form-control" value="{{ part.part_lot or '' }}" placeholder="Vendor lot / batch ref">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Part Model</label>
+              <input type="text" name="model" class="form-control" value="{{ part.model or '' }}" placeholder="e.g. M471A1K43CB1">
             </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">Part Category</label>
@@ -65,10 +69,6 @@
                 <option value="{{ part.make }}" selected>{{ part.make }} (not in Spare Part Brands)</option>
                 {% endif %}
               </select>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label fw-semibold">Part Model</label>
-              <input type="text" name="model" class="form-control" value="{{ part.model or '' }}" placeholder="e.g. M471A1K43CB1">
             </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">Unit Price (₹)</label>

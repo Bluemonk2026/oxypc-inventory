@@ -91,6 +91,9 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         .group_by(PartRequest.part_id)
     )).all()
     consumed_by_part = {str(pid): int(total or 0) for pid, total in consumed_rows}
+    # Sum of the Consumed column across every Part Master row — what the
+    # "Consumed" tile now shows, replacing the old this-month-only count.
+    total_consumed = sum(consumed_by_part.values())
 
     # "Sold" per part — Requested Quantity on every APPROVED row of Parts Sale
     # Request. Approval is what commits the stock, so it reserves the quantity
@@ -154,6 +157,39 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         .limit(100)
     )
     consumptions = consumptions_result.all()
+
+    # ── Parts Consumption tab (per tag number): every PartRequest row whose
+    # Action flipped to "Part Changed" (status == "received"), same
+    # definition routers/devices.py uses for the per-device Parts Consumed
+    # table on Device Detail — rolled up here by device so this tab shows the
+    # total across every part changed on that tag.
+    changed_rows = (await db.execute(
+        select(PartRequest, Device.barcode, Lot.lot_number)
+        .join(Device, PartRequest.device_id == Device.id)
+        .outerjoin(Lot, Device.lot_id == Lot.id)
+        .where(PartRequest.status == "received")
+    )).all()
+    changed_part_ids = {r.part_id for r, _, _ in changed_rows if r.part_id}
+    changed_sp_by_id = {}
+    if changed_part_ids:
+        changed_sp_by_id = {
+            sp.id: sp for sp in (await db.execute(
+                select(SparePart).where(SparePart.id.in_(changed_part_ids))
+            )).scalars().all()
+        }
+    tag_consumption = {}
+    for r, barcode, lot_number in changed_rows:
+        sp = changed_sp_by_id.get(r.part_id)
+        unit_price = float(sp.unit_price) if sp else 0.0
+        qty = r.qty_handed_over or 0
+        row = tag_consumption.setdefault(barcode, {
+            "tag_number": barcode, "lot_number": lot_number,
+            "parts_changed": 0, "total_qty": 0, "total_amount": 0.0,
+        })
+        row["parts_changed"] += 1
+        row["total_qty"] += qty
+        row["total_amount"] += unit_price * qty
+    tag_consumption_rows = sorted(tag_consumption.values(), key=lambda r: r["tag_number"] or "")
 
     # Parts consumed this month (count)
     today = date.today()
@@ -276,6 +312,8 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         "part_sourced_count": part_sourced_count,
         "total_stock_value": total_stock_value,
         "consumed_this_month": consumed_this_month,
+        "total_consumed": total_consumed,
+        "tag_consumption_rows": tag_consumption_rows,
         "consumed_by_part": consumed_by_part,
         "sold_by_part": sold_by_part,
         "part_reqs": part_reqs, "faulty_reqs": faulty_reqs, "part_stock": part_stock,

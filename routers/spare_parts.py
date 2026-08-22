@@ -66,15 +66,44 @@ async def _computed_stock(part_id, db: AsyncSession) -> int:
 
 @router.get("/spare-parts", response_class=HTMLResponse)
 async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
-                     current_user: User = Depends(allowed)):
+                     current_user: User = Depends(allowed),
+                     added_from: str = "", added_to: str = "",
+                     category: str = "", part_name: str = ""):
     from datetime import date
 
-    # Part master
+    # Part master — `all_parts` (unfiltered) feeds Qty Available cross-lookups
+    # below (group_stock/part_stock/stock_by_name), which must see every part
+    # regardless of the current filter — a Part Request for "Battery" still
+    # needs a real answer even when the filter bar says Category=RAM. `parts`
+    # is the filtered view the Part Master table and its tiles actually use.
     result = await db.execute(
         select(SparePart).where(SparePart.is_trashed == False)
         .order_by(SparePart.category, SparePart.name)
     )
-    parts  = result.scalars().all()
+    all_parts = result.scalars().all()
+
+    def _in_filter(cat, name, created_at):
+        if category and (cat or "").strip().lower() != category.strip().lower():
+            return False
+        if part_name and (name or "").strip().lower() != part_name.strip().lower():
+            return False
+        if added_from:
+            try:
+                f = date.fromisoformat(added_from)
+                if not created_at or created_at.date() < f:
+                    return False
+            except ValueError:
+                pass
+        if added_to:
+            try:
+                t = date.fromisoformat(added_to)
+                if not created_at or created_at.date() > t:
+                    return False
+            except ValueError:
+                pass
+        return True
+
+    parts = [p for p in all_parts if _in_filter(p.category, p.name, p.created_at)]
 
     # "Consumed" per part — the same Qty Handover figure the Part Requests and
     # Faulty Request tables below print, summed per part NAME rather than per
@@ -102,12 +131,14 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         (name or "").strip().lower(): int(total or 0) for name, total in consumed_rows
     }
     consumed_by_part = {
-        str(p.id): consumed_by_name.get((p.name or "").strip().lower(), 0) for p in parts
+        str(p.id): consumed_by_name.get((p.name or "").strip().lower(), 0) for p in all_parts
     }
-    # Sum of every distinct part NAME's consumed total — not
-    # sum(consumed_by_part.values()), which would count a name's total once
-    # per duplicate Part Master row sharing it and inflate the tile.
-    total_consumed = sum(consumed_by_name.values())
+    # Sum of every distinct part NAME's consumed total among the FILTERED
+    # parts — not sum(consumed_by_part.values()) (would count a name's total
+    # once per duplicate Part Master row sharing it), and not every name in
+    # consumed_by_name (would ignore the Category/Part Name/Added filter).
+    _filtered_names = {(p.name or "").strip().lower() for p in parts if p.name}
+    total_consumed = sum(consumed_by_name.get(n, 0) for n in _filtered_names)
 
     # "Sold" per part — Requested Quantity on every APPROVED row of Parts Sale
     # Request. Approval is what commits the stock, so it reserves the quantity
@@ -146,9 +177,8 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     total_new = sum(1 for p in parts if (p.source or "new") != "harvest")
     total_harvest = sum(1 for p in parts if p.source == "harvest")
 
-    part_requested_count = (await db.execute(
-        select(func.count(PartRequest.id)).where(PartRequest.status == "requested")
-    )).scalar() or 0
+    # part_requested_count is computed further down, once part_reqs/faulty_reqs
+    # (themselves filtered the same way as parts) are built — see below.
     part_sourced_count = (await db.execute(
         select(func.count(PartSourcingRequest.id)).where(PartSourcingRequest.status == "open")
     )).scalar() or 0
@@ -216,27 +246,41 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     # "Faulty" button on Device Detail raises request_type='faulty' — those
     # land in their own Faulty Request tab instead of the normal Part Requests
     # tab (New/Replace requests only).
-    all_part_reqs = (await db.execute(
+    all_part_reqs_unfiltered = (await db.execute(
         select(PartRequest).order_by(PartRequest.created_at.desc())
     )).scalars().all()
+    # Filtered the same way as parts (category/part name/added-date), so the
+    # global filter bar's stated scope — "Part Master, Part Requests and
+    # Faulty Request" — actually holds for these two tables too.
+    all_part_reqs = [
+        r for r in all_part_reqs_unfiltered
+        if _in_filter(r.part_category, r.part_name, r.created_at)
+    ]
     part_reqs = [r for r in all_part_reqs if r.request_type != "faulty"]
     faulty_reqs = [r for r in all_part_reqs if r.request_type == "faulty"]
+    part_requested_count = sum(1 for r in all_part_reqs if r.status == "requested")
+
     # Qty Available on the Part Requests / Faulty Requests tables sums the New
     # and Harvest rows for the same physical part. Part Master keeps them as
     # separate rows (different `source`), but an engineer asking for a Keyboard
     # can be given either, so showing only the matched row's stock understated
     # what is actually on the shelf. Grouped on name+make+model so it stays a
     # like-for-like total rather than lumping every "Panel" together.
+    #
+    # Built from all_parts (not the filtered `parts`) — Qty Available has to
+    # answer correctly for every request regardless of what the Category/Part
+    # Name filter currently shows, or a filtered-out part's own request rows
+    # would read as having zero stock.
     def _group_key(p):
         return ((p.name or "").strip().lower(),
                 (p.make or "").strip().lower(),
                 (p.model or "").strip().lower())
 
     group_stock: dict = {}
-    for p in parts:
+    for p in all_parts:
         group_stock[_group_key(p)] = group_stock.get(_group_key(p), 0) + _live(p)
 
-    part_stock = {str(p.id): group_stock.get(_group_key(p), 0) for p in parts}
+    part_stock = {str(p.id): group_stock.get(_group_key(p), 0) for p in all_parts}
 
     # Qty Available is resolved by part NAME, not by the request's stored
     # part_id. 88% of live part_requests carry a part_id that is NULL or points
@@ -244,13 +288,13 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     # almost every request. Summing every active row with the same name also
     # gives the New + Harvest total the page is meant to show.
     stock_by_name: dict = {}
-    for p in parts:
+    for p in all_parts:
         k = (p.name or "").strip().lower()
         if k:
             stock_by_name[k] = stock_by_name.get(k, 0) + _live(p)
     part_meta = {
         str(p.id): {"crate": p.crate_number, "make": p.make, "model": p.model}
-        for p in parts
+        for p in all_parts
     }
 
     # ── Pending part-sourcing requests, mirrored read-only from CRM (#15) ────
@@ -339,6 +383,10 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         # Spare Part Names / Spare Part Brands for the Add Harvest Part modal.
         "part_names": await master_values(db, "part_category"),
         "part_brands": await master_values(db, "spare_part_brand"),
+        # Echoed back into the global filter bar's own fields so they show
+        # what's actually applied after the Filter button reloads the page.
+        "added_from": added_from, "added_to": added_to,
+        "filter_category": category, "filter_part_name": part_name,
     })
 
 

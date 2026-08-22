@@ -21,7 +21,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import OXYQC_API_KEY
@@ -112,7 +112,8 @@ async def check_barcode(
     db: AsyncSession = Depends(get_db),
     _: None = Depends(_require_api_key),
 ):
-    res = await db.execute(select(Device).where(Device.barcode == barcode))
+    # Case-folded — see the comment on the duplicate check in submit_iqc below.
+    res = await db.execute(select(Device).where(func.upper(Device.barcode) == barcode.upper()))
     exists = res.scalar_one_or_none() is not None
     return {"barcode": barcode, "exists": exists}
 
@@ -309,7 +310,14 @@ async def submit_iqc(
     extra_remarks = " | ".join(port_parts) if port_parts else None
 
     # ── Duplicate barcode check ───────────────────────────────────────────────
-    res = await db.execute(select(Device).where(Device.barcode == payload.barcode))
+    # Case-folded: a tag scanned or typed with different capitalisation than
+    # however it was first entered used to pass this check clean and register
+    # as a second, fully independent device for the same physical unit. The
+    # barcode column's UNIQUE constraint is case-sensitive at the database
+    # level, so nothing there caught it either.
+    res = await db.execute(
+        select(Device).where(func.upper(Device.barcode) == payload.barcode.upper())
+    )
     if res.scalar_one_or_none():
         raise HTTPException(status_code=409, detail=f"Barcode '{payload.barcode}' already registered")
 

@@ -6,7 +6,7 @@ GET  /api/v1/iqc/lookup?barcode=OXY-001  → quick device lookup by barcode
 The HTML route at POST /iqc/new is UNCHANGED — this is a parallel JSON endpoint.
 """
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -35,8 +35,14 @@ async def register_device(
     OxyQC EXE submits IQC data as JSON.
     Equivalent to the browser form at POST /iqc/new.
     """
-    # Duplicate barcode check
-    existing = await db.execute(select(Device).where(Device.barcode == body.barcode))
+    # Duplicate barcode check. Case-folded: a tag scanned or typed with
+    # different capitalisation than however it was first entered used to pass
+    # this check clean and register as a second, fully independent device for
+    # the same physical unit. The barcode column's UNIQUE constraint is
+    # case-sensitive at the database level, so nothing there caught it either.
+    existing = await db.execute(
+        select(Device).where(func.upper(Device.barcode) == body.barcode.upper())
+    )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail=f"Barcode '{body.barcode}' already registered")
 
@@ -149,7 +155,8 @@ async def lookup_device(
     _key: APIKey = Depends(require_scope("iqc:read")),
 ):
     """Fast barcode lookup — returns full device detail or 404."""
-    result = await db.execute(select(Device).where(Device.barcode == barcode))
+    # Case-folded — see the comment on the duplicate check in register_device.
+    result = await db.execute(select(Device).where(func.upper(Device.barcode) == barcode.upper()))
     device = result.scalar_one_or_none()
     if not device:
         raise HTTPException(status_code=404, detail=f"Device '{barcode}' not found")

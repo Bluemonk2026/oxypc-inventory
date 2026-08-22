@@ -140,3 +140,7 @@ _tags_probe.txt
 _brand_probe.py
 _internal_check.py
 _seed_local_brands.py
+_dup_tags.py
+_dup_tags2.py
+_dup_tags_export.py
+_dup_tags_export.csv

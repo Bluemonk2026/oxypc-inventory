@@ -1238,7 +1238,12 @@ async def iqc_create(
     # (trc_manager among them) that do this work day to day.
     current_user: User = Depends(get_current_user),
 ):
-    existing = await db.execute(select(Device).where(Device.barcode == barcode))
+    # Case-folded: a tag scanned or typed with different capitalisation than
+    # however it was first entered used to pass this check clean and register
+    # as a second, fully independent device for the same physical unit. The
+    # barcode column's UNIQUE constraint is case-sensitive at the database
+    # level, so nothing there caught it either.
+    existing = await db.execute(select(Device).where(func.upper(Device.barcode) == barcode.upper()))
     if existing.scalar_one_or_none():
         lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
         lots = lots_result.scalars().all()

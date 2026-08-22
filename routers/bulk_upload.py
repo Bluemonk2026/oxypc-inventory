@@ -8,7 +8,7 @@ from templates_config import templates
 from fastapi import APIRouter, Depends, File, Form, UploadFile, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from database import get_db
 from utils.csv_decode import decode_csv_bytes
 from utils.master_data import entity_values
@@ -411,9 +411,19 @@ async def upload_devices(
     # added earlier in this same batch (no longer flushed row-by-row) so
     # in-batch duplicates are still caught instead of failing the whole
     # commit with a unique-constraint error.
-    existing_barcodes = set((await db.execute(select(Device.barcode))).scalars().all())
-    # Existing devices by barcode, for the duplicate-tag review table (current
-    # stage). Fetched lazily below only if a duplicate is actually found.
+    # Case-folded to uppercase for membership testing. A tag re-typed, re-scanned,
+    # or pulled off a different label with different capitalisation than however
+    # it was first entered used to pass this check clean and create a second,
+    # fully independent Device row for the same physical unit — the barcode
+    # column's UNIQUE constraint is case-sensitive at the database level, so
+    # nothing there caught it either. 1,495 such pairs exist in production
+    # today, most traced to this exact gap.
+    existing_barcodes = {
+        (b or "").upper() for b in (await db.execute(select(Device.barcode))).scalars().all()
+    }
+    # Existing devices by barcode (upper-cased key), for the duplicate-tag
+    # review table (current stage). Fetched lazily below only if a duplicate
+    # is actually found.
     existing_devices_by_barcode: dict[str, Device] = {}
 
     def _s(row, key):
@@ -444,12 +454,17 @@ async def upload_devices(
             if not barcode:
                 errors.append(f"Row {i}: Tag No is required")
                 continue
-            if barcode in existing_barcodes:
-                if barcode not in existing_devices_by_barcode:
-                    ed = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+            barcode_key = barcode.upper()
+            if barcode_key in existing_barcodes:
+                if barcode_key not in existing_devices_by_barcode:
+                    # func.upper() on both sides: the stored barcode may carry
+                    # whatever case it was originally entered under.
+                    ed = (await db.execute(
+                        select(Device).where(func.upper(Device.barcode) == barcode_key)
+                    )).scalar_one_or_none()
                     if ed:
-                        existing_devices_by_barcode[barcode] = ed
-                ed = existing_devices_by_barcode.get(barcode)
+                        existing_devices_by_barcode[barcode_key] = ed
+                ed = existing_devices_by_barcode.get(barcode_key)
                 tag_duplicates.append({
                     "tag_number": barcode,
                     "grade": _s(row, "grade") or "—",
@@ -522,7 +537,7 @@ async def upload_devices(
                 current_stage=DeviceStage.iqc,
             )
             db.add(device)
-            existing_barcodes.add(barcode)
+            existing_barcodes.add(barcode_key)
             movement = StageMovement(
                 device_id=device.id, from_stage=None, to_stage=DeviceStage.iqc,
                 moved_by=current_user.username, notes="Bulk Upload - IQC Entry"

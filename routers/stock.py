@@ -1710,10 +1710,15 @@ async def register_device_barcode(
     if not lot:
         return JSONResponse({"ok": False, "error": "Lot not found"}, status_code=404)
 
-    # Check duplicate barcode — show lot_number not UUID
+    # Check duplicate barcode — show lot_number not UUID. Case-folded: a tag
+    # scanned or typed with different capitalisation than however it was first
+    # entered used to pass this check clean and register as a second, fully
+    # independent device for the same physical unit. The barcode column's
+    # UNIQUE constraint is case-sensitive at the database level, so nothing
+    # there caught it either.
     dup_barcode = (await db.execute(
         select(Device, Lot.lot_number).join(Lot, Device.lot_id == Lot.id)
-        .where(Device.barcode == barcode)
+        .where(func.upper(Device.barcode) == barcode.upper())
     )).first()
     if dup_barcode:
         _dev, _lot_num = dup_barcode
@@ -1823,7 +1828,10 @@ async def register_bulk_csv(
         if not barcode:
             continue
 
-        existing = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+        # Same case-folding as the single-device path above — see its comment.
+        existing = (await db.execute(
+            select(Device).where(func.upper(Device.barcode) == barcode.upper())
+        )).scalar_one_or_none()
         if existing:
             skipped += 1
             continue

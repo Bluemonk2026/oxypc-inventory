@@ -2,18 +2,17 @@
 Cosmetic Refurbishment Pipeline
 Stages: QC Check → Cleaning → Dry Sanding → Masking → Painting → Water Sanding → Final QC → Ready to Sale
 """
-import uuid
 from templates_config import templates
 from datetime import datetime
 from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
-from models.bucket import Bucket
+from models.bucket import Bucket, _new_bucket_number
 from models.lot import Lot
 from models.iqc_inspection import IQCInspection
 from models.repair import RepairJob
@@ -225,16 +224,13 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
         if bucket_ids_for_page:
             b_rows = (await db.execute(select(Bucket).where(Bucket.id.in_(bucket_ids_for_page)))).scalars().all()
             bname_by_id = {b.id: b.name for b in b_rows}
-            bucket_name_map = {str(d.id): bname_by_id.get(d.bucket_id, "—") for d, _ in devices if d.bucket_id}
+            # Pre-fills the Bucket Name text box on the Final QC Decision tab
+            # for a device that already carries a bucket_id — "" (not a dash)
+            # since this feeds a form value, not read-only display text.
+            bucket_name_map = {str(d.id): bname_by_id.get(d.bucket_id, "") for d, _ in devices if d.bucket_id}
 
         passed_buckets = await _bucket_group(db, DeviceStage.final_qc_pass_hold, "pass")
         failed_buckets = await _bucket_group(db, DeviceStage.final_qc_fail_hold, "fail")
-
-        # All active buckets, for the now-editable Bucket dropdown on the
-        # Final QC Decision tab (previously read-only display text).
-        all_buckets = (await db.execute(
-            select(Bucket).order_by(Bucket.created_at.desc())
-        )).scalars().all()
 
         return templates.TemplateResponse("cosmetic/final_qc.html", {
             "request": request, "current_user": current_user,
@@ -244,7 +240,6 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
             "pipeline": COSMETIC_NAV_STAGES, "stage_labels": STAGE_LABELS,
             "bucket_name_map": bucket_name_map,
             "passed_buckets": passed_buckets, "failed_buckets": failed_buckets,
-            "all_buckets": all_buckets,
         })
 
     return templates.TemplateResponse("cosmetic/stage.html", {
@@ -265,7 +260,7 @@ async def advance_stage(
     final_qc_status: str = Form("pass"),
     failure_reason: str = Form(""),
     pass_notes: str = Form(""),
-    bucket_id: str = Form(""),
+    bucket_name: str = Form(""),
     grade: str = Form(""),
     warehouse: str = Form(""),
     updated_make: str = Form(""),
@@ -295,15 +290,34 @@ async def advance_stage(
 
     # Final QC: apply spec corrections + handle fail
     if current == DeviceStage.final_qc:
-        # Bucket field is now editable on this page (was previously a
-        # read-only display, so devices arriving without a bucket had no way
-        # to get one set here). The dropdown always posts either a real
-        # bucket id or "" for "— None —" — both are an explicit choice.
-        if bucket_id:
-            try:
-                device.bucket_id = uuid.UUID(bucket_id)
-            except ValueError:
-                pass
+        # Bucket is a free-text Bucket Name here, not a dropdown of existing
+        # buckets — typing a name that doesn't exist yet creates it. Before
+        # attaching the current device, every OTHER device already linked to
+        # that bucket gets its bucket_id cleared UNLESS it is itself sitting
+        # at Final QC Pass/Fail Hold — those are left alone so several tags
+        # decided into the same Bucket Name keep accumulating together.
+        # Anything else sharing the bucket_id (long since sold, scrapped, or
+        # mid-repair from an earlier, unrelated use of the same name) is what
+        # a later "move bucket to Production" would otherwise sweep in.
+        bucket_name = bucket_name.strip()
+        if bucket_name:
+            bucket = (await db.execute(
+                select(Bucket).where(func.lower(Bucket.name) == bucket_name.lower())
+            )).scalars().first()
+            if not bucket:
+                bucket = Bucket(name=bucket_name, bucket_number=_new_bucket_number(),
+                                 created_by=current_user.username)
+                db.add(bucket)
+                await db.flush()
+            await db.execute(
+                update(Device)
+                .where(Device.bucket_id == bucket.id,
+                       Device.id != device.id,
+                       Device.current_stage.notin_(
+                           [DeviceStage.final_qc_pass_hold, DeviceStage.final_qc_fail_hold]))
+                .values(bucket_id=None)
+            )
+            device.bucket_id = bucket.id
         else:
             device.bucket_id = None
         if updated_make: device.brand = updated_make

@@ -61,6 +61,16 @@
             <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#resetModal" data-uid="{{ user.id }}" data-uname="{{ user.username }}">
               Reset Pwd
             </button>
+            {% if user.id != current_user.id %}
+            {# Soft-delete only — sets status=False, same as unchecking "Account
+               Active" on Edit. Never a hard row delete: login history and
+               audit logs referencing this user stay intact. #}
+            <form method="post" action="/admin/users/{{ user.id }}/delete" class="d-inline"
+                  onsubmit="return confirm('Delete {{ user.username }}? This deactivates the account — it can be re-enabled from Edit.');">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+              <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+            </form>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}

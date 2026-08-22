@@ -256,6 +256,32 @@ async def update_user(
     return RedirectResponse(url="/admin/users?success=User+updated", status_code=302)
 
 
+@router.post("/users/{user_id}/delete")
+async def delete_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Soft-delete only — sets status=False, same as unchecking "Account
+    Active" on the Edit User form. This project never hard-deletes a user
+    row: login history, audit logs, and anything else with a users.id FK
+    stays intact and attributable."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(404)
+    if user.id == current_user.id:
+        raise HTTPException(400, "You cannot delete your own account.")
+
+    old_vals = {"full_name": user.full_name, "role": user.role.value, "status": user.status}
+    user.status = False
+    await audit(db, action="USER_DELETED", user=current_user,
+                table_name="users", record_id=str(user.id),
+                old_value=old_vals, new_value={"status": False})
+    await db.commit()
+    return RedirectResponse(url=f"/admin/users?success=User+{user.username}+deleted", status_code=302)
+
+
 @router.post("/users/{user_id}/reset-password")
 async def reset_password(
     user_id: str,

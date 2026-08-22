@@ -113,13 +113,12 @@
             <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
             <input type="hidden" name="barcode" value="{{ device.barcode }}">
             <div class="mb-2">
-              <label class="form-label small">Bucket</label>
-              <select name="bucket_id" class="form-select form-select-sm">
-                <option value="">— None —</option>
-                {% for b in all_buckets %}
-                <option value="{{ b.id }}" {% if device.bucket_id and device.bucket_id == b.id %}selected{% endif %}>{{ b.name or b.bucket_number }} ({{ b.bucket_number }})</option>
-                {% endfor %}
-              </select>
+              <label class="form-label small">Bucket Name</label>
+              {# Free text — a name that doesn't exist yet creates a new Bucket.
+                 Leaving it blank detaches this device from any bucket. #}
+              <input type="text" name="bucket_name" class="form-control form-control-sm"
+                     value="{{ bucket_name_map.get(device.id|string, '') }}"
+                     placeholder="Type a bucket name…">
             </div>
             <div class="mb-2">
               <label class="form-label small">Final Status</label>

@@ -22,6 +22,7 @@ from models.parts_grn import PartsGRN, PartsGRNLineItem
 from utils.master_data import master_values
 from models.repair import RepairJob, RepairStatus
 from models.engines import SparePartsLedger
+from models.part_sales import PartSaleRequest
 from models.part_request import PartRequest, PartSourcingRequest
 from models.part_estimate import PartEstimate
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
@@ -75,30 +76,54 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     )
     parts  = result.scalars().all()
 
-    # "Consumed" per part — qty handed over (Part Request status="handed_over")
-    # that hasn't been deducted from qty_in_stock yet, so the Part Master
-    # table's In Stock column can show live availability instead of raw stock.
+    # "Consumed" per part — the same Qty Handover figure the Part Requests and
+    # Faulty Request tables below print, summed per part.
+    #
+    # Deliberately NOT filtered on status == "handed_over". Once an engineer
+    # confirms receipt the row moves to "received" while still showing its
+    # handover quantity, so the old filter dropped those from Consumed the
+    # moment they were acknowledged — 9 units on live today — and silently
+    # inflated In Stock by the same amount. Both request types are included
+    # because faulty requests are the same table under request_type="faulty".
     consumed_rows = (await db.execute(
         select(PartRequest.part_id, func.sum(PartRequest.qty_handed_over))
-        .where(PartRequest.status == "handed_over", PartRequest.part_id.isnot(None))
+        .where(PartRequest.part_id.isnot(None))
         .group_by(PartRequest.part_id)
     )).all()
     consumed_by_part = {str(pid): int(total or 0) for pid, total in consumed_rows}
 
+    # "Sold" per part — Requested Quantity on every APPROVED row of Parts Sale
+    # Request. Approval is what commits the stock, so it reserves the quantity
+    # straight away rather than waiting for the sale to be raised against it.
+    # This replaces spare_parts.sold_qty, which only moved once a sale was
+    # actually completed and so left approved-but-unsold stock looking available.
+    sold_rows = (await db.execute(
+        select(PartSaleRequest.part_id, func.sum(PartSaleRequest.qty_requested))
+        .where(PartSaleRequest.status == "approved",
+               PartSaleRequest.part_id.isnot(None))
+        .group_by(PartSaleRequest.part_id)
+    )).all()
+    sold_by_part = {str(pid): int(total or 0) for pid, total in sold_rows}
+
+    # Live availability for one part — the single definition this page uses for
+    # its tiles, its group/name stock rollups and the request tables' QTY
+    # Available column, so none of them can disagree with the In Stock column
+    # in the table, which computes the same subtraction in the template.
+    #
+    # Deducts BOTH consumed and sold: stock handed to an engineer and stock
+    # committed by an approved sale request have equally left the shelf, and a
+    # tile that counts either as available is telling Stores it can promise
+    # something twice.
+    def _live(p):
+        return max(0, int(p.qty_in_stock or 0)
+                   - consumed_by_part.get(str(p.id), 0)
+                   - sold_by_part.get(str(p.id), 0))
+
     # Summary stats
     total_part_types = len(parts)
     below_min_count  = sum(1 for p in parts if p.qty_in_stock <= p.min_stock_alert)
-    out_of_stock_count = sum(
-        1 for p in parts if int(p.qty_in_stock or 0) - consumed_by_part.get(str(p.id), 0) <= 0
-    )
+    out_of_stock_count = sum(1 for p in parts if _live(p) <= 0)
     total_stock_value = sum(float(p.unit_price or 0) * int(p.qty_in_stock or 0) for p in parts)
-
-    # Total Quantities / Total New / Total Harvest — same definitions the Parts
-    # Dashboard uses, so the two pages cannot disagree: quantity is live stock
-    # (on hand minus handed-over-but-not-yet-deducted), New/Harvest are row
-    # counts by source.
-    def _live(p):
-        return max(0, int(p.qty_in_stock or 0) - consumed_by_part.get(str(p.id), 0))
 
     total_qty = sum(_live(p) for p in parts)
     total_new = sum(1 for p in parts if (p.source or "new") != "harvest")
@@ -252,6 +277,7 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         "total_stock_value": total_stock_value,
         "consumed_this_month": consumed_this_month,
         "consumed_by_part": consumed_by_part,
+        "sold_by_part": sold_by_part,
         "part_reqs": part_reqs, "faulty_reqs": faulty_reqs, "part_stock": part_stock,
         "part_meta": part_meta, "sourcing": sourcing,
         "deal_map": deal_map, "estimates_by_batch": estimates_by_batch,
@@ -333,6 +359,7 @@ async def update_part(
     supplier: str = Form(""),
     notes: str = Form(""),
     part_lot: str = Form(""),
+    crate_number: str = Form(""),
     make: str = Form(""),
     model: str = Form(""),
     db: AsyncSession = Depends(get_db),
@@ -347,6 +374,7 @@ async def update_part(
     # Lot/make/model are optional and blank-means-clear, so an operator can
     # correct a wrong make by emptying the box rather than typing a placeholder.
     part.part_lot = part_lot.strip() or None
+    part.crate_number = crate_number.strip() or None
     part.make = make.strip() or None
     part.model = model.strip() or None
     if qty_in_stock is not None:

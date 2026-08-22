@@ -203,8 +203,10 @@
         <tbody>
           {% for part in parts %}
           {% set consumed = consumed_by_part.get(part.id|string, 0) %}
-          {# Sold via Ready to Sale Parts reduces stock just like consumption does. #}
-          {% set sold = part.sold_qty or 0 %}
+          {# Sold = Requested Quantity on approved Parts Sale Requests. Approval
+             commits the stock, so it comes off In Stock at approval rather than
+             when the sale is finally raised. #}
+          {% set sold = sold_by_part.get(part.id|string, 0) %}
           {% set live_stock = part.qty_in_stock - consumed - sold %}
           {# Filter keys live on the row, not in the cells: cell text carries
              badges and formatting, so scraping it would break the moment a

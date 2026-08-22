@@ -11,12 +11,18 @@
         <form action="/spare-parts/{{ part.id }}/edit" method="post">
           <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
           <div class="row g-3">
-            <!-- Three fixed rows, three fields each: identity (code/lot/category),
-                 description (name/make/model), then stock economics. Part Code
-                 stays read-only — it is the generated key the ledger joins on. -->
+            {# Three fixed rows, three fields each: identity (crate/lot/category),
+               description (name/make/model), then stock economics.
+
+               The generated part code is not a field here. It is never editable
+               and the card header already prints it, so it stays out of the form
+               entirely rather than sitting as a disabled input — that keeps the
+               first row three live fields wide like the other two. These are
+               Jinja comments, not HTML ones: an HTML comment would ship the note
+               to every browser that opens the page. #}
             <div class="col-md-4">
-              <label class="form-label fw-semibold">Part Code</label>
-              <input type="text" class="form-control font-monospace" value="{{ part.part_code }}" readonly disabled>
+              <label class="form-label fw-semibold">Crate Number</label>
+              <input type="text" name="crate_number" class="form-control" value="{{ part.crate_number or '' }}" placeholder="Crate the part arrived in">
             </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">Part Lot</label>

@@ -39,16 +39,20 @@ def test_non_desktop_tags_drop_the_optical_rows(device_type):
 
 
 @pytest.mark.parametrize("device_type", [None, "", "   "])
-def test_unknown_type_still_shows_them(device_type):
-    """8,684 live tags have no device_type. A blank is missing data, not
-    evidence of a laptop — hiding the rows there would leave no way to request
-    a DVD drive for a machine that has one."""
-    assert DESKTOP_ONLY.issubset(set(_labels(device_type)))
-    assert _is_desktop(_Dev(device_type)) is None
+def test_blank_type_hides_them_too(device_type):
+    """A tag with no device_type recorded reads as not-a-desktop. The floor
+    would rather the 8,684 typeless tags look like laptops than carry two
+    optical rows that are wrong on nearly all of them; a DVD drive is still
+    requestable through the New Request modal, which is not gated here."""
+    assert not (DESKTOP_ONLY & set(_labels(device_type)))
+    assert _is_desktop(_Dev(device_type)) is False
 
 
 def test_no_device_at_all_shows_everything():
+    """device=None is not a tag view — it is Part Estimation and the repair
+    queues asking for the full list, so nothing is filtered out."""
     assert DESKTOP_ONLY.issubset({r["label"] for r in compute_required(None, None)})
+    assert _is_desktop(None) is None
 
 
 def test_upload_tags_accepts_lowercase(app_client, make_user):  # noqa: F811

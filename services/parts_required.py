@@ -196,16 +196,16 @@ def _is_desktop(device):
     "Desktop" (1,132 tags) and "DESKTOP" (28) - an equality check would leak the
     DVD rows back onto the shouted ones.
 
-    Unknown is deliberately NOT treated as "not a desktop": 8,684 live tags have
-    no device_type recorded at all, and hiding the rows there would leave an
-    engineer with no way to request a DVD drive for a machine that has one. A
-    blank type is missing data, not evidence of a laptop.
+    An unrecorded type counts as "not a desktop" by decision: the floor would
+    rather the 8,684 typeless tags read as laptops than carry two optical rows
+    that are wrong on nearly all of them. A DVD drive on such a tag is still
+    requestable through the New Request modal, which is not restricted here.
     """
     if device is None:
-        return None
+        return None          # no device at all -> not a tag view; show everything
     value = (getattr(device, "device_type", None) or "").strip().lower()
     if not value:
-        return None
+        return False         # recorded as nothing -> treated as not a desktop
     return "desktop" in value
 
 

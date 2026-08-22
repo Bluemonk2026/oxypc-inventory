@@ -129,3 +129,5 @@ _fix_blank_make.py
 _fix_make_case.py
 _map_audit.py
 _dt_probe.py
+_part_diff.py
+_consumed_probe.py

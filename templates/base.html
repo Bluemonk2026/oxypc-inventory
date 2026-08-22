@@ -707,9 +707,21 @@
     <!-- Topbar -->
     <nav class="navbar navbar-expand topbar px-3">
       <button class="btn btn-link me-3" id="sidebarToggle"><i class="bi bi-list fs-5"></i></button>
-      <button type="button" class="btn btn-primary btn-sm fw-semibold me-3" onclick="history.back()" title="Go back">
-        <i class="bi bi-arrow-left me-1"></i>Back
-      </button>
+      {# Mirrors routers/auth.py's _first_landing() — where login itself drops
+         each role — not routers/dashboard.py's bare "/" redirect, which sends
+         admin to /devices instead and is a separate, pre-existing mismatch. #}
+      {% set _home_path = '/dashboard' if role == 'admin' else '/attendance' %}
+      {% if request.url.path != _home_path %}
+      <div class="nav-history-group me-3" role="group" aria-label="Page navigation history">
+        <button type="button" class="nav-history-btn" id="navHistoryBack" title="Go back" aria-label="Go back" disabled>
+          <i class="bi bi-chevron-left"></i>
+        </button>
+        <span class="nav-history-divider"></span>
+        <button type="button" class="nav-history-btn" id="navHistoryForward" title="Go forward" aria-label="Go forward" disabled>
+          <i class="bi bi-chevron-right"></i>
+        </button>
+      </div>
+      {% endif %}
       <span class="navbar-brand mb-0 h1 fw-bold text-primary">{% set _default_page_title %}{% block page_title %}{% endblock %}{% endset %}{{ resolve_page_title(request.url.path) or _default_page_title }}</span>
       <div class="ms-auto d-flex align-items-center gap-3">
         <!-- Server connection status — real /health polling, see watchdog
@@ -1318,6 +1330,74 @@ $.extend(true, $.fn.dataTable.defaults, {
     show();
     return origFetch.apply(this, arguments).finally(hide);
   };
+})();
+</script>
+<script>
+/* Topbar back/forward pill. This is a full page-reload MPA, so the plain
+   History API can't tell us whether forward history exists — only whether
+   *this* navigation was a back/forward one. We keep our own per-tab stack
+   in sessionStorage, walking it forward on normal navigations and
+   re-syncing the pointer whenever a back/forward navigation lands us back
+   on an entry already in it — the same shape as a browser's own history
+   stack.
+
+   A page restored from the back/forward cache (bfcache) never re-runs this
+   script — the whole document, listeners included, is frozen and handed
+   back as-is — so detecting the navigation type once at load time isn't
+   enough: the Forward button would stay stuck disabled forever after the
+   first Back. `pageshow`'s `event.persisted` flag is what actually fires
+   on a bfcache restore, so `sync()` re-runs from there too. */
+(function () {
+  var backBtn = document.getElementById('navHistoryBack');
+  var fwdBtn = document.getElementById('navHistoryForward');
+  if (!backBtn || !fwdBtn) return; // hidden on the homepage
+
+  var STACK_KEY = 'oxypcNavHistoryStack';
+  var POS_KEY = 'oxypcNavHistoryPos';
+
+  var initialNavType = 'navigate';
+  try {
+    var entries = performance.getEntriesByType('navigation');
+    if (entries.length) initialNavType = entries[0].type;
+  } catch (e) {}
+
+  function sync(isBackForward) {
+    var currentUrl = location.pathname + location.search;
+    var stack = [];
+    try { stack = JSON.parse(sessionStorage.getItem(STACK_KEY) || '[]'); } catch (e) { stack = []; }
+    var pos = parseInt(sessionStorage.getItem(POS_KEY), 10);
+    if (isNaN(pos)) pos = -1;
+
+    if (isBackForward) {
+      var found = -1;
+      for (var i = 0; i < stack.length; i++) {
+        if (stack[i] === currentUrl) { found = i; break; }
+      }
+      if (found !== -1) pos = found;
+    }
+
+    if (!isBackForward || pos === -1 || stack[pos] !== currentUrl) {
+      // A normal navigation (link/redirect/reload) — truncate any forward
+      // entries past where we were, then land on the current page.
+      stack = stack.slice(0, pos + 1);
+      if (stack[stack.length - 1] !== currentUrl) stack.push(currentUrl);
+      pos = stack.length - 1;
+    }
+
+    sessionStorage.setItem(STACK_KEY, JSON.stringify(stack));
+    sessionStorage.setItem(POS_KEY, String(pos));
+
+    backBtn.disabled = !(pos > 0);
+    fwdBtn.disabled = !(pos < stack.length - 1);
+  }
+
+  sync(initialNavType === 'back_forward');
+  window.addEventListener('pageshow', function (e) {
+    sync(e.persisted || initialNavType === 'back_forward');
+  });
+
+  backBtn.addEventListener('click', function () { if (!backBtn.disabled) history.back(); });
+  fwdBtn.addEventListener('click', function () { if (!fwdBtn.disabled) history.forward(); });
 })();
 </script>
 

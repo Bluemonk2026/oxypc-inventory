@@ -955,7 +955,13 @@ def detect():
         return None, f"OxyQC Agent supports Windows and macOS only (detected: {system})."
     if info is None:
         return None, err
+    try:
+        return _map_fields(info)
+    except Exception as e:
+        return None, f"could not read this station's hardware ({type(e).__name__}: {e}). "                      "Fill the form in manually for this device."
 
+
+def _map_fields(info):
     chassis = info.get("chassis") or []
     if isinstance(chassis, int):
         chassis = [chassis]
@@ -980,8 +986,13 @@ def detect():
 
     f = {}
     # ── Identity / specs ─────────────────────────────────────────────────────
-    if info.get("manufacturer"):
-        f["brand"] = str(info["manufacturer"]).split()[0].title()   # e.g. "Dell" / "Apple"
+    mfr_parts = str(info.get("manufacturer") or "").split()
+    if mfr_parts:
+        f["brand"] = mfr_parts[0].title()   # e.g. "Dell" / "Apple"
+        # A manufacturer string that is present but not whitespace-only still
+        # split()s to at least one token, so this covers the normal case; a
+        # blank/whitespace-only SMBIOS field (seen on some white-label boards)
+        # now falls through instead of raising IndexError on [0].
     if info.get("model"):
         model_raw = str(info["model"]).strip()
         # Dell BIOSes sometimes report the SKU (short code like "0A30") in
@@ -1373,7 +1384,8 @@ def run_stress_suite():
     statuses = [r["status"] for r in results.values()]
     overall = ("FAIL" if "FAIL" in statuses
                else "PASS_WITH_WARNINGS" if "WARN" in statuses else "PASS")
-    brand = str(info.get("manufacturer") or "").split()[0].title() if info.get("manufacturer") else ""
+    _mfr_parts = str(info.get("manufacturer") or "").split()
+    brand = _mfr_parts[0].title() if _mfr_parts else ""
     return {
         "agent": "OxyQC", "version": AGENT_VERSION, "on_device": True,
         "brand": brand,
@@ -1456,7 +1468,10 @@ class Handler(BaseHTTPRequestHandler):
             self._cors()
             self.end_headers()
             return
-        fields, err = detect()
+        try:
+            fields, err = detect()
+        except Exception as e:
+            fields, err = None, f"agent error ({type(e).__name__}: {e}). Fill the form in manually for this device."
         summary = ""
         if fields:
             summary = fields.pop("_summary", "")

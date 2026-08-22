@@ -154,11 +154,12 @@ MASTER_SEED = {
         "RAM", "Hard Drive", "Bezel", "Panel", "Screen", "Hinge", "Bottom Base",
         "Keyboard", "Internal Battery", "External Battery", "Camera", "DC Jack",
         "LAN Port", "USB Port", "HDMI Port", "Audio Jack", "Speaker",
-        "Fan Working", "Motherboard", "Touchpad", "Wi-Fi Card", "DVD Drive",
+        "Fan Working", "Motherboard", "Touchpad", "Logic Card", "Wi-Fi Card",
+        "DVD Drive",
         # ADDITIONAL PARTS
         "RAM Cover", "DVD Drive Cover", "Hinge Cover", "Hard Drive Cover",
         "HDD Connector", "Touchpad Cover", "Touchpad Cable", "Camera Cable",
-        "Battery Cable", "Logic Card", "Click Button", "Battery Cover",
+        "Battery Cable", "Click Button", "Battery Cover",
     ],
     # Seeded empty on purpose — brands are supplier-specific and get added by
     # the store manager from Dropdown Configuration rather than shipped as

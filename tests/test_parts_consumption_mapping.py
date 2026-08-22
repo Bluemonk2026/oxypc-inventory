@@ -28,7 +28,7 @@ def test_sections_split_main_then_additional():
     added, so it is asserted as a floor rather than an exact count."""
     rows = compute_required(None, None)
     assert [r["label"] for r in rows if r["section"] == MAIN][-1] == "DVD Drive"
-    assert sum(1 for r in rows if r["section"] == MAIN) == 22
+    assert sum(1 for r in rows if r["section"] == MAIN) == 23
     assert sum(1 for r in rows if r["section"] == ADDITIONAL) >= 9
 
 
@@ -155,8 +155,9 @@ def test_touchpad_is_its_own_part_again():
     for name in ("Touchpad", "Logic Card", "Click Button"):
         assert name in labels, f"{name} missing"
     assert labels["Touchpad"]["section"] == MAIN
-    assert labels["Logic Card"]["section"] == ADDITIONAL
+    # Logic Card joined MAIN once it got an IQC field of its own
+    # (touchpad_logicboard); Click Button still has none.
+    assert labels["Logic Card"]["section"] == MAIN
     assert labels["Click Button"]["section"] == ADDITIONAL
     assert "Touchpad" not in LEGACY_LABELS.get("Logic Card", ())
-    # The IQC touchpad fields drive the Touchpad row, not the boards behind it.
-    assert labels["Logic Card"]["required"] is False
+    assert labels["Click Button"]["required"] is False

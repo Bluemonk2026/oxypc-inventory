@@ -46,10 +46,13 @@ def test_seed_holds_the_consolidated_part_list():
     assert len(names) == len(set(names)), "duplicate part name in the seed"
     # The renames the floor asked for — the old spellings must be gone.
     for gone in ("Display Panel", "Display", "Web Cam", "Charging Port",
-                 "Ethernet Port", "Touchpad", "Wi-Fi", "Palm rest"):
+                 "Ethernet Port", "Wi-Fi", "Palm rest"):
         assert gone not in names
+    # Touchpad came back as its own part once Part Master showed it stocked
+    # alongside Logic Card at 2-4x the price on the same models.
     for kept in ("Panel", "Screen", "Camera", "DC Jack", "LAN Port",
-                 "Logic Card", "Wi-Fi Card", "Touchpad Cover"):
+                 "Touchpad", "Logic Card", "Click Button",
+                 "Wi-Fi Card", "Touchpad Cover"):
         assert kept in names
 
 

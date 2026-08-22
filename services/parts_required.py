@@ -124,12 +124,18 @@ PARTS_MATRIX = [
     ("Speaker",           "Other",      "speaker",  lambda i, d: _faulty(i.speaker_status) or _is_sentinel(i.speaker_status), MAIN),
     ("Fan Working",       "Fan",        "fan",      lambda i, d: _is(i.fan_working, "No") or _faulty(i.fan_working), MAIN),
     ("Motherboard",       "Motherboard", "motherboard", lambda i, d: _is(i.status, "No Display") or _is(i.power_on, "No"), MAIN),
-    # IQC asks "touchpad working / missing", so the rule belongs to the
-    # Touchpad. Logic Card and Click Button are the boards behind it — separate
-    # parts at separate prices, stocked alongside it on the same models, and
-    # not something the inspection distinguishes.
-    ("Touchpad",          "Other",      "touchpad", lambda i, d: _is(i.touchpad_working, "No") or _is_unknown(i.touchpad_working)
+    # Touchpad and Logic Card read different IQC fields, which is the whole
+    # reason they are two rows: "Touchpad Working / Missing" describes the pad,
+    # "Touchpad Logicboard Missing" describes the board behind it.
+    #
+    # Deliberately no _is_unknown() on touchpad_working. A blank there used to
+    # count as unverified and flag the part Required, but 18,476 of 26,207 IQC
+    # rows never had the field filled — so Touchpad came back Required on 70%
+    # of all tags on the strength of missing data alone, which is noise, not a
+    # signal Stores can act on.
+    ("Touchpad",          "Other",      "touchpad", lambda i, d: _is(i.touchpad_working, "No")
                           or _is(i.touchpad_missing, "Yes"), MAIN),
+    ("Logic Card",        "Other",      "logic card", lambda i, d: _is(i.touchpad_logicboard, "Yes"), MAIN),
     ("Wi-Fi Card",        "Other",      "wifi",     lambda i, d: _faulty(i.wifi_status) or _is_sentinel(i.wifi_status), MAIN),
     ("DVD Drive",         "DVD Drive",  "dvd",      lambda i, d: _is(i.dvd_drive, "No") or _faulty(i.dvd_drive), MAIN),
     # -- ADDITIONAL PARTS ----------------------------------------------------
@@ -151,7 +157,6 @@ PARTS_MATRIX = [
     # Named by the floor during the Part Master reconciliation: "Click"/"Logic
     # card/click" rows are the touchpad click plate, and "Battery Cover" had
     # stock under a name the list did not carry. Neither is inspected at IQC.
-    ("Logic Card",        "Other",      "logic card",       lambda i, d: False, ADDITIONAL),
     ("Click Button",      "Other",      "click button",     lambda i, d: False, ADDITIONAL),
     ("Battery Cover",     "Body",       "battery cover",    lambda i, d: False, ADDITIONAL),
 ]

@@ -1045,6 +1045,13 @@ async def device_detail(
     req_by_part = {}
     req_by_partid = {}
     for r in pr_rows:
+        # A cancelled request is not a request. Leaving it here pinned the row
+        # to a "cancelled" badge with no buttons, so cancelling a request left
+        # the engineer permanently unable to raise another for that part. Skip
+        # it and the latest surviving request wins; if there is none, the New /
+        # Replace buttons come back.
+        if r.status == "cancelled":
+            continue
         req_by_part.setdefault(r.part_name, r)  # latest per part (rows ordered desc)
         if r.part_id:
             req_by_partid.setdefault(str(r.part_id), r)  # latest per resolved SparePart

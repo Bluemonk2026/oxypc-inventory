@@ -3,9 +3,10 @@
 {% block page_title %}Dashboard{% endblock %}
 {% block content %}
 
+{% import "_multiselect_filter.html" as ms %}
 <!-- Dashboard Filters -->
 <form method="get" action="/dashboard" class="row g-2 mb-3 align-items-end">
-  <div class="col-md-3">
+  <div class="col-md-2">
     <label class="form-label small fw-semibold">Filter by Stage</label>
     <select name="stage_filter" class="form-select form-select-sm">
       <option value="">All Stages</option>
@@ -16,11 +17,14 @@
       {% endfor %}
     </select>
   </div>
-  <div class="col-md-3">
+  {# Entity is a checkbox multi-select like All Inventory's, and it narrows the
+     stage counts below as well as the links under them. #}
+  {{ ms.multiselect('entity', 'Entity', entity_choices, f_entity, 'col-md-3') }}
+  <div class="col-md-2">
     <label class="form-label small fw-semibold">P&amp;L From Date</label>
     <input type="date" name="pl_from" class="form-control form-control-sm" value="{{ pl_from }}">
   </div>
-  <div class="col-md-3">
+  <div class="col-md-2">
     <label class="form-label small fw-semibold">P&amp;L To Date</label>
     <input type="date" name="pl_to" class="form-control form-control-sm" value="{{ pl_to }}">
   </div>
@@ -169,22 +173,25 @@
     <span class="text-muted small ms-auto">Live counts — click to filter devices</span>
   </div>
   <div class="card-body py-3">
+    {# Each step carries the link that reproduces its own count on All
+       Inventory, which is why they are not all the same shape: GRN is not a
+       stage a device sits in, and L3/L4 is a status inside L1. #}
     <div class="d-flex flex-wrap align-items-center gap-1">
-      {% for stage_key, stage_label, stage_color in [
-          ('grn',          'GRN',        'secondary'),
-          ('iqc',          'IQC',        'primary'),
-          ('stock_in',     'Stock',      'info'),
-          ('l1',           'L1 Repair',  'warning'),
-          ('l2',           'L2 Repair',  'warning'),
-          ('l3',           'L3 Repair',  'danger'),
-          ('qc_check',     'QC',         'primary'),
-          ('ready_to_sale','Ready',      'success'),
-          ('sold',         'Sold',       'dark'),
+      {% for key, label, color, link in [
+          ('grn',           'GRN',           'secondary', '/grn/post-iqc'),
+          ('l1l2',          'L1/L2',         'warning',   '/devices?stage=l1,l2'),
+          ('l3l4',          'L3/L4',         'danger',    '/repair/l3l4'),
+          ('qc_check',      'Stress/QC',     'primary',   '/devices?stage=qc_check'),
+          ('cosmetic',      'Cosmetic',      'info',      '/devices?stage=cleaning,putty,dry_sanding,masking,painting,water_sanding'),
+          ('final_qc',      'Final QC',      'primary',   '/devices?stage=final_qc,final_qc_pass_hold,final_qc_fail_hold'),
+          ('ready_to_sale', 'Ready to Sale', 'success',   '/devices?stage=ready_to_sale'),
+          ('sold',          'Sold',          'dark',      '/devices?stage=sold'),
       ] %}
-      <a href="/devices?stage={{ stage_key }}" class="text-decoration-none">
-        <div class="border rounded-3 px-3 py-2 text-center" style="min-width:90px">
-          <div class="small text-muted">{{ stage_label }}</div>
-          <div class="fs-5 fw-bold text-{{ stage_color }}">{{ stage_counts.get(stage_key, 0) }}</div>
+      <a href="{{ link }}{% if f_entity %}{{ '&' if '?' in link else '?' }}entity={{ f_entity | urlencode }}{% endif %}"
+         class="text-decoration-none">
+        <div class="border rounded-3 px-3 py-2 text-center" style="min-width:96px">
+          <div class="small text-muted">{{ label }}</div>
+          <div class="fs-5 fw-bold text-{{ color }}">{{ pipeline_counts.get(key, 0) }}</div>
         </div>
       </a>
       {% if not loop.last %}
@@ -192,12 +199,10 @@
       {% endif %}
       {% endfor %}
     </div>
-    {% set repair_total = stage_counts.get('l1',0) + stage_counts.get('l2',0) + stage_counts.get('l3',0) %}
-    {% set cosmetic_total = stage_counts.get('cleaning',0) + stage_counts.get('dry_sanding',0) + stage_counts.get('masking',0) + stage_counts.get('painting',0) + stage_counts.get('water_sanding',0) + stage_counts.get('final_qc',0) %}
     <div class="mt-2 small text-muted">
-      Total in Repair (L1+L2+L3): <strong>{{ repair_total }}</strong>
-      &nbsp;·&nbsp;
-      Cosmetic stages: <strong>{{ cosmetic_total }}</strong>
+      {# L3/L4 is a slice of L1, so it is deliberately NOT added into a total
+         with L1/L2 — that would count those tags twice. #}
+      L3/L4 shown above is the subset of L1 awaiting L3/L4.
       &nbsp;·&nbsp;
       Returned: <strong>{{ stage_counts.get('returned', 0) }}</strong>
       &nbsp;·&nbsp;
@@ -504,6 +509,40 @@
       ]
     },
     options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
+  });
+})();
+</script>
+{% endblock %}
+{% block scripts %}
+<script>
+// Multi-select filter dropdowns — same contract as All Inventory: each writes
+// a comma-separated value into its hidden input so the GET form still submits
+// one parameter per field.
+(function () {
+  function sync(wrap) {
+    var name = wrap.getAttribute('data-ms');
+    var picked = [];
+    wrap.querySelectorAll('.ms-opt').forEach(function (b) { if (b.checked) picked.push(b.value); });
+    document.getElementById('ms_val_' + name).value = picked.join(',');
+    var label = wrap.querySelector('.ms-label');
+    label.textContent = picked.length ? picked.length + ' selected'
+                                      : (label.getAttribute('data-all') || 'All');
+  }
+  document.querySelectorAll('.ms-filter').forEach(function (wrap) {
+    var label = wrap.querySelector('.ms-label');
+    if (!wrap.querySelectorAll('.ms-opt:checked').length) {
+      label.setAttribute('data-all', label.textContent.trim());
+    }
+    wrap.addEventListener('change', function (e) {
+      if (e.target.classList.contains('ms-opt')) sync(wrap);
+    });
+    wrap.querySelector('.ms-all').addEventListener('click', function () {
+      wrap.querySelectorAll('.ms-opt').forEach(function (b) { b.checked = true; }); sync(wrap);
+    });
+    wrap.querySelector('.ms-none').addEventListener('click', function () {
+      wrap.querySelectorAll('.ms-opt').forEach(function (b) { b.checked = false; }); sync(wrap);
+    });
+    wrap.querySelector('.dropdown-menu').addEventListener('click', function (e) { e.stopPropagation(); });
   });
 })();
 </script>

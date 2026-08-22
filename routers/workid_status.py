@@ -5,7 +5,7 @@ filters (workid, tag number, engineer, date range).
 """
 from datetime import datetime
 from fastapi import APIRouter, Depends, Request, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -145,7 +145,13 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             "engineer": wo.assigned_name or wo.assigned_username or "—",
         })
 
-    # Distinct engineers for the filter dropdown — admin only (item 33)
+    # Distinct engineers for the filter dropdown.
+    #
+    # Previously admin-only, which left an attendance-group manager — who can
+    # see every member's rows — with no way to narrow to one of them. Admin
+    # still draws from every work order; everyone else draws from the rows they
+    # are allowed to see, so the dropdown can never widen someone's visibility
+    # beyond what the row filter above already permits.
     engineers = []
     if is_admin:
         eng_rows = (await db.execute(
@@ -153,12 +159,15 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             .where(WorkOrder.assigned_username.isnot(None))
             .distinct()
         )).all()
-        seen = set()
-        for uname, name in eng_rows:
-            if uname and uname not in seen:
-                seen.add(uname)
-                engineers.append((uname, name or uname))
-        engineers.sort(key=lambda kv: kv[1].lower())
+    else:
+        eng_rows = [(wo.assigned_username, wo.assigned_name)
+                    for wo, _dev in rows if wo.assigned_username]
+    seen = set()
+    for uname, name in eng_rows:
+        if uname and uname not in seen:
+            seen.add(uname)
+            engineers.append((uname, name or uname))
+    engineers.sort(key=lambda kv: kv[1].lower())
 
     return templates.TemplateResponse("workid_status/list.html", {
         "request": request, "current_user": current_user,
@@ -167,3 +176,54 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         "f_date_from": date_from, "f_date_to": date_to,
         "highlight": highlight,
     })
+
+
+@router.get("/workid-status/export")
+async def workid_status_export(request: Request, db: AsyncSession = Depends(get_db),
+                               current_user: User = Depends(get_current_user),
+                               workid: str = Query(default=""),
+                               tag: str = Query(default=""),
+                               engineer: str = Query(default=""),
+                               date_from: str = Query(default=""),
+                               date_to: str = Query(default="")):
+    """CSV of exactly the rows the page is showing.
+
+    Delegates to the page handler rather than repeating its query, so the
+    export cannot drift from the table — including the row-visibility rules,
+    which are the part that would be damaging to get wrong: a non-admin must
+    not be able to export rows the page would not show them.
+    """
+    import csv as _csv
+    import io as _io
+    from datetime import date as _date
+
+    page = await workid_status(request=request, db=db, current_user=current_user,
+                               workid=workid, tag=tag, engineer=engineer,
+                               date_from=date_from, date_to=date_to, highlight="")
+    items = page.context["items"]
+
+    buf = _io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(["WorkID", "Tag Number", "Model", "Current Status",
+                "Parts Required", "Parts Requested", "Assigned Engineer",
+                "Start", "Final QC", "Aging (days)", "Notes"])
+    for it in items:
+        w.writerow([
+            it.get("work_id") or "",
+            it.get("barcode") or "",
+            it.get("model") or "",
+            it.get("stage_label") or "",
+            it.get("parts_required", 0),
+            it.get("parts_requested", 0),
+            it.get("engineer") or "",
+            it["start"].strftime("%d-%m-%Y %H:%M") if it.get("start") else "",
+            it["finalqc"].strftime("%d-%m-%Y %H:%M") if it.get("finalqc") else "",
+            it.get("days", ""),
+            (it.get("notes") or "").replace("\n", " "),
+        ])
+    # utf-8-sig so Excel opens it without mangling non-ASCII names.
+    data = buf.getvalue().encode("utf-8-sig")
+    fname = f"workid_status_{_date.today().isoformat()}.csv"
+    return StreamingResponse(
+        _io.BytesIO(data), media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})

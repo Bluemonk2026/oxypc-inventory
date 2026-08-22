@@ -880,6 +880,8 @@ async def repair_list(stage: str, request: Request,
                 "assigned_name": wo.assigned_name or wo.assigned_username or "—",
                 "days_pending": max(0, raw_days - paused_days),
                 "paused": bool(wo.paused_since),
+                # Drives the Date Assigned column and the queue's default sort.
+                "assigned_at": wo.assigned_at,
             }
         await db.commit()
 

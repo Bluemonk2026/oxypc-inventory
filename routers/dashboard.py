@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from database import get_db
+from utils.master_data import entity_values
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
 from models.engines import RepairAttempt
@@ -75,6 +76,8 @@ async def dashboard(
     stage_filter: str = Query(default=""),
     pl_from: str = Query(default=""),
     pl_to: str = Query(default=""),
+    # Comma-separated, same convention as the All Inventory multi-selects.
+    entity: str = Query(default=""),
 ):
     today = app_now().date()
 
@@ -115,6 +118,57 @@ async def dashboard(
             category_counts = {cat: {"total": 0} for cat in CATEGORIES}
 
         _AGG_CACHE.update({"stage": stage_counts, "cat": category_counts, "ts": _now})
+
+    # ── Stage Pipeline ───────────────────────────────────────────────────────
+    # Built here rather than read off stage_counts, because three of the eight
+    # steps are not "devices whose current_stage is X":
+    #   GRN      - devices mapped to a GRN, which is what "Total Devices Added"
+    #              on /grn/post-iqc counts. A device leaves the `grn` stage the
+    #              moment it is stocked, so that stage count read near zero.
+    #   L3/L4    - lives inside the L1 stage, told apart by l1l2_status, so it
+    #              is a slice of L1 rather than a stage of its own.
+    #   Cosmetic - the six paint-line stages plus putty, counted together.
+    # Deliberately not served from _AGG_CACHE: that cache is keyed on nothing,
+    # so with an entity filter applied it would hand back another entity's
+    # numbers to the next viewer.
+    entity_vals = [e.strip() for e in (entity or "").split(",") if e.strip()]
+    _ent = [Device.entity.in_(entity_vals)] if entity_vals else []
+
+    async def _pipe_count(*where):
+        return (await db.execute(
+            select(func.count(Device.id))
+            .where(Device.is_trashed == False, *_ent, *where)
+        )).scalar() or 0
+
+    COSMETIC_STAGES = [
+        DeviceStage.cleaning, DeviceStage.putty, DeviceStage.dry_sanding,
+        DeviceStage.masking, DeviceStage.painting, DeviceStage.water_sanding,
+    ]
+    FINAL_QC_STAGES = [
+        DeviceStage.final_qc, DeviceStage.final_qc_pass_hold,
+        DeviceStage.final_qc_fail_hold,
+    ]
+    try:
+        pipeline_counts = {
+            "grn": await _pipe_count(Device.grn_number.isnot(None),
+                                     Device.grn_number != "",
+                                     Device.is_active == True),
+            "l1l2": await _pipe_count(Device.current_stage.in_([DeviceStage.l1, DeviceStage.l2])),
+            "l3l4": await _pipe_count(Device.current_stage == DeviceStage.l1,
+                                      Device.l1l2_status == "Requested to L3/L4"),
+            "qc_check": await _pipe_count(Device.current_stage == DeviceStage.qc_check),
+            "cosmetic": await _pipe_count(Device.current_stage.in_(COSMETIC_STAGES)),
+            "final_qc": await _pipe_count(Device.current_stage.in_(FINAL_QC_STAGES)),
+            "ready_to_sale": await _pipe_count(Device.current_stage == DeviceStage.ready_to_sale),
+            "sold": await _pipe_count(Device.current_stage == DeviceStage.sold),
+        }
+    except Exception:
+        _log.exception("pipeline_counts failed")
+        pipeline_counts = {k: 0 for k in ("grn", "l1l2", "l3l4", "qc_check",
+                                          "cosmetic", "final_qc",
+                                          "ready_to_sale", "sold")}
+
+    entity_choices = await entity_values(db)
 
     total_devices = sum(stage_counts.values())
     laptops_available = category_counts.get("Laptop", {}).get("ready_to_sale", 0)
@@ -699,6 +753,9 @@ async def dashboard(
         "now": app_now(),
         "work_queue_devices": work_queue_devices,
         "stage_counts": filtered_stage_counts,
+        "pipeline_counts": pipeline_counts,
+        "entity_choices": entity_choices,
+        "f_entity": entity,
         "stage_filter": stage_filter,
         "pl_from": pl_from,
         "pl_to": pl_to,

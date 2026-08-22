@@ -159,6 +159,7 @@
 
 <!-- GRN Pending for these Tag Numbers -->
 <form method="post" action="/grn/map" id="mapForm">
+  <div id="mapNotice" class="alert py-2 small no-autohide d-none"></div>
   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
   <input type="hidden" name="grn_id" id="mapGrnId">
   <div class="card border-0 shadow-sm">
@@ -381,7 +382,7 @@ $(document).ready(function(){
   }
 
   if ($('#grnTable tbody tr td').length > 1) {
-    var dt = $('#grnTable').DataTable({pageLength: 12, order: []});
+    var dt = window.dtGrn = $('#grnTable').DataTable({pageLength: 12, order: []});
     dt.on('draw.dt', function () {
       refreshCards(dt.rows({search: 'applied'}).nodes().toArray());
     });
@@ -413,6 +414,7 @@ $(document).ready(function(){
   // client-side ext.search predicate over rows already in the DOM. They now
   // travel to /grn/post-iqc/data as query params instead, since the row set
   // itself is fetched a page at a time rather than filtered after the fact.
+  window.dtPend =
   var dtPend = $('#pendingTable').DataTable({
     serverSide: true,
     processing: true,
@@ -538,5 +540,45 @@ document.getElementById('addLotForm').addEventListener('submit', function(e){
     .then(function(){ location.reload(); })
     .catch(function(err){ alert(err.message); });
 });
+
+// ── Map tags without leaving the page ─────────────────────────────────────
+// A redirect reloaded the screen and discarded the invoice / PO / device-type
+// filters used to find these tags, so mapping a second batch meant rebuilding
+// the filter every time. Post over fetch, report inline, reload just the rows.
+document.getElementById('mapForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var form = e.target;
+  var btns = form.querySelectorAll('button[type=submit]');
+  btns.forEach(function (b) { b.disabled = true; });
+  fetch(form.action, {
+    method: 'POST',
+    body: new FormData(form),
+    headers: { 'X-Requested-With': 'fetch' },
+  }).then(function (r) {
+    return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+  }).then(function (res) {
+    grnMapNotice(res.d.message || (res.ok ? 'Mapped.' : 'Could not map those tags.'),
+                 res.ok && res.d.ok);
+    if (res.ok && res.d.ok) {
+      form.reset();
+      document.getElementById('mapGrnId').value = '';
+      if (window.dtPend) window.dtPend.ajax.reload(null, false);
+      if (window.dtGrn) window.dtGrn.ajax.reload(null, false);
+    }
+  }).catch(function () {
+    grnMapNotice('Network error — nothing was mapped. Try again.', false);
+  }).finally(function () {
+    btns.forEach(function (b) { b.disabled = false; });
+  });
+});
+
+function grnMapNotice(text, ok) {
+  var box = document.getElementById('mapNotice');
+  box.className = 'alert py-2 small no-autohide alert-' + (ok ? 'success' : 'danger');
+  box.textContent = text;
+  box.classList.remove('d-none');
+  box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
 </script>
 {% endblock %}

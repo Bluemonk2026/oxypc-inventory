@@ -225,6 +225,7 @@ async def grn_map(request: Request, grn_id: str = Form(...),
                   db: AsyncSession = Depends(get_db),
                   current_user: User = Depends(allowed)):
     import uuid as _u
+    from urllib.parse import quote
     try:
         gid = _u.UUID(grn_id)
     except ValueError:
@@ -239,6 +240,9 @@ async def grn_map(request: Request, grn_id: str = Form(...),
         except (ValueError, AttributeError):
             pass
     if not valid_ids:
+        if request.headers.get("x-requested-with") == "fetch":
+            return JSONResponse({"ok": False, "message": "No tag numbers selected"},
+                                status_code=400)
         return RedirectResponse(url="/grn/post-iqc?error=No+tag+numbers+selected", status_code=302)
     devices = (await db.execute(
         select(Device).where(Device.id.in_(valid_ids))
@@ -273,10 +277,18 @@ async def grn_map(request: Request, grn_id: str = Form(...),
                            "moved_to_stock_in": moved},
                 request=request)
     await db.commit()
+    message = (f"Mapped GRN {g.grn_number} to {len(valid_ids)} tag(s) "
+               f"\u2014 {moved} moved to Stock Inward")
+    # Answer JSON when the page posts this over fetch. A redirect reloaded the
+    # whole screen and threw away the invoice / PO / device-type filters the
+    # operator had set to find those tags in the first place, so mapping a
+    # second batch meant setting them all up again.
+    if request.headers.get("x-requested-with") == "fetch":
+        return JSONResponse({"ok": True, "message": message,
+                             "grn_number": g.grn_number,
+                             "mapped": len(valid_ids), "moved": moved})
     return RedirectResponse(
-        url=(f"/grn/post-iqc?success=Mapped+GRN+{g.grn_number}+to+{len(valid_ids)}+tag(s)"
-             f"+%E2%80%94+{moved}+moved+to+Stock+Inward"),
-        status_code=302)
+        url=f"/grn/post-iqc?success={quote(message)}", status_code=302)
 
 
 # ── GRN Records ("GRN Board") — 3 tabs, rows served via /records/data ─────────

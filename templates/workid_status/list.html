@@ -6,16 +6,20 @@
 <!-- Filter bar -->
 <form method="get" action="/workid-status" class="card border-0 shadow-sm mb-3">
   <div class="card-body py-2">
+    {# Every filter and both buttons share one row, so the bar is a single
+       line instead of a block of inputs with the actions orphaned below. #}
     <div class="row g-2 align-items-end">
-      <div class="col-md-3">
+      <div class="col-md-2">
         <label class="form-label small fw-semibold mb-1">Search WorkID</label>
         <input type="text" name="workid" value="{{ f_workid }}" class="form-control form-control-sm font-monospace" placeholder="WorkID…">
       </div>
-      <div class="col-md-3">
+      <div class="col-md-2">
         <label class="form-label small fw-semibold mb-1">Search Tag Number</label>
         <input type="text" name="tag" value="{{ f_tag }}" class="form-control form-control-sm font-monospace" placeholder="Tag number…">
       </div>
-      {% if is_admin %}
+      {# Shown whenever there is more than one engineer in view — an
+         attendance-group manager needs it as much as an admin does. #}
+      {% if engineers and engineers|length > 1 %}
       <div class="col-md-2">
         <label class="form-label small fw-semibold mb-1">Engineer</label>
         <select name="engineer" class="form-select form-select-sm">
@@ -34,10 +38,16 @@
         <label class="form-label small fw-semibold mb-1">To</label>
         <input type="date" name="date_to" value="{{ f_date_to }}" class="form-control form-control-sm">
       </div>
-    </div>
-    <div class="d-flex gap-2 mt-2">
-      <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search me-1"></i>Search</button>
-      <a href="/workid-status" class="btn btn-outline-secondary btn-sm">Reset</a>
+      <div class="col-md-2 d-flex gap-1">
+        <button type="submit" class="btn btn-primary btn-sm flex-grow-1"><i class="bi bi-search me-1"></i>Search</button>
+        <a href="/workid-status" class="btn btn-outline-secondary btn-sm">Reset</a>
+        {# Carries the current filters, so Export always matches the table —
+           with a filter applied or without one. #}
+        <a class="btn btn-outline-success btn-sm text-nowrap"
+           href="/workid-status/export?workid={{ f_workid | urlencode }}&tag={{ f_tag | urlencode }}&engineer={{ f_engineer | urlencode }}&date_from={{ f_date_from | urlencode }}&date_to={{ f_date_to | urlencode }}">
+          <i class="bi bi-download me-1"></i>Export
+        </a>
+      </div>
     </div>
   </div>
 </form>

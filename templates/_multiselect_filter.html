@@ -1,0 +1,43 @@
+{# Multi-select checkbox dropdown for a GET filter form.
+
+   Posts ONE comma-separated value under `name` rather than repeating the
+   parameter, so every server-side consumer keeps a plain `str` signature and
+   old single-value URLs still work — routers/devices.py:_multi() does the
+   splitting. Values containing a comma cannot be represented; none of the
+   fields this is used for (stage keys, lot numbers, grades, device types,
+   employee names, entities) contain one.
+
+   options: list of (value, label) pairs, or plain strings.
+   selected: the current comma-separated string from the query. #}
+{% macro multiselect(name, label, options, selected, width='col-md-2') %}
+{% set sel = (selected or '').split(',') | map('trim') | select | list %}
+<div class="{{ width }}">
+  <label class="form-label small fw-semibold mb-1">{{ label }}</label>
+  <input type="hidden" name="{{ name }}" id="ms_val_{{ name }}" value="{{ selected or '' }}">
+  <div class="dropdown ms-filter" data-ms="{{ name }}">
+    <button class="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
+            type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside"
+            id="ms_btn_{{ name }}">
+      <span class="text-truncate ms-label">
+        {% if sel %}{{ sel | length }} selected{% else %}All {{ label }}{% endif %}
+      </span>
+      <i class="bi bi-chevron-down ms-1 small"></i>
+    </button>
+    <div class="dropdown-menu p-2" style="max-height:260px;overflow-y:auto;min-width:100%">
+      <div class="d-flex justify-content-between mb-1 border-bottom pb-1">
+        <button type="button" class="btn btn-link btn-sm p-0 ms-all">All</button>
+        <button type="button" class="btn btn-link btn-sm p-0 text-muted ms-none">Clear</button>
+      </div>
+      {% for opt in options %}
+      {% set val = opt[0] if opt is not string else opt %}
+      {% set lab = opt[1] if opt is not string else opt %}
+      <div class="form-check">
+        <input class="form-check-input ms-opt" type="checkbox" value="{{ val }}"
+               id="ms_{{ name }}_{{ loop.index }}" {% if val|string in sel %}checked{% endif %}>
+        <label class="form-check-label small text-truncate" for="ms_{{ name }}_{{ loop.index }}">{{ lab }}</label>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endmacro %}

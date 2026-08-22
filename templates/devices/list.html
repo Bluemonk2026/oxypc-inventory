@@ -7,6 +7,7 @@
 {% block content %}
 
 <!-- Filter Bar -->
+{% import "_multiselect_filter.html" as ms %}
 <form method="get" action="/devices" class="card border-0 shadow-sm mb-3">
   <div class="card-body py-2">
     <div class="row g-2 align-items-end">
@@ -15,64 +16,12 @@
         <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm barcode-field font-monospace"
                placeholder="Tag Number, brand, model, serial, CPU, GRN…">
       </div>
-      <div class="col-md-2">
-        <label class="form-label small fw-semibold mb-1">Stage</label>
-        <select name="stage" class="form-select form-select-sm">
-          <option value="">All Stages</option>
-          {% for s in stages %}
-          <option value="{{ s.value }}" {% if stage == s.value %}selected{% endif %}>
-            {{ stage_labels.get(s, s.value) }}
-          </option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small fw-semibold mb-1">Lot</label>
-        <select name="lot" class="form-select form-select-sm">
-          <option value="">All Lots</option>
-          {% for l in lots %}
-          <option value="{{ l.lot_number }}" {% if lot == l.lot_number %}selected{% endif %}>
-            {{ l.lot_number }}
-          </option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small fw-semibold mb-1">Grade</label>
-        <select name="grade" class="form-select form-select-sm">
-          <option value="">All Grades</option>
-          {% for value, label in grade_options() %}
-          <option value="{{ value }}" {% if grade == value %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small fw-semibold mb-1">Device Type</label>
-        <select name="device_type" class="form-select form-select-sm">
-          <option value="">All Device Types</option>
-          {% for dt in device_type_options %}
-          <option value="{{ dt }}" {% if device_type == dt %}selected{% endif %}>{{ dt }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small fw-semibold mb-1">Employee</label>
-        <select name="employee" id="employeeFilterSelect" class="form-select form-select-sm">
-          <option value="">All Employees</option>
-          {% for emp in employee_options %}
-          <option value="{{ emp }}" {% if employee == emp %}selected{% endif %}>{{ emp }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small fw-semibold mb-1">Entity</label>
-        <select name="entity" class="form-select form-select-sm">
-          <option value="">All Entities</option>
-          {% for e in entity_options %}
-          <option value="{{ e }}" {% if entity == e %}selected{% endif %}>{{ e }}</option>
-          {% endfor %}
-        </select>
-      </div>
+      {{ ms.multiselect('stage', 'Stage', stage_choices, stage) }}
+      {{ ms.multiselect('lot', 'Lot', lot_choices, lot) }}
+      {{ ms.multiselect('grade', 'Grade', grade_options(), grade) }}
+      {{ ms.multiselect('device_type', 'Device Type', device_type_options, device_type) }}
+      {{ ms.multiselect('employee', 'Employee', employee_options, employee) }}
+      {{ ms.multiselect('entity', 'Entity', entity_options, entity) }}
       {% include "_date_range_fields.html" %}
       <div class="col-md-2 d-flex align-items-end">
         <div class="form-check mb-1">
@@ -398,64 +347,57 @@
 
 {% include "_customise_modal.html" %}
 
-<!-- Movement table — bucket-level overview, mirrors Inventory Manager / Production Manager -->
-<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
-  <h6 class="fw-bold mb-0"><i class="bi bi-arrow-left-right me-2"></i>Movement</h6>
-</div>
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-body p-0">
-    <div class="table-responsive">
-      <table id="devicesMovementTable" class="table table-hover mb-0 small">
-        <thead class="table-secondary">
-          <tr><th>Bucket Number</th><th>Location ID</th><th>Location Type</th><th>Count of Tag Number</th><th>Total Pass</th><th>Total Fail</th><th>Assigned To</th><th>Stage</th></tr>
-        </thead>
-        <tbody id="devicesMovementTbody">
-          <tr><td colspan="8" class="text-center text-muted py-3">Loading…</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
 {% endblock %}
 {% block scripts %}
 <script src="/static/vendor/tom-select/js/tom-select.complete.min.js"></script>
 <script src="/static/js/tag-scan-autocheck.js?v={{ ASSET_VERSION }}"></script>
 <script>
-var CAN_VIEW_PRICING = {{ 'true' if can_view_pricing(current_user) else 'false' }};
 
-new TomSelect('#employeeFilterSelect', {
-  maxOptions: 500,
-  placeholder: 'Search employee…',
-  allowEmptyOption: true,
-  plugins: ['clear_button'],
-});
-
-// ── Movement table — all buckets, bucket-level pass/fail rollup ────────────
+// ── Multi-select filter dropdowns ─────────────────────────────────────────
+// Each dropdown writes a comma-separated value into its hidden input, so the
+// GET form still submits one parameter per field and the server keeps a plain
+// string signature. Clicking inside the menu must not close it — the whole
+// point is ticking several boxes before searching.
 (function () {
-  fetch('/api/buckets?status=stock_in,trc_pending,validated').then(function(r){return r.json();}).then(function(buckets){
-    var tbody = document.getElementById('devicesMovementTbody');
-    if(!buckets.length){
-      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No buckets created yet.</td></tr>';
-      return;
+  function sync(wrap) {
+    var name = wrap.getAttribute('data-ms');
+    var boxes = wrap.querySelectorAll('.ms-opt');
+    var picked = [];
+    boxes.forEach(function (b) { if (b.checked) picked.push(b.value); });
+    document.getElementById('ms_val_' + name).value = picked.join(',');
+    var label = wrap.querySelector('.ms-label');
+    var all = wrap.querySelector('button[data-bs-toggle]').getAttribute('id');
+    label.textContent = picked.length
+      ? picked.length + ' selected'
+      : label.getAttribute('data-all') || label.textContent;
+  }
+  document.querySelectorAll('.ms-filter').forEach(function (wrap) {
+    var label = wrap.querySelector('.ms-label');
+    if (!label.getAttribute('data-all') && !wrap.querySelectorAll('.ms-opt:checked').length) {
+      label.setAttribute('data-all', label.textContent.trim());
+    } else if (!label.getAttribute('data-all')) {
+      // Something is already selected on load, so recover the "All X" wording
+      // from the button id rather than the current "n selected" text.
+      label.setAttribute('data-all', 'All');
     }
-    tbody.innerHTML = buckets.map(function(b){
-      var assignedBadge = b.assigned_to_production
-        ? '<span class="badge bg-primary">Production</span>'
-        : '<span class="badge bg-secondary">Pending</span>';
-      return '<tr>'+
-        '<td><span class="badge bg-secondary">'+b.bucket_number+'</span></td>'+
-        '<td>'+(b.location_unit_id||'—')+'</td>'+
-        '<td>'+(b.location_type||'—')+'</td>'+
-        '<td><span class="badge bg-info text-dark">'+b.device_count+'</span></td>'+
-        '<td><span class="badge bg-success">'+b.total_pass+'</span></td>'+
-        '<td><span class="badge bg-danger">'+b.total_fail+'</span></td>'+
-        '<td>'+assignedBadge+'</td>'+
-        '<td><span class="badge bg-light text-dark">'+b.status+'</span></td>'+
-      '</tr>';
-    }).join('');
+    wrap.addEventListener('change', function (e) {
+      if (e.target.classList.contains('ms-opt')) sync(wrap);
+    });
+    wrap.querySelector('.ms-all').addEventListener('click', function () {
+      wrap.querySelectorAll('.ms-opt').forEach(function (b) { b.checked = true; });
+      sync(wrap);
+    });
+    wrap.querySelector('.ms-none').addEventListener('click', function () {
+      wrap.querySelectorAll('.ms-opt').forEach(function (b) { b.checked = false; });
+      sync(wrap);
+    });
+    wrap.querySelector('.dropdown-menu').addEventListener('click', function (e) {
+      e.stopPropagation();
+    });
   });
 })();
+
+var CAN_VIEW_PRICING = {{ 'true' if can_view_pricing(current_user) else 'false' }};
 
 // Selection persists across pages/redraws as a Set of barcodes rather than
 // DOM checkbox state — with serverSide:true only the current page's rows
@@ -719,14 +661,23 @@ document.getElementById('bulkTagBtn').addEventListener('click', async function()
       if (devicesSelected.has(c.value)) c.checked = true;
     });
     if (window._devicesUpdateSel) window._devicesUpdateSel();
-    var parts = [(d.found || []).length + ' selected'];
+    // Every number needed to reconcile the file against the screen. The old
+    // banner showed only "N selected", where N was this file's matches — while
+    // the actual selection is cumulative across uploads and manual ticks, so
+    // the two disagreed with no way to see why.
+    var parts = [];
+    if (d.rows_read != null) parts.push(d.rows_read + ' rows in file');
+    if ((d.duplicates || []).length) parts.push(d.duplicates.length + ' duplicate(s) ignored');
+    parts.push((d.found || []).length + ' matched');
     if ((d.not_found || []).length) parts.push(d.not_found.length + ' not found');
+    parts.push(devicesSelected.size + ' now selected in total');
     var detail = '';
     function list(label, tags){
       if (!tags || !tags.length) return '';
       return '<div class="mt-1"><span class="fw-semibold">' + label + ':</span> <span class="font-monospace">' + tags.join(', ') + '</span></div>';
     }
     detail += list('Not found', d.not_found);
+    detail += list('Duplicates in file', d.duplicates);
     detail += list('Row errors', d.errors);
     bootstrap.Modal.getInstance(document.getElementById('bulkTagModal')).hide();
     var alertBox = document.createElement('div');

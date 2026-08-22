@@ -33,7 +33,7 @@
         <div class="table-responsive">
           <table id="l1Table" class="table table-hover mb-0 small">
             <thead class="table-dark">
-              <tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Parts Required</th><th>Parts Requested</th><th>PNA Parts</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>L3/L4 Status</th><th>Action</th></tr>
+              <tr><th>WorkID</th><th>Tag Number</th><th>Date Assigned</th><th>Bucket</th><th>Parts Required</th><th>Parts Requested</th><th>PNA Parts</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>L3/L4 Status</th><th>Action</th></tr>
             </thead>
             <tbody>
               {% for device, lot_number in devices %}
@@ -41,6 +41,13 @@
               <tr data-pna="{{ (pna_map.get(device.id|string, []) | length) if pna_map is defined else 0 }}">
                 <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
                 <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a></td>
+                {# data-order carries the sortable ISO value; DataTables reads it
+                   natively, so the visible date can stay in the format the floor
+                   reads without breaking the sort. #}
+                <td data-order="{{ wo.assigned_at.isoformat() if wo and wo.assigned_at else '' }}">
+                  {% if wo and wo.assigned_at %}{{ wo.assigned_at.strftime('%d-%m-%Y %H:%M') }}
+                  {% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
                 <td>{% set bkt = bucket_map.get(device.id|string) if bucket_map is defined else None %}{% if bkt %}<span class="badge bg-warning text-dark font-monospace">{{ bkt }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                 <td class="text-center">{% set pr = parts_required_map.get(device.id|string, 0) if parts_required_map is defined else 0 %}<span class="badge bg-{{ 'warning text-dark' if pr else 'light text-muted border' }}">{{ pr }}</span></td>
                 <td class="text-center">{% set pq = parts_requested_map.get(device.id|string, 0) if parts_requested_map is defined else 0 %}<span class="badge bg-{{ 'primary' if pq else 'light text-muted border' }}">{{ pq }}</span></td>
@@ -248,7 +255,9 @@
 {% block scripts %}
 <script>
 $(document).ready(function(){
-  var dt = $('#l1Table').DataTable({});
+  // Newest assignment first — the queue is worked in the order tags arrive,
+  // so the default sort has to be Date Assigned rather than WorkID.
+  var dt = $('#l1Table').DataTable({ order: [[2, 'desc']] });
 
   // "Only show PNA" — a DataTables search hook rather than row.hide(), so the
   // filter survives paging and sorting instead of only affecting page 1.

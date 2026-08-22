@@ -133,3 +133,7 @@ _part_diff.py
 _consumed_probe.py
 _rename_part_names.py
 _tp_probe.py
+before.txt
+after.txt
+_tag_check.py
+_tags_probe.txt

@@ -184,6 +184,25 @@ def _exclude_sold(exclude_sold: str, fs: str) -> bool:
     return exclude_sold in ("1", "true", "on", "yes")
 
 
+def _multi(value) -> list:
+    """Split a filter parameter into the list of values it selects.
+
+    The All Inventory filters are multi-select checkboxes that post one
+    comma-separated value per field, rather than repeating the parameter.
+    That keeps every consumer's signature a plain `str` — the page, the
+    DataTables feed, the export and the barcode list all share these helpers —
+    and leaves single-value URLs that people have pasted or bookmarked working
+    exactly as before, since a lone value simply splits into a one-item list.
+    """
+    if not value:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw = list(value)
+    else:
+        raw = str(value).split(",")
+    return [v.strip() for v in raw if v and str(v).strip()]
+
+
 def _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to, entity="", exclude_sold=False):
     """Filter clauses shared by the Inventory Search page and its data endpoint.
 
@@ -202,25 +221,38 @@ def _device_search_filters(q, stage, lot, grade, category, device_type, date_fro
             Device.model.ilike(q_like), Device.serial_no.ilike(q_like),
             Device.cpu.ilike(q_like), Device.grn_number.ilike(q_like),
         ))
-    if stage:
-        try:
-            w.append(Device.current_stage == DeviceStage(stage))
-        except ValueError:
-            pass
-    if lot:
-        w.append(Lot.lot_number.ilike(f"%{lot}%"))
-    if grade:
-        w.append(Device.grade == grade)
-    if category:
-        w.append(Device.sub_category == category)
-    if device_type:
-        w.append(Device.device_type == device_type)
-    if entity:
-        w.append(Device.entity == entity)
+
+    stage_vals = _multi(stage)
+    if stage_vals:
+        stages = []
+        for v in stage_vals:
+            try:
+                stages.append(DeviceStage(v))
+            except ValueError:
+                pass
+        if stages:
+            w.append(Device.current_stage.in_(stages))
+    lot_vals = _multi(lot)
+    if lot_vals:
+        # Kept as ILIKE-per-value rather than IN: the single-select version
+        # matched partial lot numbers and pasted URLs rely on that.
+        w.append(or_(*[Lot.lot_number.ilike(f"%{v}%") for v in lot_vals]))
+    grade_vals = _multi(grade)
+    if grade_vals:
+        w.append(Device.grade.in_(grade_vals))
+    category_vals = _multi(category)
+    if category_vals:
+        w.append(Device.sub_category.in_(category_vals))
+    device_type_vals = _multi(device_type)
+    if device_type_vals:
+        w.append(Device.device_type.in_(device_type_vals))
+    entity_vals = _multi(entity)
+    if entity_vals:
+        w.append(Device.entity.in_(entity_vals))
     # "Exclude Sold" filter — on by default so All Inventory shows live stock
     # rather than the full historical device list. Skipped when the user has
     # explicitly asked for the sold stage, which would otherwise return nothing.
-    if exclude_sold and stage != DeviceStage.sold.value:
+    if exclude_sold and DeviceStage.sold.value not in stage_vals:
         w.append(Device.current_stage != DeviceStage.sold)
     iqc_filter = _iqc_date_filter(date_from, date_to)
     if iqc_filter is not None:
@@ -443,18 +475,27 @@ async def device_upload_tags(
 
     tags, errors = [], []
     seen = set()
+    rows_read = 0
+    duplicates = []
     for i, row in enumerate(reader, start=2):
+        rows_read += 1
         tag = (row.get(key) or "").strip()
         if not tag:
             errors.append(f"Row {i}: tag_number is empty")
             continue
-        if tag in seen:
+        # Deduplicated case-insensitively, to match how the tags are looked up
+        # below — otherwise "abc" and "ABC" would both survive and resolve to
+        # the same device, inflating the reported count.
+        norm = tag.upper()
+        if norm in seen:
+            duplicates.append(tag)
             continue
-        seen.add(tag)
+        seen.add(norm)
         tags.append(tag)
 
     if not tags:
-        return JSONResponse({"found": [], "not_found": [], "errors": errors})
+        return JSONResponse({"found": [], "not_found": [], "errors": errors,
+                             "rows_read": rows_read, "duplicates": duplicates})
 
     # Matched case-insensitively: tag numbers get typed into spreadsheets by
     # hand and come back lowercase, while the stored barcode is upper. An exact
@@ -480,7 +521,12 @@ async def device_upload_tags(
         else:
             not_found.append(t)
 
-    return JSONResponse({"found": found, "not_found": not_found, "errors": errors})
+    # rows_read / duplicates are reported so the count on screen can be
+    # reconciled against the file. Silently collapsing duplicates and then
+    # showing only a matched count is what made a 390-row file look like a
+    # different number entirely.
+    return JSONResponse({"found": found, "not_found": not_found, "errors": errors,
+                         "rows_read": rows_read, "duplicates": duplicates})
 
 
 # ── 1. INVENTORY SEARCH ──────────────────────────────────────────────────────
@@ -533,7 +579,7 @@ async def device_search(
     lots = lots_result.scalars().all()
 
     model_summary = await _build_model_summary(db, filters)
-    lot_summary = await _build_lot_summary(db)
+    lot_summary = await _build_lot_summary(db, filters)
 
     # Per-entity counts over the currently filtered set (not a separate
     # unfiltered query) — the summary strip above the Tag Number table.
@@ -558,6 +604,9 @@ async def device_search(
         "request": request, "current_user": current_user,
         "lots": lots,
         "stages": DeviceStage, "stage_labels": STAGE_LABELS,
+        # (value, label) pairs for the multi-select filter dropdowns.
+        "stage_choices": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
+        "lot_choices": [l.lot_number for l in lots if l.lot_number],
         "q": q, "stage": stage, "lot": lot, "grade": grade, "category": category,
         "device_type": device_type, "employee": employee, "entity": entity,
         "exclude_sold": _exclude_sold(exclude_sold, fs),
@@ -572,11 +621,28 @@ async def device_search(
     })
 
 
-async def _build_lot_summary(db: AsyncSession) -> list:
+async def _build_lot_summary(db: AsyncSession, filters: list | None = None) -> list:
     """Lot Based table (below the Model Based table on Inventory Search):
     one row per Lot with GRN/supplier/vendor/financial details plus
-    'Actual Selling' — the sum of Sale.sale_price for devices in that lot."""
-    lots = (await db.execute(select(Lot).where(Lot.is_trashed == False).order_by(Lot.lot_number))).scalars().all()
+    'Actual Selling' — the sum of Sale.sale_price for devices in that lot.
+
+    Honours the page filters, which it previously ignored entirely: the Model
+    Based table narrowed as you filtered while this one kept listing every lot
+    in the system, so the two tables on the same screen answered different
+    questions. Only lots holding at least one matching device are listed, and
+    every per-lot figure below is computed over the matching devices alone.
+    """
+    lot_q = select(Lot).where(Lot.is_trashed == False)
+    if filters:
+        # Narrow to lots that still have a device matching the filters. Same
+        # Device->Lot join the count query uses, so the two cannot disagree.
+        matching = (
+            select(Device.lot_id)
+            .select_from(Device).join(Lot, Device.lot_id == Lot.id)
+            .where(Device.is_trashed == False, *filters)
+        )
+        lot_q = lot_q.where(Lot.id.in_(matching))
+    lots = (await db.execute(lot_q.order_by(Lot.lot_number))).scalars().all()
     if not lots:
         return []
 
@@ -590,14 +656,20 @@ async def _build_lot_summary(db: AsyncSession) -> list:
 
     # Per-lot tag numbers (Device -> barcode/qty) for the View modal, plus
     # the distinct Device Type(s) present in each lot for the summary column.
-    device_rows = (await db.execute(
+    device_q = (
         select(Device.lot_id, Device.barcode, Device.qty, Device.device_type)
+        .select_from(Device).join(Lot, Device.lot_id == Lot.id)
         .where(Device.lot_id.in_([l.id for l in lots]), Device.is_trashed == False)
-    )).all()
+    )
+    if filters:
+        device_q = device_q.where(*filters)
+    device_rows = (await db.execute(device_q)).all()
     tags_by_lot: dict = {}
     device_types_by_lot: dict = {}
+    matched_qty: dict = {}
     for lot_id, barcode, qty, device_type in device_rows:
         tags_by_lot.setdefault(str(lot_id), []).append({"barcode": barcode, "qty": qty or 1})
+        matched_qty[str(lot_id)] = matched_qty.get(str(lot_id), 0) + (qty or 1)
         if device_type:
             device_types_by_lot.setdefault(str(lot_id), set()).add(device_type)
 
@@ -609,7 +681,9 @@ async def _build_lot_summary(db: AsyncSession) -> list:
             "supplier_name": l.supplier_name,
             "grn_date": l.grn_date,
             "vendor_name": l.vendor_name or "—",
-            "qty": l.qty,
+            # Filtered: the units actually matching. Unfiltered: the lot's own
+            # recorded quantity, which can differ from the device count.
+            "qty": matched_qty.get(str(l.id), 0) if filters else l.qty,
             "condition": l.condition or "—",
             "device_type": ", ".join(sorted(device_types_by_lot.get(str(l.id), []))) or "—",
             "buying_price": float(l.buying_price or 0),

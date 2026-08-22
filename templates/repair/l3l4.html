@@ -6,16 +6,22 @@
 <div class="row g-3">
   <div class="col-12">
     <div class="card border-0 shadow-sm">
-      <div class="card-header bg-transparent fw-semibold">L3/L4 Work Orders ({{ items|length }})</div>
+      <div class="card-header bg-transparent d-flex align-items-center justify-content-between">
+        <span class="fw-semibold">L3/L4 Work Orders ({{ items|length }})</span>
+        <div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" id="onlyPnaL34">
+          <label class="form-check-label small" for="onlyPnaL34">Only show PNA</label>
+        </div>
+      </div>
       <div class="card-body p-0">
         <div class="table-responsive">
           <table id="l3l4Table" class="table table-hover mb-0 small">
             <thead class="table-dark">
-              <tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>Action</th></tr>
+              <tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>PNA Parts</th><th>Action</th></tr>
             </thead>
             <tbody>
               {% for it in items %}
-              <tr>
+              <tr data-pna="{{ (pna_map.get(it.device_id|string, []) | length) if pna_map is defined else 0 }}">
                 <td><span class="font-monospace fw-bold">{{ it.work_id }}</span></td>
                 <td><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
                 <td>{% if it.bucket %}<span class="badge bg-warning text-dark font-monospace">{{ it.bucket }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
@@ -23,6 +29,16 @@
                 <td><span class="badge bg-{{ 'danger' if it.aging >= 3 else ('warning text-dark' if it.aging >= 1 else 'secondary') }}">{{ it.aging }} day{{ 's' if it.aging != 1 else '' }}</span></td>
                 <td>
                   <span class="badge bg-{{ 'success' if it.status == 'Completed' else ('danger' if 'Scrap' in it.status else ('info' if it.status == 'Repair Started' else 'secondary')) }}">{{ it.status }}</span>
+                </td>
+                {# Parts marked PNA from the Request Parts modal on this board
+                   (and from the tag's Parts Consumption table). Hover lists
+                   them so the queue itself answers "what is it waiting on". #}
+                <td class="text-center">
+                  {% set pna = pna_map.get(it.device_id|string, []) if pna_map is defined else [] %}
+                  {% if pna %}
+                  <span class="badge bg-danger" data-bs-toggle="tooltip" data-bs-placement="top"
+                        title="{{ pna | join(', ') }}">{{ pna | length }}</span>
+                  {% else %}<span class="badge bg-light text-muted border">0</span>{% endif %}
                 </td>
                 <td class="text-nowrap">
                   {% if it.status == 'Repair Started' %}
@@ -81,6 +97,21 @@
         </select>
         <label class="form-label small fw-semibold">Quantity</label>
         <input type="number" name="qty" class="form-control" min="1" value="1" required>
+        {# Marking PNA here is deliberately separate from submitting the
+           request: the engineer is recording "this part cannot be sourced",
+           which is exactly the case where no request should be raised. The
+           button saves the mark on its own and leaves the form alone. #}
+        <hr class="my-3">
+        <div class="d-flex align-items-center justify-content-between">
+          <div>
+            <div class="fw-semibold small">Part Not Available</div>
+            <div class="text-muted small">Flags this part on the L1/L2 and L3/L4 queues.</div>
+          </div>
+          <button type="button" class="btn btn-outline-danger btn-sm" id="rp_mark_pna">
+            <i class="bi bi-slash-circle me-1"></i>Mark PNA
+          </button>
+        </div>
+        <div id="rp_pna_msg" class="small mt-2"></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -156,8 +187,22 @@
 {% block scripts %}
 <script>
 $(document).ready(function(){
-  $('#l3l4Table').DataTable({
+  var dt = $('#l3l4Table').DataTable({
     language: { emptyTable: "No L3/L4 work orders assigned." }
+  });
+
+  // "Only show PNA" — a DataTables search hook rather than row.hide(), so the
+  // filter survives paging and sorting instead of only affecting page 1.
+  $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
+    if (settings.nTable.id !== 'l3l4Table') return true;
+    if (!$('#onlyPnaL34').prop('checked')) return true;
+    var tr = settings.aoData[dataIndex].nTr;
+    return parseInt(tr && tr.getAttribute('data-pna') || '0', 10) > 0;
+  });
+  $('#onlyPnaL34').on('change', function(){ dt.draw(); });
+
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {
+    new bootstrap.Tooltip(el);
   });
 });
 (function(){
@@ -191,8 +236,40 @@ $(document).ready(function(){
       rpSel.value = '';
       document.getElementById('rp_part_id').value = '';
       document.getElementById('rp_part_category').value = '';
+      document.getElementById('rp_pna_msg').textContent = '';
       rpModal.show();
     });
+  });
+
+  document.getElementById('rp_mark_pna').addEventListener('click', function(){
+    var btn = this;
+    var msg = document.getElementById('rp_pna_msg');
+    var name = rpSel.value;
+    if (!name) { msg.className = 'small mt-2 text-danger'; msg.textContent = 'Select a part first.'; return; }
+    var body = new URLSearchParams();
+    body.append('csrf_token', "{{ request.cookies.get('csrf_token','') }}");
+    body.append('part_name', name);
+    body.append('part_category', document.getElementById('rp_part_category').value || '');
+    body.append('part_id', document.getElementById('rp_part_id').value || '');
+    body.append('marked', '1');
+    body.append('source', 'l3l4');
+    btn.disabled = true;
+    fetch('/devices/' + encodeURIComponent(document.getElementById('rp_barcode_input').value) + '/pna', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: body
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d || !d.ok) throw new Error((d && d.error) || 'save failed');
+      msg.className = 'small mt-2 text-success';
+      msg.textContent = name + ' marked PNA. Reload to see the updated count.';
+    })
+    .catch(function(e){
+      msg.className = 'small mt-2 text-danger';
+      msg.textContent = 'Could not mark PNA: ' + e.message;
+    })
+    .finally(function(){ btn.disabled = false; });
   });
 })();
 </script>

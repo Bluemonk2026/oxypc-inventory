@@ -19,6 +19,7 @@ from models.work_order import WorkOrder
 from models.spare_parts import SparePart
 from models.engines import SparePartsLedger
 from models.part_request import PartRequest, PartSourcingRequest
+from models.pna_part import DevicePNAPart
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from services.audit_engine import audit
 
@@ -392,3 +393,143 @@ async def request_sourcing_reupload(sr_id: str, request: Request,
                 record_id=str(sr.id), new_value={"requested_by": current_user.username}, request=request)
     await db.commit()
     return JSONResponse({"ok": True})
+
+
+@router.post("/spare-parts/requests/bulk-action")
+async def bulk_request_action(
+    request: Request,
+    action: str = Form(...),
+    ids: list[str] = Form(default=[]),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(spm_allowed),
+):
+    """Handover or delete several part/faulty requests in one go.
+
+    Handover reuses the single-request rule exactly — quantity always equals
+    what was requested, never a posted value — so the bulk path cannot hand
+    over a different amount than the per-row button would. Only requests still
+    at 'requested' are handed over; anything already actioned is skipped and
+    reported rather than silently re-stamped.
+
+    Delete is a soft close (status 'cancelled'), not a row removal: these rows
+    are referenced by consumption reporting and the device's part history.
+    """
+    if action not in ("handover", "delete"):
+        return JSONResponse({"ok": False, "error": "Unknown action"}, status_code=400)
+
+    uuids = []
+    for raw in ids:
+        try:
+            uuids.append(_as_uuid(raw))
+        except Exception:
+            continue
+    if not uuids:
+        return JSONResponse({"ok": False, "error": "No valid request ids"}, status_code=400)
+
+    rows = (await db.execute(
+        select(PartRequest).where(PartRequest.id.in_(uuids))
+    )).scalars().all()
+
+    processed, skipped = 0, 0
+    now = app_now()
+    for pr in rows:
+        if action == "handover":
+            if pr.status != "requested":
+                skipped += 1
+                continue
+            pr.qty_handed_over = max(0, pr.qty_requested)
+            pr.status = "handed_over"
+        else:
+            if pr.status in ("handed_over", "received"):
+                skipped += 1          # already fulfilled — cancelling would lose the record
+                continue
+            pr.status = "cancelled"
+        pr.actioned_at = now
+        pr.actioned_by = current_user.username
+        processed += 1
+
+    await audit(db, user=current_user,
+                action="PART_REQUEST_BULK_" + action.upper(),
+                table_name="part_requests", record_id=None,
+                new_value={"processed": processed, "skipped": skipped,
+                           "ids": [str(u) for u in uuids]},
+                request=request)
+    await db.commit()
+    return JSONResponse({
+        "ok": True, "processed": processed, "skipped": skipped,
+        "reason": "already actioned" if skipped else None,
+    })
+
+
+@router.post("/devices/{barcode}/pna")
+async def mark_part_pna(
+    barcode: str,
+    request: Request,
+    part_name: str = Form(...),
+    part_category: str = Form(""),
+    part_id: str = Form(""),
+    marked: str = Form("1"),
+    source: str = Form("parts_consumption"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Mark / unmark a part as PNA (Part Not Available) for one tag.
+
+    Open to any signed-in user for the same reason IQC entry is: whoever is
+    physically holding the unit needs to be able to record that a part cannot
+    be sourced, and gating it behind the parts-manager role left engineers
+    with no way to flag it.
+
+    Unmarking clears the row rather than deleting it — that a part was once
+    PNA is history a supervisor may need to explain a delay.
+    """
+    device = (await db.execute(
+        select(Device).where(Device.barcode == barcode)
+    )).scalar_one_or_none()
+    if not device:
+        return JSONResponse({"ok": False, "error": "Tag not found"}, status_code=404)
+
+    name = (part_name or "").strip()
+    if not name:
+        return JSONResponse({"ok": False, "error": "Part name is required"}, status_code=400)
+
+    row = (await db.execute(
+        select(DevicePNAPart).where(
+            DevicePNAPart.device_id == device.id,
+            DevicePNAPart.part_name == name,
+        )
+    )).scalar_one_or_none()
+
+    is_marked = str(marked).strip() in ("1", "true", "True", "yes", "on")
+    now = app_now()
+
+    if is_marked:
+        if row is None:
+            row = DevicePNAPart(
+                device_id=device.id, barcode=device.barcode, part_name=name,
+                part_category=(part_category or "").strip() or None,
+                part_id=_as_uuid(part_id) if (part_id or "").strip() else None,
+                source=(source or "parts_consumption").strip(),
+            )
+            db.add(row)
+        # Re-marking a previously cleared part reopens the same row, so the
+        # unique (device, part) pair stays one row rather than accumulating.
+        row.is_active = True
+        row.marked_by = current_user.username
+        row.marked_at = now
+        row.cleared_by = None
+        row.cleared_at = None
+    else:
+        if row is None:
+            return JSONResponse({"ok": True, "marked": False})
+        row.is_active = False
+        row.cleared_by = current_user.username
+        row.cleared_at = now
+
+    await audit(db, user=current_user,
+                action="PART_PNA_MARKED" if is_marked else "PART_PNA_CLEARED",
+                table_name="device_pna_parts", record_id=str(device.id),
+                new_value={"barcode": device.barcode, "part": name, "source": source},
+                request=request)
+    await db.commit()
+    return JSONResponse({"ok": True, "marked": is_marked})

@@ -3,6 +3,48 @@
 {% block page_title %}Spare Parts Inventory{% endblock %}
 {% block content %}
 
+{# One filter bar definition shared by Part Master, Part Requests and Faulty
+   Request. Each instance is bound to its table by id; the JS in `scripts`
+   reads these inputs and matches them against the data-* keys on each row. #}
+{% macro filter_bar(table_id, categories, part_names, added_as) -%}
+<div class="d-flex flex-wrap align-items-end gap-2 px-3 py-2 border-bottom bg-light"
+     data-filterbar="{{ table_id }}">
+  <div>
+    <label class="form-label small text-muted mb-0">Added From</label>
+    <input type="date" class="form-control form-control-sm sp-f" data-f="from" style="min-width:140px">
+  </div>
+  <div>
+    <label class="form-label small text-muted mb-0">Added To</label>
+    <input type="date" class="form-control form-control-sm sp-f" data-f="to" style="min-width:140px">
+  </div>
+  <div>
+    <label class="form-label small text-muted mb-0">Category</label>
+    <select class="form-select form-select-sm sp-f" data-f="category" style="min-width:150px">
+      <option value="">All</option>
+      {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="form-label small text-muted mb-0">Added As</label>
+    <select class="form-select form-select-sm sp-f" data-f="addedas" style="min-width:130px">
+      <option value="">All</option>
+      {% for a in added_as %}<option value="{{ a }}">{{ a }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="form-label small text-muted mb-0">Part Name</label>
+    <select class="form-select form-select-sm sp-f" data-f="partname" style="min-width:180px">
+      <option value="">All</option>
+      {% for n in part_names %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+    </select>
+  </div>
+  <button type="button" class="btn btn-outline-secondary btn-sm" onclick="spClearFilters('{{ table_id }}')">
+    <i class="bi bi-x-circle me-1"></i>Clear
+  </button>
+  <span class="text-muted small ms-auto" data-filtercount="{{ table_id }}"></span>
+</div>
+{%- endmacro %}
+
 {% if request.query_params.get('success') %}
 <div class="alert alert-success alert-dismissible fade show">
   <i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success') }}
@@ -143,6 +185,7 @@
         </form>
       </div>
     </div>
+    {{ filter_bar('partsTable', filter_categories, filter_part_names, ['New', 'Harvest']) }}
     <div class="table-responsive">
       <table id="partsTable" class="table table-hover mb-0 small">
         <thead class="table-dark">
@@ -153,6 +196,7 @@
             <th>Min Alert</th><th>In Stock</th><th>Consumed</th><th>Sold</th>
             {% if can_view_pricing(current_user) %}<th>Unit Price</th>
             <th>Stock Value</th>{% endif %}
+            <th>Added On</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -162,7 +206,14 @@
           {# Sold via Ready to Sale Parts reduces stock just like consumption does. #}
           {% set sold = part.sold_qty or 0 %}
           {% set live_stock = part.qty_in_stock - consumed - sold %}
-          <tr class="{{ 'table-danger' if live_stock <= part.min_stock_alert else '' }}">
+          {# Filter keys live on the row, not in the cells: cell text carries
+             badges and formatting, so scraping it would break the moment a
+             label changes. #}
+          <tr class="{{ 'table-danger' if live_stock <= part.min_stock_alert else '' }}"
+              data-added="{{ part.created_at.strftime('%Y-%m-%d') if part.created_at else '' }}"
+              data-category="{{ part.category or '' }}"
+              data-addedas="{{ 'Harvest' if part.source == 'harvest' else 'New' }}"
+              data-partname="{{ part.name or '' }}">
             <td><input type="checkbox" class="form-check-input sp-cb" data-tbl="partsTable" value="{{ part.id }}"></td>
             <td><code>{{ part.part_code }}</code></td>
             <td>
@@ -203,6 +254,7 @@
             <td>{{ "{:,.2f}".format(part.unit_price) }}</td>
             <td>{{ "{:,.0f}".format(part.unit_price * live_stock) }}</td>
             {% endif %}
+            <td class="text-nowrap">{{ part.created_at | ist_date if part.created_at else '—' }}</td>
             <td>
               <div class="d-flex gap-1 flex-wrap">
                 <a href="/spare-parts/{{ part.id }}/edit"
@@ -296,13 +348,22 @@
         <button id="expSel_partReqTable" class="btn btn-outline-info btn-sm" onclick="spExport('partReqTable',true)" disabled>
           <i class="bi bi-download me-1"></i>Export Selected
         </button>
+        <button id="bulkHandover_partReqTable" class="btn btn-outline-success btn-sm"
+                onclick="spBulkRequestAction('partReqTable','handover')" disabled>
+          <i class="bi bi-box-arrow-right me-1"></i>Handover Selected
+        </button>
+        <button id="bulkDelete_partReqTable" class="btn btn-outline-danger btn-sm"
+                onclick="spBulkRequestAction('partReqTable','delete')" disabled>
+          <i class="bi bi-trash3 me-1"></i>Delete Selected
+        </button>
       </div>
     </div>
+    {{ filter_bar('partReqTable', filter_categories, filter_part_names, ['New', 'Replace', 'Downgrade']) }}
     <div class="table-responsive">
       <table id="partReqTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark"><tr>
           <th><input type="checkbox" class="form-check-input sp-sa" data-tbl="partReqTable"></th>
-          <th>WorkID</th><th>Tag Number</th><th>Engineer</th><th>Part Name</th><th>Part Category</th>
+          <th>WorkID</th><th>Tag Number</th><th>Engineer</th><th>Added On</th><th>Part Name</th><th>Part Category</th>
           <th>Crate Number</th><th>Make</th><th>Model</th>
           <th>Qty Requested</th><th>Qty Handover</th><th>QTY Available</th><th>Status</th><th>Action</th>
         </tr></thead>
@@ -313,8 +374,11 @@
              keying on the id alone showed 0. #}
           {% set stock = stock_by_name.get((r.part_name or '')|lower|trim, part_stock.get(r.part_id|string, 0)) %}
           {% set available = r.part_id and stock > 0 %}
-          <tr>
-            <td><input type="checkbox" class="form-check-input sp-cb" data-tbl="partReqTable"></td>
+          <tr data-added="{{ r.created_at.strftime('%Y-%m-%d') if r.created_at else '' }}"
+              data-category="{{ r.part_category or '' }}"
+              data-addedas="{{ (r.request_type or 'new') | capitalize }}"
+              data-partname="{{ r.part_name or '' }}">
+            <td><input type="checkbox" class="form-check-input sp-cb" data-tbl="partReqTable" value="{{ r.id }}"></td>
             <td class="font-monospace">
               {% if r.work_id %}<a href="/workid-status?highlight={{ r.work_id }}" class="text-decoration-none" title="View in WorkID Status">{{ r.work_id }}</a>{% else %}—{% endif %}
               {% if r.request_type == 'new' %}<div><span class="badge bg-success">New</span></div>
@@ -325,6 +389,7 @@
             </td>
             <td><a href="/devices/{{ r.barcode }}" class="font-monospace text-decoration-none">{{ r.barcode }}</a></td>
             <td>{{ r.engineer_name or r.requested_by or '—' }}</td>
+            <td class="text-nowrap">{{ r.created_at | ist_date if r.created_at else '—' }}</td>
             <td class="fw-semibold">{{ r.part_name }}</td>
             <td>{{ r.part_category or '—' }}</td>
             <td>{{ part_meta.get(r.part_id|string, {}).get('crate') or '—' }}</td>
@@ -364,7 +429,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="14" class="text-center text-muted py-4">No part requests.</td></tr>
+          <tr><td colspan="15" class="text-center text-muted py-4">No part requests.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -380,12 +445,25 @@
         <button class="btn btn-outline-secondary btn-sm" onclick="spExport('faultyReqTable',false)">
           <i class="bi bi-file-earmark-arrow-down me-1"></i>Export All
         </button>
+        <button id="expSel_faultyReqTable" class="btn btn-outline-info btn-sm" onclick="spExport('faultyReqTable',true)" disabled>
+          <i class="bi bi-download me-1"></i>Export Selected
+        </button>
+        <button id="bulkHandover_faultyReqTable" class="btn btn-outline-success btn-sm"
+                onclick="spBulkRequestAction('faultyReqTable','handover')" disabled>
+          <i class="bi bi-box-arrow-right me-1"></i>Handover Selected
+        </button>
+        <button id="bulkDelete_faultyReqTable" class="btn btn-outline-danger btn-sm"
+                onclick="spBulkRequestAction('faultyReqTable','delete')" disabled>
+          <i class="bi bi-trash3 me-1"></i>Delete Selected
+        </button>
       </div>
     </div>
+    {{ filter_bar('faultyReqTable', filter_categories, filter_part_names, ['Faulty']) }}
     <div class="table-responsive">
       <table id="faultyReqTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark"><tr>
-          <th>WorkID</th><th>Tag Number</th><th>Engineer</th><th>Part Name</th><th>Part Category</th>
+          <th><input type="checkbox" class="form-check-input sp-sa" data-tbl="faultyReqTable"></th>
+          <th>WorkID</th><th>Tag Number</th><th>Engineer</th><th>Added On</th><th>Part Name</th><th>Part Category</th>
           <th>Crate Number</th><th>Make</th><th>Model</th>
           <th>Qty Requested</th><th>Qty Handover</th><th>QTY Available</th><th>Status</th><th>Action</th>
         </tr></thead>
@@ -396,10 +474,15 @@
              keying on the id alone showed 0. #}
           {% set stock = stock_by_name.get((r.part_name or '')|lower|trim, part_stock.get(r.part_id|string, 0)) %}
           {% set available = r.part_id and stock > 0 %}
-          <tr>
+          <tr data-added="{{ r.created_at.strftime('%Y-%m-%d') if r.created_at else '' }}"
+              data-category="{{ r.part_category or '' }}"
+              data-addedas="Faulty"
+              data-partname="{{ r.part_name or '' }}">
+            <td><input type="checkbox" class="form-check-input sp-cb" data-tbl="faultyReqTable" value="{{ r.id }}"></td>
             <td class="font-monospace">{% if r.work_id %}<a href="/workid-status?highlight={{ r.work_id }}" class="text-decoration-none" title="View in WorkID Status">{{ r.work_id }}</a>{% else %}—{% endif %}</td>
             <td><a href="/devices/{{ r.barcode }}" class="font-monospace text-decoration-none">{{ r.barcode }}</a></td>
             <td>{{ r.engineer_name or r.requested_by or '—' }}</td>
+            <td class="text-nowrap">{{ r.created_at | ist_date if r.created_at else '—' }}</td>
             <td class="fw-semibold">{{ r.part_name }}</td>
             <td>{{ r.part_category or '—' }}</td>
             <td>{{ part_meta.get(r.part_id|string, {}).get('crate') or '—' }}</td>
@@ -459,7 +542,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="13" class="text-center text-muted py-4">No faulty part requests.</td></tr>
+          <tr><td colspan="15" class="text-center text-muted py-4">No faulty part requests.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -768,6 +851,8 @@ $(document).ready(function() {
     $('#consumptionTable').DataTable({ pageLength: 12, order: [[9, 'desc']], columnDefs: [cdNone], language: { emptyTable: 'No consumptions recorded.' } });
   if (!$.fn.dataTable.isDataTable('#partReqTable') && $('#partReqTable tbody tr td').length > 1)
     $('#partReqTable').DataTable({ pageLength: 12, order: [], columnDefs: [cdNone] });
+  if (!$.fn.dataTable.isDataTable('#faultyReqTable') && $('#faultyReqTable tbody tr td').length > 1)
+    $('#faultyReqTable').DataTable({ pageLength: 12, order: [], columnDefs: [cdNone] });
   if (!$.fn.dataTable.isDataTable('#sourcingTable') && $('#sourcingTable tbody tr td').length > 1)
     $('#sourcingTable').DataTable({ pageLength: 12, order: [], columnDefs: [cdNone] });
 });
@@ -921,6 +1006,10 @@ function spToggleSelButtons(tbl) {
   if (exp) exp.disabled = !anyChecked;
   var del = document.getElementById('delSel_' + tbl);
   if (del) del.disabled = !anyChecked;
+  ['bulkHandover_', 'bulkDelete_'].forEach(function(prefix) {
+    var b = document.getElementById(prefix + tbl);
+    if (b) b.disabled = !anyChecked;
+  });
 }
 
 document.querySelectorAll('.sp-sa').forEach(function(sa) {
@@ -963,5 +1052,108 @@ function spBulkDelete() {
   })
   .catch(function() { alert('Network error — please try again.'); });
 }
+
+// ── Bulk Handover / Delete on Part Requests and Faulty Request ────────────
+function spBulkRequestAction(tbl, action) {
+  var ids = Array.prototype.map.call(
+    document.querySelectorAll('#' + tbl + ' .sp-cb:checked'),
+    function(c) { return c.value; }
+  ).filter(Boolean);
+  if (!ids.length) return;
+  var verb = action === 'handover' ? 'Hand over' : 'Delete';
+  if (!confirm(verb + ' ' + ids.length + ' selected request(s)?')) return;
+
+  var body = new URLSearchParams();
+  body.append('csrf_token', "{{ request.cookies.get('csrf_token','') }}");
+  body.append('action', action);
+  ids.forEach(function(id) { body.append('ids', id); });
+  fetch('/spare-parts/requests/bulk-action', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: body
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d && d.ok) {
+      // Report skips rather than silently doing less than was asked.
+      if (d.skipped) alert(d.processed + ' processed, ' + d.skipped + ' skipped (' + (d.reason || 'not eligible') + ').');
+      location.reload();
+    } else {
+      alert('Action failed: ' + ((d && d.error) || 'Unknown error'));
+    }
+  })
+  .catch(function() { alert('Network error — please try again.'); });
+}
+
+// ── Column filters (date range / category / added-as / part name) ──────────
+// Matched against the data-* keys on each row rather than cell text, so badge
+// markup and label changes cannot break filtering.
+function spFilterValues(tbl) {
+  var bar = document.querySelector('[data-filterbar="' + tbl + '"]');
+  if (!bar) return null;
+  var v = {};
+  bar.querySelectorAll('.sp-f').forEach(function(el) { v[el.dataset.f] = (el.value || '').trim(); });
+  return v;
+}
+
+function spRowMatches(tr, v) {
+  if (!tr || !v) return true;
+  var added = tr.getAttribute('data-added') || '';
+  if (v.from && (!added || added < v.from)) return false;
+  if (v.to && (!added || added > v.to)) return false;
+  if (v.category && (tr.getAttribute('data-category') || '') !== v.category) return false;
+  if (v.addedas && (tr.getAttribute('data-addedas') || '') !== v.addedas) return false;
+  if (v.partname && (tr.getAttribute('data-partname') || '') !== v.partname) return false;
+  return true;
+}
+
+$.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
+  var tbl = settings.nTable && settings.nTable.id;
+  var v = spFilterValues(tbl);
+  if (!v) return true;                       // no filter bar on this table
+  var tr = settings.aoData[dataIndex].nTr;
+  return spRowMatches(tr, v);
+});
+
+function spApplyFilters(tbl) {
+  if ($.fn.dataTable.isDataTable('#' + tbl)) {
+    var dt = $('#' + tbl).DataTable();
+    dt.draw();
+    var info = dt.page.info();
+    var label = document.querySelector('[data-filtercount="' + tbl + '"]');
+    if (label) {
+      label.textContent = info.recordsDisplay === info.recordsTotal
+        ? '' : info.recordsDisplay + ' of ' + info.recordsTotal + ' shown';
+    }
+    return;
+  }
+  // Table never became a DataTable (empty tables are skipped above) — filter
+  // the rows directly so the controls still do something.
+  var shown = 0, total = 0;
+  var v = spFilterValues(tbl);
+  document.querySelectorAll('#' + tbl + ' tbody tr').forEach(function(tr) {
+    if (!tr.hasAttribute('data-added')) return;
+    total++;
+    var ok = spRowMatches(tr, v);
+    tr.style.display = ok ? '' : 'none';
+    if (ok) shown++;
+  });
+  var label2 = document.querySelector('[data-filtercount="' + tbl + '"]');
+  if (label2) label2.textContent = (shown === total) ? '' : shown + ' of ' + total + ' shown';
+}
+
+function spClearFilters(tbl) {
+  var bar = document.querySelector('[data-filterbar="' + tbl + '"]');
+  if (!bar) return;
+  bar.querySelectorAll('.sp-f').forEach(function(el) { el.value = ''; });
+  spApplyFilters(tbl);
+}
+
+document.querySelectorAll('[data-filterbar]').forEach(function(bar) {
+  var tbl = bar.dataset.filterbar;
+  bar.querySelectorAll('.sp-f').forEach(function(el) {
+    el.addEventListener('change', function() { spApplyFilters(tbl); });
+  });
+});
 </script>
 {% endblock %}

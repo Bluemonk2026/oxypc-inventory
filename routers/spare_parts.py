@@ -258,6 +258,21 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         "grn_docs": {},
         "grn_by_part_code": grn_by_part_code,
         "harvest_categories": await master_values(db, "iqc_part_category"),
+        # Filter dropdown options. Built from the rows actually on the page —
+        # a master-data list would offer categories and names that match
+        # nothing here and read as a broken filter.
+        "filter_categories": sorted({
+            (p.category or "").strip() for p in parts if (p.category or "").strip()
+        } | {
+            (r.part_category or "").strip()
+            for r in (part_reqs + faulty_reqs) if (r.part_category or "").strip()
+        }),
+        "filter_part_names": sorted({
+            (p.name or "").strip() for p in parts if (p.name or "").strip()
+        } | {
+            (r.part_name or "").strip()
+            for r in (part_reqs + faulty_reqs) if (r.part_name or "").strip()
+        }),
     })
 
 

@@ -15,6 +15,12 @@
     <input type="hidden" name="source" value="post_iqc">
     <input type="file" name="invoice" accept="application/pdf,.pdf" class="form-control form-control-sm" style="min-width:260px" required>
     <button type="submit" class="btn btn-primary btn-sm text-nowrap"><i class="bi bi-cloud-upload me-1"></i>Upload Invoice</button>
+    {# Entering a GRN by hand covers the case the upload path cannot: goods that
+       arrive without a PDF invoice, or one that will follow later. #}
+    <button type="button" class="btn btn-outline-primary btn-sm text-nowrap"
+            data-bs-toggle="modal" data-bs-target="#addGrnModal">
+      <i class="bi bi-plus-circle me-1"></i>Add GRN
+    </button>
   </form>
 </div>
 
@@ -206,6 +212,61 @@
     </div>
   </div>
 </form>
+
+<!-- Add GRN modal — same fields as Edit GRN, minus GRN Number and Lot Number:
+     the GRN number is generated server-side, and the lot is assigned later by
+     mapping the GRN onto tags. -->
+<div class="modal fade" id="addGrnModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <form method="post" action="/grn/create-manual" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="source" value="post_iqc">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Add GRN</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-info py-2 small no-autohide">
+          <i class="bi bi-info-circle me-1"></i>A 12-digit GRN number is generated on save.
+        </div>
+        <div class="row g-2">
+          <div class="col-md-4"><label class="form-label fw-semibold">Vendor Name</label>
+            <input type="text" name="sender_name" class="form-control"></div>
+          <div class="col-md-4"><label class="form-label fw-semibold">Date of Invoice</label>
+            <input type="date" name="invoice_date" class="form-control"></div>
+          <div class="col-md-4"><label class="form-label fw-semibold">Purchase Date</label>
+            <input type="date" name="purchase_date" class="form-control"></div>
+        </div>
+        <div class="row g-2 mt-1">
+          <div class="col-md-4"><label class="form-label fw-semibold">GRN Date</label>
+            <input type="date" name="grn_date" class="form-control"></div>
+          <div class="col-md-4"><label class="form-label fw-semibold">Invoice Number</label>
+            <input type="text" name="invoice_number" class="form-control"></div>
+          <div class="col-md-4"><label class="form-label fw-semibold">Invoice Price</label>
+            <input type="text" name="amount" class="form-control"></div>
+        </div>
+        <div class="row g-2 mt-1">
+          <div class="col-md-4"><label class="form-label fw-semibold">Invoice Quantity</label>
+            <input type="number" name="quantity" class="form-control" min="0"></div>
+          <div class="col-md-4"><label class="form-label fw-semibold">PO Number</label>
+            <input type="text" name="po_number" class="form-control"></div>
+          <div class="col-md-4"><label class="form-label fw-semibold">Vehicle Number</label>
+            <input type="text" name="vehicle_number" class="form-control"></div>
+        </div>
+        <div class="row g-2 mt-1">
+          <div class="col-md-4"><label class="form-label fw-semibold">E-Way Bill Number</label>
+            <input type="text" name="e_way_bill" class="form-control"></div>
+        </div>
+        <div class="mb-2 mt-2"><label class="form-label fw-semibold">Notes</label>
+          <textarea name="notes" class="form-control" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Create GRN</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <!-- Edit GRN modal -->
 <div class="modal fade" id="editGrnModal" tabindex="-1" aria-hidden="true">

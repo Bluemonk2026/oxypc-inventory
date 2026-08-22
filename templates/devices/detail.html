@@ -183,7 +183,7 @@
       <div class="card-body p-0">
         <table class="table table-sm mb-0 align-middle">
           <thead class="table-light">
-            <tr><th class="ps-3">Part Name</th><th>Required</th><th>Stock Status</th><th>Action</th></tr>
+            <tr><th class="ps-3">Part Name</th><th>Required</th><th>Stock Status</th><th>Mark As</th><th>Action</th></tr>
           </thead>
           <tbody>
             {% set _eng = True %}{# Parts Consumption actions visible to all roles #}
@@ -206,6 +206,21 @@
                 {% elif not p.matched %}<span class="badge bg-secondary" title="No Part Master entry with this name or category">&mdash; no match</span>
                 {% elif p.in_stock %}<span class="badge bg-success">In Stock &times;{{ p.stock_qty }}</span>
                 {% else %}<span class="badge bg-danger">Out of Stock</span>{% endif %}
+              </td>
+              {# PNA = Part Not Available. Marked per tag, independent of any
+                 request, because the usual case is a part nobody can source so
+                 no request was ever raised. Counted back on the L1/L2 and L3/L4
+                 queues. #}
+              <td>
+                <div class="form-check mb-0">
+                  <input class="form-check-input pna-cb" type="checkbox"
+                         id="pna_{{ loop.index }}"
+                         data-part-name="{{ p.label | e }}"
+                         data-part-category="{{ p.category | e }}"
+                         data-part-id="{{ p.part_id or '' }}"
+                         {% if p.label in pna_parts %}checked{% endif %}>
+                  <label class="form-check-label small" for="pna_{{ loop.index }}">PNA</label>
+                </div>
               </td>
               <td>
                 {% set r = p.request %}
@@ -624,6 +639,37 @@
       </div>
     </div>
     <script>
+      // ── Mark As → PNA ────────────────────────────────────────────────────
+      // Saved per checkbox rather than behind a Save button: an engineer ticks
+      // one part and walks away, and a pending unsaved tick would silently lose
+      // the mark the L1/L2 and L3/L4 queues depend on.
+      document.querySelectorAll('.pna-cb').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+          var body = new URLSearchParams();
+          body.append('csrf_token', "{{ request.cookies.get('csrf_token','') }}");
+          body.append('part_name', cb.dataset.partName || '');
+          body.append('part_category', cb.dataset.partCategory || '');
+          body.append('part_id', cb.dataset.partId || '');
+          body.append('marked', cb.checked ? '1' : '0');
+          body.append('source', 'parts_consumption');
+          cb.disabled = true;
+          fetch('/devices/{{ device.barcode }}/pna', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: body
+          })
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            if (!d || !d.ok) throw new Error((d && d.error) || 'save failed');
+          })
+          .catch(function(e) {
+            cb.checked = !cb.checked;          // put the tick back where it was
+            alert('Could not save the PNA mark: ' + e.message);
+          })
+          .finally(function() { cb.disabled = false; });
+        });
+      });
+
       function dgUniq(a) { return Array.from(new Set(a)); }
       function dgFill(sel, values, keepFirst) {
         var cur = sel.value;

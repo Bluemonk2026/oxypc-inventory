@@ -27,6 +27,7 @@ from services.notifications import create_notification
 from models.spare_parts import SparePartConsumption as SPC, SparePart
 from models.work_order import WorkOrder
 from models.part_request import PartRequest
+from models.pna_part import DevicePNAPart
 from models.iqc_inspection import IQCInspection
 from models.bucket import Bucket
 from services.parts_required import compute_required
@@ -491,8 +492,40 @@ async def l3l4_list(request: Request,
         "request": request, "current_user": current_user,
         "items": items, "total": len(items),
         "available_parts": available_parts,
+        "pna_map": await _pna_map(db, [it["device_id"] for it in items]),
     })
 
+
+
+async def _pna_map(db, device_ids):
+    """{device_id: [part names marked PNA]} for the given tags.
+
+    One query for the whole page rather than one per row — the L1/L2 and L3/L4
+    queues routinely list a few hundred tags, and a per-row lookup is the kind
+    of N+1 that only shows up in production against the Seoul database.
+    """
+    if not device_ids:
+        return {}
+    # Callers pass UUIDs (L1/L2) or their string form (L3/L4 builds plain dicts),
+    # so normalise rather than relying on the driver to coerce.
+    ids = []
+    for did in device_ids:
+        try:
+            ids.append(did if isinstance(did, uuid_module.UUID) else uuid_module.UUID(str(did)))
+        except (ValueError, AttributeError, TypeError):
+            continue
+    if not ids:
+        return {}
+    rows = (await db.execute(
+        select(DevicePNAPart.device_id, DevicePNAPart.part_name)
+        .where(DevicePNAPart.device_id.in_(ids),
+               DevicePNAPart.is_active.is_(True))
+        .order_by(DevicePNAPart.part_name)
+    )).all()
+    out = {}
+    for did, name in rows:
+        out.setdefault(str(did), []).append(name)
+    return out
 
 @router.post("/l3l4-start")
 async def l3l4_start(
@@ -895,6 +928,7 @@ async def repair_list(stage: str, request: Request,
         "parts_alert_map": parts_alert_map,
         "parts_required_map": parts_required_map,
         "parts_requested_map": parts_requested_map,
+        "pna_map": await _pna_map(db, device_ids),
         "bulk_parts": bulk_parts,
         # Feeds the Bulk Part Request modals' Name -> Make -> Model cascade,
         # the same shape Device Detail passes to its own request modals.

@@ -21,6 +21,7 @@ from models.spare_parts import SparePartConsumption, SparePart
 from models.location import DeviceLocationLog, StorageLocation, LocationAction, UNIT_TYPE_LABELS, ZONE_LABELS
 from models.iqc_inspection import IQCInspection
 from models.part_request import PartRequest
+from models.pna_part import DevicePNAPart
 from models.work_order import WorkOrder
 from models.engines import DeviceCosting
 from models.sales import Sale
@@ -1011,6 +1012,12 @@ async def device_detail(
     # ── Parts Consumption (#10): fixed parts list, IQC-driven Required flag,
     #    live stock status, and any existing engineer part-request state. ───────
     required_rows = compute_required(iqc_inspection, device)
+    pna_parts = set((await db.execute(
+        select(DevicePNAPart.part_name).where(
+            DevicePNAPart.device_id == device.id,
+            DevicePNAPart.is_active.is_(True),
+        )
+    )).scalars().all())
     pr_rows = (await db.execute(
         select(PartRequest).where(PartRequest.device_id == device.id)
         .order_by(PartRequest.created_at.desc())
@@ -1203,6 +1210,9 @@ async def device_detail(
         "iqc_inspection": iqc_inspection,
         "stress_data": stress_data,
         "parts_consumption": parts_consumption,
+        # Part names currently marked PNA for this tag — drives the
+        # "Mark As" checkboxes and the counts on the L1/L2 + L3/L4 queues.
+        "pna_parts": pna_parts,
         "changed_parts_consumed": changed_parts_consumed,
         "total_changed_parts_cost": total_changed_parts_cost,
         "all_spare_parts": all_spare_parts,

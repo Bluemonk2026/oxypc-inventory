@@ -22,22 +22,39 @@
   <!-- Devices in L1/L2 -->
   <div style="flex:1 1 100%; width:100%; min-width:0;">
     <div class="card border-0 shadow-sm">
-      <div class="card-header bg-transparent fw-semibold">Devices in L1/L2 ({{ devices|length }})</div>
+      <div class="card-header bg-transparent d-flex align-items-center justify-content-between">
+        <span class="fw-semibold">Devices in L1/L2 ({{ devices|length }})</span>
+        <div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" id="onlyPnaL1">
+          <label class="form-check-label small" for="onlyPnaL1">Only show PNA</label>
+        </div>
+      </div>
       <div class="card-body p-0">
         <div class="table-responsive">
           <table id="l1Table" class="table table-hover mb-0 small">
             <thead class="table-dark">
-              <tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Parts Required</th><th>Parts Requested</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>L3/L4 Status</th><th>Action</th></tr>
+              <tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Parts Required</th><th>Parts Requested</th><th>PNA Parts</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>L3/L4 Status</th><th>Action</th></tr>
             </thead>
             <tbody>
               {% for device, lot_number in devices %}
               {% set wo = work_map.get(device.id|string) if work_map is defined else None %}
-              <tr>
+              <tr data-pna="{{ (pna_map.get(device.id|string, []) | length) if pna_map is defined else 0 }}">
                 <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
                 <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a></td>
                 <td>{% set bkt = bucket_map.get(device.id|string) if bucket_map is defined else None %}{% if bkt %}<span class="badge bg-warning text-dark font-monospace">{{ bkt }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                 <td class="text-center">{% set pr = parts_required_map.get(device.id|string, 0) if parts_required_map is defined else 0 %}<span class="badge bg-{{ 'warning text-dark' if pr else 'light text-muted border' }}">{{ pr }}</span></td>
                 <td class="text-center">{% set pq = parts_requested_map.get(device.id|string, 0) if parts_requested_map is defined else 0 %}<span class="badge bg-{{ 'primary' if pq else 'light text-muted border' }}">{{ pq }}</span></td>
+                {# PNA count for this tag — Parts Consumption marks plus any
+                   raised on the L3/L4 board. Hover lists the actual parts, so
+                   a supervisor does not have to open the tag to see what is
+                   stuck. #}
+                <td class="text-center">
+                  {% set pna = pna_map.get(device.id|string, []) if pna_map is defined else [] %}
+                  {% if pna %}
+                  <span class="badge bg-danger" data-bs-toggle="tooltip" data-bs-placement="top"
+                        title="{{ pna | join(', ') }}">{{ pna | length }}</span>
+                  {% else %}<span class="badge bg-light text-muted border">0</span>{% endif %}
+                </td>
                 <td class="text-muted">{{ device.repair_notes or '—' }}</td>
                 <td>{% if wo %}<span class="badge bg-{{ 'danger' if wo.days_pending >= 3 else ('warning text-dark' if wo.days_pending >= 1 else 'secondary') }}">{{ wo.days_pending }} day{{ 's' if wo.days_pending != 1 else '' }}</span>{% if wo.paused %}<span class="badge bg-secondary ms-1" title="Frozen — a required part is out of stock"><i class="bi bi-pause-fill"></i> Paused</span>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
                 <td>
@@ -230,7 +247,24 @@
 {% endblock %}
 {% block scripts %}
 <script>
-$(document).ready(function(){ $('#l1Table').DataTable({}); });
+$(document).ready(function(){
+  var dt = $('#l1Table').DataTable({});
+
+  // "Only show PNA" — a DataTables search hook rather than row.hide(), so the
+  // filter survives paging and sorting instead of only affecting page 1.
+  $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
+    if (settings.nTable.id !== 'l1Table') return true;
+    if (!$('#onlyPnaL1').prop('checked')) return true;
+    var tr = settings.aoData[dataIndex].nTr;
+    return parseInt(tr && tr.getAttribute('data-pna') || '0', 10) > 0;
+  });
+  $('#onlyPnaL1').on('change', function(){ dt.draw(); });
+
+  // Bootstrap tooltips are opt-in; the PNA badge lists its parts on hover.
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {
+    new bootstrap.Tooltip(el);
+  });
+});
 
 // Bulk Part Request — opens the same Name -> Make -> Model modal as Device
 // Detail, then raises one request per tag in the queue that needs the part.

@@ -636,6 +636,88 @@ async def grn_delete(
     return RedirectResponse(url=f"{base}?success=GRN+{g.grn_number}+deleted", status_code=302)
 
 
+@router.post("/create-manual")
+async def grn_create_manual(
+    request: Request,
+    sender_name: str = Form(""), invoice_number: str = Form(""),
+    invoice_date: str = Form(""), purchase_date: str = Form(""),
+    grn_date: str = Form(""), amount: str = Form(""), quantity: str = Form(""),
+    po_number: str = Form(""), vehicle_number: str = Form(""),
+    e_way_bill: str = Form(""), notes: str = Form(""),
+    source: str = Form("post_iqc"),
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(allowed),
+):
+    """Create a GRN by hand, with no invoice PDF.
+
+    Covers goods that arrive without an invoice, or whose invoice follows
+    later — the upload path cannot express that, since it requires a file.
+    The GRN number is generated server-side by the same allocator the upload
+    path uses, and the lot is left unmapped: mapping happens afterwards, on the
+    tag list below, exactly as it does for an uploaded GRN.
+    """
+    from datetime import date as _date
+    from urllib.parse import quote
+
+    base = "/grn/post-iqc" if source == "post_iqc" else "/grn"
+
+    # Same duplicate rule as the upload path: the invoice number is the real
+    # business key, so refuse a second GRN for one that already exists rather
+    # than letting the same goods be received twice.
+    inv_no = (invoice_number or "").strip()
+    if inv_no:
+        same_grn = (await db.execute(
+            select(GRNImport.grn_number).where(GRNImport.invoice_number == inv_no,
+                                               GRNImport.is_deleted == False)
+        )).scalar_one_or_none()
+        if same_grn:
+            return RedirectResponse(
+                url=f"{base}?error=" + quote(
+                    f"Invoice number {inv_no} already exists as GRN {same_grn}."),
+                status_code=302)
+
+    def _int(v):
+        try:
+            return int(v) if v else None
+        except ValueError:
+            return None
+
+    def _dec(v):
+        try:
+            return Decimal(v.replace(",", "")) if v else None
+        except Exception:
+            return None
+
+    def _date_or_none(v):
+        try:
+            return _date.fromisoformat(v) if v else None
+        except ValueError:
+            return None
+
+    grn_number = await _next_grn_12(db)
+    db.add(GRNImport(
+        grn_number=grn_number,
+        invoice_number=inv_no or None,
+        invoice_date=invoice_date or None,
+        sender_name=sender_name or None,
+        quantity=_int(quantity), amount=_dec(amount),
+        purchase_date=_date_or_none(purchase_date),
+        grn_date=_date_or_none(grn_date),
+        po_number=po_number or None,
+        vehicle_number=vehicle_number or None,
+        e_way_bill=e_way_bill or None,
+        notes=notes or None,
+        source=("post_iqc" if source == "post_iqc" else "invoice"),
+        created_by=current_user.username,
+    ))
+    await audit(db, user=current_user, action="GRN_CREATED_MANUAL",
+                table_name="grn_imports", record_id=grn_number,
+                new_value={"grn_number": grn_number, "invoice_number": inv_no or None,
+                           "vendor": sender_name or None},
+                request=request)
+    await db.commit()
+    return RedirectResponse(url=f"{base}?success=GRN+{grn_number}+created", status_code=302)
+
+
 @router.post("/{grn_id}/edit")
 async def grn_edit(
     grn_id: str, request: Request,

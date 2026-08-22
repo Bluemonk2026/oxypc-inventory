@@ -141,12 +141,29 @@ MASTER_SEED = {
     "location_unit_type": [
         "Rack", "Crate", "Shelf", "Trolley", "Cabinet", "Floor Space",
     ],
+    # ── Spare Part Names — the consolidated shop-floor part list. Order here is
+    #    the order it shows on the IQC/repair forms: MAIN PARTS first, then
+    #    ADDITIONAL PARTS. Renames already applied (Panel<-Display Panel,
+    #    Screen<-Display, Camera<-Web Cam, DC Jack<-Charging Port,
+    #    LAN Port<-Ethernet Port, Logic Card<-Touchpad, Wi-Fi Card<-Wi-Fi,
+    #    Touchpad Cover<-Palm rest). Desktop-only items (DVD Drive, DVD Drive
+    #    Cover) stay in the master list; visibility by tag type is a form
+    #    concern, not a master-data one. ─────────────────────────────────────
     "part_category": [
-        "RAM", "SSD", "HDD", "Battery", "Display", "Keyboard", "Charger / Adapter",
-        "Motherboard", "Fan / Cooling", "Hinge", "Casing / Chassis", "Touchpad",
-        "Webcam", "Wi-Fi Card", "Speaker", "Power Jack", "Cable / Connector",
-        "Heat Sink", "CMOS Battery", "DVD Drive",
+        # MAIN PARTS
+        "RAM", "Hard Drive", "Bezel", "Panel", "Screen", "Hinge", "Bottom Base",
+        "Keyboard", "Internal Battery", "External Battery", "Camera", "DC Jack",
+        "LAN Port", "USB Port", "HDMI Port", "Audio Jack", "Speaker",
+        "Fan Working", "Motherboard", "Logic Card", "Wi-Fi Card", "DVD Drive",
+        # ADDITIONAL PARTS
+        "RAM Cover", "DVD Drive Cover", "Hinge Cover", "Hard Drive Cover",
+        "HDD Connector", "Touchpad Cover", "Touchpad Cable", "Camera Cable",
+        "Battery Cable",
     ],
+    # Seeded empty on purpose — brands are supplier-specific and get added by
+    # the store manager from Dropdown Configuration rather than shipped as
+    # defaults nobody buys from.
+    "spare_part_brand": [],
     "supplier": [
         "ABC Traders", "XYZ Electronics", "Local Market", "Online Purchase",
         "Direct Brand", "Government Surplus", "Corporate Buyback",

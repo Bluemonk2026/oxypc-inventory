@@ -33,11 +33,16 @@ ACCORDION_SECTIONS = [
     {
         "id": "repair", "label": "Repair & QC", "icon": "bi-tools",
         "cat_keys": [
+            # The three parts lists sit together at the top of the section —
+            # they are edited as a set (brand + name + category) whenever the
+            # store adds a part, so splitting them across the accordion meant
+            # scrolling past a dozen repair-issue lists between each edit.
+            "spare_part_brand", "part_category", "iqc_part_category",
             "l34_activity", "l1_issue", "l2_issue", "l3_issue", "repair_issue",
-            "repair_resolution", "part_category", "qc_check_item",
+            "repair_resolution", "qc_check_item",
             "repair_action_taken", "repair_received_from", "repair_scrap_reason",
             "repair_source_type", "qc_failure_reason", "cosmetic_final_qc_status",
-            "iqc_r2v3_grade_category", "iqc_part_category",
+            "iqc_r2v3_grade_category",
         ],
     },
     {
@@ -268,7 +273,8 @@ CATEGORIES = [
     ("l3_issue",            "L3 Repair Issues",             "repair"),
     ("repair_issue",        "General Repair Issues",        "repair"),
     ("repair_resolution",   "Repair Resolutions",           "repair"),
-    ("part_category",       "Spare Parts Categories",       "repair"),
+    ("spare_part_brand",    "Spare Part Brands",            "repair"),
+    ("part_category",       "Spare Part Names",             "repair"),
     ("qc_check_item",       "QC Check Items",               "repair"),
     ("repair_action_taken", "Repair L3: Action Taken",      "repair"),
     ("repair_received_from","Repair L3: Received From",     "repair"),

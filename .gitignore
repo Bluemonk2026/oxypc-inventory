@@ -121,4 +121,5 @@ _db_fingerprint.py
 _id_dump.py
 _export_internal_only.py
 _check_masterdata_widths.py
+_sync_part_names.py
 ids_supabase.json

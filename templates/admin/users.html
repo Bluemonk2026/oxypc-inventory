@@ -64,9 +64,12 @@
             {% if user.id != current_user.id %}
             {# Soft-delete only — sets status=False, same as unchecking "Account
                Active" on Edit. Never a hard row delete: login history and
-               audit logs referencing this user stay intact. #}
-            <form method="post" action="/admin/users/{{ user.id }}/delete" class="d-inline"
-                  onsubmit="return confirm('Delete {{ user.username }}? This deactivates the account — it can be re-enabled from Edit.');">
+               audit logs referencing this user stay intact.
+               data-uname (not a Jinja value spliced into a JS string
+               literal) so a username containing an apostrophe can't break
+               out of the confirm() string and silently no-op the button. #}
+            <form method="post" action="/admin/users/{{ user.id }}/delete" class="d-inline user-delete-form"
+                  data-uname="{{ user.username }}">
               <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
               <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
             </form>
@@ -189,6 +192,18 @@
 {% block scripts %}
 <script>
 $(document).ready(function(){ $('#usersTable').DataTable({pageLength: 12}); });
+// Delegated (not bound at page load) so it still fires after DataTables
+// repaginates/redraws the table — same reasoning as the reset-password
+// modal's data-* handoff just below, and the confirm() text is built from
+// .dataset rather than spliced into an inline onsubmit string, so a
+// username containing an apostrophe can't break out of a JS string literal
+// and silently swallow the click.
+$(document).on('submit', '.user-delete-form', function (e) {
+  const uname = this.dataset.uname || 'this user';
+  if (!confirm('Delete ' + uname + '? This deactivates the account — it can be re-enabled from Edit.')) {
+    e.preventDefault();
+  }
+});
 document.getElementById('resetModal').addEventListener('show.bs.modal', function(e) {
   const btn = e.relatedTarget;
   document.getElementById('resetForm').action = '/admin/users/' + btn.dataset.uid + '/reset-password';

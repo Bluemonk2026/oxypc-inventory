@@ -379,23 +379,29 @@ async def rename_bucket(
 
 
 async def _move_bucket_devices_to_trc(db: AsyncSession, bucket: Bucket, username: str) -> int:
-    """Move every active device in a bucket to DeviceStage.trc_production and
-    write the StageMovement audit row for each.
+    """Move every active Stock In device in a bucket to DeviceStage.trc_production
+    and write the StageMovement audit row for each.
 
     Shared by both routes that hand a bucket to Production, so the two cannot
     drift: /assign-to-production (Stock Inward Movement) and /move-to-trc
-    (Inventory Manager's "Move to Production"). Devices already at
-    trc_production are skipped rather than re-stamped.
+    (Inventory Manager's "Move to Production").
+
+    Scoped to current_stage == stock_in on purpose: a bucket_number is reused
+    across unrelated intakes over time, and without this filter, assigning a
+    bucket to production here swept up every device that had EVER shared that
+    bucket_id — including ones long since sold, scrapped, or mid-repair from a
+    previous batch — and yanked them back to trc_production. Reported as
+    "old mapped tags" getting reset when a bucket picked fresh on the Final QC
+    page happened to be one reused from an earlier intake.
     """
     devices = (await db.execute(
-        select(Device).where(Device.bucket_id == bucket.id, Device.is_active == True)
+        select(Device).where(Device.bucket_id == bucket.id, Device.is_active == True,
+                             Device.current_stage == DeviceStage.stock_in)
     )).scalars().all()
 
     moved = 0
     for device in devices:
         prev_stage = device.current_stage
-        if prev_stage == DeviceStage.trc_production:
-            continue
         prev_mv = (await db.execute(
             select(StageMovement).where(
                 StageMovement.device_id == device.id,
@@ -709,7 +715,7 @@ async def assign_bucket_to_production(
     bucket.updated_at = app_now()
 
     await db.commit()
-    return JSONResponse({"ok": True, "assigned": len(devices)})
+    return JSONResponse({"ok": True, "assigned": moved})
 
 
 @router.post("/buckets/{bucket_id}/release")

@@ -398,6 +398,13 @@ async def advance_stage(
         )
 
     prev = current
+    # A device arriving at Final QC releases any bucket it still carries from
+    # an earlier stage (e.g. a Stock In bucket never explicitly released) — a
+    # stale bucket_id here is how an unrelated old tag sharing that reused
+    # bucket number ended up swept into a later bulk bucket action against it.
+    # Final QC's own Bucket dropdown starts every arriving device clean.
+    if next_stage == DeviceStage.final_qc:
+        device.bucket_id = None
     device.current_stage = next_stage
     device.updated_at = app_now()
     movement = StageMovement(

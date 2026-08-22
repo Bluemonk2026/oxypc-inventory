@@ -828,13 +828,24 @@ async def stock_in_data(
     # Column 3 is Location ID (inserted after Lot) — every index from Brand
     # onward shifts by one to make room for it. RAM/Storage columns were
     # removed from the table entirely, so Grade moved from 9 to 7.
+    # Column 9 (Assigned User) sorts by the same timestamp that badge is
+    # actually derived from — the latest StockTransfer.transfer_date with a
+    # department set — so "Date Assigned" is a real value, not a stand-in
+    # like Device.updated_at, which also moves on edits that have nothing to
+    # do with assignment.
+    latest_assigned_at = (
+        select(func.max(StockTransfer.transfer_date))
+        .where(StockTransfer.device_id == Device.id, StockTransfer.department.isnot(None))
+        .correlate(Device)
+        .scalar_subquery()
+    )
     col_map = {1: Device.barcode, 2: Lot.lot_number, 4: Device.brand, 5: Device.model,
-               6: Device.device_type, 7: Device.grade}
+               6: Device.device_type, 7: Device.grade, 9: latest_assigned_at}
     try:
-        order_col = int(request.query_params.get("order[0][column]", 0))
+        order_col = int(request.query_params.get("order[0][column]", 9))
     except ValueError:
-        order_col = 0
-    order_dir = request.query_params.get("order[0][dir]", "asc")
+        order_col = 9
+    order_dir = request.query_params.get("order[0][dir]", "desc")
     sort_expr = col_map.get(order_col, Device.updated_at)
     order_by = _asc(sort_expr) if order_dir == "asc" else _desc(sort_expr)
 

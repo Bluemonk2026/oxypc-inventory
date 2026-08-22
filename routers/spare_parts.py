@@ -77,7 +77,16 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     parts  = result.scalars().all()
 
     # "Consumed" per part — the same Qty Handover figure the Part Requests and
-    # Faulty Request tables below print, summed per part.
+    # Faulty Request tables below print, summed per part NAME rather than per
+    # part_id. Part Master accumulates several rows sharing one name across
+    # repeated harvest/bulk uploads (e.g. four separate "RAM" rows, each its
+    # own part_code), and a request is only ever tied to whichever specific
+    # row happened to be picked at handover time — so grouping by part_id
+    # showed each duplicate row only its own slice instead of the true total
+    # for that part, e.g. 1 instead of 3 for one "RAM" row when the other
+    # three "RAM" rows' handovers are what everyone actually means by
+    # "how much RAM has been consumed". Same resolution stock_by_name below
+    # already uses for Qty Available, for exactly the same reason.
     #
     # Deliberately NOT filtered on status == "handed_over". Once an engineer
     # confirms receipt the row moves to "received" while still showing its
@@ -86,14 +95,19 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     # inflated In Stock by the same amount. Both request types are included
     # because faulty requests are the same table under request_type="faulty".
     consumed_rows = (await db.execute(
-        select(PartRequest.part_id, func.sum(PartRequest.qty_handed_over))
-        .where(PartRequest.part_id.isnot(None))
-        .group_by(PartRequest.part_id)
+        select(PartRequest.part_name, func.sum(PartRequest.qty_handed_over))
+        .group_by(PartRequest.part_name)
     )).all()
-    consumed_by_part = {str(pid): int(total or 0) for pid, total in consumed_rows}
-    # Sum of the Consumed column across every Part Master row — what the
-    # "Consumed" tile now shows, replacing the old this-month-only count.
-    total_consumed = sum(consumed_by_part.values())
+    consumed_by_name = {
+        (name or "").strip().lower(): int(total or 0) for name, total in consumed_rows
+    }
+    consumed_by_part = {
+        str(p.id): consumed_by_name.get((p.name or "").strip().lower(), 0) for p in parts
+    }
+    # Sum of every distinct part NAME's consumed total — not
+    # sum(consumed_by_part.values()), which would count a name's total once
+    # per duplicate Part Master row sharing it and inflate the tile.
+    total_consumed = sum(consumed_by_name.values())
 
     # "Sold" per part — Requested Quantity on every APPROVED row of Parts Sale
     # Request. Approval is what commits the stock, so it reserves the quantity

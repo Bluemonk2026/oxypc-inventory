@@ -48,14 +48,21 @@ def _as_uuid(v):
 
 
 async def _consumed_map(db: AsyncSession) -> dict:
-    """qty handed over per part — the same 'consumed' figure Part Master shows."""
+    """qty handed over per part — the same 'consumed' figure Part Master shows:
+    every handover regardless of status (a row still shows its handover qty
+    after moving on to "received"), pooled by part NAME rather than part_id
+    (a name spans several Part Master rows added across separate
+    harvest/bulk uploads, and a request is only ever tied to whichever one
+    was picked at handover time — see routers/spare_parts.py's parts_list
+    for the full reasoning). Keyed by part_id for the caller's convenience,
+    same as spare_parts.py's own consumed_by_part."""
     rows = (await db.execute(
-        select(PartRequest.part_id,
-               func.coalesce(func.sum(PartRequest.qty_handed_over), 0))
-        .where(PartRequest.status == "handed_over", PartRequest.part_id.isnot(None))
-        .group_by(PartRequest.part_id)
+        select(PartRequest.part_name, func.coalesce(func.sum(PartRequest.qty_handed_over), 0))
+        .group_by(PartRequest.part_name)
     )).all()
-    return {str(pid): int(q or 0) for pid, q in rows}
+    by_name = {(name or "").strip().lower(): int(q or 0) for name, q in rows}
+    parts = (await db.execute(select(SparePart.id, SparePart.name))).all()
+    return {str(pid): by_name.get((name or "").strip().lower(), 0) for pid, name in parts}
 
 
 def _stock_of(part, consumed_map) -> int:
@@ -97,7 +104,11 @@ async def _ready_parts_rows(db: AsyncSession):
             # actually asked for rather than only that a request exists.
             "requested_qty": (lr.qty_requested if lr else None),
         })
-    return rows
+    # Ready to Sale Parts only lists parts actually available to sell — a row
+    # whose real stock (In Stock − Sold − Consumed) is 0 or negative has
+    # nothing left to raise a request or sell against, so it drops off the
+    # table entirely rather than sitting there disabled.
+    return [r for r in rows if r["stock"] > 0]
 
 
 @router.get("/ready-to-sale-parts", response_class=HTMLResponse)

@@ -131,3 +131,4 @@ _map_audit.py
 _dt_probe.py
 _part_diff.py
 _consumed_probe.py
+_rename_part_names.py

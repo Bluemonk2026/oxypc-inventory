@@ -4,7 +4,9 @@ Damage filter now offering Yes instead of No.
 import io
 import pytest
 
-from services.parts_required import compute_required, DESKTOP_ONLY, _is_desktop
+from services.parts_required import (
+    compute_required, DESKTOP_ONLY, PARTS_MATRIX, _is_desktop,
+)
 from tests.test_iqc_new_user import _login, make_user  # noqa: F401  (fixture)
 
 
@@ -35,7 +37,8 @@ def test_desktop_tags_keep_the_optical_rows(device_type):
 def test_non_desktop_tags_drop_the_optical_rows(device_type):
     labels = _labels(device_type)
     assert not (DESKTOP_ONLY & set(labels))
-    assert len(labels) == 29
+    # Derived, not hardcoded — the parts list grows as names are added.
+    assert len(labels) == len(PARTS_MATRIX) - len(DESKTOP_ONLY)
 
 
 @pytest.mark.parametrize("device_type", [None, "", "   "])

@@ -124,7 +124,11 @@ PARTS_MATRIX = [
     ("Speaker",           "Other",      "speaker",  lambda i, d: _faulty(i.speaker_status) or _is_sentinel(i.speaker_status), MAIN),
     ("Fan Working",       "Fan",        "fan",      lambda i, d: _is(i.fan_working, "No") or _faulty(i.fan_working), MAIN),
     ("Motherboard",       "Motherboard", "motherboard", lambda i, d: _is(i.status, "No Display") or _is(i.power_on, "No"), MAIN),
-    ("Logic Card",        "Other",      "touchpad", lambda i, d: _is(i.touchpad_working, "No") or _is_unknown(i.touchpad_working)
+    # IQC asks "touchpad working / missing", so the rule belongs to the
+    # Touchpad. Logic Card and Click Button are the boards behind it — separate
+    # parts at separate prices, stocked alongside it on the same models, and
+    # not something the inspection distinguishes.
+    ("Touchpad",          "Other",      "touchpad", lambda i, d: _is(i.touchpad_working, "No") or _is_unknown(i.touchpad_working)
                           or _is(i.touchpad_missing, "Yes"), MAIN),
     ("Wi-Fi Card",        "Other",      "wifi",     lambda i, d: _faulty(i.wifi_status) or _is_sentinel(i.wifi_status), MAIN),
     ("DVD Drive",         "DVD Drive",  "dvd",      lambda i, d: _is(i.dvd_drive, "No") or _faulty(i.dvd_drive), MAIN),
@@ -144,6 +148,12 @@ PARTS_MATRIX = [
     ("Touchpad Cable",    "Other",      "touchpad cable",   lambda i, d: False, ADDITIONAL),
     ("Camera Cable",      "Other",      "camera cable",     lambda i, d: False, ADDITIONAL),
     ("Battery Cable",     "Other",      "battery cable",    lambda i, d: False, ADDITIONAL),
+    # Named by the floor during the Part Master reconciliation: "Click"/"Logic
+    # card/click" rows are the touchpad click plate, and "Battery Cover" had
+    # stock under a name the list did not carry. Neither is inspected at IQC.
+    ("Logic Card",        "Other",      "logic card",       lambda i, d: False, ADDITIONAL),
+    ("Click Button",      "Other",      "click button",     lambda i, d: False, ADDITIONAL),
+    ("Battery Cover",     "Body",       "battery cover",    lambda i, d: False, ADDITIONAL),
 ]
 
 # The list must stay in the order above - it is the order the floor strips a
@@ -176,7 +186,6 @@ LEGACY_LABELS = {
     "DC Jack":        ("Charging Port",),
     "LAN Port":       ("Ethernet Ports", "Ethernet Port"),
     "USB Port":       ("USB Ports", "USB ports"),
-    "Logic Card":     ("Touchpad",),
     "Wi-Fi Card":     ("Wi-Fi",),
     "Touchpad Cover": ("Palm rest",),
     # Shipped as "Bazel Frame" for one day before being renamed.

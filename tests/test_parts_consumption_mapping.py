@@ -23,11 +23,25 @@ def test_matrix_matches_the_master_seed_exactly():
     assert _labels(compute_required(None, None)) == MASTER_SEED["part_category"]
 
 
-def test_sections_split_twentytwo_and_nine():
+def test_sections_split_main_then_additional():
+    """22 MAIN is fixed by the floor's list; ADDITIONAL grows as names are
+    added, so it is asserted as a floor rather than an exact count."""
     rows = compute_required(None, None)
     assert [r["label"] for r in rows if r["section"] == MAIN][-1] == "DVD Drive"
     assert sum(1 for r in rows if r["section"] == MAIN) == 22
-    assert sum(1 for r in rows if r["section"] == ADDITIONAL) == 9
+    assert sum(1 for r in rows if r["section"] == ADDITIONAL) >= 9
+
+
+def test_reconciliation_names_are_in_the_list():
+    """Click Button and Battery Cover were named during the Part Master
+    reconciliation; Part Master rows are being renamed onto them, so a missing
+    entry here would strand that stock under a name the table cannot show."""
+    rows = compute_required(None, None)
+    by_label = {r["label"]: r for r in rows}
+    for name in ("Click Button", "Battery Cover"):
+        assert name in by_label, f"{name} missing from the parts list"
+        assert by_label[name]["section"] == ADDITIONAL
+        assert by_label[name]["required"] is False
 
 
 def test_adapter_is_gone():
@@ -73,7 +87,7 @@ def test_extras_are_off_by_default():
 @pytest.mark.parametrize("old,new", [
     ("Display Panel", "Panel"), ("Display", "Screen"), ("Web Cam", "Camera"),
     ("Charging Port", "DC Jack"), ("Ethernet Ports", "LAN Port"),
-    ("USB Ports", "USB Port"), ("Touchpad", "Logic Card"),
+    ("USB Ports", "USB Port"),
     ("Wi-Fi", "Wi-Fi Card"), ("Palm rest", "Touchpad Cover"),
 ])
 def test_every_rename_carries_a_legacy_alias(old, new):
@@ -128,3 +142,21 @@ def test_device_detail_renders_both_section_headings(app_client, make_user):  # 
     assert html.index("MAIN PARTS") < html.index("ADDITIONAL PARTS")
     for label in ("Logic Card", "Wi-Fi Card", "DC Jack", "Touchpad Cover", "Battery Cable"):
         assert label in html, f"{label} missing from Parts Consumption"
+
+
+
+def test_touchpad_is_its_own_part_again():
+    """Touchpad, Logic Card and Click Button are three parts, not one renamed
+    three ways: Part Master stocks them side by side on the same models at
+    2-4x price differences. Touchpad must NOT be an alias of Logic Card, or a
+    single request would match two rows."""
+    rows = compute_required(None, None)
+    labels = {r["label"]: r for r in rows}
+    for name in ("Touchpad", "Logic Card", "Click Button"):
+        assert name in labels, f"{name} missing"
+    assert labels["Touchpad"]["section"] == MAIN
+    assert labels["Logic Card"]["section"] == ADDITIONAL
+    assert labels["Click Button"]["section"] == ADDITIONAL
+    assert "Touchpad" not in LEGACY_LABELS.get("Logic Card", ())
+    # The IQC touchpad fields drive the Touchpad row, not the boards behind it.
+    assert labels["Logic Card"]["required"] is False

@@ -239,12 +239,21 @@ async def grn_create(
             select(SparePart).where(SparePart.part_code == part_id)
         )).scalar_one_or_none()
         sp_min_alert = _i(item.get("min_stock_alert"))
+        sp_make = _f(item.get("part_brand"))
+        sp_model = _f(item.get("part_model"))
         if existing_part:
             existing_part.qty_in_stock = int(existing_part.qty_in_stock or 0) + sp_qty
             if sp_price is not None:
                 existing_part.unit_price = float(sp_price)
             if sp_min_alert is not None:
                 existing_part.min_stock_alert = sp_min_alert
+            # Only overwrite when this line item actually carries a value —
+            # a restock line that leaves Make/Model blank must not blank out
+            # what an earlier GRN already recorded for this same part_code.
+            if sp_make:
+                existing_part.make = sp_make
+            if sp_model:
+                existing_part.model = sp_model
             existing_part.is_trashed = False
             existing_part.trashed_at = None
         else:
@@ -258,6 +267,8 @@ async def grn_create(
                 supplier=_f(item.get("vendor_name")) or grn.vendor_name,
                 notes=_f(item.get("product_description")),
                 source="new",
+                make=sp_make,
+                model=sp_model,
             ))
 
     await db.commit()
@@ -364,6 +375,8 @@ async def harvest_part(
         supplier="Internal",
         notes=_f(product_description),
         source="harvest",
+        make=_f(part_brand),
+        model=_f(part_model),
     ))
     await db.commit()
     await audit(db, action="HARVEST_PART_ADD", user=current_user,

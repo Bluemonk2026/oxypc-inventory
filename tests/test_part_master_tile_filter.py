@@ -82,6 +82,6 @@ def test_qty_available_unaffected_by_the_filter(app_client, make_user):  # noqa:
     src = inspect.getsource(sp.parts_list)
     # group_stock / part_stock / stock_by_name / part_meta must be built from
     # all_parts (the unfiltered universe), not the filtered `parts`.
-    block = src.split("def _group_key", 1)[1].split("# ── Pending part-sourcing", 1)[0]
+    block = src.split("Qty Available on the Part Requests", 1)[1].split("# ── Pending part-sourcing", 1)[0]
     assert "for p in all_parts" in block
     assert "for p in parts]" not in block and "for p in parts}" not in block

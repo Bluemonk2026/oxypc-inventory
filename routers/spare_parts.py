@@ -105,17 +105,34 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
 
     parts = [p for p in all_parts if _in_filter(p.category, p.name, p.created_at)]
 
+    # Grouping key for "the same physical part" — name+make+model, so a
+    # request for one laptop model's RAM doesn't get pooled in with an
+    # unrelated model's RAM just because Part Master happens to label both
+    # rows "RAM". Two blank make/model rows still match each other (neither
+    # field is mandatory on Part Master), which is deliberate: an
+    # undifferentiated part still pools with its own undifferentiated
+    # duplicates, it just never crosses into a differentiated one.
+    def _group_key(p):
+        return ((p.name or "").strip().lower(),
+                (p.make or "").strip().lower(),
+                (p.model or "").strip().lower())
+
     # "Consumed" per part — the same Qty Handover figure the Part Requests and
-    # Faulty Request tables below print, summed per part NAME rather than per
-    # part_id. Part Master accumulates several rows sharing one name across
-    # repeated harvest/bulk uploads (e.g. four separate "RAM" rows, each its
-    # own part_code), and a request is only ever tied to whichever specific
-    # row happened to be picked at handover time — so grouping by part_id
-    # showed each duplicate row only its own slice instead of the true total
-    # for that part, e.g. 1 instead of 3 for one "RAM" row when the other
-    # three "RAM" rows' handovers are what everyone actually means by
-    # "how much RAM has been consumed". Same resolution stock_by_name below
-    # already uses for Qty Available, for exactly the same reason.
+    # Faulty Request tables below print, summed per name+make+model group
+    # rather than per part_id. Part Master accumulates several rows sharing
+    # one name across repeated harvest/bulk uploads (e.g. four separate "RAM"
+    # rows, each its own part_code), and a request is only ever tied to
+    # whichever specific row happened to be picked at handover time — so
+    # grouping by part_id showed each duplicate row only its own slice instead
+    # of the true total for that part. Pooling by name ALONE over-corrected
+    # this: a "RAM" row for one Make/Model was picking up handovers booked
+    # against a completely different Make/Model's "RAM" row. Joining each
+    # request's resolved part_id back to its SparePart (routers/part_requests.py
+    # resolves a real part_id at request-creation time — see "BUG 3" there)
+    # gives the make/model actually consumed against; requests whose part_id
+    # never resolved to a live SparePart (deleted since, or predate that fix)
+    # fall back to a blank-make/model bucket of their own rather than being
+    # dropped or wrongly merged into a named group.
     #
     # Deliberately NOT filtered on status == "handed_over". Once an engineer
     # confirms receipt the row moves to "received" while still showing its
@@ -124,21 +141,26 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     # inflated In Stock by the same amount. Both request types are included
     # because faulty requests are the same table under request_type="faulty".
     consumed_rows = (await db.execute(
-        select(PartRequest.part_name, func.sum(PartRequest.qty_handed_over))
-        .group_by(PartRequest.part_name)
+        select(PartRequest.part_name, SparePart.make, SparePart.model,
+               func.sum(PartRequest.qty_handed_over))
+        .outerjoin(SparePart, PartRequest.part_id == SparePart.id)
+        .group_by(PartRequest.part_name, SparePart.make, SparePart.model)
     )).all()
-    consumed_by_name = {
-        (name or "").strip().lower(): int(total or 0) for name, total in consumed_rows
-    }
+    consumed_by_group: dict = {}
+    for name, make, model, total in consumed_rows:
+        key = ((name or "").strip().lower(),
+               (make or "").strip().lower(),
+               (model or "").strip().lower())
+        consumed_by_group[key] = consumed_by_group.get(key, 0) + int(total or 0)
     consumed_by_part = {
-        str(p.id): consumed_by_name.get((p.name or "").strip().lower(), 0) for p in all_parts
+        str(p.id): consumed_by_group.get(_group_key(p), 0) for p in all_parts
     }
-    # Sum of every distinct part NAME's consumed total among the FILTERED
-    # parts — not sum(consumed_by_part.values()) (would count a name's total
-    # once per duplicate Part Master row sharing it), and not every name in
-    # consumed_by_name (would ignore the Category/Part Name/Added filter).
-    _filtered_names = {(p.name or "").strip().lower() for p in parts if p.name}
-    total_consumed = sum(consumed_by_name.get(n, 0) for n in _filtered_names)
+    # Sum of every distinct name+make+model group's consumed total among the
+    # FILTERED parts — not sum(consumed_by_part.values()) (would count a
+    # group's total once per duplicate Part Master row sharing it), and not
+    # every group in consumed_by_group (would ignore the current filter).
+    _filtered_groups = {_group_key(p) for p in parts}
+    total_consumed = sum(consumed_by_group.get(g, 0) for g in _filtered_groups)
 
     # "Sold" per part — Requested Quantity on every APPROVED row of Parts Sale
     # Request. Approval is what commits the stock, so it reserves the quantity
@@ -270,12 +292,8 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     # Built from all_parts (not the filtered `parts`) — Qty Available has to
     # answer correctly for every request regardless of what the Category/Part
     # Name filter currently shows, or a filtered-out part's own request rows
-    # would read as having zero stock.
-    def _group_key(p):
-        return ((p.name or "").strip().lower(),
-                (p.make or "").strip().lower(),
-                (p.model or "").strip().lower())
-
+    # would read as having zero stock. (_group_key defined earlier, above the
+    # Consumed calculation, which needs the same name+make+model grouping.)
     group_stock: dict = {}
     for p in all_parts:
         group_stock[_group_key(p)] = group_stock.get(_group_key(p), 0) + _live(p)

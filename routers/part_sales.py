@@ -50,19 +50,31 @@ def _as_uuid(v):
 async def _consumed_map(db: AsyncSession) -> dict:
     """qty handed over per part — the same 'consumed' figure Part Master shows:
     every handover regardless of status (a row still shows its handover qty
-    after moving on to "received"), pooled by part NAME rather than part_id
-    (a name spans several Part Master rows added across separate
+    after moving on to "received"), pooled by name+make+model rather than
+    part_id (a name spans several Part Master rows added across separate
     harvest/bulk uploads, and a request is only ever tied to whichever one
-    was picked at handover time — see routers/spare_parts.py's parts_list
-    for the full reasoning). Keyed by part_id for the caller's convenience,
-    same as spare_parts.py's own consumed_by_part."""
+    was picked at handover time) and rather than by name ALONE (that pooled
+    a Make/Model's handovers into an unrelated Make/Model's part just because
+    both happen to share a name like "RAM") — see routers/spare_parts.py's
+    parts_list for the full reasoning, including why the join to SparePart
+    is an outer join. Keyed by part_id for the caller's convenience, same as
+    spare_parts.py's own consumed_by_part."""
     rows = (await db.execute(
-        select(PartRequest.part_name, func.coalesce(func.sum(PartRequest.qty_handed_over), 0))
-        .group_by(PartRequest.part_name)
+        select(PartRequest.part_name, SparePart.make, SparePart.model,
+               func.coalesce(func.sum(PartRequest.qty_handed_over), 0))
+        .outerjoin(SparePart, PartRequest.part_id == SparePart.id)
+        .group_by(PartRequest.part_name, SparePart.make, SparePart.model)
     )).all()
-    by_name = {(name or "").strip().lower(): int(q or 0) for name, q in rows}
-    parts = (await db.execute(select(SparePart.id, SparePart.name))).all()
-    return {str(pid): by_name.get((name or "").strip().lower(), 0) for pid, name in parts}
+    by_group: dict = {}
+    for name, make, model, q in rows:
+        key = ((name or "").strip().lower(), (make or "").strip().lower(), (model or "").strip().lower())
+        by_group[key] = by_group.get(key, 0) + int(q or 0)
+    parts = (await db.execute(select(SparePart.id, SparePart.name, SparePart.make, SparePart.model))).all()
+    return {
+        str(pid): by_group.get(
+            ((name or "").strip().lower(), (make or "").strip().lower(), (model or "").strip().lower()), 0)
+        for pid, name, make, model in parts
+    }
 
 
 def _stock_of(part, consumed_map) -> int:

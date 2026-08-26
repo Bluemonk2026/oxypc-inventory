@@ -50,7 +50,7 @@ ACCORDION_SECTIONS = [
         "cat_keys": [
             "floor", "warehouse", "supplier", "data_destruction_method",
             "transfer_type", "po_category", "spare_parts_ram_action", "spare_parts_ram_gb",
-            "spare_parts_consume_stage",
+            "spare_parts_consume_stage", "report_year",
         ],
     },
     {

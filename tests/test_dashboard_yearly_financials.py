@@ -165,6 +165,20 @@ def test_business_pl_year_tabs_use_year_choices_not_hardcoded_range():
     assert "range(year - 2, year + 3)" not in src
 
 
-def test_report_year_registered_in_master_data_categories():
+def test_report_year_registered_in_master_data_categories_and_accordion():
+    # Two separate lists gate this: CATEGORIES (validation — bulk upload,
+    # add/edit) and ACCORDION_SECTIONS (what actually renders on the
+    # /admin/master page). Registering only in CATEGORIES was the original
+    # bug — the category validated fine but never appeared in the UI.
     src = open(pathlib.Path(ROOT) / "routers" / "master.py", encoding="utf-8").read()
-    assert '"report_year"' in src
+    categories_block = src.split("CATEGORIES = [", 1)[1].split("\nTABS = [", 1)[0]
+    assert '"report_year"' in categories_block
+    accordion_block = src.split("ACCORDION_SECTIONS = [", 1)[1].split("\n@router", 1)[0]
+    assert '"report_year"' in accordion_block
+
+
+def test_report_year_appears_on_admin_master_page(app_client, make_user):  # noqa: F811
+    username, password = make_user("admin")
+    _login(app_client, username, password)
+    html = app_client.get("/admin/master", follow_redirects=True).text
+    assert "Reports: Year Options" in html

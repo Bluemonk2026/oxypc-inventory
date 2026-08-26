@@ -263,8 +263,12 @@ asyncio.run(main())
         assert "Move to Final QC" in row
         assert "openFailModal(" in row
 
+        # Cosmetic Completed's "Move to Final QC" is the one Move that does
+        # NOT require an assignee — Final QC has its own page-level
+        # permission model (cosmetic_finalqc), not a per-device WorkID
+        # handoff, so it moves straight through with no engineer_user_id.
         r2 = app_client.post("/cosmetic/advance", data={
-            "csrf_token": csrf, "barcode": barcode, "engineer_user_id": eng_id,
+            "csrf_token": csrf, "barcode": barcode,
         })
         assert r2.status_code == 200, r2.text[:300]
         assert r2.json()["moved_to"] == "final_qc"
@@ -281,15 +285,17 @@ async def main():
     async with AsyncSessionLocal() as db:
         dev = (await db.execute(select(Device).where(Device.barcode == "{barcode}"))).scalar_one()
         wo = (await db.execute(select(WorkOrder).where(
-            WorkOrder.device_id == dev.id, WorkOrder.stage == "fqc"))).scalar_one()
+            WorkOrder.device_id == dev.id, WorkOrder.stage == "fqc"))).scalar_one_or_none()
         print(dev.current_stage.value)
-        print(wo.assigned_username)
+        print("none" if wo is None else wo.assigned_username)
 
 asyncio.run(main())
 """)
         lines = check.splitlines()
         assert lines[0] == "final_qc"
-        assert lines[1] == eng_username
+        # No WorkOrder created for this move — it's a straight pass-through,
+        # not a per-user assignment (unlike every other cosmetic-line Move).
+        assert lines[1] == "none"
     finally:
         _run(_CLEANUP_SRC.format(root=ROOT, barcode=barcode))
 

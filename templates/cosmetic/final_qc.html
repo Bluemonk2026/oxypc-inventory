@@ -3,9 +3,18 @@
 {% block page_title %}Final QC{% endblock %}
 {% block content %}
 
-<div class="mb-3">
-  <span class="badge bg-warning text-dark fs-6 px-3 py-2">{{ devices|length }} device(s) awaiting Final QC</span>
-  <span class="text-muted small ms-2">Review IQC details + parts, revalidate if needed, then grade and move to Ready to Sale.</span>
+<div class="mb-3 d-flex align-items-center flex-wrap gap-2">
+  <div>
+    <span class="badge bg-warning text-dark fs-6 px-3 py-2">{{ devices|length }} device(s) awaiting Final QC</span>
+    <span class="text-muted small ms-2">Review IQC details + parts, revalidate if needed, then grade and move to Ready to Sale.</span>
+  </div>
+  {# Scan or type a Tag Number to filter the card list on the left; Enter
+     jumps straight to the (first) matching card — same flow as scanning a
+     barcode gun into a search box elsewhere in the app. #}
+  <div class="ms-auto">
+    <input type="text" id="fqcScanSearch" class="form-control form-control-sm" style="width:240px"
+           placeholder="Scan / search Tag Number…" autocomplete="off">
+  </div>
 </div>
 
 {% macro fld(label, value) %}<tr><th class="text-muted fw-normal" style="width:52%">{{ label }}</th><td>{{ value if (value is not none and value != '') else '—' }}</td></tr>{% endmacro %}
@@ -18,7 +27,7 @@
     <div class="list-group" id="fqcCardList" style="max-height: 75vh; overflow-y:auto;">
       {% for device, lot_number in devices %}
       <a href="#" class="list-group-item list-group-item-action fqc-card {% if loop.first %}active{% endif %}"
-         data-target="dev-{{ device.id }}">
+         data-target="dev-{{ device.id }}" data-barcode="{{ device.barcode }}">
         <div class="font-monospace fw-semibold">{{ device.barcode }}</div>
         <div class="small {% if loop.first %}text-white-50{% else %}text-muted{% endif %}">
           {{ device.serial_no or '—' }} — {{ device.brand or '' }} {{ device.model or '' }}
@@ -41,6 +50,11 @@
           <span class="ms-auto small">Grade:
             {% if device.grade %}<span class="badge bg-info text-dark">{{ device.grade.value }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
           </span>
+          {# Self-assign: creates a WorkID for whoever clicks, no dropdown —
+             see routers/cosmetic.py fqc_pick. Shows up on /workid-status. #}
+          <button type="button" class="btn btn-sm btn-outline-primary fqc-pick-btn" data-barcode="{{ device.barcode }}">
+            <i class="bi bi-hand-index-thumb me-1"></i>Pick This
+          </button>
         </div>
       </div>
 
@@ -238,6 +252,33 @@
   }
 })();
 
+// Scan / search Tag Number box -> filters the 1/4 card list; Enter jumps
+// straight to the first (usually only) matching card, same flow as scanning
+// a barcode gun into a search box.
+(function () {
+  var input = document.getElementById('fqcScanSearch');
+  if (!input) return;
+  function applyFilter() {
+    var q = input.value.trim().toLowerCase();
+    var firstMatch = null;
+    document.querySelectorAll('.fqc-card').forEach(function (card) {
+      var barcode = (card.dataset.barcode || '').toLowerCase();
+      var match = !q || barcode.indexOf(q) !== -1;
+      card.classList.toggle('d-none', !match);
+      if (match && !firstMatch) firstMatch = card;
+    });
+    return firstMatch;
+  }
+  input.addEventListener('input', applyFilter);
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      var match = applyFilter();
+      if (match) match.click();
+    }
+  });
+})();
+
 // Final QC Decision: PASS shows Grade + Complete; FAIL shows Notes + Reject.
 (function () {
   function applyState(form) {
@@ -279,6 +320,24 @@ $(document).on('click', '.fqc-move-prod', function () {
   if (!confirm('Move this bucket to production?')) return;
   $.post('/cosmetic/final-qc/move-to-production/' + id, { csrf_token: csrf }).done(function () { location.reload(); })
     .fail(function (xhr) { alert(xhr.responseJSON && xhr.responseJSON.detail || 'Move failed'); });
+});
+// "Pick This" — self-assign, no dropdown. Doesn't reload the page (would
+// lose the currently-selected card) — just flips the button to a confirmed
+// state in place.
+$(document).on('click', '.fqc-pick-btn', function () {
+  var btn = $(this);
+  var barcode = btn.data('barcode');
+  var csrf = "{{ request.cookies.get('csrf_token','') }}";
+  btn.prop('disabled', true);
+  $.post('/cosmetic/final-qc/pick', { barcode: barcode, csrf_token: csrf })
+    .done(function () {
+      btn.removeClass('btn-outline-primary').addClass('btn-success')
+         .html('<i class="bi bi-check2 me-1"></i>Picked');
+    })
+    .fail(function (xhr) {
+      alert(xhr.responseJSON && xhr.responseJSON.detail || 'Failed to pick this tag');
+      btn.prop('disabled', false);
+    });
 });
 </script>
 {% endblock %}

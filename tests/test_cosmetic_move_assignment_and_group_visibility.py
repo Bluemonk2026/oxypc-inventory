@@ -269,8 +269,17 @@ def test_received_and_completed_still_have_fail_but_moves_use_modal():
     for name in ("received.html", "completed.html"):
         src = open(pathlib.Path(ROOT) / "templates" / "cosmetic" / name, encoding="utf-8").read()
         assert "openFailModal(" in src, name
-        assert "openMoveModal(" in src, name
         assert "<th>WorkID</th>" in src, name
+    # received.html's "Move to Cleaning" (and skip-to-Final-QC) buttons still
+    # go through the assignee modal, like every other cosmetic-line Move.
+    received_src = open(pathlib.Path(ROOT) / "templates" / "cosmetic" / "received.html", encoding="utf-8").read()
+    assert "openMoveModal(" in received_src
+    # completed.html's "Move to Final QC" is the one Move that does NOT use a
+    # modal — it moves straight through with no assignee (Final QC has its
+    # own page-level permission model, not a per-device WorkID handoff).
+    completed_src = open(pathlib.Path(ROOT) / "templates" / "cosmetic" / "completed.html", encoding="utf-8").read()
+    assert "openMoveModal(" not in completed_src
+    assert "directMoveToFinalQC(" in completed_src
 
 
 def test_perm_modules_split_into_eight_cosmetic_keys():

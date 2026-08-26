@@ -112,11 +112,14 @@ PERM_MODULE_BY_STAGE = {
     DeviceStage.cosmetic_completed: "cosmetic_completed",
 }
 
-# Stages whose forward Move now requires picking an assignee in a modal —
-# every page in COSMETIC_PIPELINE except Final QC, whose Pass/Fail
-# decisioning on this same /cosmetic/advance endpoint is a separate,
-# pre-existing flow this batch does not touch.
-ASSIGN_ON_MOVE_STAGES = set(PERM_MODULE_BY_STAGE.keys())
+# Stages whose forward Move requires picking an assignee in a modal — every
+# page in PERM_MODULE_BY_STAGE except Cosmetic Completed. Final QC's own
+# Pass/Fail decisioning on this same /cosmetic/advance endpoint is a
+# separate, pre-existing flow this doesn't touch. Cosmetic Completed's
+# "Move to Final QC" button is the one Move that does NOT open a modal —
+# Final QC has its own page-level permission/access model (cosmetic_finalqc),
+# not a per-device WorkID handoff, so it moves straight through.
+ASSIGN_ON_MOVE_STAGES = set(PERM_MODULE_BY_STAGE.keys()) - {DeviceStage.cosmetic_completed}
 
 # The 6 mid-pipeline pages with the admin-only bulk "Assign" button — Cosmetic
 # Received/Completed are excluded (not asked for; they already have their own
@@ -209,6 +212,76 @@ async def cosmetic_dashboard(request: Request, db: AsyncSession = Depends(get_db
     return templates.TemplateResponse("cosmetic/dashboard.html", {
         "request": request, "current_user": current_user,
         "stage_data": stage_data, "pipeline": COSMETIC_PIPELINE,
+    })
+
+
+@router.get("/all_tags", response_class=HTMLResponse)
+async def cosmetic_all_tags(request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(allowed)):
+    """Last tab on the Cosmetic & Paint hub — every tag currently anywhere in
+    the 8-stage pipeline (Cosmetic Received through Cosmetic Completed) in
+    one flat, read-only table: same shape as the Received table minus WorkID,
+    with a Stage column standing in for the per-page action buttons. Must be
+    registered ahead of the /{stage_name} route below, or "all_tags" would be
+    parsed as a (nonexistent) DeviceStage and 404."""
+    result = await db.execute(
+        select(Device, Lot.lot_number)
+        .join(Lot, Device.lot_id == Lot.id)
+        .where(Device.current_stage.in_(COSMETIC_NAV_STAGES))
+        .order_by(Device.updated_at.desc())
+    )
+    devices = result.all()
+    device_ids = [d.id for d, _ in devices]
+
+    # ── Most recent L1/L2 Engineer per device — same resolution as every
+    # single-stage page (stage-agnostic already: WorkOrder.stage == "l1").
+    l1l2_engineer_map: dict[str, str] = {}
+    if device_ids:
+        wo_rows = await db.execute(
+            select(WorkOrder.device_id, WorkOrder.assigned_name, WorkOrder.assigned_at)
+            .where(WorkOrder.device_id.in_(device_ids), WorkOrder.stage == "l1",
+                   WorkOrder.assigned_name.isnot(None))
+            .order_by(WorkOrder.assigned_at.desc())
+        )
+        for did, name, _ in wo_rows.all():
+            l1l2_engineer_map.setdefault(str(did), name)
+
+    # ── Assigned to / Assigned Date: the same "latest WorkOrder tagged with
+    # this page's own MOVE_STAGE_CODE" resolution every single-stage page's
+    # workid_map uses — done once across every stage code here since these
+    # devices span all 8 stages, then picked per-device by ITS OWN current
+    # stage's code (a device's history may carry WorkOrders from earlier
+    # stages too; only the code matching where it sits right now applies).
+    assigned_map: dict[str, dict] = {}
+    if device_ids:
+        wo_rows2 = await db.execute(
+            select(WorkOrder.device_id, WorkOrder.stage, WorkOrder.assigned_name,
+                   WorkOrder.assigned_username, WorkOrder.assigned_at)
+            .where(WorkOrder.device_id.in_(device_ids), WorkOrder.stage.in_(list(MOVE_STAGE_CODE.values())))
+            .order_by(WorkOrder.assigned_at.desc())
+        )
+        latest_by_key: dict = {}
+        for did, wstage, name, uname, at in wo_rows2.all():
+            latest_by_key.setdefault((did, wstage), {"name": name, "username": uname, "date": at})
+        for d, _ in devices:
+            code = MOVE_STAGE_CODE.get(d.current_stage)
+            assigned_map[str(d.id)] = (latest_by_key.get((d.id, code)) or {}) if code else {}
+
+    # ── Manager/Member visibility (Group Config) — same rule as every other
+    # cosmetic page; a Member reaching this URL directly (the tab itself is
+    # hidden for them, same as the rest of the tab bar) still only sees tags
+    # assigned to them.
+    role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    manager_mode = role_val == "admin" or await is_group_manager(db, current_user.username)
+    if not manager_mode:
+        devices = [(d, ln) for d, ln in devices
+                   if assigned_map.get(str(d.id), {}).get("username") == current_user.username]
+
+    return templates.TemplateResponse("cosmetic/all_tags.html", {
+        "request": request, "current_user": current_user,
+        "devices": devices, "now": app_now(),
+        "pipeline": COSMETIC_NAV_STAGES, "stage_labels": STAGE_LABELS,
+        "l1l2_engineer_map": l1l2_engineer_map,
+        "assigned_map": assigned_map, "manager_mode": manager_mode,
     })
 
 
@@ -591,17 +664,21 @@ async def advance_stage(
     if next_stage == DeviceStage.final_qc:
         device.bucket_id = None
 
-    # ── Assignment required for every Move on the 8 cosmetic-line pages
-    # (Cosmetic Received .. Cosmetic Completed, incl. Received's "Move to
-    # Cleaning" / skip-to-Final-QC buttons): pick who owns the device at its
-    # new stage and issue a fresh WorkID for it — shows as that stage's
-    # WorkID column and on /workid-status. Final QC's own decisioning
-    # (handled above) never reaches here. ──────────────────────────────────
-    assigned_engineer = None
-    if current in ASSIGN_ON_MOVE_STAGES:
+    # ── Permission check applies on all 8 cosmetic-line pages regardless of
+    # whether this particular Move needs an assignee. ──────────────────────
+    if current in PERM_MODULE_BY_STAGE:
         module_key = PERM_MODULE_BY_STAGE[current]
         if not has_perm(role_val, module_key, "edit"):
             raise HTTPException(403, f"Your role ({role_val}) does not have 'edit' permission for the {module_key} module.")
+
+    # ── Assignment required for every Move EXCEPT Cosmetic Completed's "Move
+    # to Final QC" (Cosmetic Received .. Water Sanding, incl. Received's
+    # "Move to Cleaning" / skip-to-Final-QC buttons): pick who owns the
+    # device at its new stage and issue a fresh WorkID for it — shows as
+    # that stage's WorkID column and on /workid-status. Final QC's own
+    # decisioning (handled above) never reaches here. ──────────────────────
+    assigned_engineer = None
+    if current in ASSIGN_ON_MOVE_STAGES:
         if not engineer_user_id:
             raise HTTPException(400, "Select a user to assign this device to before moving it.")
         try:
@@ -648,8 +725,10 @@ async def advance_stage(
 
     # The 8 cosmetic-line pages drive this via fetch() and stay on the same
     # page (reload just re-fetches this stage's now-updated table) — no
-    # redirect to the destination stage's page.
-    if current in ASSIGN_ON_MOVE_STAGES:
+    # redirect to the destination stage's page. Deliberately keyed on
+    # PERM_MODULE_BY_STAGE (all 8), not the narrower ASSIGN_ON_MOVE_STAGES —
+    # Cosmetic Completed's un-modal'd Move still stays on the same page.
+    if current in PERM_MODULE_BY_STAGE:
         return JSONResponse({"ok": True, "work_id": work_id, "moved_to": next_stage.value})
 
     if next_stage == DeviceStage.ready_to_sale:
@@ -657,6 +736,44 @@ async def advance_stage(
 
     stage_name = next_stage.value
     return RedirectResponse(url=f"/cosmetic/{stage_name}?success=Device+{barcode}+moved+to+{stage_name.replace('_', '+')}", status_code=302)
+
+
+@router.post("/final-qc/pick")
+async def fqc_pick(
+    barcode: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """"Pick This" button on the Final QC page's per-device card header —
+    self-assigns the device to whoever clicked (no dropdown, unlike every
+    other cosmetic-line Move) via a fresh WorkID, tagged "fqc" the same as
+    MOVE_STAGE_CODE[DeviceStage.final_qc]. Shows up on /workid-status like
+    any other WorkID."""
+    role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    if not has_perm(role_val, "cosmetic_finalqc", "edit"):
+        raise HTTPException(403, f"Your role ({role_val}) does not have 'edit' permission for the cosmetic_finalqc module.")
+    device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, f"Device {barcode} not found")
+    if device.current_stage != DeviceStage.final_qc:
+        raise HTTPException(400, f"Device {barcode} is not at Final QC")
+    work_id = await _gen_work_id(db)
+    db.add(WorkOrder(
+        work_id=work_id, device_id=device.id, barcode=device.barcode,
+        stage=MOVE_STAGE_CODE[DeviceStage.final_qc], assigned_role=role_val,
+        assigned_user_id=current_user.id, assigned_username=current_user.username,
+        assigned_name=current_user.full_name, status="pending",
+        created_by=current_user.username,
+    ))
+    await create_notification(
+        db, user_id=current_user.id, title="Final QC Tag Picked",
+        message=f"You picked up {device.barcode} at Final QC (WorkID: {work_id}).",
+        notification_type="info",
+        barcode=device.barcode, brand=device.brand, model=device.model,
+        stage=DeviceStage.final_qc.value,
+    )
+    await db.commit()
+    return JSONResponse({"ok": True, "work_id": work_id})
 
 
 @router.post("/final-qc/move-to-inventory/{bucket_id}")

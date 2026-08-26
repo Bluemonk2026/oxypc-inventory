@@ -14,6 +14,10 @@
     {{ stage_labels[s] }}
   </a>
   {% endfor %}
+  <a href="/cosmetic/all_tags"
+     class="btn btn-sm {{ 'btn-primary' if request.url.path == '/cosmetic/all_tags' else 'btn-outline-secondary' }}">
+    All Tags
+  </a>
 </div>
 {% endif %}
 

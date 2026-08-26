@@ -151,3 +151,57 @@ async def main():
 
 asyncio.run(main())
 """)
+
+
+def test_completed_move_to_final_qc_has_no_assignee_but_still_checks_permission(make_user):  # noqa: F811
+    """Cosmetic Completed's "Move to Final QC" doesn't require an assignee
+    (see routers/cosmetic.py ASSIGN_ON_MOVE_STAGES), but the cosmetic_completed
+    'edit' permission bit must still gate it — a role denied that bit can't
+    bypass the check just because there's no modal/engineer_user_id anymore."""
+    suffix = uuid.uuid4().hex[:6]
+    role_name = f"itest_cosm_role2_{suffix}"
+    barcode = f"ITPERMCOMP{suffix}"
+    _seed_device_at("cosmetic_completed", barcode)
+
+    _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from database import AsyncSessionLocal
+from models.role_permissions import RoleModulePermission
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        db.add(RoleModulePermission(role_name="{role_name}", module="cosmetic_completed",
+                                    can_enable=False, can_edit=False))
+        await db.commit()
+
+asyncio.run(main())
+""")
+
+    username, password = make_user(role_name)
+    try:
+        from fastapi.testclient import TestClient
+        import main as main_module
+        with TestClient(main_module.app) as client:
+            _login(client, username, password)
+            csrf = client.cookies.get("csrf_token") or "dummy"
+            r = client.post("/cosmetic/advance", data={"csrf_token": csrf, "barcode": barcode})
+            assert r.status_code == 403, r.text[:300]
+    finally:
+        _cleanup_device(barcode)
+        _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.role_permissions import RoleModulePermission
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        for row in (await db.execute(select(RoleModulePermission).where(
+                RoleModulePermission.role_name == "{role_name}"))).scalars().all():
+            await db.delete(row)
+        await db.commit()
+
+asyncio.run(main())
+""")

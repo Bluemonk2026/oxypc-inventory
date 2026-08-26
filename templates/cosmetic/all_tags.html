@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}All Tags — Cosmetic & Paint — OxyPC{% endblock %}
+{% block page_title %}All Tags{% endblock %}
+{% block content %}
+
+{# Same Manager/Member visibility rule as every other cosmetic page — see
+   routers/cosmetic.py cosmetic_all_tags. #}
+{% if manager_mode %}
+<div class="d-flex gap-2 mb-3 flex-wrap">
+  {% for s in pipeline %}
+  <a href="/cosmetic/{{ s.value }}" class="btn btn-sm btn-outline-secondary">
+    {{ stage_labels[s] }}
+  </a>
+  {% endfor %}
+  <a href="/cosmetic/all_tags" class="btn btn-sm btn-primary">
+    All Tags
+  </a>
+</div>
+{% endif %}
+
+<div class="row g-4">
+  <!-- Device list -->
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-list-check me-2"></i>All Tags — Cosmetic Pipeline</span>
+        <span class="badge bg-warning text-dark">{{ devices|length }} device(s)</span>
+      </div>
+      <div class="card-body p-0">
+        <table id="cosmeticAllTagsTable" class="table table-hover mb-0 small">
+          <thead class="table-dark">
+            <tr>
+              <th>Tag Number</th><th>L1/L2 Engineer</th><th>Lot</th><th>Grade</th>
+              <th>Brand</th><th>Model</th><th>Aging</th><th>Assigned to</th>
+              <th>Assigned Date</th><th>Stage</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for device, lot_number in devices %}
+            {% set a = assigned_map.get(device.id|string, {}) %}
+            <tr>
+              <td><code>{{ device.barcode }}</code></td>
+              <td class="text-muted small">{{ l1l2_engineer_map.get(device.id|string, '—') }}</td>
+              <td><span class="badge bg-secondary">{{ lot_number }}</span></td>
+              <td>
+                {% if device.grade %}
+                <span class="badge {{ 'bg-success' if device.grade.value == 'A' else 'bg-warning text-dark' if device.grade.value == 'B' else 'bg-danger' }}">
+                  {{ device.grade.value }}
+                </span>
+                {% else %}—{% endif %}
+              </td>
+              <td>{{ device.brand or '—' }}</td>
+              <td>{{ device.model or '—' }}</td>
+              <td class="text-muted small">{{ (now - device.created_at).days if device.created_at else '—' }} days</td>
+              <td class="text-muted small">{{ a.get('name') or '—' }}</td>
+              <td class="text-muted small">{{ a.get('date').strftime('%d-%b %H:%M') if a.get('date') else '—' }}</td>
+              <td><span class="badge bg-teal">{{ stage_labels.get(device.current_stage, device.current_stage.value) }}</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){ $('#cosmeticAllTagsTable').DataTable({pageLength: 12, order: [[0, 'asc']]}) })
+</script>
+{% endblock %}

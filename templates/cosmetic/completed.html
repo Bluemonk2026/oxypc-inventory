@@ -14,6 +14,10 @@
     {{ stage_labels[s] }}
   </a>
   {% endfor %}
+  <a href="/cosmetic/all_tags"
+     class="btn btn-sm {{ 'btn-primary' if request.url.path == '/cosmetic/all_tags' else 'btn-outline-secondary' }}">
+    All Tags
+  </a>
 </div>
 {% endif %}
 
@@ -57,7 +61,7 @@
               <td class="text-muted small">{{ wo.date.strftime('%d-%b %H:%M') if wo and wo.date else '—' }}</td>
               <td>
                 <button type="button" class="btn btn-sm btn-success py-0 px-2"
-                        onclick="openMoveModal('{{ device.barcode }}', 'Final QC')">
+                        onclick="directMoveToFinalQC('{{ device.barcode }}', this)">
                   <i class="bi bi-check2 me-1"></i>Move to Final QC
                 </button>
                 <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 ms-1"
@@ -69,41 +73,6 @@
             {% endfor %}
           </tbody>
         </table>
-      </div>
-    </div>
-  </div>
-</div>
-
-{# ── Move modal: pick who the device is being handed to. Submitting posts to
-     /cosmetic/advance, generates a new WorkID for that person, and reloads
-     this same page — no redirect to the destination stage's page. #}
-<div class="modal fade" id="cosmeticMoveModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-arrow-right-circle-fill text-success me-2"></i>Move — Assign to User</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <div class="modal-body">
-        <p class="small text-muted mb-3">Tag Number: <span id="cosmeticMoveBarcode" class="font-monospace fw-semibold"></span>
-          — moving to <span id="cosmeticMoveTarget" class="fw-semibold"></span></p>
-        <div class="mb-3">
-          <label class="form-label small fw-semibold">Assign to</label>
-          <select id="cosmeticMoveEngineerSelect" class="form-select form-select-sm">
-            <option value="">— Select User —</option>
-            {% for u in move_pool %}
-            <option value="{{ u.id }}">{{ u.name }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="mb-2">
-          <label class="form-label small fw-semibold">Notes</label>
-          <textarea id="cosmeticMoveNotes" class="form-control form-control-sm" rows="2" placeholder="Optional notes"></textarea>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" id="cosmeticMoveBtn" class="btn btn-success btn-sm" onclick="submitCosmeticMove()">Move</button>
       </div>
     </div>
   </div>
@@ -145,38 +114,20 @@
 {% endblock %}
 {% block scripts %}
 <script>
-let _moveBarcode = null;
-let _moveSkipTarget = null;
 let _cosmeticFailBarcode = null;
 const CSRF = (document.cookie.split(';').find(c => c.trim().startsWith('csrf_token=')) || '').split('=').slice(1).join('=').trim();
 
-function openMoveModal(barcode, targetLabel, skipTarget) {
-  _moveBarcode = barcode;
-  _moveSkipTarget = skipTarget || null;
-  document.getElementById('cosmeticMoveBarcode').textContent = barcode;
-  document.getElementById('cosmeticMoveTarget').textContent = targetLabel;
-  document.getElementById('cosmeticMoveEngineerSelect').value = '';
-  document.getElementById('cosmeticMoveNotes').value = '';
-  new bootstrap.Modal(document.getElementById('cosmeticMoveModal')).show();
-}
-
-async function submitCosmeticMove() {
-  if (!_moveBarcode) return;
-  const engineerId = document.getElementById('cosmeticMoveEngineerSelect').value;
-  if (!engineerId) { alert('Please select a user'); return; }
-  const notes = document.getElementById('cosmeticMoveNotes').value;
-  const btn = document.getElementById('cosmeticMoveBtn');
+// No modal, no assignee — Cosmetic Completed's "Move to Final QC" moves the
+// tag straight through. Final QC has its own page-level permission/access
+// model (cosmetic_finalqc), not a per-device WorkID handoff (see
+// routers/cosmetic.py advance_stage / ASSIGN_ON_MOVE_STAGES).
+async function directMoveToFinalQC(barcode, btn) {
   btn.disabled = true;
   try {
-    let body = 'barcode=' + encodeURIComponent(_moveBarcode) +
-               '&engineer_user_id=' + encodeURIComponent(engineerId) +
-               '&notes=' + encodeURIComponent(notes) +
-               '&csrf_token=' + encodeURIComponent(CSRF);
-    if (_moveSkipTarget) body += '&target=' + encodeURIComponent(_moveSkipTarget);
     const r = await fetch('/cosmetic/advance', {
       method: 'POST',
       headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF},
-      body,
+      body: 'barcode=' + encodeURIComponent(barcode) + '&csrf_token=' + encodeURIComponent(CSRF),
     });
     if (!r.ok) {
       const text = await r.text().catch(() => '');

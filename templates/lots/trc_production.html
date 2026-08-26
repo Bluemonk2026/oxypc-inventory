@@ -339,14 +339,12 @@ fetch('/api/bucket-engineers').then(function(r){return r.json();}).then(function
 function loadTrcBuckets(){
   // Bucket Allocation = buckets handed over from Inventory Manager
   // (assigned_to_production=True) that this page's own Assign Bucket action
-  // hasn't touched yet (dept_assigned=False). Deliberately NOT keyed off
-  // device stage — a bucket keeps accepting new devices via "Add to Bucket"
-  // long after being sent to production, so devices can sit at stock_in
-  // indefinitely even on an already-allocated bucket, and some real buckets
-  // have zero devices still exactly at trc_production even though they
-  // genuinely are awaiting assignment. dept_assigned is a real column set
-  // only by Assign Bucket itself, so it can't drift out of sync like that.
-  fetch('/api/buckets?status=trc_pending,validated').then(function(r){return r.json();}).then(function(allBuckets){
+  // hasn't touched yet (dept_assigned=False), AND that actually still have
+  // mapped tags at trc_production right now (with_stage=trc_production —
+  // both filters the bucket list to Bucket Qty > 0 and makes Bucket Qty
+  // itself count only trc_production-stage devices, not every device ever
+  // linked to the bucket across an earlier, unrelated intake).
+  fetch('/api/buckets?status=trc_pending,validated&with_stage=trc_production').then(function(r){return r.json();}).then(function(allBuckets){
     var buckets = allBuckets.filter(function(b){ return b.assigned_to_production && !b.dept_assigned; });
     var tbody = document.getElementById('trcBucketTbody');
     if(!buckets.length){
@@ -520,20 +518,20 @@ function loadProdAllocationTable(){
         '<td><span class="badge bg-danger">'+b.total_fail+'</span></td>'+
         '<td><span class="badge bg-info text-dark">'+b.device_count+'</span></td>'+
         '<td><span class="badge bg-primary">L1/L2 Engineer</span></td>'+
-        '<td><button class="btn btn-xs btn-outline-primary btn-sm py-0 px-2 assign-eng-btn" data-id="'+b.id+'" data-number="'+b.bucket_number+'"><i class="bi bi-person-check"></i> Assign to Engineer</button></td>'+
+        '<td><button class="btn btn-xs btn-outline-danger btn-sm py-0 px-2 release-bkt-btn" data-id="'+b.id+'" data-number="'+b.bucket_number+'"><i class="bi bi-box-arrow-up"></i> Release Bucket</button></td>'+
       '</tr>';
     }).join('');
   });
 }
 loadProdAllocationTable();
 
-$(document).on('click', '.assign-eng-btn', function(){
+$(document).on('click', '.release-bkt-btn', function(){
   var id = this.dataset.id, num = this.dataset.number;
-  if(!confirm('Assign Bucket '+num+' devices to L1 Engineer queue?')) return;
+  if(!confirm('Release Bucket '+num+'? This unmaps every tag currently linked to it and removes the bucket from this list.')) return;
   var fd = new FormData(); fd.append('csrf_token', getCsrf());
-  fetch('/buckets/'+id+'/assign-to-engineer', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
+  fetch('/buckets/'+id+'/release-repair-line', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
     if(d.ok){
-      alert('Assigned '+d.assigned+' device(s) to L1 Engineer.');
+      alert('Released Bucket '+num+' — unmapped '+d.released+' tag(s).');
       loadProdAllocationTable();
       loadTrcBuckets();
     }

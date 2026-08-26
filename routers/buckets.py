@@ -67,9 +67,13 @@ async def list_buckets(
     with_stage: str = "",
 ):
     """`with_stage` (opt-in) drops any bucket holding zero active devices in that
-    stage. The Production Manager's Bucket Allocation table passes
-    trc_production so it only lists buckets that actually have work in TRC;
-    every other caller omits it and sees buckets regardless of stage."""
+    stage, AND makes the returned `device_count` ("Bucket Qty") reflect only
+    devices at that stage too — rather than every active device ever linked
+    to the bucket, which double-counts an earlier, unrelated intake that
+    happened to reuse the same bucket. The Production Manager's Bucket
+    Allocation table passes trc_production so both the list and the Bucket
+    Qty column only ever reflect devices that are actually in TRC Production;
+    every other caller omits it and sees the unscoped count instead."""
     statuses = [s.strip() for s in status.split(",") if s.strip()]
     rows = (await db.execute(
         select(Bucket).where(Bucket.status.in_(statuses)).order_by(Bucket.created_at.desc())
@@ -78,29 +82,34 @@ async def list_buckets(
     if not rows:
         return JSONResponse([])
 
+    want_stage = None
     if with_stage.strip():
         try:
             want_stage = DeviceStage(with_stage.strip())
         except ValueError:
             raise HTTPException(400, f"Unknown stage {with_stage!r}")
-        in_stage = set((await db.execute(
-            select(Device.bucket_id)
-            .where(Device.bucket_id.in_([b.id for b in rows]),
-                   Device.current_stage == want_stage, Device.is_active == True)
-            .group_by(Device.bucket_id)
-            .having(func.count(Device.id) > 0)
-        )).scalars().all())
-        rows = [b for b in rows if b.id in in_stage]
-        if not rows:
-            return JSONResponse([])
 
     bucket_ids = [b.id for b in rows]
-    count_rows = (await db.execute(
-        select(Device.bucket_id, func.count(Device.id))
-        .where(Device.bucket_id.in_(bucket_ids), Device.is_active == True)
-        .group_by(Device.bucket_id)
-    )).all()
-    count_map = {str(r[0]): r[1] for r in count_rows}
+    if want_stage is not None:
+        count_rows = (await db.execute(
+            select(Device.bucket_id, func.count(Device.id))
+            .where(Device.bucket_id.in_(bucket_ids),
+                   Device.current_stage == want_stage, Device.is_active == True)
+            .group_by(Device.bucket_id)
+        )).all()
+        count_map = {str(r[0]): r[1] for r in count_rows}
+        # Only buckets with at least one device actually at `want_stage`.
+        rows = [b for b in rows if count_map.get(str(b.id), 0) > 0]
+        if not rows:
+            return JSONResponse([])
+        bucket_ids = [b.id for b in rows]
+    else:
+        count_rows = (await db.execute(
+            select(Device.bucket_id, func.count(Device.id))
+            .where(Device.bucket_id.in_(bucket_ids), Device.is_active == True)
+            .group_by(Device.bucket_id)
+        )).all()
+        count_map = {str(r[0]): r[1] for r in count_rows}
 
     # Total Pass / Total Fail — count of tag numbers per bucket by Final QC
     # decision (Device.final_qc_status), shown as extra Movement table columns
@@ -790,3 +799,51 @@ async def assign_bucket_to_engineer(
 
     await db.commit()
     return JSONResponse({"ok": True, "assigned": len(devices)})
+
+
+@router.post("/buckets/{bucket_id}/release-repair-line")
+async def release_bucket_from_repair_line(
+    bucket_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Production Manager page, 'Buckets in Repair Line' — 'Release Bucket'
+    (replaces the old 'Assign to Engineer' button there). Separate path from
+    /buckets/{bucket_id}/release (Inventory Manager's Final QC Pass table,
+    above) — same path would have shadowed that pre-existing endpoint, which
+    only unmaps devices and never touches assigned_to_production/
+    dept_assigned. Unmaps every active device currently linked to this
+    bucket (bucket_id -> None) — devices keep whatever stage they're already
+    at, this only removes the bucket association — and clears
+    assigned_to_production/dept_assigned so the bucket drops out of both
+    this table and the Bucket Allocation tab (both are filtered on
+    assigned_to_production). Handed back to Inventory Manager's own bucket
+    list, not deleted."""
+    try:
+        uid = uuid.UUID(bucket_id)
+    except Exception:
+        raise HTTPException(400, "Invalid bucket ID")
+    bucket = (await db.execute(select(Bucket).where(Bucket.id == uid))).scalar_one_or_none()
+    if not bucket:
+        raise HTTPException(404, "Bucket not found")
+
+    devices = (await db.execute(
+        select(Device).where(Device.bucket_id == uid, Device.is_active == True)
+    )).scalars().all()
+
+    for device in devices:
+        device.bucket_id = None
+        device.updated_at = app_now()
+
+    bucket.assigned_to_production = False
+    bucket.dept_assigned = False
+    bucket.updated_at = app_now()
+
+    await audit(db, action="BUCKET_RELEASED", user=current_user,
+                table_name="buckets", record_id=str(bucket.id),
+                new_value={"bucket_number": bucket.bucket_number, "released_count": len(devices)},
+                request=request)
+
+    await db.commit()
+    return JSONResponse({"ok": True, "released": len(devices)})

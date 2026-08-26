@@ -2,9 +2,12 @@
  - Additive to the existing "Cosmetic & Paint" hub link, which is unchanged —
    it's still shown to ANY role with any of the 8 cosmetic modules enabled in
    the Module Permission Matrix, exactly as before this batch.
- - The new link only ever appears for the non-manager cosmetic-eligible roles
-   (qc_inspector, inventory_manager, sales_manager) — never admin or
-   cosmetic_manager, who already reach every stage via the hub link's tabs.
+ - The new link appears for every role EXCEPT admin and cosmetic_manager
+   (who already reach every stage via the hub link's tabs) — including
+   admin-created CUSTOM roles (e.g. a "Cosmetic Cleaning" role scoped to one
+   stage), which aren't in the UserRole enum at all. The gate is a blacklist
+   of those two roles, not a whitelist of qc_inspector/inventory_manager/
+   sales_manager — a whitelist would silently exclude custom roles.
  - Points at whichever of the 6 mid-pipeline stages (Cleaning, Putty, Dry
    Sanding, Masking, Painting, Water Sanding) is enabled for that role in the
    Module Permission Matrix, in pipeline order — not a fixed page.
@@ -37,5 +40,18 @@ def test_qc_inspector_sees_both_links_default_permissions(app_client, make_user)
     _login(app_client, username, password)
     html = app_client.get("/cosmetic/cleaning", follow_redirects=True).text
     assert "Cosmetic &amp; Paint" in html or "Cosmetic & Paint" in html
+    assert "Cosmetic Page" in html
+    assert 'href="/cosmetic/cleaning"' in html
+
+
+def test_custom_role_sees_dynamic_link_default_permissions(app_client, make_user):  # noqa: F811
+    # A role name that isn't in the UserRole enum at all — e.g. an
+    # admin-created "Cosmetic Cleaning" role — must still get the dynamic
+    # link. Regression test for the whitelist bug: qc_inspector/
+    # inventory_manager/sales_manager only covered the 3 built-in roles, so a
+    # real custom role never matched no matter what was enabled for it.
+    username, password = make_user("cosmetic_cleaning_specialist")
+    _login(app_client, username, password)
+    html = app_client.get("/cosmetic/cleaning", follow_redirects=True).text
     assert "Cosmetic Page" in html
     assert 'href="/cosmetic/cleaning"' in html

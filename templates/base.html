@@ -168,11 +168,15 @@
         <i class="bi bi-droplet me-2"></i> {{ sidebar_label('cosmetic_received', 'Cosmetic & Paint') }}
       </a></li>
       {% endif %}
-      {# Dynamic "Cosmetic Page" link — for the non-manager cosmetic roles.
-         Jumps straight to whichever of the 6 mid-pipeline stage pages is
-         enabled for this role (Master Data -> Permission Matrix), in
-         pipeline order, since these roles only work one stage at a time. #}
-      {% if role in ['qc_inspector', 'inventory_manager', 'sales_manager'] and any_perm(role,'cosmetic_cleaning','cosmetic_putty','cosmetic_dry_sanding','cosmetic_masking','cosmetic_painting','cosmetic_water_sanding') %}
+      {# Dynamic "Cosmetic Page" link — for every non-manager cosmetic role,
+         including admin-created CUSTOM roles (e.g. a "Cosmetic Cleaning"
+         role scoped to one stage) — those aren't in the UserRole enum at
+         all, so this must be a blacklist (exclude admin/cosmetic_manager),
+         not a whitelist of the built-in role names. Jumps straight to
+         whichever of the 6 mid-pipeline stage pages is enabled for this role
+         (Master Data -> Permission Matrix), in pipeline order, since these
+         roles only work one stage at a time. #}
+      {% if role != 'admin' and role != 'cosmetic_manager' and any_perm(role,'cosmetic_cleaning','cosmetic_putty','cosmetic_dry_sanding','cosmetic_masking','cosmetic_painting','cosmetic_water_sanding') %}
       {% set cosmetic_page_url = '/cosmetic/cleaning' if has_perm(role,'cosmetic_cleaning','enable')
           else '/cosmetic/putty' if has_perm(role,'cosmetic_putty','enable')
           else '/cosmetic/dry_sanding' if has_perm(role,'cosmetic_dry_sanding','enable')

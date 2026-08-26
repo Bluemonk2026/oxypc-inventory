@@ -170,8 +170,11 @@ async def test_stress_fail_and_complete_assign():
 
             if paint_engineer:
                 dev2 = (await db.execute(select(Device).where(Device.id == complete_device_id))).scalar_one()
-                assert dev2.current_stage == DeviceStage.cleaning, (
-                    f"Device not moved to Cleaning, still at {dev2.current_stage}"
+                # Complete now lands on the Cosmetic Received holding stage,
+                # not Cleaning directly — see routers/cosmetic.py
+                # COSMETIC_PIPELINE (Cosmetic Received sits before Cleaning).
+                assert dev2.current_stage == DeviceStage.cosmetic_received, (
+                    f"Device not moved to Cosmetic Received, still at {dev2.current_stage}"
                 )
                 wo2 = (await db.execute(
                     select(WorkOrder).where(WorkOrder.device_id == complete_device_id)

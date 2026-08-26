@@ -274,8 +274,8 @@ _STAGE_BADGE = {
     "iqc": "secondary", "stock_in": "info text-dark", "l1": "warning text-dark",
     "l2": "warning text-dark", "l3": "warning text-dark", "qc_check": "primary",
     "final_qc": "primary", "ready_to_sale": "success", "sold": "dark",
-    "returned": "danger", "cleaning": "purple", "dry_sanding": "purple",
-    "masking": "purple", "painting": "purple", "water_sanding": "purple",
+    "returned": "danger", "cosmetic_received": "purple", "cleaning": "purple", "dry_sanding": "purple",
+    "masking": "purple", "painting": "purple", "water_sanding": "purple", "cosmetic_completed": "purple",
 }
 
 

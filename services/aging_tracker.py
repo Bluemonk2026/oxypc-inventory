@@ -21,9 +21,14 @@ ACTIVE_STAGES = {
     DeviceStage.iqc, DeviceStage.stock_in,
     DeviceStage.l1,  DeviceStage.l2, DeviceStage.l3,
     DeviceStage.qc_check,
-    DeviceStage.cleaning, DeviceStage.dry_sanding,
+    # cosmetic_received/completed are the new holding stages either side of
+    # the cosmetic line (see routers/cosmetic.py COSMETIC_PIPELINE); putty
+    # was already a pipeline stage missing from this set before this change
+    # — added alongside since it sits in the same gap.
+    DeviceStage.cosmetic_received,
+    DeviceStage.cleaning, DeviceStage.putty, DeviceStage.dry_sanding,
     DeviceStage.masking,  DeviceStage.painting,
-    DeviceStage.water_sanding, DeviceStage.final_qc,
+    DeviceStage.water_sanding, DeviceStage.cosmetic_completed, DeviceStage.final_qc,
     DeviceStage.ready_to_sale,
 }
 

@@ -141,8 +141,10 @@ async def dashboard(
         )).scalar() or 0
 
     COSMETIC_STAGES = [
+        DeviceStage.cosmetic_received,
         DeviceStage.cleaning, DeviceStage.putty, DeviceStage.dry_sanding,
         DeviceStage.masking, DeviceStage.painting, DeviceStage.water_sanding,
+        DeviceStage.cosmetic_completed,
     ]
     FINAL_QC_STAGES = [
         DeviceStage.final_qc, DeviceStage.final_qc_pass_hold,

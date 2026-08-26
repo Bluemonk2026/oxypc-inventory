@@ -956,8 +956,9 @@ async def stock_in_list(
         return sum(stage_counts.get(s, 0) for s in stages)
 
     repair_stages = [DeviceStage.l1, DeviceStage.l2, DeviceStage.l3, DeviceStage.qc_check]
-    cosmetic_stages = [DeviceStage.cleaning, DeviceStage.dry_sanding, DeviceStage.masking,
-                       DeviceStage.painting, DeviceStage.water_sanding, DeviceStage.final_qc]
+    cosmetic_stages = [DeviceStage.cosmetic_received, DeviceStage.cleaning, DeviceStage.dry_sanding,
+                       DeviceStage.masking, DeviceStage.painting, DeviceStage.water_sanding,
+                       DeviceStage.cosmetic_completed, DeviceStage.final_qc]
     analytics = {
         "iqc": _c(DeviceStage.iqc),
         "in_stock": _c(*repair_stages, *cosmetic_stages, DeviceStage.ready_to_sale),

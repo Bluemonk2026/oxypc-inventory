@@ -89,8 +89,8 @@ async def _gap_devices(db: AsyncSession, hours: int = 24):
     active_stages = [
         DeviceStage.iqc, DeviceStage.stock_in,
         DeviceStage.l1, DeviceStage.l2, DeviceStage.l3,
-        DeviceStage.qc_check, DeviceStage.cleaning, DeviceStage.dry_sanding,
-        DeviceStage.masking, DeviceStage.painting, DeviceStage.water_sanding,
+        DeviceStage.qc_check, DeviceStage.cosmetic_received, DeviceStage.cleaning, DeviceStage.dry_sanding,
+        DeviceStage.masking, DeviceStage.painting, DeviceStage.water_sanding, DeviceStage.cosmetic_completed,
         DeviceStage.final_qc, DeviceStage.ready_to_sale,
     ]
     # 1. Picked-up and not returned

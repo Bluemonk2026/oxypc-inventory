@@ -602,16 +602,21 @@ async def stress_complete_to_paint(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """'Complete' — send the device to the Cosmetic 'Cleaning' stage.
+    """'Complete' — send the device to the Cosmetic Received stage (the
+    holding stage before cosmetic work starts — see routers/cosmetic.py's
+    COSMETIC_PIPELINE).
 
     Reuses the exact stage-set logic from routers/cosmetic.py's
-    `send_to_cosmetic` (QC Check -> Cleaning), and additionally records a
-    WorkOrder (same mechanism used for L1/L2/L3 assignment) so the movement
-    is traceable, since Device has no assigned_username field of its own.
+    `send_to_cosmetic` (QC Check -> Cosmetic Received), and additionally
+    records a WorkOrder (same mechanism used for L1/L2/L3 assignment) so the
+    movement is traceable, since Device has no assigned_username field of
+    its own. That WorkOrder is also what the Cosmetic Received / Cosmetic
+    Completed pages read for their "Assigned to" / "Assigned Date" columns.
 
     `engineer_user_id` is optional: the QC 'Complete' button sends the tag
-    straight to Cleaning with an unassigned WorkOrder, while callers that do
-    pass an engineer still get validation, assignment and a notification.
+    straight to Cosmetic Received with an unassigned WorkOrder, while callers
+    that do pass an engineer still get validation, assignment and a
+    notification.
     """
     dev_res = await db.execute(select(Device).where(Device.barcode == barcode))
     device = dev_res.scalar_one_or_none()
@@ -626,23 +631,24 @@ async def stress_complete_to_paint(
             raise HTTPException(400, "Invalid engineer selected")
 
         engineer = (await db.execute(select(User).where(User.id == eng_uuid))).scalar_one_or_none()
-        allowed_paint_roles = (UserRole.qc_inspector, UserRole.inventory_manager, UserRole.sales_manager)
+        allowed_paint_roles = (UserRole.qc_inspector, UserRole.inventory_manager, UserRole.sales_manager,
+                               UserRole.cosmetic_manager)
         if not engineer or engineer.role not in allowed_paint_roles:
             raise HTTPException(400, "Selected user is not an active Paint/Cleaning engineer")
 
     prev_stage = device.current_stage
-    device.current_stage = DeviceStage.cleaning
+    device.current_stage = DeviceStage.cosmetic_received
     device.updated_at = app_now()
     # Complete means the checklist came back all-Pass — clear any earlier
     # failure note so Device Detail / a future L1/L2 view doesn't show a
     # stale "Failed: …" note for a device that has since passed.
     device.stress_notes = None
-    move_notes = "Sent to Cosmetic Refurbishment (Cleaning)"
+    move_notes = "Sent to Cosmetic Refurbishment (Cosmetic Received)"
     if engineer:
         move_notes += f" — assigned to {engineer.full_name or engineer.username}"
     if notes:
         move_notes += f". {notes}"
-    db.add(StageMovement(device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.cleaning,
+    db.add(StageMovement(device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.cosmetic_received,
                          moved_by=current_user.username, notes=move_notes))
 
     db.add(StressTestResult(
@@ -669,25 +675,25 @@ async def stress_complete_to_paint(
     if engineer:
         await create_notification(
             db, user_id=engineer.id, title="Device Assigned to You",
-            message=(f"{device.barcode} completed Stress Test and has been sent to Cleaning, "
+            message=(f"{device.barcode} completed Stress Test and has been sent to Cosmetic Received, "
                      f"assigned to you (WorkID: {work_id})."),
             notification_type="info",
             barcode=device.barcode, brand=device.brand, model=device.model,
-            stage=DeviceStage.cleaning.value,
+            stage=DeviceStage.cosmetic_received.value,
         )
 
     await audit(db, user=current_user, action="STRESS_COMPLETE_TO_PAINT",
                 table_name="devices", record_id=str(device.id),
                 new_value={"assigned_to": engineer.username if engineer else None,
-                           "stage": "cleaning", "work_id": work_id, "notes": notes},
+                           "stage": "cosmetic_received", "work_id": work_id, "notes": notes},
                 request=None)
 
     await db.commit()
     if engineer:
-        return RedirectResponse(url="/qc?success=Device+sent+to+Cleaning+%26+assigned+to+" +
+        return RedirectResponse(url="/qc?success=Device+sent+to+Cosmetic+Received+%26+assigned+to+" +
                                  (engineer.full_name or engineer.username).replace(" ", "+"),
                                  status_code=302)
-    return RedirectResponse(url="/qc?success=Device+sent+to+Cleaning", status_code=302)
+    return RedirectResponse(url="/qc?success=Device+sent+to+Cosmetic+Received", status_code=302)
 
 
 @router.get("/has-results")

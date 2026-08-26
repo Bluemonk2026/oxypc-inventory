@@ -28,16 +28,23 @@ import uuid as uuid_module
 
 router = APIRouter(prefix="/cosmetic", tags=["cosmetic"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.qc_inspector,
-                         UserRole.sales_manager)
+                         UserRole.sales_manager, UserRole.cosmetic_manager)
 
-# Ordered cosmetic pipeline — each stage advances to the next
+# Ordered cosmetic pipeline — each stage advances to the next. Cosmetic
+# Received is the holding stage a device lands in straight out of Stress
+# Test (see routers/stress_api.py stress_complete_to_paint and
+# routers/qc.py's pass branch) before cosmetic work actually starts; Cosmetic
+# Completed is the equivalent holding stage once Water Sanding is done and
+# before Final QC picks it up.
 COSMETIC_PIPELINE = [
+    DeviceStage.cosmetic_received,
     DeviceStage.cleaning,
     DeviceStage.putty,
     DeviceStage.dry_sanding,
     DeviceStage.masking,
     DeviceStage.painting,
     DeviceStage.water_sanding,
+    DeviceStage.cosmetic_completed,
     DeviceStage.final_qc,
 ]
 
@@ -46,23 +53,27 @@ COSMETIC_PIPELINE = [
 COSMETIC_NAV_STAGES = [s for s in COSMETIC_PIPELINE if s != DeviceStage.final_qc]
 
 NEXT_COSMETIC = {
-    DeviceStage.qc_check:    DeviceStage.cleaning,
+    DeviceStage.qc_check:    DeviceStage.cosmetic_received,
+    DeviceStage.cosmetic_received: DeviceStage.cleaning,
     DeviceStage.cleaning:    DeviceStage.putty,
     DeviceStage.putty:       DeviceStage.dry_sanding,
     DeviceStage.dry_sanding: DeviceStage.masking,
     DeviceStage.masking:     DeviceStage.painting,
     DeviceStage.painting:    DeviceStage.water_sanding,
-    DeviceStage.water_sanding: DeviceStage.final_qc,
+    DeviceStage.water_sanding: DeviceStage.cosmetic_completed,
+    DeviceStage.cosmetic_completed: DeviceStage.final_qc,
     DeviceStage.final_qc:    DeviceStage.ready_to_sale,
 }
 
 STAGE_LABELS = {
+    DeviceStage.cosmetic_received: "Cosmetic Received",
     DeviceStage.cleaning:     "Cleaning",
     DeviceStage.putty:        "Putty",
     DeviceStage.dry_sanding:  "Dry Sanding",
     DeviceStage.masking:      "Masking",
     DeviceStage.painting:     "Painting",
     DeviceStage.water_sanding:"Water Sanding",
+    DeviceStage.cosmetic_completed: "Cosmetic Completed",
     DeviceStage.final_qc:     "Final QC",
 }
 
@@ -274,6 +285,38 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
         {"id": str(u.id), "name": u.full_name or u.username, "role": u.role.value}
         for u in l1l2_result.scalars().all()
     ]
+
+    # ── Received / Completed: bespoke tables (different columns/actions than
+    # the generic stage.html) — see templates/cosmetic/received.html and
+    # completed.html. "Assigned to" is the cosmetic engineer recorded on the
+    # device's entry into the pipeline (WorkOrder.stage == "clean", set by
+    # the Stress Test "Complete" button — routers/stress_api.py
+    # stress_complete_to_paint / routers/qc.py's pass branch), the same
+    # mechanism and lookup pattern as the L1/L2 Engineer column above.
+    if stage in (DeviceStage.cosmetic_received, DeviceStage.cosmetic_completed):
+        assigned_map: dict[str, dict] = {}
+        if device_ids:
+            assign_rows = await db.execute(
+                select(WorkOrder.device_id, WorkOrder.assigned_name, WorkOrder.assigned_at)
+                .where(WorkOrder.device_id.in_(device_ids), WorkOrder.stage == "clean",
+                       WorkOrder.assigned_name.isnot(None))
+                .order_by(WorkOrder.assigned_at.desc())
+            )
+            for did, name, at in assign_rows.all():
+                assigned_map.setdefault(str(did), {"name": name, "date": at})
+
+        template_name = ("cosmetic/received.html" if stage == DeviceStage.cosmetic_received
+                          else "cosmetic/completed.html")
+        return templates.TemplateResponse(template_name, {
+            "request": request, "current_user": current_user,
+            "stage": stage, "stage_label": STAGE_LABELS[stage],
+            "devices": devices,
+            "next_stage": next_stage,
+            "next_stage_label": STAGE_LABELS.get(next_stage, "Ready to Sale") if next_stage else "Ready to Sale",
+            "pipeline": COSMETIC_NAV_STAGES, "stage_labels": STAGE_LABELS,
+            "l1l2_engineer_map": l1l2_engineer_map, "l1l2_engineers": l1l2_engineers,
+            "assigned_map": assigned_map, "now": app_now(),
+        })
 
     return templates.TemplateResponse("cosmetic/stage.html", {
         "request": request, "current_user": current_user,
@@ -539,23 +582,23 @@ async def send_to_cosmetic(
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("cosmetic", "add")),
 ):
-    """Send a device from QC Check to the Cleaning stage to begin cosmetic refurb."""
+    """Send a device from QC Check to the Cosmetic Received stage to begin cosmetic refurb."""
     result = await db.execute(select(Device).where(Device.barcode == barcode))
     device = result.scalar_one_or_none()
     if not device:
         raise HTTPException(404, f"Device {barcode} not found")
 
     prev = device.current_stage
-    device.current_stage = DeviceStage.cleaning
+    device.current_stage = DeviceStage.cosmetic_received
     device.updated_at = app_now()
     movement = StageMovement(
-        device_id=device.id, from_stage=prev, to_stage=DeviceStage.cleaning,
+        device_id=device.id, from_stage=prev, to_stage=DeviceStage.cosmetic_received,
         moved_by=current_user.username,
         notes=notes or "Sent to Cosmetic Refurbishment"
     )
     db.add(movement)
     await db.commit()
-    return RedirectResponse(url="/cosmetic/cleaning?success=Device+sent+to+Cleaning", status_code=302)
+    return RedirectResponse(url="/cosmetic/cosmetic_received?success=Device+sent+to+Cosmetic+Received", status_code=302)
 
 
 # ── Revalidate IQC (item 12 — Final QC page redesign) ───────────────────────
@@ -631,20 +674,22 @@ async def cosmetic_fail_assign(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """'Fail' on the Cleaning / Water Sanding pages — assign the device to an
-    L1/L2 engineer. Same "Fail — Assign to L1/L2 Engineer" modal and the same
-    WorkOrder + stage-move mechanism as the Stress Test page's own Fail
-    action (routers/stress_api.py stress_fail_assign) — kept as a separate
-    endpoint rather than reused directly so the note/notification wording
-    says what actually failed (a cosmetic stage, not a stress test) and
-    lands in device.repair_notes (the shared Repair Notes field) rather than
-    the stress-test-specific device.stress_notes.
+    """'Fail' on the Cosmetic Received / Cleaning / Water Sanding / Cosmetic
+    Completed pages — assign the device to an L1/L2 engineer. Same
+    "Fail — Assign to L1/L2 Engineer" modal and the same WorkOrder +
+    stage-move mechanism as the Stress Test page's own Fail action
+    (routers/stress_api.py stress_fail_assign) — kept as a separate endpoint
+    rather than reused directly so the note/notification wording says what
+    actually failed (a cosmetic stage, not a stress test) and lands in
+    device.repair_notes (the shared Repair Notes field) rather than the
+    stress-test-specific device.stress_notes.
     """
     device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
     if not device:
         raise HTTPException(404, f"Device {barcode} not found")
-    if device.current_stage not in (DeviceStage.cleaning, DeviceStage.water_sanding):
-        raise HTTPException(400, "This device is not at Cleaning or Water Sanding")
+    if device.current_stage not in (DeviceStage.cosmetic_received, DeviceStage.cleaning,
+                                     DeviceStage.water_sanding, DeviceStage.cosmetic_completed):
+        raise HTTPException(400, "This device is not at Cosmetic Received, Cleaning, Water Sanding or Cosmetic Completed")
 
     try:
         eng_uuid = uuid_module.UUID(engineer_user_id)

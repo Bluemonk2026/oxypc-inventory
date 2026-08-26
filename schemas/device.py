@@ -5,8 +5,8 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 VALID_STAGES = {
     "grn", "iqc", "stock_in", "l1", "l2", "l3",
-    "qc_check", "cleaning", "dry_sanding", "masking",
-    "painting", "water_sanding", "final_qc",
+    "qc_check", "cosmetic_received", "cleaning", "dry_sanding", "masking",
+    "painting", "water_sanding", "cosmetic_completed", "final_qc",
     "ready_to_sale", "sold", "returned", "scrapped",
 }
 

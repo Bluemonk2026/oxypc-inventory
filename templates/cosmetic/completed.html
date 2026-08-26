@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}{{ stage_label }} — OxyPC{% endblock %}
+{% block page_title %}{{ stage_label }}{% endblock %}
+{% block content %}
+
+<!-- Pipeline breadcrumb -->
+<nav class="mb-3">
+  <ol class="breadcrumb small">
+    <li class="breadcrumb-item"><a href="/cosmetic">Cosmetic Pipeline</a></li>
+    <li class="breadcrumb-item active">{{ stage_label }}</li>
+  </ol>
+</nav>
+
+<!-- Stage nav tabs -->
+<div class="d-flex gap-2 mb-3 flex-wrap">
+  {% for s in pipeline %}
+  <a href="/cosmetic/{{ s.value }}"
+     class="btn btn-sm {{ 'btn-primary' if s == stage else 'btn-outline-secondary' }}">
+    {{ stage_labels[s] }}
+  </a>
+  {% endfor %}
+</div>
+
+<div class="row g-4">
+  <!-- Device list -->
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-check2-square me-2"></i>Devices in {{ stage_label }}</span>
+        <span class="badge bg-warning text-dark">{{ devices|length }} device(s)</span>
+      </div>
+      <div class="card-body p-0">
+        <table id="cosmeticCompletedTable" class="table table-hover mb-0 small">
+          <thead class="table-dark">
+            <tr>
+              <th>Tag Number</th><th>Cosmetic Stage</th><th>L1/L2 Engineer</th><th>Lot</th><th>Grade</th>
+              <th>Brand</th><th>Model</th><th>Aging</th><th>Assigned to</th>
+              <th>Assigned Date</th><th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for device, lot_number in devices %}
+            {% set assigned = assigned_map.get(device.id|string) %}
+            <tr>
+              <td><code>{{ device.barcode }}</code></td>
+              <td><span class="badge bg-teal">{{ stage_labels.get(device.current_stage, device.current_stage.value) }}</span></td>
+              <td class="text-muted small">{{ l1l2_engineer_map.get(device.id|string, '—') }}</td>
+              <td><span class="badge bg-secondary">{{ lot_number }}</span></td>
+              <td>
+                {% if device.grade %}
+                <span class="badge {{ 'bg-success' if device.grade.value == 'A' else 'bg-warning text-dark' if device.grade.value == 'B' else 'bg-danger' }}">
+                  {{ device.grade.value }}
+                </span>
+                {% else %}—{% endif %}
+              </td>
+              <td>{{ device.brand or '—' }}</td>
+              <td>{{ device.model or '—' }}</td>
+              <td class="text-muted small">{{ (now - device.created_at).days if device.created_at else '—' }} days</td>
+              <td class="text-muted small">{{ assigned.name if assigned else '—' }}</td>
+              <td class="text-muted small">{{ assigned.date.strftime('%d-%b %H:%M') if assigned and assigned.date else '—' }}</td>
+              <td>
+                <form action="/cosmetic/advance" method="post" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+                  <input type="hidden" name="barcode" value="{{ device.barcode }}">
+                  <button type="submit" class="btn btn-sm btn-success py-0 px-2">
+                    <i class="bi bi-check2 me-1"></i>Move to Final QC
+                  </button>
+                </form>
+                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 ms-1"
+                        onclick="openFailModal('{{ device.barcode }}')">
+                  <i class="bi bi-x-circle me-1"></i>Fail
+                </button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Fail modal: assign to L1/L2 engineer — same modal/mechanism as the
+     Cleaning / Water Sanding pages (templates/cosmetic/stage.html), posting
+     to routers/cosmetic.py's cosmetic_fail_assign. #}
+<div class="modal fade" id="cosmeticFailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-x-circle-fill text-danger me-2"></i>Fail — Assign to L1/L2 Engineer</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-3">Tag Number: <span id="cosmeticFailBarcode" class="font-monospace fw-semibold"></span></p>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">L1/L2 Engineer</label>
+          <select id="cosmeticFailEngineerSelect" class="form-select form-select-sm">
+            <option value="">— Select Engineer —</option>
+            {% for eng in l1l2_engineers %}
+            <option value="{{ eng.id }}">{{ eng.name }} ({{ eng.role.replace('_', ' ')|title }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">Notes</label>
+          <textarea id="cosmeticFailNotes" class="form-control form-control-sm" rows="3" placeholder="Failure reason / notes"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="cosmeticFailAssignBtn" class="btn btn-danger btn-sm" onclick="submitCosmeticFail()">Assign</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let _cosmeticFailBarcode = null;
+const CSRF = (document.cookie.split(';').find(c => c.trim().startsWith('csrf_token=')) || '').split('=').slice(1).join('=').trim();
+
+function openFailModal(barcode) {
+  _cosmeticFailBarcode = barcode;
+  document.getElementById('cosmeticFailBarcode').textContent = barcode;
+  document.getElementById('cosmeticFailEngineerSelect').value = '';
+  document.getElementById('cosmeticFailNotes').value = '';
+  new bootstrap.Modal(document.getElementById('cosmeticFailModal')).show();
+}
+
+async function submitCosmeticFail() {
+  if (!_cosmeticFailBarcode) return;
+  const engineerId = document.getElementById('cosmeticFailEngineerSelect').value;
+  if (!engineerId) { alert('Please select an L1/L2 engineer'); return; }
+  const notes = document.getElementById('cosmeticFailNotes').value;
+  const btn = document.getElementById('cosmeticFailAssignBtn');
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/cosmetic/${_cosmeticFailBarcode}/fail`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF},
+      body: 'engineer_user_id=' + encodeURIComponent(engineerId) +
+            '&notes=' + encodeURIComponent(notes) +
+            '&csrf_token=' + encodeURIComponent(CSRF),
+    });
+    if (!r.ok) {
+      const text = await r.text().catch(() => '');
+      alert('Failed to assign' + (text ? ': ' + text.slice(0, 200) : ''));
+      btn.disabled = false;
+      return;
+    }
+    window.location.reload();
+  } catch (e) {
+    alert('Network error: ' + e.message);
+    btn.disabled = false;
+  }
+}
+
+$(document).ready(function(){ $('#cosmeticCompletedTable').DataTable({pageLength: 12, order: [[0, 'asc']]}) })
+</script>
+{% endblock %}

@@ -17,12 +17,14 @@ class DeviceStage(str, enum.Enum):
     l3 = "l3"
     trc_production = "trc_production"
     qc_check = "qc_check"
+    cosmetic_received = "cosmetic_received"
     cleaning = "cleaning"
     putty = "putty"
     dry_sanding = "dry_sanding"
     masking = "masking"
     painting = "painting"
     water_sanding = "water_sanding"
+    cosmetic_completed = "cosmetic_completed"
     final_qc = "final_qc"
     final_qc_pass_hold = "final_qc_pass_hold"
     final_qc_fail_hold = "final_qc_fail_hold"
@@ -51,12 +53,14 @@ STAGE_LABELS = {
     DeviceStage.l3: "L3 Repair",
     DeviceStage.trc_production: "TRC Production",
     DeviceStage.qc_check: "Stress Test",
+    DeviceStage.cosmetic_received: "Cosmetic Received",
     DeviceStage.cleaning: "Cleaning",
     DeviceStage.putty: "Putty",
     DeviceStage.dry_sanding: "Dry Sanding",
     DeviceStage.masking: "Masking",
     DeviceStage.painting: "Painting",
     DeviceStage.water_sanding: "Water Sanding",
+    DeviceStage.cosmetic_completed: "Cosmetic Completed",
     DeviceStage.final_qc: "Final QC",
     DeviceStage.final_qc_pass_hold: "Final QC — Pass Hold",
     DeviceStage.final_qc_fail_hold: "Final QC — Fail Hold",
@@ -76,12 +80,14 @@ STAGE_COLORS = {
     DeviceStage.l3: "danger",
     DeviceStage.trc_production: "info",
     DeviceStage.qc_check: "primary",
+    DeviceStage.cosmetic_received: "teal",
     DeviceStage.cleaning: "teal",
     DeviceStage.putty: "teal",
     DeviceStage.dry_sanding: "teal",
     DeviceStage.masking: "teal",
     DeviceStage.painting: "teal",
     DeviceStage.water_sanding: "teal",
+    DeviceStage.cosmetic_completed: "teal",
     DeviceStage.final_qc: "purple",
     DeviceStage.final_qc_pass_hold: "success",
     DeviceStage.final_qc_fail_hold: "warning",

@@ -281,7 +281,7 @@ async def qc_submit(
     if result_ == "pass":
         device.grade        = grade
         device.updated_at   = app_now()
-        to_stage = DeviceStage.cleaning
+        to_stage = DeviceStage.cosmetic_received
         # Skip cosmetic for A grade already clean? Admin can always override via move
         await validate_transition(device, to_stage, db, override_admin=is_admin)
         notes_text = f"QC Passed — Score {total_score}/100 Grade {grade}"

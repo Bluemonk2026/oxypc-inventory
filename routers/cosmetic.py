@@ -395,11 +395,24 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
         passed_buckets = await _bucket_group(db, DeviceStage.final_qc_pass_hold, "pass")
         failed_buckets = await _bucket_group(db, DeviceStage.final_qc_fail_hold, "fail")
 
+        # ── "Pick This" state — whoever picked a tag first locks it; the
+        # button shows "Picked by <name>" (disabled) for everyone else
+        # instead of a clickable "Pick This". See fqc_pick below. ──────────
+        fqc_pick_map: dict[str, dict] = {}
+        if device_ids:
+            pick_rows = await db.execute(
+                select(WorkOrder.device_id, WorkOrder.assigned_name, WorkOrder.assigned_username)
+                .where(WorkOrder.device_id.in_(device_ids), WorkOrder.stage == "fqc")
+                .order_by(WorkOrder.assigned_at.desc())
+            )
+            for did, name, uname in pick_rows.all():
+                fqc_pick_map.setdefault(str(did), {"name": name, "username": uname})
+
         return templates.TemplateResponse("cosmetic/final_qc.html", {
             "request": request, "current_user": current_user,
             "stage": stage, "stage_label": STAGE_LABELS[stage],
             "devices": devices, "iqc_map": iqc_map, "repairs_map": repairs_map,
-            "parts_map": parts_map, "price_map": price_map,
+            "parts_map": parts_map, "price_map": price_map, "fqc_pick_map": fqc_pick_map,
             "pipeline": COSMETIC_NAV_STAGES, "stage_labels": STAGE_LABELS,
             "bucket_name_map": bucket_name_map,
             "passed_buckets": passed_buckets, "failed_buckets": failed_buckets,
@@ -757,6 +770,12 @@ async def fqc_pick(
         raise HTTPException(404, f"Device {barcode} not found")
     if device.current_stage != DeviceStage.final_qc:
         raise HTTPException(400, f"Device {barcode} is not at Final QC")
+    already = (await db.execute(
+        select(WorkOrder).where(WorkOrder.device_id == device.id, WorkOrder.stage == "fqc")
+    )).scalars().first()
+    if already:
+        raise HTTPException(400, f"{barcode} has already been picked by "
+                                  f"{already.assigned_name or already.assigned_username}.")
     work_id = await _gen_work_id(db)
     db.add(WorkOrder(
         work_id=work_id, device_id=device.id, barcode=device.barcode,

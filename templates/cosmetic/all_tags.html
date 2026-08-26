@@ -53,7 +53,12 @@
               <td>{{ device.model or '—' }}</td>
               <td class="text-muted small">{{ (now - device.created_at).days if device.created_at else '—' }} days</td>
               <td class="text-muted small">{{ a.get('name') or '—' }}</td>
-              <td class="text-muted small">{{ a.get('date').strftime('%d-%b %H:%M') if a.get('date') else '—' }}</td>
+              {# data-order carries the sortable ISO value; DataTables reads it
+                 natively, so the visible date can stay short-formatted without
+                 breaking the (chronological, not alphabetical) default sort. #}
+              <td class="text-muted small" data-order="{{ a.get('date').isoformat() if a.get('date') else '' }}">
+                {{ a.get('date').strftime('%d-%b %H:%M') if a.get('date') else '—' }}
+              </td>
               <td><span class="badge bg-teal">{{ stage_labels.get(device.current_stage, device.current_stage.value) }}</span></td>
             </tr>
             {% endfor %}
@@ -66,6 +71,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-$(document).ready(function(){ $('#cosmeticAllTagsTable').DataTable({pageLength: 12, order: [[0, 'asc']]}) })
+// Column 8 is Assigned Date — default sort, most recent first.
+$(document).ready(function(){ $('#cosmeticAllTagsTable').DataTable({pageLength: 12, order: [[8, 'desc']]}) })
 </script>
 {% endblock %}

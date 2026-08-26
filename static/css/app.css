@@ -228,6 +228,12 @@ table.dataTable {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* ── Teal badge — used for the cosmetic Stage column (Cosmetic Completed,
+   All Tags) and the CRM Assign Leads summary. Not a real Bootstrap utility
+   class; .badge alone sets color:#fff with no background, so without this
+   rule the text renders invisible (white on white/transparent). ────────── */
+.badge.bg-teal { background-color: #0d9488 !important; }
+
 /* ── Global disabled-button styling (applies app-wide) ───────────────────── */
 .btn:disabled,
 .btn.disabled,

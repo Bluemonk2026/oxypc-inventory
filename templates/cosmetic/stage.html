@@ -194,8 +194,14 @@ $(document).ready(function(){
   var dt = $('#cosmeticTable').DataTable({
     pageLength: 12,
     order: [[sinceCol, 'asc']],
-    {% if current_user.role.value == 'admin' %}
     initComplete: function() {
+      // Table-count badge next to DataTables' own "Show N entries" control —
+      // updates on every draw (see drawCallback) so it tracks whatever
+      // filter (DataTables' own search box, sorting, paging) is applied.
+      var badge = $('<span id="cosmeticCountBadge" class="badge bg-warning text-dark ms-2"></span>');
+      $(this.api().table().container()).find('.dataTables_length').append(badge);
+      updateCosmeticCountBadge(this.api());
+      {% if current_user.role.value == 'admin' %}
       // "view Assign button before searchbox" — inject it into DataTables'
       // own filter box, ahead of the search input, rather than a separate
       // toolbar row.
@@ -203,9 +209,15 @@ $(document).ready(function(){
                   '<i class="bi bi-person-check me-1"></i>Assign</button>');
       btn.on('click', openBulkAssignModal);
       $(this.api().table().container()).find('.dataTables_filter').prepend(btn);
+      {% endif %}
     },
-    {% endif %}
+    drawCallback: function() { updateCosmeticCountBadge(this.api()); },
   });
+
+  function updateCosmeticCountBadge(api) {
+    var info = (api || dt).page.info();
+    $('#cosmeticCountBadge').text(info.recordsDisplay + ' tag' + (info.recordsDisplay === 1 ? '' : 's'));
+  }
 
   {% if current_user.role.value == 'admin' %}
   // Select-all header checkbox + per-row checkboxes — delegated since

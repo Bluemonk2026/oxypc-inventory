@@ -96,6 +96,9 @@ def test_all_tags_lists_devices_across_stages_with_correct_assignment_and_stage(
         clean_row = html.split(f'<code>{barcode_clean}</code>', 1)[1].split('</tr>', 1)[0]
         assert "Eng One" in clean_row
         assert "Cleaning" in clean_row
+        # data-order carries the sortable ISO date so DataTables sorts
+        # chronologically, not alphabetically on the "26-Aug 14:30" text.
+        assert 'data-order="' in clean_row
 
         putty_row = html.split(f'<code>{barcode_putty}</code>', 1)[1].split('</tr>', 1)[0]
         assert "Eng Two" in putty_row
@@ -103,6 +106,18 @@ def test_all_tags_lists_devices_across_stages_with_correct_assignment_and_stage(
     finally:
         _cleanup_device(barcode_clean)
         _cleanup_device(barcode_putty)
+
+
+def test_all_tags_stage_badge_has_visible_css_and_sorts_by_assigned_date_desc():
+    # Regression: ".badge.bg-teal" with no background rule renders invisible
+    # (bootstrap's .badge sets color:#fff, no background of its own) — the
+    # Stage badge text was present in the DOM but not visible on screen.
+    css_src = open(pathlib.Path(ROOT) / "static" / "css" / "app.css", encoding="utf-8").read()
+    assert ".bg-teal" in css_src
+    assert "background-color" in css_src.split(".bg-teal", 1)[1].split("}", 1)[0]
+
+    src = open(pathlib.Path(ROOT) / "templates" / "cosmetic" / "all_tags.html", encoding="utf-8").read()
+    assert "order: [[8, 'desc']]" in src  # column 8 = Assigned Date
 
 
 def test_all_tags_tab_appended_to_every_stage_pages_tab_bar(app_client, make_user):  # noqa: F811

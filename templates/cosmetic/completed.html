@@ -178,6 +178,24 @@ async function submitCosmeticFail() {
   }
 }
 
-$(document).ready(function(){ $('#cosmeticCompletedTable').DataTable({pageLength: 12, order: [[1, 'asc']]}) })
+$(document).ready(function(){
+  var dt = $('#cosmeticCompletedTable').DataTable({
+    pageLength: 12, order: [[1, 'asc']],
+    initComplete: function() {
+      // Table-count badge next to DataTables' own "Show N entries" control —
+      // updates on every draw (see drawCallback) so it tracks whatever
+      // filter (DataTables' own search box, sorting, paging) is applied.
+      var badge = $('<span id="cosmeticCountBadge" class="badge bg-warning text-dark ms-2"></span>');
+      $(this.api().table().container()).find('.dataTables_length').append(badge);
+      updateCosmeticCountBadge(this.api());
+    },
+    drawCallback: function() { updateCosmeticCountBadge(this.api()); },
+  });
+
+  function updateCosmeticCountBadge(api) {
+    var info = (api || dt).page.info();
+    $('#cosmeticCountBadge').text(info.recordsDisplay + ' tag' + (info.recordsDisplay === 1 ? '' : 's'));
+  }
+})
 </script>
 {% endblock %}

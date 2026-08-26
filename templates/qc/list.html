@@ -7,10 +7,6 @@
 
   {# ── Left: Device Table (2/3) ─────────────────────────────────────────── #}
   <div class="col-12 col-lg-8">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <span class="text-muted small">{{ devices|length }} device(s) awaiting QC</span>
-      <a href="/qc/new" class="btn btn-primary btn-sm"><i class="bi bi-patch-check me-1"></i>QC a Device</a>
-    </div>
     <div class="card border-0 shadow-sm">
       <div class="card-body p-0">
         <div class="table-responsive">
@@ -98,12 +94,13 @@
         {# ── Active area ── #}
         <div id="stressActiveArea" class="d-none">
 
-          <div id="stressDeviceLabel" class="mb-3 small text-muted fw-semibold border-bottom pb-2"></div>
-
-          {# "All Pass" quick-select #}
-          <div class="form-check mb-2 pb-2 border-bottom">
-            <input class="form-check-input" type="checkbox" id="allPassCheck" onchange="toggleAllPass(this.checked)">
-            <label class="form-check-label small fw-semibold" for="allPassCheck">All Pass</label>
+          <div class="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom">
+            <div id="stressDeviceLabel" class="small text-muted fw-semibold"></div>
+            {# "All Pass" quick-select — right of the device label #}
+            <div class="form-check mb-0 ms-2 text-nowrap">
+              <input class="form-check-input" type="checkbox" id="allPassCheck" onchange="toggleAllPass(this.checked)">
+              <label class="form-check-label small fw-semibold" for="allPassCheck">All Pass</label>
+            </div>
           </div>
 
           {# 20 checklist items, each with a Pass / Fail checkbox pair #}
@@ -213,7 +210,8 @@ function buildChecklist() {
 }
 
 // Pass/Fail behave as a mutually-exclusive pair (checkbox buttons, not radios
-// per the design ask) — checking one unchecks the other on the same row.
+// per the design ask) — at a time only one of the two can be checked for a
+// given line item, never both.
 function onCheckChanged(slug, which) {
   const pass = document.getElementById('cpass-' + slug);
   const fail = document.getElementById('cfail-' + slug);
@@ -221,18 +219,25 @@ function onCheckChanged(slug, which) {
   if (which === 'pass' && pass.checked) fail.checked = false;
   if (which === 'fail' && fail.checked) pass.checked = false;
   row.classList.toggle('c-fail', fail.checked);
-  // Any row now failing (or un-failed) means "All Pass" no longer reflects
-  // reality until the operator re-confirms it.
-  if (fail.checked) document.getElementById('allPassCheck').checked = false;
+  // Unchecking a Pass box — whether the operator unchecked it directly, or it
+  // got force-unchecked just now by checking that row's Fail box — means
+  // "All Pass" no longer reflects reality until re-confirmed via the master
+  // checkbox.
+  if (!pass.checked) document.getElementById('allPassCheck').checked = false;
 }
 
 function toggleAllPass(checked) {
-  if (!checked) return;  // unchecking "All Pass" alone changes nothing per-row
   CHECKLIST_ITEMS.forEach(name => {
     const s = _slug(name);
-    document.getElementById('cpass-' + s).checked = true;
-    document.getElementById('cfail-' + s).checked = false;
-    document.getElementById('crow-' + s).classList.remove('c-fail');
+    const pass = document.getElementById('cpass-' + s);
+    const fail = document.getElementById('cfail-' + s);
+    if (checked) {
+      pass.checked = true;
+      fail.checked = false;
+      document.getElementById('crow-' + s).classList.remove('c-fail');
+    } else {
+      pass.checked = false;
+    }
   });
 }
 
@@ -371,13 +376,30 @@ async function submitSave() {
   }
 }
 
+function updateAwaitingCount(api) {
+  // recordsDisplay reflects the CURRENTLY FILTERED count (the Search box),
+  // not the table's full total — the count next to "Show entries" is meant
+  // to answer "how many of what I'm looking at right now", same as the
+  // DataTables-native "Showing X of Y entries" text just below it.
+  const n = api.page.info().recordsDisplay;
+  $('#qcAwaitingCount').text(n + ' device(s) awaiting QC');
+}
+
 $(document).ready(function(){
-  $('#qcTable').DataTable({
+  const dt = $('#qcTable').DataTable({
     // Preserve the server's newest-first order (Device.updated_at desc) -
     // without this, DataTables defaults to sorting by the first visible
     // column (Tag Number), silently undoing it.
     order: [],
     columnDefs: [{visible: false, targets: [9]}],
+    initComplete: function(){
+      $(this).closest('.dataTables_wrapper').find('.dataTables_length')
+        .append('<span id="qcAwaitingCount" class="text-muted small ms-2"></span>');
+      updateAwaitingCount(this.api());
+    },
+    drawCallback: function(){
+      updateAwaitingCount(this.api());
+    },
   });
 });
 </script>

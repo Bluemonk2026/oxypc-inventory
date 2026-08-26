@@ -45,6 +45,20 @@ async def entity_values(db: AsyncSession) -> list:
     return await master_values(db, "entity") or list(ENTITY_FALLBACK)
 
 
+async def report_year_values(db: AsyncSession) -> list:
+    """Active Year options for the Dashboard's Year filter and Business P&L's
+    year tabs — single source so the two never disagree on which years are
+    offered. Falls back to a rolling 5-year window (current year ± 2) when the
+    'report_year' category hasn't been configured yet, same fallback pattern
+    as entity_values() above."""
+    vals = await master_values(db, "report_year")
+    if vals:
+        return vals
+    from utils.timezone import app_now
+    y = app_now().year
+    return [str(v) for v in range(y - 2, y + 3)]
+
+
 async def refresh_master_cache(db: AsyncSession) -> None:
     """Reload the full in-memory cache from DB. Call at startup and after any
     admin add/edit/toggle/delete on /admin/master."""

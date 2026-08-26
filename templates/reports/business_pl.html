@@ -13,10 +13,12 @@
 {% if request.query_params.get('error') %}
 <div class="alert alert-danger alert-dismissible fade show">{{ request.query_params.get('error') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
 {% endif %}
-<!-- Year selector -->
+<!-- Year selector — options come from Master Data (category "report_year"),
+     the same list the Dashboard's Year filter uses, so the two pages always
+     offer the same years. -->
 <div class="d-flex gap-2 mb-3">
-  {% for y in range(year - 2, year + 3) %}
-  <a href="?year={{ y }}" class="btn btn-sm {% if y == year %}btn-primary{% else %}btn-outline-secondary{% endif %}">{{ y }}</a>
+  {% for y in year_choices %}
+  <a href="?year={{ y }}" class="btn btn-sm {% if y|string == year|string %}btn-primary{% else %}btn-outline-secondary{% endif %}">{{ y }}</a>
   {% endfor %}
 </div>
 

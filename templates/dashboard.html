@@ -28,6 +28,18 @@
     <label class="form-label small fw-semibold">P&amp;L To Date</label>
     <input type="date" name="pl_to" class="form-control form-control-sm" value="{{ pl_to }}">
   </div>
+  {# Scopes the Financial Summary card's Parts Spent / Labour Spent (see
+     services/business_pl.compute_year_parts_labour_cogs). Options come from
+     Master Data (category "report_year") — the same list Business P&L's
+     year tabs use, so the two pages always offer the same years. #}
+  <div class="col-md-2">
+    <label class="form-label small fw-semibold">Year</label>
+    <select name="year" class="form-select form-select-sm">
+      {% for y in year_choices %}
+      <option value="{{ y }}" {% if year|string == y|string %}selected{% endif %}>{{ y }}</option>
+      {% endfor %}
+    </select>
+  </div>
   <div class="col-auto">
     <button type="submit" class="btn btn-sm btn-primary">
       <i class="bi bi-funnel me-1"></i>Apply
@@ -182,7 +194,7 @@
           ('l1l2',          'L1/L2',         'warning',   '/devices?stage=l1,l2'),
           ('l3l4',          'L3/L4',         'danger',    '/repair/l3l4'),
           ('qc_check',      'Stress/QC',     'primary',   '/devices?stage=qc_check'),
-          ('cosmetic',      'Cosmetic',      'info',      '/devices?stage=cleaning,putty,dry_sanding,masking,painting,water_sanding'),
+          ('cosmetic',      'Cosmetic',      'info',      '/devices?stage=cosmetic_received,cleaning,putty,dry_sanding,masking,painting,water_sanding,cosmetic_completed'),
           ('final_qc',      'Final QC',      'primary',   '/devices?stage=final_qc,final_qc_pass_hold,final_qc_fail_hold'),
           ('ready_to_sale', 'Ready to Sale', 'success',   '/devices?stage=ready_to_sale'),
           ('sold',          'Sold',          'dark',      '/devices?stage=sold'),
@@ -260,10 +272,20 @@
 
 {% macro financial_summary_card() %}
 <div class="card border-0 shadow-sm">
-  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-wallet2 me-2"></i>Financial Summary</div>
+  <div class="card-header bg-transparent fw-semibold">
+    <i class="bi bi-wallet2 me-2"></i>Financial Summary
+    <span class="badge bg-secondary-subtle text-secondary-emphasis border ms-1">Yearly</span>
+  </div>
   <div class="card-body">
     <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Total Investment</span><span class="fw-semibold">₹{{ "{:,.0f}".format(total_investment) }}</span></div>
-    <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Parts Spent</span><span class="fw-semibold">₹{{ "{:,.0f}".format(total_parts_cost) }}</span></div>
+    {# Parts Spent / Labour Spent are scoped to the selected Year (dashboard
+       filter) and pulled from the exact same computation as Business P&L's
+       Monthly Breakdown table (Parts Cost / Labour Cost columns) — see
+       services/business_pl.compute_year_parts_labour_cogs — so the two pages
+       never disagree. Total Investment/Revenue/Net Profit below stay
+       all-time, unchanged. #}
+    <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Parts Spent</span><span class="fw-semibold">₹{{ "{:,.0f}".format(yearly_parts_cost) }}</span></div>
+    <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Labour Spent</span><span class="fw-semibold">₹{{ "{:,.0f}".format(yearly_labour_cost) }}</span></div>
     <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Total Revenue</span><span class="fw-semibold text-success">₹{{ "{:,.0f}".format(total_revenue) }}</span></div>
     <hr>
     <div class="d-flex justify-content-between">

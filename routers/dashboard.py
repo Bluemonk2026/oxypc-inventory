@@ -8,7 +8,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from database import get_db
-from utils.master_data import entity_values
+from utils.master_data import entity_values, report_year_values
+from services.business_pl import compute_year_parts_labour_cogs
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
 from models.engines import RepairAttempt
@@ -78,8 +79,11 @@ async def dashboard(
     pl_to: str = Query(default=""),
     # Comma-separated, same convention as the All Inventory multi-selects.
     entity: str = Query(default=""),
+    year: int = Query(default=None),
 ):
     today = app_now().date()
+    if not year:
+        year = today.year
 
     # ── Stage + category counts (cached 30 s) ────────────────────────────────
     _now = _time.monotonic()
@@ -411,6 +415,8 @@ async def dashboard(
     total_labour_cost = 0.0
     total_cosmetic_cost = 0.0
     overall_profit = 0.0
+    yearly_parts_cost = 0.0
+    yearly_labour_cost = 0.0
     try:
         month_revenue_result = await db.execute(
             select(func.coalesce(func.sum(Sale.sale_price), 0))
@@ -435,6 +441,16 @@ async def dashboard(
         total_labour_cost = float(total_labour_cost_result.scalar() or 0)
 
         total_cosmetic_cost = sum(r["cosmetic_cost"] for r in lot_pl)
+        # Deliberately kept separate from total_parts_cost/total_labour_cost
+        # above (all-time, unscoped — Net Profit's existing formula below
+        # still uses those, unchanged): the Financial Summary card's "Parts
+        # Spent"/"Labour Spent" line items instead show THIS year's figures,
+        # sourced from the exact same computation as Business P&L's Monthly
+        # Breakdown table (Parts Cost / Labour Cost columns), so the two
+        # pages never disagree on the selected year's numbers.
+        yearly_monthly_parts, yearly_monthly_labour = await compute_year_parts_labour_cogs(db, year)
+        yearly_parts_cost = sum(yearly_monthly_parts)
+        yearly_labour_cost = sum(yearly_monthly_labour)
         overall_profit = total_revenue - total_investment - total_parts_cost - total_labour_cost - total_cosmetic_cost
     except Exception:
         _log.exception("financials failed")
@@ -779,6 +795,10 @@ async def dashboard(
         "total_labour_cost": total_labour_cost,
         "total_cosmetic_cost": total_cosmetic_cost,
         "overall_profit": overall_profit,
+        "year": year,
+        "year_choices": await report_year_values(db),
+        "yearly_parts_cost": yearly_parts_cost,
+        "yearly_labour_cost": yearly_labour_cost,
         "admin_analytics": admin_analytics,
         "admin_charts": admin_charts,
         "today": today,

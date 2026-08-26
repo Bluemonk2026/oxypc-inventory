@@ -315,6 +315,7 @@ CATEGORIES = [
     ("spare_parts_ram_action", "Spare Parts: RAM Action",    "inventory"),
     ("spare_parts_ram_gb",  "Spare Parts: RAM Capacity (GB)", "inventory"),
     ("spare_parts_consume_stage", "Spare Parts: Consumption Stage", "inventory"),
+    ("report_year",         "Reports: Year Options (Dashboard/Business P&L)", "inventory"),
     # ── Sales / Returns ──────────────────────────────────────────
     ("payment_mode",        "Payment Modes",                "sales"),
     ("return_reason",       "Return Reasons",               "sales"),

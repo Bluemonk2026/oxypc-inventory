@@ -113,13 +113,15 @@ PERM_MODULE_BY_STAGE = {
 }
 
 # Stages whose forward Move requires picking an assignee in a modal — every
-# page in PERM_MODULE_BY_STAGE except Cosmetic Completed. Final QC's own
-# Pass/Fail decisioning on this same /cosmetic/advance endpoint is a
-# separate, pre-existing flow this doesn't touch. Cosmetic Completed's
-# "Move to Final QC" button is the one Move that does NOT open a modal —
+# page in PERM_MODULE_BY_STAGE. The actual assignment requirement (see
+# advance_stage below) additionally exempts any move that LANDS on Final QC
+# regardless of source stage — Cosmetic Completed's normal "Move to Final QC"
+# and Cosmetic Received's "skip cosmetic stages" button both land there.
 # Final QC has its own page-level permission/access model (cosmetic_finalqc),
-# not a per-device WorkID handoff, so it moves straight through.
-ASSIGN_ON_MOVE_STAGES = set(PERM_MODULE_BY_STAGE.keys()) - {DeviceStage.cosmetic_completed}
+# not a per-device WorkID handoff, so those moves go straight through with no
+# modal. Final QC's own Pass/Fail decisioning on this same /cosmetic/advance
+# endpoint is a separate, pre-existing flow this doesn't touch.
+ASSIGN_ON_MOVE_STAGES = set(PERM_MODULE_BY_STAGE.keys())
 
 # The 6 mid-pipeline pages with the admin-only bulk "Assign" button — Cosmetic
 # Received/Completed are excluded (not asked for; they already have their own
@@ -684,14 +686,15 @@ async def advance_stage(
         if not has_perm(role_val, module_key, "edit"):
             raise HTTPException(403, f"Your role ({role_val}) does not have 'edit' permission for the {module_key} module.")
 
-    # ── Assignment required for every Move EXCEPT Cosmetic Completed's "Move
-    # to Final QC" (Cosmetic Received .. Water Sanding, incl. Received's
-    # "Move to Cleaning" / skip-to-Final-QC buttons): pick who owns the
-    # device at its new stage and issue a fresh WorkID for it — shows as
-    # that stage's WorkID column and on /workid-status. Final QC's own
-    # decisioning (handled above) never reaches here. ──────────────────────
+    # ── Assignment required for every Move EXCEPT one that lands on Final QC
+    # (Cosmetic Completed's normal "Move to Final QC", and Cosmetic
+    # Received's "skip cosmetic stages" button — both set next_stage to
+    # final_qc): pick who owns the device at its new stage and issue a fresh
+    # WorkID for it — shows as that stage's WorkID column and on
+    # /workid-status. Final QC's own Pass/Fail decisioning (handled above)
+    # never reaches here. ────────────────────────────────────────────────
     assigned_engineer = None
-    if current in ASSIGN_ON_MOVE_STAGES:
+    if current in ASSIGN_ON_MOVE_STAGES and next_stage != DeviceStage.final_qc:
         if not engineer_user_id:
             raise HTTPException(400, "Select a user to assign this device to before moving it.")
         try:

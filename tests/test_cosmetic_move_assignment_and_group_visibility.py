@@ -265,15 +265,17 @@ def test_breadcrumb_removed_from_all_three_templates():
         assert "breadcrumb" not in src, name
 
 
-def test_received_and_completed_still_have_fail_but_moves_use_modal():
+def test_received_and_completed_still_have_fail_but_final_qc_moves_skip_modal():
     for name in ("received.html", "completed.html"):
         src = open(pathlib.Path(ROOT) / "templates" / "cosmetic" / name, encoding="utf-8").read()
         assert "openFailModal(" in src, name
         assert "<th>WorkID</th>" in src, name
-    # received.html's "Move to Cleaning" (and skip-to-Final-QC) buttons still
-    # go through the assignee modal, like every other cosmetic-line Move.
+    # received.html's "Move to Cleaning" still goes through the assignee
+    # modal, like every other regular cosmetic-line Move — but its "skip
+    # cosmetic stages" button (also landing on Final QC) is now direct too.
     received_src = open(pathlib.Path(ROOT) / "templates" / "cosmetic" / "received.html", encoding="utf-8").read()
     assert "openMoveModal(" in received_src
+    assert "directMoveToFinalQC(" in received_src
     # completed.html's "Move to Final QC" is the one Move that does NOT use a
     # modal — it moves straight through with no assignee (Final QC has its
     # own page-level permission model, not a per-device WorkID handoff).

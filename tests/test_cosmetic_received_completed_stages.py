@@ -218,6 +218,72 @@ asyncio.run(main())
         _run(_CLEANUP_SRC.format(root=ROOT, barcode=barcode))
 
 
+def test_received_skip_to_final_qc_needs_no_engineer_and_shows_on_final_qc_page(app_client, make_user):  # noqa: F811
+    """Cosmetic Received's "Move to Final QC" (skip cosmetic stages) button
+    is the other Move that lands on Final QC — same no-modal, no-assignee
+    treatment as Cosmetic Completed's "Move to Final QC" (see
+    routers/cosmetic.py advance_stage's next_stage != DeviceStage.final_qc
+    check). The device must actually show up on /cosmetic/final_qc, not
+    just report success."""
+    suffix = uuid.uuid4().hex[:6]
+    barcode = f"ITCRSKIP{suffix}"
+    _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.lot import Lot
+from models.device import Device, DeviceStage
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        lot = (await db.execute(select(Lot).limit(1))).scalars().first()
+        dev = Device(barcode="{barcode}", lot_id=lot.id, brand="ITestBrand", model="ITestModel",
+                     current_stage=DeviceStage.cosmetic_received)
+        db.add(dev)
+        await db.commit()
+
+asyncio.run(main())
+""")
+    try:
+        username, password = make_user("admin")
+        _login(app_client, username, password)
+        csrf = app_client.cookies.get("csrf_token") or "dummy"
+
+        r = app_client.post("/cosmetic/advance", data={
+            "csrf_token": csrf, "barcode": barcode, "target": "final_qc",
+        })
+        assert r.status_code == 200, r.text[:300]
+        assert r.json()["moved_to"] == "final_qc"
+
+        check = _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.device import Device
+from models.work_order import WorkOrder
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        dev = (await db.execute(select(Device).where(Device.barcode == "{barcode}"))).scalar_one()
+        wo = (await db.execute(select(WorkOrder).where(
+            WorkOrder.device_id == dev.id, WorkOrder.stage == "fqc"))).scalar_one_or_none()
+        print(dev.current_stage.value)
+        print("none" if wo is None else wo.assigned_username)
+
+asyncio.run(main())
+""")
+        lines = check.splitlines()
+        assert lines[0] == "final_qc"
+        assert lines[1] == "none"  # no assignee for this Move, unlike every other cosmetic-line Move
+
+        html = app_client.get("/cosmetic/final_qc", follow_redirects=True).text
+        assert barcode in html
+    finally:
+        _run(_CLEANUP_SRC.format(root=ROOT, barcode=barcode))
+
+
 def test_water_sanding_advances_to_cosmetic_completed_then_final_qc(app_client, make_user):  # noqa: F811
     suffix = uuid.uuid4().hex[:6]
     barcode = f"ITCC{suffix}"

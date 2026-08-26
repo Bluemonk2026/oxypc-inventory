@@ -64,7 +64,7 @@
                   <i class="bi bi-check2 me-1"></i>Move to Cleaning
                 </button>
                 <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 ms-1"
-                        onclick="openMoveModal('{{ device.barcode }}', 'Final QC', 'final_qc')"
+                        onclick="directMoveToFinalQC('{{ device.barcode }}', this)"
                         title="Skip cosmetic stages and move to Final QC">
                   <i class="bi bi-skip-forward me-1"></i>Move to Final QC
                 </button>
@@ -154,13 +154,11 @@
 {% block scripts %}
 <script>
 let _moveBarcode = null;
-let _moveSkipTarget = null;
 let _cosmeticFailBarcode = null;
 const CSRF = (document.cookie.split(';').find(c => c.trim().startsWith('csrf_token=')) || '').split('=').slice(1).join('=').trim();
 
-function openMoveModal(barcode, targetLabel, skipTarget) {
+function openMoveModal(barcode, targetLabel) {
   _moveBarcode = barcode;
-  _moveSkipTarget = skipTarget || null;
   document.getElementById('cosmeticMoveBarcode').textContent = barcode;
   document.getElementById('cosmeticMoveTarget').textContent = targetLabel;
   document.getElementById('cosmeticMoveEngineerSelect').value = '';
@@ -176,15 +174,40 @@ async function submitCosmeticMove() {
   const btn = document.getElementById('cosmeticMoveBtn');
   btn.disabled = true;
   try {
-    let body = 'barcode=' + encodeURIComponent(_moveBarcode) +
-               '&engineer_user_id=' + encodeURIComponent(engineerId) +
-               '&notes=' + encodeURIComponent(notes) +
-               '&csrf_token=' + encodeURIComponent(CSRF);
-    if (_moveSkipTarget) body += '&target=' + encodeURIComponent(_moveSkipTarget);
     const r = await fetch('/cosmetic/advance', {
       method: 'POST',
       headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF},
-      body,
+      body: 'barcode=' + encodeURIComponent(_moveBarcode) +
+            '&engineer_user_id=' + encodeURIComponent(engineerId) +
+            '&notes=' + encodeURIComponent(notes) +
+            '&csrf_token=' + encodeURIComponent(CSRF),
+    });
+    if (!r.ok) {
+      const text = await r.text().catch(() => '');
+      alert('Failed to move' + (text ? ': ' + text.slice(0, 200) : ''));
+      btn.disabled = false;
+      return;
+    }
+    window.location.reload();
+  } catch (e) {
+    alert('Network error: ' + e.message);
+    btn.disabled = false;
+  }
+}
+
+// No modal, no assignee — skip cosmetic stages straight to Final QC (same
+// as Cosmetic Completed's "Move to Final QC"). Final QC has its own
+// page-level permission/access model (cosmetic_finalqc), not a per-device
+// WorkID handoff (see routers/cosmetic.py advance_stage / next_stage !=
+// DeviceStage.final_qc check).
+async function directMoveToFinalQC(barcode, btn) {
+  btn.disabled = true;
+  try {
+    const r = await fetch('/cosmetic/advance', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF},
+      body: 'barcode=' + encodeURIComponent(barcode) + '&target=final_qc' +
+            '&csrf_token=' + encodeURIComponent(CSRF),
     });
     if (!r.ok) {
       const text = await r.text().catch(() => '');

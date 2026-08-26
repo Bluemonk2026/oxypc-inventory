@@ -1,9 +1,12 @@
 """Cleaning and Water Sanding pages (templates/cosmetic/stage.html):
- - New "L1/L2 Engineer" column after Tag Number, same resolution as the
-   Stress Test page (most recent WorkOrder at stage="l1").
- - The "Fail" button's modal is no longer the "under development" placeholder
-   — it's the same "Fail — Assign to L1/L2 Engineer" modal as the Stress Test
-   page, now actually wired to POST /cosmetic/{barcode}/fail.
+ - "L1/L2 Engineer" column after Tag Number, same resolution as the Stress
+   Test page (most recent WorkOrder at stage="l1").
+ - Fail itself was later removed from Cleaning/Water Sanding's own page UI
+   (see tests/test_cosmetic_move_assignment_and_group_visibility.py), but the
+   POST /cosmetic/{barcode}/fail endpoint itself is unchanged and still
+   accepts a device sitting at water_sanding (only Cosmetic Received/
+   Completed keep a Fail button in the UI now) — the tests below that post
+   to the endpoint directly are still valid.
 """
 import pathlib
 import subprocess
@@ -87,11 +90,12 @@ def test_l1l2_engineer_column_and_fail_modal_on_cleaning_page(app_client, make_u
         row = html.split(barcode, 1)[1].split("</tr>", 1)[0]
         assert "Prior Engineer" in row
 
-        # Real modal, not the old placeholder.
-        assert "Fail — Assign to L1/L2 Engineer" in html
-        assert "This feature is under development" not in html
-        assert 'id="cosmeticFailModal"' in html
-        assert "openFailModal(" in row
+        # Fail (and the old "Done & Move to Final QC" skip button) were later
+        # removed from this page — see
+        # tests/test_cosmetic_move_assignment_and_group_visibility.py
+        # test_cleaning_page_no_longer_has_move_to_final_qc_or_fail.
+        assert "cosmeticFailModal" not in html
+        assert "openFailModal(" not in row
     finally:
         _run(_CLEANUP_SRC.format(root=ROOT, barcode=barcode))
 

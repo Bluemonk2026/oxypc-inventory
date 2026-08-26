@@ -660,12 +660,13 @@ async def stress_complete_to_paint(
 
     work_id = await _gen_work_id(db)
     db.add(WorkOrder(
-        # WorkOrder.stage is String(5) (sized for "l1"/"l2"/"l3" only) — use
-        # the same 5-char-max convention rather than widening the column;
-        # this record is purely for traceability (no repair.py query reads
-        # WorkOrder rows with stage="clean").
+        # WorkOrder.stage is String(5) — "recv" is routers/cosmetic.py's
+        # MOVE_STAGE_CODE for Cosmetic Received, the stage this hand-off
+        # actually lands the device on. "clean" is reserved for the Cleaning
+        # stage's own entry WorkOrder, created later by Received's own "Move
+        # to Cleaning" modal, not by this endpoint.
         work_id=work_id, device_id=device.id, barcode=device.barcode,
-        stage="clean", assigned_role=engineer.role.value if engineer else None,
+        stage="recv", assigned_role=engineer.role.value if engineer else None,
         assigned_user_id=engineer.id if engineer else None,
         assigned_username=engineer.username if engineer else None,
         assigned_name=engineer.full_name if engineer else None, status="pending",

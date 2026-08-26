@@ -134,7 +134,17 @@ PERM_MODULES = [
     ("repair_l3l4",          "L3/L4 Repair"),
     ("qc_check",             "Stress Test"),
     # ── COSMETIC REFURB ────────────────────────────────────────────
-    ("cosmetic",             "Cosmetic & Paint"),
+    # Split from a single "cosmetic" key into one per pipeline page so each
+    # can be enabled/edited independently (routers/cosmetic.py
+    # PERM_MODULE_BY_STAGE / ASSIGN_ON_MOVE_STAGES).
+    ("cosmetic_received",     "Cosmetic Received"),
+    ("cosmetic_cleaning",     "Cosmetic - Cleaning"),
+    ("cosmetic_putty",        "Cosmetic - Putty"),
+    ("cosmetic_dry_sanding",  "Cosmetic - Dry Sanding"),
+    ("cosmetic_masking",      "Cosmetic - Masking"),
+    ("cosmetic_painting",     "Cosmetic - Painting"),
+    ("cosmetic_water_sanding","Cosmetic - Water Sanding"),
+    ("cosmetic_completed",    "Cosmetic Completed"),
     ("cosmetic_finalqc",     "Final QC"),
     ("workid_status",        "WorkID Status"),
     # ── STORE MANAGER ──────────────────────────────────────────────

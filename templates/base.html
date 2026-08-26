@@ -142,7 +142,7 @@
       {% endif %}
 
       {# ── REPAIR (merged with former COSMETIC REFURB section) ──────────── #}
-      {% if any_perm(role,'repair_l1','repair_l2','repair_l3','qc_check','cosmetic','cosmetic_finalqc','workid_status') %}
+      {% if any_perm(role,'repair_l1','repair_l2','repair_l3','qc_check','cosmetic_received','cosmetic_cleaning','cosmetic_putty','cosmetic_dry_sanding','cosmetic_masking','cosmetic_painting','cosmetic_water_sanding','cosmetic_completed','cosmetic_finalqc','workid_status') %}
       <li class="nav-section">REPAIR</li>
       {% endif %}
       {% if has_perm(role,'repair_l1','enable') %}
@@ -163,9 +163,9 @@
       </a></li>
       {% endif %}
 
-      {% if has_perm(role,'cosmetic','enable') %}
-      <li><a href="/cosmetic/cleaning" class="nav-link {% if request.url.path == '/cosmetic/cleaning' %}active{% endif %}">
-        <i class="bi bi-droplet me-2"></i> {{ sidebar_label('cosmetic', 'Cosmetic & Paint') }}
+      {% if any_perm(role,'cosmetic_received','cosmetic_cleaning','cosmetic_putty','cosmetic_dry_sanding','cosmetic_masking','cosmetic_painting','cosmetic_water_sanding','cosmetic_completed') %}
+      <li><a href="/cosmetic/cosmetic_received" class="nav-link {% if request.url.path.startswith('/cosmetic/') and request.url.path != '/cosmetic/final_qc' %}active{% endif %}">
+        <i class="bi bi-droplet me-2"></i> {{ sidebar_label('cosmetic_received', 'Cosmetic & Paint') }}
       </a></li>
       {% endif %}
       {% if has_perm(role,'cosmetic_finalqc','enable') %}

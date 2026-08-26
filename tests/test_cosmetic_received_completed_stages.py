@@ -155,7 +155,7 @@ async def main():
         db.add(dev)
         await db.flush()
         db.add(WorkOrder(work_id="ITWCR{suffix}", device_id=dev.id, barcode=dev.barcode,
-                         stage="clean", assigned_name="Cosmetic Engineer", status="pending"))
+                         stage="recv", assigned_name="Cosmetic Engineer", status="pending"))
         await db.commit()
 
 asyncio.run(main())
@@ -163,10 +163,11 @@ asyncio.run(main())
     _run(seed)
     try:
         username, password = make_user("admin")
+        eng_username, _ = make_user("cosmetic_manager")
         _login(app_client, username, password)
 
         html = app_client.get("/cosmetic/cosmetic_received", follow_redirects=True).text
-        for header in ["Tag Number", "L1/L2 Engineer", "Lot", "Grade", "Brand", "Model",
+        for header in ["WorkID", "Tag Number", "L1/L2 Engineer", "Lot", "Grade", "Brand", "Model",
                        "Aging", "Assigned to", "Assigned Date", "Action"]:
             assert f"<th>{header}</th>" in html, header
 
@@ -176,11 +177,27 @@ asyncio.run(main())
         assert "Move to Final QC" in row
         assert "openFailModal(" in row
 
+        eng_id = _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.user import User
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        u = (await db.execute(select(User).where(User.username == "{eng_username}"))).scalar_one()
+        print(u.id)
+
+asyncio.run(main())
+""")
+
         csrf = app_client.cookies.get("csrf_token") or "dummy"
-        r = app_client.post("/cosmetic/advance", data={"csrf_token": csrf, "barcode": barcode},
-                             follow_redirects=False)
-        assert r.status_code == 302
-        assert "cleaning" in r.headers["location"]
+        r = app_client.post("/cosmetic/advance", data={
+            "csrf_token": csrf, "barcode": barcode, "engineer_user_id": eng_id,
+        })
+        assert r.status_code == 200, r.text[:300]
+        assert r.json()["moved_to"] == "cleaning"
 
         check = _run(f"""
 import asyncio, sys
@@ -208,26 +225,49 @@ def test_water_sanding_advances_to_cosmetic_completed_then_final_qc(app_client, 
     _run(_SEED_AT_WATER_SANDING_SRC.format(root=ROOT, barcode=barcode, suffix=suffix))
     try:
         username, password = make_user("admin")
+        eng_username, _ = make_user("cosmetic_manager")
         _login(app_client, username, password)
         csrf = app_client.cookies.get("csrf_token") or "dummy"
 
-        r = app_client.post("/cosmetic/advance", data={"csrf_token": csrf, "barcode": barcode},
-                             follow_redirects=False)
-        assert r.status_code == 302
-        assert "cosmetic_completed" in r.headers["location"]
+        eng_id = _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.user import User
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        u = (await db.execute(select(User).where(User.username == "{eng_username}"))).scalar_one()
+        print(u.id)
+
+asyncio.run(main())
+""")
+
+        r = app_client.post("/cosmetic/advance", data={
+            "csrf_token": csrf, "barcode": barcode, "engineer_user_id": eng_id,
+        })
+        assert r.status_code == 200, r.text[:300]
+        assert r.json()["moved_to"] == "cosmetic_completed"
 
         html = app_client.get("/cosmetic/cosmetic_completed", follow_redirects=True).text
+        assert "<th>WorkID</th>" in html
         assert "<th>Cosmetic Stage</th>" in html
         row = html.split(barcode, 1)[1].split("</tr>", 1)[0]
         assert "Cosmetic Completed" in row
-        assert "Cosmetic Engineer" in row
+        # "Assigned to" shows WorkOrder.assigned_name, not the username — every
+        # make_user()-created account gets full_name="IQC Test User" (see
+        # tests/test_iqc_new_user.py _SETUP_SRC), which is what's asserted
+        # here; the WorkOrder's actual assigned_username is checked below.
+        assert "IQC Test User" in row
         assert "Move to Final QC" in row
         assert "openFailModal(" in row
 
-        r2 = app_client.post("/cosmetic/advance", data={"csrf_token": csrf, "barcode": barcode},
-                              follow_redirects=False)
-        assert r2.status_code == 302
-        assert "final_qc" in r2.headers["location"]
+        r2 = app_client.post("/cosmetic/advance", data={
+            "csrf_token": csrf, "barcode": barcode, "engineer_user_id": eng_id,
+        })
+        assert r2.status_code == 200, r2.text[:300]
+        assert r2.json()["moved_to"] == "final_qc"
 
         check = _run(f"""
 import asyncio, sys
@@ -235,15 +275,21 @@ sys.path.insert(0, r"{ROOT}")
 from sqlalchemy import select
 from database import AsyncSessionLocal
 from models.device import Device
+from models.work_order import WorkOrder
 
 async def main():
     async with AsyncSessionLocal() as db:
         dev = (await db.execute(select(Device).where(Device.barcode == "{barcode}"))).scalar_one()
+        wo = (await db.execute(select(WorkOrder).where(
+            WorkOrder.device_id == dev.id, WorkOrder.stage == "fqc"))).scalar_one()
         print(dev.current_stage.value)
+        print(wo.assigned_username)
 
 asyncio.run(main())
 """)
-        assert check == "final_qc"
+        lines = check.splitlines()
+        assert lines[0] == "final_qc"
+        assert lines[1] == eng_username
     finally:
         _run(_CLEANUP_SRC.format(root=ROOT, barcode=barcode))
 

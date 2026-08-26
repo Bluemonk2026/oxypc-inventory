@@ -3,15 +3,10 @@
 {% block page_title %}{{ stage_label }}{% endblock %}
 {% block content %}
 
-<!-- Pipeline breadcrumb -->
-<nav class="mb-3">
-  <ol class="breadcrumb small">
-    <li class="breadcrumb-item"><a href="/cosmetic">Cosmetic Pipeline</a></li>
-    <li class="breadcrumb-item active">{{ stage_label }}</li>
-  </ol>
-</nav>
-
-<!-- Stage nav tabs -->
+{# Manager (Group Config) sees every tab and every tag on this page; a Member
+   sees only tags assigned to them here, with the tab bar hidden — see
+   routers/cosmetic.py cosmetic_stage_list. #}
+{% if manager_mode %}
 <div class="d-flex gap-2 mb-3 flex-wrap">
   {% for s in pipeline %}
   <a href="/cosmetic/{{ s.value }}"
@@ -20,6 +15,7 @@
   </a>
   {% endfor %}
 </div>
+{% endif %}
 
 <div class="row g-4">
   <!-- Device list -->
@@ -33,15 +29,16 @@
         <table id="cosmeticCompletedTable" class="table table-hover mb-0 small">
           <thead class="table-dark">
             <tr>
-              <th>Tag Number</th><th>Cosmetic Stage</th><th>L1/L2 Engineer</th><th>Lot</th><th>Grade</th>
+              <th>WorkID</th><th>Tag Number</th><th>Cosmetic Stage</th><th>L1/L2 Engineer</th><th>Lot</th><th>Grade</th>
               <th>Brand</th><th>Model</th><th>Aging</th><th>Assigned to</th>
               <th>Assigned Date</th><th>Action</th>
             </tr>
           </thead>
           <tbody>
             {% for device, lot_number in devices %}
-            {% set assigned = assigned_map.get(device.id|string) %}
+            {% set wo = workid_map.get(device.id|string) %}
             <tr>
+              <td>{% if wo %}<code class="small">{{ wo.work_id }}</code>{% else %}—{% endif %}</td>
               <td><code>{{ device.barcode }}</code></td>
               <td><span class="badge bg-teal">{{ stage_labels.get(device.current_stage, device.current_stage.value) }}</span></td>
               <td class="text-muted small">{{ l1l2_engineer_map.get(device.id|string, '—') }}</td>
@@ -56,16 +53,13 @@
               <td>{{ device.brand or '—' }}</td>
               <td>{{ device.model or '—' }}</td>
               <td class="text-muted small">{{ (now - device.created_at).days if device.created_at else '—' }} days</td>
-              <td class="text-muted small">{{ assigned.name if assigned else '—' }}</td>
-              <td class="text-muted small">{{ assigned.date.strftime('%d-%b %H:%M') if assigned and assigned.date else '—' }}</td>
+              <td class="text-muted small">{{ wo.name if wo else '—' }}</td>
+              <td class="text-muted small">{{ wo.date.strftime('%d-%b %H:%M') if wo and wo.date else '—' }}</td>
               <td>
-                <form action="/cosmetic/advance" method="post" class="d-inline">
-                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
-                  <input type="hidden" name="barcode" value="{{ device.barcode }}">
-                  <button type="submit" class="btn btn-sm btn-success py-0 px-2">
-                    <i class="bi bi-check2 me-1"></i>Move to Final QC
-                  </button>
-                </form>
+                <button type="button" class="btn btn-sm btn-success py-0 px-2"
+                        onclick="openMoveModal('{{ device.barcode }}', 'Final QC')">
+                  <i class="bi bi-check2 me-1"></i>Move to Final QC
+                </button>
                 <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 ms-1"
                         onclick="openFailModal('{{ device.barcode }}')">
                   <i class="bi bi-x-circle me-1"></i>Fail
@@ -80,9 +74,44 @@
   </div>
 </div>
 
+{# ── Move modal: pick who the device is being handed to. Submitting posts to
+     /cosmetic/advance, generates a new WorkID for that person, and reloads
+     this same page — no redirect to the destination stage's page. #}
+<div class="modal fade" id="cosmeticMoveModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-arrow-right-circle-fill text-success me-2"></i>Move — Assign to User</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-3">Tag Number: <span id="cosmeticMoveBarcode" class="font-monospace fw-semibold"></span>
+          — moving to <span id="cosmeticMoveTarget" class="fw-semibold"></span></p>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Assign to</label>
+          <select id="cosmeticMoveEngineerSelect" class="form-select form-select-sm">
+            <option value="">— Select User —</option>
+            {% for u in move_pool %}
+            <option value="{{ u.id }}">{{ u.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">Notes</label>
+          <textarea id="cosmeticMoveNotes" class="form-control form-control-sm" rows="2" placeholder="Optional notes"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="cosmeticMoveBtn" class="btn btn-success btn-sm" onclick="submitCosmeticMove()">Move</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {# ── Fail modal: assign to L1/L2 engineer — same modal/mechanism as the
-     Cleaning / Water Sanding pages (templates/cosmetic/stage.html), posting
-     to routers/cosmetic.py's cosmetic_fail_assign. #}
+     Cleaning / Water Sanding pages, posting to routers/cosmetic.py's
+     cosmetic_fail_assign. #}
 <div class="modal fade" id="cosmeticFailModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -116,8 +145,51 @@
 {% endblock %}
 {% block scripts %}
 <script>
+let _moveBarcode = null;
+let _moveSkipTarget = null;
 let _cosmeticFailBarcode = null;
 const CSRF = (document.cookie.split(';').find(c => c.trim().startsWith('csrf_token=')) || '').split('=').slice(1).join('=').trim();
+
+function openMoveModal(barcode, targetLabel, skipTarget) {
+  _moveBarcode = barcode;
+  _moveSkipTarget = skipTarget || null;
+  document.getElementById('cosmeticMoveBarcode').textContent = barcode;
+  document.getElementById('cosmeticMoveTarget').textContent = targetLabel;
+  document.getElementById('cosmeticMoveEngineerSelect').value = '';
+  document.getElementById('cosmeticMoveNotes').value = '';
+  new bootstrap.Modal(document.getElementById('cosmeticMoveModal')).show();
+}
+
+async function submitCosmeticMove() {
+  if (!_moveBarcode) return;
+  const engineerId = document.getElementById('cosmeticMoveEngineerSelect').value;
+  if (!engineerId) { alert('Please select a user'); return; }
+  const notes = document.getElementById('cosmeticMoveNotes').value;
+  const btn = document.getElementById('cosmeticMoveBtn');
+  btn.disabled = true;
+  try {
+    let body = 'barcode=' + encodeURIComponent(_moveBarcode) +
+               '&engineer_user_id=' + encodeURIComponent(engineerId) +
+               '&notes=' + encodeURIComponent(notes) +
+               '&csrf_token=' + encodeURIComponent(CSRF);
+    if (_moveSkipTarget) body += '&target=' + encodeURIComponent(_moveSkipTarget);
+    const r = await fetch('/cosmetic/advance', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF},
+      body,
+    });
+    if (!r.ok) {
+      const text = await r.text().catch(() => '');
+      alert('Failed to move' + (text ? ': ' + text.slice(0, 200) : ''));
+      btn.disabled = false;
+      return;
+    }
+    window.location.reload();
+  } catch (e) {
+    alert('Network error: ' + e.message);
+    btn.disabled = false;
+  }
+}
 
 function openFailModal(barcode) {
   _cosmeticFailBarcode = barcode;
@@ -155,6 +227,6 @@ async function submitCosmeticFail() {
   }
 }
 
-$(document).ready(function(){ $('#cosmeticCompletedTable').DataTable({pageLength: 12, order: [[0, 'asc']]}) })
+$(document).ready(function(){ $('#cosmeticCompletedTable').DataTable({pageLength: 12, order: [[1, 'asc']]}) })
 </script>
 {% endblock %}

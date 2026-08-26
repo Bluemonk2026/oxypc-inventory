@@ -20,7 +20,11 @@ from models.part_request import PartRequest
 from models.spare_parts import SparePart, SparePartConsumption
 from services.parts_required import compute_required
 from services.audit_engine import audit
+from services.notifications import create_notification
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
+from models.work_order import WorkOrder
+from routers.transfers import _gen_work_id
+import uuid as uuid_module
 
 router = APIRouter(prefix="/cosmetic", tags=["cosmetic"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.qc_inspector,
@@ -242,6 +246,35 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
             "passed_buckets": passed_buckets, "failed_buckets": failed_buckets,
         })
 
+    # ── Most recent L1/L2 Engineer per device, for the "L1/L2 Engineer" column
+    # and to pre-populate the Fail modal's context — same resolution as the
+    # Stress Test page (routers/qc.py qc_list) and routers/repair.py's own
+    # "assigned to me" queries: latest WorkOrder at stage="l1" wins.
+    device_ids = [d.id for d, _ in devices]
+    l1l2_engineer_map: dict[str, str] = {}
+    if device_ids:
+        wo_rows = await db.execute(
+            select(WorkOrder.device_id, WorkOrder.assigned_name, WorkOrder.assigned_at)
+            .where(WorkOrder.device_id.in_(device_ids), WorkOrder.stage == "l1",
+                   WorkOrder.assigned_name.isnot(None))
+            .order_by(WorkOrder.assigned_at.desc())
+        )
+        for did, name, _ in wo_rows.all():
+            l1l2_engineer_map.setdefault(str(did), name)
+
+    # ── L1/L2 engineer pool for the Fail modal's dropdown — identical pool to
+    # the Stress Test page's own Fail modal (routers/qc.py qc_list).
+    l1l2_result = await db.execute(
+        select(User).where(
+            User.role.in_([UserRole.l1_engineer, UserRole.l2_engineer]),
+            User.status == True,
+        ).order_by(User.full_name)
+    )
+    l1l2_engineers = [
+        {"id": str(u.id), "name": u.full_name or u.username, "role": u.role.value}
+        for u in l1l2_result.scalars().all()
+    ]
+
     return templates.TemplateResponse("cosmetic/stage.html", {
         "request": request, "current_user": current_user,
         "stage": stage, "stage_label": STAGE_LABELS[stage],
@@ -249,6 +282,7 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
         "next_stage": next_stage,
         "next_stage_label": STAGE_LABELS.get(next_stage, "Ready to Sale") if next_stage else "Ready to Sale",
         "pipeline": COSMETIC_NAV_STAGES, "stage_labels": STAGE_LABELS,
+        "l1l2_engineer_map": l1l2_engineer_map, "l1l2_engineers": l1l2_engineers,
     })
 
 
@@ -587,3 +621,94 @@ async def revalidate_iqc(
     return RedirectResponse(
         url=f"/cosmetic/final_qc?success=IQC+revalidated+for+{barcode}#dev-{device.id}",
         status_code=302)
+
+
+@router.post("/{barcode}/fail")
+async def cosmetic_fail_assign(
+    barcode: str,
+    engineer_user_id: str = Form(...),
+    notes: str = Form(""),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """'Fail' on the Cleaning / Water Sanding pages — assign the device to an
+    L1/L2 engineer. Same "Fail — Assign to L1/L2 Engineer" modal and the same
+    WorkOrder + stage-move mechanism as the Stress Test page's own Fail
+    action (routers/stress_api.py stress_fail_assign) — kept as a separate
+    endpoint rather than reused directly so the note/notification wording
+    says what actually failed (a cosmetic stage, not a stress test) and
+    lands in device.repair_notes (the shared Repair Notes field) rather than
+    the stress-test-specific device.stress_notes.
+    """
+    device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, f"Device {barcode} not found")
+    if device.current_stage not in (DeviceStage.cleaning, DeviceStage.water_sanding):
+        raise HTTPException(400, "This device is not at Cleaning or Water Sanding")
+
+    try:
+        eng_uuid = uuid_module.UUID(engineer_user_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(400, "Invalid engineer selected")
+
+    engineer = (await db.execute(select(User).where(User.id == eng_uuid))).scalar_one_or_none()
+    if not engineer or engineer.role not in (UserRole.l1_engineer, UserRole.l2_engineer):
+        raise HTTPException(400, "Selected user is not an active L1/L2 engineer")
+
+    from_stage_label = STAGE_LABELS.get(device.current_stage, device.current_stage.value)
+    prev_stage = device.current_stage
+    prev_mv = (await db.execute(
+        select(StageMovement).where(
+            StageMovement.device_id == device.id,
+            StageMovement.to_stage == prev_stage,
+            StageMovement.exited_at == None,
+        ).order_by(StageMovement.moved_at.desc())
+    )).scalars().first()
+    if prev_mv:
+        prev_mv.exited_at = app_now()
+
+    device.current_stage = DeviceStage.l1
+    # Same fresh-cycle reset as the Stress Test page's Fail action — a device
+    # returning from a cosmetic fail starts a new repair cycle.
+    device.l1l2_status = "New"
+    device.l34_status = None
+    device.updated_at = app_now()
+
+    repair_note = f"{from_stage_label} Failed — assigned to {engineer.full_name or engineer.username}"
+    if notes:
+        repair_note += f". {notes}"
+    device.repair_notes = repair_note
+
+    db.add(StageMovement(device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.l1,
+                         moved_by=current_user.username, notes=repair_note))
+
+    work_id = await _gen_work_id(db)
+    db.add(WorkOrder(
+        work_id=work_id, device_id=device.id, barcode=device.barcode,
+        stage="l1", assigned_role=engineer.role.value,
+        assigned_user_id=engineer.id, assigned_username=engineer.username,
+        assigned_name=engineer.full_name, status="pending",
+        created_by=current_user.username,
+    ))
+
+    await create_notification(
+        db, user_id=engineer.id, title="Device Assigned to You",
+        message=(f"{device.barcode} failed {from_stage_label} and has been assigned to you for "
+                 f"L1/L2 repair (WorkID: {work_id})."),
+        notification_type="warning",
+        barcode=device.barcode, brand=device.brand, model=device.model,
+        stage=DeviceStage.l1.value,
+    )
+
+    await audit(db, user=current_user, action="COSMETIC_FAIL_ASSIGNED",
+                table_name="devices", record_id=str(device.id),
+                new_value={"from_stage": prev_stage.value, "assigned_to": engineer.username,
+                           "work_id": work_id, "notes": notes},
+                request=None)
+
+    await db.commit()
+    return RedirectResponse(
+        url=f"/cosmetic/{prev_stage.value}?success=Device+failed+%26+assigned+to+" +
+            (engineer.full_name or engineer.username).replace(" ", "+"),
+        status_code=302,
+    )

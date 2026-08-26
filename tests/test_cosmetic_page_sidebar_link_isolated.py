@@ -92,6 +92,30 @@ def test_dynamic_link_skips_disabled_stages_in_pipeline_order(make_user):  # noq
         _clear_perms(role_name)
 
 
+def test_custom_role_scoped_to_a_single_late_stage(make_user):  # noqa: F811
+    """A completely custom role name (not qc_inspector/inventory_manager/
+    sales_manager, not any built-in role) scoped to Water Sanding — the last
+    of the 6 mid-pipeline stages — proves the fix generalizes to ANY cosmetic
+    role for ANY stage, not just the "Cosmetic Cleaning" case reported."""
+    role_name = "cosmetic_water_sanding_specialist"
+    try:
+        for module in ("cosmetic_cleaning", "cosmetic_putty", "cosmetic_dry_sanding",
+                        "cosmetic_masking", "cosmetic_painting"):
+            _seed_perm(role_name, module, False)
+        _seed_perm(role_name, "cosmetic_water_sanding", True)
+        username, password = make_user(role_name)
+
+        from fastapi.testclient import TestClient
+        import main as main_module
+        with TestClient(main_module.app) as client:
+            _login(client, username, password)
+            html = client.get("/cosmetic/water_sanding", follow_redirects=True).text
+            assert "Cosmetic Page" in html
+            assert 'href="/cosmetic/water_sanding"' in html
+    finally:
+        _clear_perms(role_name)
+
+
 def test_dynamic_link_hidden_when_all_six_stages_disabled(make_user):  # noqa: F811
     role_name = "sales_manager"
     try:

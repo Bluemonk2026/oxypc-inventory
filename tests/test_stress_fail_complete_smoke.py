@@ -27,6 +27,7 @@ from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
 from models.lot import Lot
 from models.work_order import WorkOrder
+from models.stress import StressTestResult, STRESS_CHECKLIST_ITEMS
 
 
 class FakeAdmin:
@@ -77,6 +78,10 @@ async def test_stress_fail_and_complete_assign():
             barcode=f"VSC-{uuid.uuid4().hex[:8]}", lot_id=lot.id,
             brand="VerifyBrand", model="VerifyModel",
             current_stage=DeviceStage.qc_check,
+            # Pre-set, so /complete-to-paint's clearing behavior is provable —
+            # a device coming from an earlier failed run must not still show
+            # a stale failure note once it fully passes.
+            stress_notes="Failed: Keyboard — stale note from an earlier run",
         )
         db.add(device_fail)
         db.add(device_complete)
@@ -100,6 +105,7 @@ async def test_stress_fail_and_complete_assign():
                 r = await c.post(
                     f"/stress/{fail_barcode}/fail",
                     data={"engineer_user_id": str(l1_engineer.id), "notes": "smoke test",
+                          "failed_items": "Keyboard,Touchpad",
                           "csrf_token": "smoketest-csrf"},
                     follow_redirects=False,
                 )
@@ -148,6 +154,20 @@ async def test_stress_fail_and_complete_assign():
                 assert wo is not None, "No WorkOrder created for /fail assignment"
                 assert wo.assigned_user_id == l1_engineer.id
 
+                # Checklist-driven Stress Notes — shown on L1/L2 Repair and
+                # Device Detail, built from exactly the items marked Fail.
+                assert dev.stress_notes == "Failed: Keyboard, Touchpad — smoke test", dev.stress_notes
+
+                sr_row = (await db.execute(
+                    select(StressTestResult).where(StressTestResult.barcode == fail_barcode)
+                )).scalars().first()
+                assert sr_row is not None, "No StressTestResult recorded for the failed checklist"
+                assert sr_row.overall_status == "FAIL"
+                assert sr_row.results_json["Keyboard"] == "fail"
+                assert sr_row.results_json["Touchpad"] == "fail"
+                assert sr_row.results_json["CPU"] == "pass"
+                assert set(sr_row.results_json) == set(STRESS_CHECKLIST_ITEMS)
+
             if paint_engineer:
                 dev2 = (await db.execute(select(Device).where(Device.id == complete_device_id))).scalar_one()
                 assert dev2.current_stage == DeviceStage.cleaning, (
@@ -159,9 +179,23 @@ async def test_stress_fail_and_complete_assign():
                 assert wo2 is not None, "No WorkOrder created for /complete-to-paint assignment"
                 assert wo2.assigned_user_id == paint_engineer.id
 
+                # Complete clears any stale failure note from an earlier run.
+                assert dev2.stress_notes is None, dev2.stress_notes
+
+                sr_row2 = (await db.execute(
+                    select(StressTestResult).where(StressTestResult.barcode == complete_barcode)
+                )).scalars().first()
+                assert sr_row2 is not None, "No StressTestResult recorded for the completed checklist"
+                assert sr_row2.overall_status == "PASS"
+                assert all(v == "pass" for v in sr_row2.results_json.values())
+
     finally:
         # ── Cleanup: remove everything this test created ────────────────────
         async with AsyncSessionLocal() as db:
+            for bc in (fail_barcode, complete_barcode):
+                srs = (await db.execute(select(StressTestResult).where(StressTestResult.barcode == bc))).scalars().all()
+                for s in srs:
+                    await db.delete(s)
             for did in (fail_device_id, complete_device_id):
                 wos = (await db.execute(select(WorkOrder).where(WorkOrder.device_id == did))).scalars().all()
                 for wo in wos:

@@ -295,6 +295,83 @@
     </div>
     {% endif %}
 
+    <!-- All Notes (#L1/L2, L3/L4, Stress, Final QC) — a single consolidated
+         view of every note captured on this device across the repair/QC
+         pipeline. Each source already has its own card/table elsewhere on
+         this page or on its own workflow page (Repair History above, L1/L2
+         Repair, Final QC) — this section exists so a reviewer doesn't have
+         to hunt across four different pages to see why a device is where
+         it is. L1/L2 and L3/L4 currently share one underlying field
+         (Device.repair_notes, set on the Request to L3/L4 modal and again
+         on L3/L4 Complete) — shown under both labels since that is what
+         each stage actually writes to today, not a display bug. -->
+    <div class="card border-0 shadow-sm mb-3" id="all-notes">
+      <div class="card-header bg-transparent fw-semibold small text-uppercase">
+        <i class="bi bi-journal-text me-2"></i>All Notes
+      </div>
+      <div class="card-body">
+
+        <div class="mb-3">
+          <div class="small fw-bold text-uppercase text-muted mb-1">L1/L2 Notes</div>
+          {# RepairJob.stage is a plain String(5) ("L1"/"l1" depending on when the
+             row was written), not an enum — compared case-insensitively rather
+             than via the `.value` some other sections on this page use (that
+             only applies where stage really is enum-backed). #}
+          {% set ns = namespace(any=false) %}
+          {% for rep in repairs %}
+            {% if rep.stage and rep.stage|upper in ['L1', 'L2'] %}
+            {% set ns.any = true %}
+            <div class="small border-start border-3 border-warning ps-2 mb-2">
+              <span class="text-muted">{{ rep.started_at.strftime('%d-%m-%Y') if rep.started_at else '—' }} — {{ rep.engineer_name or '—' }}</span>
+              {% if rep.issue_description %}<div>Issue: {{ rep.issue_description }}</div>{% endif %}
+              {% if rep.resolution %}<div>Resolution: {{ rep.resolution }}</div>{% endif %}
+              {% if rep.faults %}<div>Faults: {{ rep.faults }}</div>{% endif %}
+              {% if rep.problem_reported %}<div>Problem Reported: {{ rep.problem_reported }}</div>{% endif %}
+            </div>
+            {% endif %}
+          {% endfor %}
+          {% if not ns.any %}
+            <p class="mb-0 small text-muted">No L1/L2 notes recorded</p>
+          {% endif %}
+        </div>
+
+        <div class="mb-3">
+          <div class="small fw-bold text-uppercase text-muted mb-1">L3/L4 Notes</div>
+          <p class="mb-0 small {{ '' if device.repair_notes else 'text-muted' }}">{{ device.repair_notes or 'No L3/L4 notes recorded' }}</p>
+        </div>
+
+        <div class="mb-3">
+          <div class="small fw-bold text-uppercase text-muted mb-1">Stress Notes</div>
+          {% if device.stress_notes %}
+          <p class="mb-2 small text-danger">{{ device.stress_notes }}</p>
+          {% endif %}
+          {% if qc_checks %}
+            {% for qc in qc_checks %}
+            <div class="small border-start border-3 border-{{ 'success' if qc.result == 'pass' else 'danger' }} ps-2 mb-2">
+              <span class="text-muted">{{ qc.checked_at.strftime('%d-%m-%Y %H:%M') if qc.checked_at else '—' }} — Attempt {{ qc.attempt_number }} — {{ qc.result | upper }}</span>
+              {% if qc.notes %}<div>{{ qc.notes }}</div>{% endif %}
+              {% if qc.issues_found %}<div>Issues: {{ qc.issues_found }}</div>{% endif %}
+            </div>
+            {% endfor %}
+          {% elif not device.stress_notes %}
+            <p class="mb-0 small text-muted">No Stress notes recorded</p>
+          {% endif %}
+        </div>
+
+        <div>
+          <div class="small fw-bold text-uppercase text-muted mb-1">Final QC Notes</div>
+          {% if device.fqc_failure_reason %}
+          <p class="mb-0 small text-danger">{{ device.fqc_failure_reason }}</p>
+          {% elif device.fqc_pass_notes %}
+          <p class="mb-0 small text-success">{{ device.fqc_pass_notes }}</p>
+          {% else %}
+          <p class="mb-0 small text-muted">No Final QC notes recorded</p>
+          {% endif %}
+        </div>
+
+      </div>
+    </div>
+
     <!-- New Request / Replace modal — Part Category -> Part Name cascade -->
     {% if parts_consumption is defined %}
     <div class="modal fade" id="partRequestModal" tabindex="-1" aria-hidden="true">

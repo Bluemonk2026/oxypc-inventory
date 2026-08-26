@@ -7,6 +7,18 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from database import Base
 
+# The manual Stress Test checklist shown on the Stress Test page's right-hand
+# panel (each item gets a Pass/Fail checkbox pair) — replaces the earlier
+# automated 11-benchmark grid (stress_runner.py's TEST_NAMES/ALL_KEYS, still
+# used by the separate on-server/on-device automated run + PDF pipeline).
+# Persisted into StressTestResult.results_json as {item: "pass"|"fail"}.
+STRESS_CHECKLIST_ITEMS = [
+    "CPU", "RAM", "Hard Drive", "Screen", "Bezel", "Keyboard", "Touchpad",
+    "Logic Card", "Camera", "Speaker", "Battery", "Wi-fi", "DC Jack",
+    "LAN Port", "USB Ports", "Bluetooth", "Fingerprint", "Display & GPU",
+    "Thermal", "Power Button",
+]
+
 
 class StressTestResult(Base):
     __tablename__ = "stress_test_results"

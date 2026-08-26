@@ -17,6 +17,8 @@ from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
 from models.lot import Lot
 from models.qc import QCCheck
+from models.work_order import WorkOrder
+from models.stress import STRESS_CHECKLIST_ITEMS
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from services.control_engine import validate_transition, get_allowed_next_stages, assert_device_in_stage
 from services.audit_engine import audit
@@ -89,6 +91,22 @@ async def qc_list(request: Request, db: AsyncSession = Depends(get_db),
                 "run_at":        run_at.strftime("%d %b %Y %H:%M") if run_at else "",
             }
 
+    # ── Most recent L1/L2 Engineer per device, for the "L1/L2 Engineer" column ──
+    # A device can pass through l1/l2 repair more than once (e.g. it failed
+    # Stress before and came back around) — WorkOrder.assigned_at desc picks
+    # the latest assignment, same "most recent" resolution routers/repair.py
+    # already uses for its own "assigned to me" queries.
+    l1l2_engineer_map: dict[str, str] = {}
+    if uuid_ids:
+        wo_rows = await db.execute(
+            select(WorkOrder.device_id, WorkOrder.assigned_name, WorkOrder.assigned_at)
+            .where(WorkOrder.device_id.in_(uuid_ids), WorkOrder.stage == "l1",
+                   WorkOrder.assigned_name.isnot(None))
+            .order_by(WorkOrder.assigned_at.desc())
+        )
+        for did, name, _ in wo_rows.all():
+            l1l2_engineer_map.setdefault(str(did), name)  # first hit per id = most recent (desc order)
+
     # ── Engineer pools for the Stress panel's Fail / Complete modals ─────────
     # "Fail" assigns to an L1/L2 engineer (same pool + WorkOrder mechanism as
     # Stock Transfer's engineer assignment — see routers/transfers.py).
@@ -122,8 +140,10 @@ async def qc_list(request: Request, db: AsyncSession = Depends(get_db),
     return templates.TemplateResponse("qc/list.html", {
         "request": request, "devices": devices, "current_user": current_user,
         "location_map": location_map, "stress_map": stress_map,
+        "l1l2_engineer_map": l1l2_engineer_map,
         "total": total,
         "l1l2_engineers": l1l2_engineers, "paint_engineers": paint_engineers,
+        "checklist_items": STRESS_CHECKLIST_ITEMS,
     })
 
 

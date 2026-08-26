@@ -153,6 +153,12 @@ class Device(Base):
     # column on L1/L2, L3/L4, Final QC and Device Detail. Distinct from `notes` above, which is
     # the generic device note. Additive; auto-provisioned by db_validator.
     repair_notes = Column(Text, nullable=True)
+    # Stress Test failure note — built from the failed checklist items + any manual note typed
+    # on the Fail modal, set by POST /stress/{barcode}/fail. Cleared (None) on Complete, mirroring
+    # fqc_failure_reason/fqc_pass_notes' single-current-value convention. Surfaced as the Stress
+    # Notes column on L1/L2 Repair (after Repair Notes) and on Device Detail. Additive;
+    # auto-provisioned by db_validator.
+    stress_notes = Column(Text, nullable=True)
     scrap_verified = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     is_active  = Column(Boolean, nullable=False, default=True, server_default=text("true"))
     deleted_at = Column(DateTime, nullable=True)

@@ -406,11 +406,19 @@ var CAN_VIEW_PRICING = {{ 'true' if can_view_pricing(current_user) else 'false' 
 var devicesSelected = new Set();
 
 $(document).ready(function() {
+  // Stock Price / Sale Price are 2 columns that only exist when this role can
+  // view pricing (CAN_VIEW_PRICING) — "Updated" (and its index) shifts left by
+  // 2 when they're hidden. A role with pricing off (e.g. Production Manager)
+  // previously got an order[0][column] pointing at a column that doesn't
+  // exist, which threw inside DataTables' init and left the whole table
+  // permanently stuck on "Processing…" — the actual data from /devices/data
+  // was fine the whole time.
+  var UPDATED_COL = CAN_VIEW_PRICING ? 14 : 12;
   var dt = $('#devicesTable').DataTable({
     serverSide: true,
     processing: true,
     pageLength: 12,
-    order: [[14, 'desc']],
+    order: [[UPDATED_COL, 'desc']],
     searchDelay: 400,
     ajax: {
       url: '/devices/data',

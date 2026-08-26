@@ -29,7 +29,7 @@ from auth.dependencies import get_current_user, verify_csrf
 from database import get_db
 from models.device import Device, DeviceStage, StageMovement
 from models.user import User, UserRole
-from models.stress import StressTestResult
+from models.stress import StressTestResult, STRESS_CHECKLIST_ITEMS
 from models.work_order import WorkOrder
 from routers.transfers import _gen_work_id
 from services.audit_engine import audit
@@ -76,6 +76,29 @@ def _ascii(text) -> str:
     return s.encode("latin-1", "replace").decode("latin-1")
 
 
+def _pdf_item_source(record: StressTestResult):
+    """PDF generation supports two result_json shapes sharing this one table:
+    the automated benchmark's {short_key: {status, summary, ...}} (stress_runner.py
+    ALL_KEYS/TEST_NAMES), and the manual checklist's {item_name: "pass"/"fail"}
+    (STRESS_CHECKLIST_ITEMS, models/stress.py). Detect which one this record
+    used so old and new reports both render correctly from the same function."""
+    results = record.results_json or {}
+    if any(k in results for k in sr.ALL_KEYS):
+        return sr.ALL_KEYS, sr.TEST_NAMES
+    keys = [k for k in STRESS_CHECKLIST_ITEMS if k in results] or list(results.keys())
+    return keys, {k: k for k in keys}
+
+
+def _result_status_summary(entry) -> tuple[str, str]:
+    """Normalize one results_json entry to (status, summary) regardless of
+    which of the two shapes above produced it."""
+    if isinstance(entry, dict):
+        return entry.get("status", "PENDING"), entry.get("summary", "—")
+    if isinstance(entry, str):
+        return entry.upper(), "Manually checked on the Stress Test page"
+    return "PENDING", "—"
+
+
 def _pdf_fpdf(record: StressTestResult) -> bytes:
     from fpdf import FPDF
 
@@ -97,7 +120,7 @@ def _pdf_fpdf(record: StressTestResult) -> bytes:
     }
 
     results = record.results_json or {}
-    NAMES = sr.TEST_NAMES
+    item_keys, NAMES = _pdf_item_source(record)
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -166,14 +189,13 @@ def _pdf_fpdf(record: StressTestResult) -> bytes:
     pdf.cell(0,  7, "Summary", border=0, fill=True, ln=True)
 
     pdf.set_text_color(0, 0, 0)
-    for key in sr.ALL_KEYS:
-        r = results.get(key, {})
-        st  = r.get("status", "PENDING")
+    for idx, key in enumerate(item_keys):
+        st, summ = _result_status_summary(results.get(key))
         bg  = BADGE_BG.get(st, (240, 240, 240))
         name = NAMES.get(key, key)
-        summ = r.get("summary", "—")[:80]
+        summ = summ[:80]
 
-        row_bg = (250, 250, 250) if sr.ALL_KEYS.index(key) % 2 == 0 else (255, 255, 255)
+        row_bg = (250, 250, 250) if idx % 2 == 0 else (255, 255, 255)
         pdf.set_fill_color(*row_bg)
 
         # Status badge cell
@@ -213,9 +235,10 @@ def _pdf_text(record: StressTestResult) -> bytes:
         "Test Results",
         "-" * 50,
     ]
-    for key in sr.ALL_KEYS:
-        r = results.get(key, {})
-        lines.append(f"{sr.TEST_NAMES.get(key, key):20s}  {r.get('status','PENDING'):10s}  {r.get('summary','')}")
+    item_keys, names = _pdf_item_source(record)
+    for key in item_keys:
+        st, summ = _result_status_summary(results.get(key))
+        lines.append(f"{names.get(key, key):20s}  {st:10s}  {summ}")
     return "\n".join(lines).encode("utf-8")
 
 
@@ -265,29 +288,29 @@ async def stop_stress(barcode: str, current_user: User = Depends(get_current_use
 @router.post("/{barcode}/save")
 async def save_results(
     barcode: str,
+    failed_items: str = Form(""),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    session = sr.get_session(barcode)
-    if not session:
-        raise HTTPException(404, "No stress test session found for this device")
-    if session.running:
-        raise HTTPException(409, "Tests still running — wait for completion before saving")
+    """Persist the current manual checklist state (without moving the device —
+    that's what Fail/Complete do) and generate a downloadable PDF report.
+    `failed_items` is the same comma-separated checklist-item convention as
+    POST /{barcode}/fail."""
+    dev = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+    if not dev:
+        raise HTTPException(404, f"Device {barcode} not found")
 
     try:
-        full = session.to_full_dict()
-        ts = session.finished_at or session.started_at or 0
-        run_at = datetime.fromtimestamp(ts, tz=timezone.utc)
-
+        failed_list = _parse_checklist_items(failed_items)
         record = StressTestResult(
             barcode=barcode,
-            brand=session.brand,
-            model_name=session.model,
-            run_at=run_at,
-            duration=session.duration,
-            overall_status=session.overall_status(),
-            results_json=full["results"],
-            run_by=session.run_by,
+            brand=dev.brand,
+            model_name=dev.model,
+            run_at=app_now(),
+            overall_status="FAIL" if failed_list else "PASS",
+            results_json={item: ("fail" if item in failed_list else "pass")
+                          for item in STRESS_CHECKLIST_ITEMS},
+            run_by=current_user.username,
         )
         db.add(record)
         await db.flush()
@@ -448,11 +471,22 @@ async def list_results(
     ]
 
 
+def _parse_checklist_items(raw: str) -> list[str]:
+    """Comma-separated item names from the checklist form -> the subset that
+    actually match STRESS_CHECKLIST_ITEMS, in canonical order. Anything else
+    (stale client, tampered request) is silently dropped rather than trusted."""
+    if not raw:
+        return []
+    posted = {s.strip() for s in raw.split(",") if s.strip()}
+    return [item for item in STRESS_CHECKLIST_ITEMS if item in posted]
+
+
 @router.post("/{barcode}/fail")
 async def stress_fail_assign(
     barcode: str,
     engineer_user_id: str = Form(...),
     notes: str = Form(""),
+    failed_items: str = Form(""),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -505,8 +539,30 @@ async def stress_fail_assign(
     move_notes = f"Stress Test Failed — assigned to {engineer.full_name or engineer.username}"
     if notes:
         move_notes += f". {notes}"
+
+    failed_list = _parse_checklist_items(failed_items)
+    # device.stress_notes is what the L1/L2 Repair "Stress Notes" column and
+    # Device Detail's Notes section read — built from whichever checklist
+    # items were marked Fail, plus any free-text note, so both the engineer's
+    # queue and the device history show WHAT failed, not just THAT it failed.
+    stress_note = f"Failed: {', '.join(failed_list)}" if failed_list else "Failed"
+    if notes:
+        stress_note += f" — {notes}"
+    device.stress_notes = stress_note
+
     db.add(StageMovement(device_id=device.id, from_stage=prev_stage, to_stage=new_stage,
                          moved_by=current_user.username, notes=move_notes))
+
+    # Historical record of the manual checklist itself (results_json), reusing
+    # StressTestResult rather than a new table — it was already a flexible
+    # per-run JSON blob, just previously only ever populated by the automated
+    # benchmark's Save button. Same table now also serves the manual result.
+    db.add(StressTestResult(
+        barcode=device.barcode, brand=device.brand, model_name=device.model,
+        run_at=app_now(), overall_status="FAIL",
+        results_json={item: ("fail" if item in failed_list else "pass") for item in STRESS_CHECKLIST_ITEMS},
+        run_by=current_user.username,
+    ))
 
     work_id = await _gen_work_id(db)
     db.add(WorkOrder(
@@ -577,6 +633,10 @@ async def stress_complete_to_paint(
     prev_stage = device.current_stage
     device.current_stage = DeviceStage.cleaning
     device.updated_at = app_now()
+    # Complete means the checklist came back all-Pass — clear any earlier
+    # failure note so Device Detail / a future L1/L2 view doesn't show a
+    # stale "Failed: …" note for a device that has since passed.
+    device.stress_notes = None
     move_notes = "Sent to Cosmetic Refurbishment (Cleaning)"
     if engineer:
         move_notes += f" — assigned to {engineer.full_name or engineer.username}"
@@ -584,6 +644,13 @@ async def stress_complete_to_paint(
         move_notes += f". {notes}"
     db.add(StageMovement(device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.cleaning,
                          moved_by=current_user.username, notes=move_notes))
+
+    db.add(StressTestResult(
+        barcode=device.barcode, brand=device.brand, model_name=device.model,
+        run_at=app_now(), overall_status="PASS",
+        results_json={item: "pass" for item in STRESS_CHECKLIST_ITEMS},
+        run_by=current_user.username,
+    ))
 
     work_id = await _gen_work_id(db)
     db.add(WorkOrder(

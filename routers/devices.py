@@ -329,13 +329,20 @@ async def device_search_data(
         (await db.execute(count_base.where(*page_filters, *search_filters))).scalar() or 0)
 
     # Column 3 is Location ID (inserted after Lot) — every index from Brand
-    # onward shifts by one to make room for it.
+    # onward shifts by one to make room for it. Stock Price / Sale Price are
+    # two MORE columns inserted after Grade, but only when this role can view
+    # pricing (`can_view_pricing`, checked below to build `show_pricing`) — a
+    # role with pricing hidden has 2 fewer columns, so "Updated" (and every
+    # column after it) sits 2 indices earlier. Without this offset, a role
+    # with pricing hidden sends an order[0][column] the table doesn't have,
+    # which crashed DataTables' init entirely and left the Tags Table empty.
+    updated_col = 14 if show_pricing else 12
     col_map = {1: Device.barcode, 2: Lot.lot_number, 4: Device.brand, 5: Device.model,
-               6: Device.device_type, 7: Device.cpu, 10: Device.grade, 14: Device.updated_at}
+               6: Device.device_type, 7: Device.cpu, 10: Device.grade, updated_col: Device.updated_at}
     try:
-        order_col = int(request.query_params.get("order[0][column]", 14))
+        order_col = int(request.query_params.get("order[0][column]", updated_col))
     except ValueError:
-        order_col = 14
+        order_col = updated_col
     order_dir = request.query_params.get("order[0][dir]", "desc")
     sort_expr = col_map.get(order_col, Device.updated_at)
     order_by = _asc(sort_expr) if order_dir == "asc" else _desc(sort_expr)

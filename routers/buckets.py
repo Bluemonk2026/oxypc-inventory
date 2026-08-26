@@ -32,14 +32,22 @@ FALLBACK_WAREHOUSES = [
 # L2 assignment lands in l1 — routing it to DeviceStage.l2 would strand the whole bucket.
 DEPT_TO_STAGE = {
     "L1 Engineer": "l1", "L2 Engineer": "l1",
-    # Assign Bucket modal's 3 radio options (Production Manager):
-    "L1/L2 Repair": "l1", "Stress Test": "qc_check", "Cosmetic Repair": "cleaning",
+    # Assign Bucket modal's 3 radio options (Production Manager). "Stress
+    # Test" is the department VALUE (unchanged, still keys DEPT_TO_ROLE and
+    # ASG_LEVEL_ROLE in trc_production.html) even though its radio LABEL now
+    # reads "QC or Stress" — it targets the qc_check stage either way.
+    # "Cosmetic Repair" targets cosmetic_received (the cosmetic pipeline's
+    # holding stage before Cleaning — see routers/cosmetic.py
+    # COSMETIC_PIPELINE), not cleaning directly, matching the Final QC Fail
+    # (Bucket) table's "move to Cosmetic Received" requirement.
+    "L1/L2 Repair": "l1", "Stress Test": "qc_check", "Cosmetic Repair": "cosmetic_received",
 }
 DEPT_TO_ROLE = {
     "L1 Engineer": "l1_engineer", "L2 Engineer": "l2_engineer",
     "L1/L2 Repair": "l1_engineer", "Stress Test": "qc_inspector", "Cosmetic Repair": "cosmetic_manager",
 }
-STAGE_ENUM = {"l1": DeviceStage.l1, "qc_check": DeviceStage.qc_check, "cleaning": DeviceStage.cleaning}
+STAGE_ENUM = {"l1": DeviceStage.l1, "qc_check": DeviceStage.qc_check, "cleaning": DeviceStage.cleaning,
+              "cosmetic_received": DeviceStage.cosmetic_received}
 
 
 async def _gen_work_id(db: AsyncSession) -> str:
@@ -492,7 +500,12 @@ async def assign_bucket(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
     department: str = Form(...),
-    assigned_user_id: str = Form(...),
+    # Optional: the Final QC Fail (Bucket) table's Assign Bucket modal hides
+    # "Select Engineer" for the "QC or Stress" / "Cosmetic Repair" radios —
+    # those buckets just move stage, no per-device WorkID handoff (see the
+    # "if engineer:" guard below). "L1/L2 Repair" still requires one, but
+    # that's enforced client-side; the server accepts either shape.
+    assigned_user_id: str = Form(default=""),
 ):
     try:
         uid = uuid.UUID(bucket_id)
@@ -502,13 +515,15 @@ async def assign_bucket(
     if not bucket:
         raise HTTPException(404, "Bucket not found")
 
-    try:
-        user_uid = uuid.UUID(assigned_user_id)
-    except Exception:
-        raise HTTPException(400, "Invalid user ID")
-    engineer = (await db.execute(select(User).where(User.id == user_uid))).scalar_one_or_none()
-    if not engineer:
-        raise HTTPException(404, "Engineer not found")
+    engineer = None
+    if assigned_user_id:
+        try:
+            user_uid = uuid.UUID(assigned_user_id)
+        except Exception:
+            raise HTTPException(400, "Invalid user ID")
+        engineer = (await db.execute(select(User).where(User.id == user_uid))).scalar_one_or_none()
+        if not engineer:
+            raise HTTPException(404, "Engineer not found")
 
     devices = (await db.execute(
         select(Device).where(Device.bucket_id == uid, Device.is_active == True)
@@ -558,31 +573,36 @@ async def assign_bucket(
             db.add(StageMovement(
                 device_id=device.id, from_stage=prev_stage, to_stage=new_stage,
                 moved_by=current_user.username,
-                notes=f"Bucket {bucket.bucket_number} assigned to {engineer.full_name or engineer.username}",
+                notes=(f"Bucket {bucket.bucket_number} assigned to {engineer.full_name or engineer.username}"
+                       if engineer else f"Bucket {bucket.bucket_number} moved to {department}"),
             ))
-            work_id = await _gen_work_id(db)
-            db.add(WorkOrder(
-                work_id=work_id, device_id=device.id, barcode=device.barcode,
-                stage=target_stage, assigned_role=DEPT_TO_ROLE.get(department),
-                assigned_user_id=engineer.id, assigned_username=engineer.username,
-                assigned_name=engineer.full_name, status="pending",
-                source_transfer_id=transfer.id, created_by=current_user.username,
-            ))
-            _label = f"{device.brand or ''} {device.model or ''}".strip()
-            await create_notification(
-                db, user_id=engineer.id,
-                title="Device Assigned to You",
-                message=(
-                    f"{device.barcode}"
-                    + (f" ({_label})" if _label else "")
-                    + f" assigned from Bucket {bucket.bucket_number} for {department} (WorkID: {work_id})."
-                ),
-                notification_type="info",
-                barcode=device.barcode,
-                brand=device.brand,
-                model=device.model,
-                stage=new_stage.value if hasattr(new_stage, "value") else str(new_stage),
-            )
+            # No engineer picked (Final QC Fail Bucket's "QC or Stress" /
+            # "Cosmetic Repair" — no Select Engineer field) — just the stage
+            # move above, no per-device WorkID handoff or notification.
+            if engineer:
+                work_id = await _gen_work_id(db)
+                db.add(WorkOrder(
+                    work_id=work_id, device_id=device.id, barcode=device.barcode,
+                    stage=target_stage, assigned_role=DEPT_TO_ROLE.get(department),
+                    assigned_user_id=engineer.id, assigned_username=engineer.username,
+                    assigned_name=engineer.full_name, status="pending",
+                    source_transfer_id=transfer.id, created_by=current_user.username,
+                ))
+                _label = f"{device.brand or ''} {device.model or ''}".strip()
+                await create_notification(
+                    db, user_id=engineer.id,
+                    title="Device Assigned to You",
+                    message=(
+                        f"{device.barcode}"
+                        + (f" ({_label})" if _label else "")
+                        + f" assigned from Bucket {bucket.bucket_number} for {department} (WorkID: {work_id})."
+                    ),
+                    notification_type="info",
+                    barcode=device.barcode,
+                    brand=device.brand,
+                    model=device.model,
+                    stage=new_stage.value if hasattr(new_stage, "value") else str(new_stage),
+                )
 
     # Mark the bucket allocated so it appears in the Production Manager's
     # "Allocation — Buckets in L1/L2 Repair" table (that table filters on

@@ -10,11 +10,12 @@ import pathlib
 ROOT = str(pathlib.Path(__file__).resolve().parent.parent)
 
 
-def test_count_badge_wired_into_dataTables_length_on_all_three_templates():
+def test_count_badge_wired_into_dataTables_length_on_all_four_templates():
     for name, table_id in (
         ("received.html", "cosmeticReceivedTable"),
         ("stage.html", "cosmeticTable"),
         ("completed.html", "cosmeticCompletedTable"),
+        ("all_tags.html", "cosmeticAllTagsTable"),
     ):
         src = open(pathlib.Path(ROOT) / "templates" / "cosmetic" / name, encoding="utf-8").read()
         assert 'id="cosmeticCountBadge" class="badge bg-warning text-dark' in src, name

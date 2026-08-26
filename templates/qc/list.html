@@ -395,7 +395,7 @@ $(document).ready(function(){
     columnDefs: [{visible: false, targets: [5, 6, 7, 9]}],
     initComplete: function(){
       $(this).closest('.dataTables_wrapper').find('.dataTables_length')
-        .append('<span id="qcAwaitingCount" class="text-muted small ms-2"></span>');
+        .append('<span id="qcAwaitingCount" class="badge bg-warning text-dark ms-2"></span>');
       updateAwaitingCount(this.api());
     },
     drawCallback: function(){

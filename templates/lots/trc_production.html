@@ -209,6 +209,11 @@
       </div>
       <div class="modal-body">
         <input type="hidden" id="asgBktId">
+        {# Set to "fqc_fail" when opened from the Final QC Fail (Bucket)
+           table's Assign button — hides Select Engineer for "QC or Stress" /
+           "Cosmetic Repair" there (those just move stage, no assignee), but
+           leaves the Bucket Allocation tab's own Assign flow unchanged. #}
+        <input type="hidden" id="asgBktContext" value="">
         <div class="mb-2">
           <label class="form-label fw-semibold">Bucket Number</label>
           <input type="text" id="asgBktNum" class="form-control" readonly>
@@ -225,14 +230,14 @@
           </div>
           <div class="form-check form-check-inline">
             <input class="form-check-input asg-level-radio" type="radio" name="asgLevel" id="asgLevelStress" value="Stress Test">
-            <label class="form-check-label" for="asgLevelStress">Stress Test</label>
+            <label class="form-check-label" for="asgLevelStress">QC or Stress</label>
           </div>
           <div class="form-check form-check-inline">
             <input class="form-check-input asg-level-radio" type="radio" name="asgLevel" id="asgLevelCosmetic" value="Cosmetic Repair">
             <label class="form-check-label" for="asgLevelCosmetic">Cosmetic Repair</label>
           </div>
         </div>
-        <div class="mb-2">
+        <div class="mb-2" id="asgEngineerGroup">
           <label class="form-label fw-semibold">Select Engineer</label>
           <select id="asgEngineer" class="form-select">
             <option value="">— Select Engineer —</option>
@@ -393,6 +398,7 @@ function loadTrcBuckets(){
         document.getElementById('asgBktId').value = this.dataset.id;
         document.getElementById('asgBktNum').value = this.dataset.number;
         document.getElementById('asgBktCount').value = this.dataset.count;
+        document.getElementById('asgBktContext').value = '';
         resetAsgLevel();
         new bootstrap.Modal(document.getElementById('bktAssignModal')).show();
       });
@@ -407,6 +413,16 @@ var ASG_LEVEL_ROLE = {
   'Stress Test': 'qc_inspector',
   'Cosmetic Repair': 'cosmetic_manager',
 };
+// Final QC Fail (Bucket)'s Assign Bucket modal hides Select Engineer for
+// "QC or Stress" / "Cosmetic Repair" — those just move the bucket's tags to
+// a stage, no per-engineer WorkID handoff. "L1/L2 Repair" (and every radio
+// from the Bucket Allocation tab's own Assign flow) keeps requiring one.
+function engineerHiddenForCurrentSelection(){
+  var context = document.getElementById('asgBktContext').value;
+  var checked = document.querySelector('input[name="asgLevel"]:checked');
+  var level = checked ? checked.value : '';
+  return context === 'fqc_fail' && (level === 'Stress Test' || level === 'Cosmetic Repair');
+}
 function populateEngineersForLevel(){
   var checked = document.querySelector('input[name="asgLevel"]:checked');
   var roleKey = checked ? ASG_LEVEL_ROLE[checked.value] : '';
@@ -414,6 +430,7 @@ function populateEngineersForLevel(){
   sel.innerHTML = '<option value="">— Select Engineer —</option>';
   var filtered = _engineers.filter(function(e){ return e.role === roleKey; });
   filtered.forEach(function(e){ sel.add(new Option(e.name, e.id)); });
+  document.getElementById('asgEngineerGroup').style.display = engineerHiddenForCurrentSelection() ? 'none' : '';
 }
 function resetAsgLevel(){
   document.getElementById('asgLevelL1L2').checked = true;
@@ -428,13 +445,14 @@ document.getElementById('asgBktSubmit').addEventListener('click', function(){
   var id = document.getElementById('asgBktId').value;
   var checkedLevel = document.querySelector('input[name="asgLevel"]:checked');
   var dept = checkedLevel ? checkedLevel.value : '';
+  var engineerNeeded = !engineerHiddenForCurrentSelection();
   var engId = document.getElementById('asgEngineer').value;
   if(!dept){ alert('Please select a repair type.'); return; }
-  if(!engId){ alert('Please select an engineer.'); return; }
+  if(engineerNeeded && !engId){ alert('Please select an engineer.'); return; }
   var fd = new FormData();
   fd.append('csrf_token', getCsrf());
   fd.append('department', dept);
-  fd.append('assigned_user_id', engId);
+  if(engineerNeeded) fd.append('assigned_user_id', engId);
   fetch('/buckets/'+id+'/assign', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
     if(d.ok){
       bootstrap.Modal.getInstance(document.getElementById('bktAssignModal')).hide();
@@ -452,6 +470,7 @@ document.querySelectorAll('.rl-fqc-assign-btn').forEach(function(btn){
     document.getElementById('asgBktId').value = this.dataset.id;
     document.getElementById('asgBktNum').value = this.dataset.number;
     document.getElementById('asgBktCount').value = this.dataset.count;
+    document.getElementById('asgBktContext').value = 'fqc_fail';
     resetAsgLevel();
     new bootstrap.Modal(document.getElementById('bktAssignModal')).show();
   });

@@ -24,6 +24,15 @@
                    value="{{ edit_company.company_name if edit_company else '' }}" placeholder="OxyPC">
           </div>
           <div class="mb-3">
+            <label class="form-label fw-semibold">Entity</label>
+            <select name="company_entity" class="form-select form-select-sm">
+              <option value="">— Select Entity —</option>
+              {% for e in entity_choices %}
+              <option value="{{ e }}" {% if edit_company and edit_company.company_entity == e %}selected{% endif %}>{{ e }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
             <label class="form-label fw-semibold">Address</label>
             <input type="text" name="company_address" class="form-control form-control-sm"
                    value="{{ edit_company.company_address or '' if edit_company else '' }}" placeholder="Your Address Here, Delhi - 110001">
@@ -75,12 +84,13 @@
         <div class="table-responsive">
           <table class="table table-hover mb-0 small align-middle">
             <thead class="table-dark">
-              <tr><th>Company Name</th><th>GSTIN</th><th>Phone</th><th>Email</th><th>Action</th></tr>
+              <tr><th>Company Name</th><th>Entity</th><th>GSTIN</th><th>Phone</th><th>Email</th><th>Action</th></tr>
             </thead>
             <tbody>
               {% for c in companies %}
               <tr>
                 <td class="fw-semibold">{{ c.company_name }}</td>
+                <td>{{ c.company_entity or '—' }}</td>
                 <td>{{ c.company_gstin or '—' }}</td>
                 <td>{{ c.company_phone or '—' }}</td>
                 <td>{{ c.company_email or '—' }}</td>
@@ -96,7 +106,7 @@
                 </td>
               </tr>
               {% else %}
-              <tr><td colspan="5" class="text-center text-muted py-4">No companies yet. Add one above.</td></tr>
+              <tr><td colspan="6" class="text-center text-muted py-4">No companies yet. Add one above.</td></tr>
               {% endfor %}
             </tbody>
           </table>

@@ -28,12 +28,17 @@
       <div class="card-body p-0">
         <table id="cosmeticTable" class="table table-hover mb-0 small">
           <thead class="table-dark">
-            <tr><th>WorkID</th><th>Tag Number</th><th>L1/L2 Engineer</th><th>Brand</th><th>Model</th><th>CPU</th><th>Grade</th><th>Lot</th><th>Since</th><th>Action</th></tr>
+            <tr>
+              {% if current_user.role.value == 'admin' %}<th><input type="checkbox" id="cosmeticSelectAll" title="Select all"></th>{% endif %}
+              <th>WorkID</th><th>Tag Number</th><th>L1/L2 Engineer</th><th>Brand</th><th>Model</th><th>CPU</th><th>Grade</th><th>Lot</th><th>Since</th><th>Action</th></tr>
           </thead>
           <tbody>
             {% for device, lot_number in devices %}
             {% set wo = workid_map.get(device.id|string) %}
             <tr>
+              {% if current_user.role.value == 'admin' %}
+              <td><input type="checkbox" class="cosmeticRowCheck" value="{{ device.barcode }}"></td>
+              {% endif %}
               <td>{% if wo %}<code class="small">{{ wo.work_id }}</code>{% else %}—{% endif %}</td>
               <td><code>{{ device.barcode }}</code></td>
               <td class="text-muted small">{{ l1l2_engineer_map.get(device.id|string, '—') }}</td>
@@ -99,6 +104,42 @@
     </div>
   </div>
 </div>
+
+{% if current_user.role.value == 'admin' %}
+{# ── Bulk Assign (admin only): pick a batch of checked tags, assign them all
+     to one user — a pure reassignment at their CURRENT stage (no stage
+     change), each getting its own fresh WorkID. #}
+<div class="modal fade" id="cosmeticAssignModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-person-check-fill text-primary me-2"></i>Assign Selected Tags</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-3"><span id="cosmeticAssignCount">0</span> tag(s) selected</p>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Assign to</label>
+          <select id="cosmeticAssignEngineerSelect" class="form-select form-select-sm">
+            <option value="">— Select User —</option>
+            {% for u in move_pool %}
+            <option value="{{ u.id }}">{{ u.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">Notes</label>
+          <textarea id="cosmeticAssignNotes" class="form-control form-control-sm" rows="2" placeholder="Optional notes"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="cosmeticAssignSubmitBtn" class="btn btn-primary btn-sm" onclick="submitCosmeticBulkAssign()">Assign</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
@@ -143,6 +184,81 @@ async function submitCosmeticMove() {
   }
 }
 
-$(document).ready(function(){ $('#cosmeticTable').DataTable({pageLength: 12,order:[[8,'asc']]}) })
+$(document).ready(function(){
+  // The checkbox column (admin only) shifts every later column index by one.
+  var sinceCol = {{ 9 if current_user.role.value == 'admin' else 8 }};
+  var dt = $('#cosmeticTable').DataTable({
+    pageLength: 12,
+    order: [[sinceCol, 'asc']],
+    {% if current_user.role.value == 'admin' %}
+    initComplete: function() {
+      // "view Assign button before searchbox" — inject it into DataTables'
+      // own filter box, ahead of the search input, rather than a separate
+      // toolbar row.
+      var btn = $('<button type="button" id="cosmeticAssignBtn" class="btn btn-sm btn-primary me-2" disabled>' +
+                  '<i class="bi bi-person-check me-1"></i>Assign</button>');
+      btn.on('click', openBulkAssignModal);
+      $(this.api().table().container()).find('.dataTables_filter').prepend(btn);
+    },
+    {% endif %}
+  });
+
+  {% if current_user.role.value == 'admin' %}
+  // Select-all header checkbox + per-row checkboxes — delegated since
+  // DataTables re-renders rows on paging/sorting.
+  $('#cosmeticSelectAll').on('change', function() {
+    $('.cosmeticRowCheck').prop('checked', $(this).prop('checked'));
+    updateAssignButtonState();
+  });
+  $(document).on('change', '.cosmeticRowCheck', function() {
+    if (!$(this).prop('checked')) $('#cosmeticSelectAll').prop('checked', false);
+    updateAssignButtonState();
+  });
+  {% endif %}
+});
+
+function updateAssignButtonState() {
+  var checked = $('.cosmeticRowCheck:checked').length;
+  $('#cosmeticAssignBtn').prop('disabled', checked === 0);
+}
+
+function openBulkAssignModal() {
+  var checked = $('.cosmeticRowCheck:checked');
+  if (!checked.length) return;
+  document.getElementById('cosmeticAssignCount').textContent = checked.length;
+  document.getElementById('cosmeticAssignEngineerSelect').value = '';
+  document.getElementById('cosmeticAssignNotes').value = '';
+  new bootstrap.Modal(document.getElementById('cosmeticAssignModal')).show();
+}
+
+async function submitCosmeticBulkAssign() {
+  var barcodes = $('.cosmeticRowCheck:checked').map(function() { return this.value; }).get();
+  if (!barcodes.length) return;
+  var engineerId = document.getElementById('cosmeticAssignEngineerSelect').value;
+  if (!engineerId) { alert('Please select a user'); return; }
+  var notes = document.getElementById('cosmeticAssignNotes').value;
+  var btn = document.getElementById('cosmeticAssignSubmitBtn');
+  btn.disabled = true;
+  try {
+    var r = await fetch('/cosmetic/bulk-assign', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF},
+      body: 'barcodes=' + encodeURIComponent(barcodes.join(',')) +
+            '&engineer_user_id=' + encodeURIComponent(engineerId) +
+            '&notes=' + encodeURIComponent(notes) +
+            '&csrf_token=' + encodeURIComponent(CSRF),
+    });
+    if (!r.ok) {
+      var text = await r.text().catch(function() { return ''; });
+      alert('Failed to assign' + (text ? ': ' + text.slice(0, 200) : ''));
+      btn.disabled = false;
+      return;
+    }
+    window.location.reload();
+  } catch (e) {
+    alert('Network error: ' + e.message);
+    btn.disabled = false;
+  }
+}
 </script>
 {% endblock %}

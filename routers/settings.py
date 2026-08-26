@@ -14,6 +14,7 @@ from database import get_db
 from auth.dependencies import get_current_user, verify_csrf
 from models.user import User, UserRole
 from models.company import Company
+from utils.master_data import entity_values
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -68,6 +69,7 @@ async def settings_page(
     return templates.TemplateResponse("admin/settings.html", {
         "request": request, "current_user": current_user,
         "companies": companies, "edit_company": edit_company,
+        "entity_choices": await entity_values(db),
         "success": request.query_params.get("success"),
     })
 
@@ -78,6 +80,7 @@ async def save_company(
     _csrf: None = Depends(verify_csrf),
     company_id: str = Form(""),
     company_name: str = Form(...),
+    company_entity: str = Form(""),
     company_address: str = Form(""),
     company_gstin: str = Form(""),
     company_state: str = Form(""),
@@ -101,6 +104,7 @@ async def save_company(
 
     if company:
         company.company_name = company_name.strip()
+        company.company_entity = company_entity.strip() or None
         company.company_address = company_address.strip() or None
         company.company_gstin = company_gstin.strip() or None
         company.company_state = company_state.strip() or None
@@ -111,6 +115,7 @@ async def save_company(
     else:
         company = Company(
             company_name=company_name.strip(),
+            company_entity=company_entity.strip() or None,
             company_address=company_address.strip() or None,
             company_gstin=company_gstin.strip() or None,
             company_state=company_state.strip() or None,

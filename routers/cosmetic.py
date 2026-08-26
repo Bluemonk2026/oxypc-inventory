@@ -118,6 +118,14 @@ PERM_MODULE_BY_STAGE = {
 # pre-existing flow this batch does not touch.
 ASSIGN_ON_MOVE_STAGES = set(PERM_MODULE_BY_STAGE.keys())
 
+# The 6 mid-pipeline pages with the admin-only bulk "Assign" button — Cosmetic
+# Received/Completed are excluded (not asked for; they already have their own
+# per-row Move/Fail assignment flows).
+BULK_ASSIGN_STAGES = {
+    DeviceStage.cleaning, DeviceStage.putty, DeviceStage.dry_sanding,
+    DeviceStage.masking, DeviceStage.painting, DeviceStage.water_sanding,
+}
+
 # Roles eligible for the Move modal's assignee dropdown when the mover does
 # not manage a Group Config team (Application Settings -> Group Config) —
 # the same pool already used for the Stress Test "Complete" hand-off.
@@ -900,3 +908,86 @@ async def cosmetic_fail_assign(
             (engineer.full_name or engineer.username).replace(" ", "+"),
         status_code=302,
     )
+
+
+@router.post("/bulk-assign")
+async def bulk_assign(
+    barcodes: str = Form(...),
+    engineer_user_id: str = Form(...),
+    notes: str = Form(""),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin-only bulk (re)assignment on Cleaning/Putty/Dry Sanding/Masking/
+    Painting/Water Sanding: check a batch of tags, pick a user, and each
+    selected tag gets a fresh WorkID for its CURRENT stage — same
+    MOVE_STAGE_CODE the page's own WorkID column reads, so the new
+    assignment shows up immediately without moving the tag anywhere. Unlike
+    Move/Fail this never changes device.current_stage or writes a
+    StageMovement — it is a pure reassignment.
+    """
+    role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    if role_val != "admin":
+        raise HTTPException(403, "Bulk Assign is admin-only")
+
+    barcode_list = [b.strip() for b in barcodes.split(",") if b.strip()]
+    if not barcode_list:
+        raise HTTPException(400, "No tags selected")
+
+    try:
+        eng_uuid = uuid_module.UUID(engineer_user_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(400, "Invalid user selected")
+    engineer = (await db.execute(
+        select(User).where(User.id == eng_uuid, User.status == True)
+    )).scalar_one_or_none()
+    if not engineer:
+        raise HTTPException(400, "Selected user is not an active user")
+    eng_role_val = engineer.role.value if hasattr(engineer.role, "value") else str(engineer.role)
+
+    devices = (await db.execute(
+        select(Device).where(Device.barcode.in_(barcode_list))
+    )).scalars().all()
+    if not devices:
+        raise HTTPException(404, "No matching tags found")
+
+    work_ids = []
+    for device in devices:
+        if device.current_stage not in BULK_ASSIGN_STAGES:
+            continue  # a tag that moved on since the checkbox was ticked — skip, don't fail the whole batch
+        stage_code = MOVE_STAGE_CODE[device.current_stage]
+        work_id = await _gen_work_id(db)
+        db.add(WorkOrder(
+            work_id=work_id, device_id=device.id, barcode=device.barcode,
+            stage=stage_code, assigned_role=eng_role_val,
+            assigned_user_id=engineer.id, assigned_username=engineer.username,
+            assigned_name=engineer.full_name, status="pending",
+            created_by=current_user.username,
+        ))
+        work_ids.append(work_id)
+        await create_notification(
+            db, user_id=engineer.id, title="Device Assigned to You",
+            message=(f"{device.barcode} has been assigned to you at "
+                     f"{STAGE_LABELS.get(device.current_stage, device.current_stage.value)} "
+                     f"(WorkID: {work_id})."),
+            notification_type="info",
+            barcode=device.barcode, brand=device.brand, model=device.model,
+            stage=device.current_stage.value,
+        )
+
+    if not work_ids:
+        raise HTTPException(400, "None of the selected tags are still on one of these stages")
+
+    # record_id is String(50) — a batch of device UUIDs joined together
+    # overflows it past 1-2 tags, so the full id list goes in new_value
+    # instead (record_id is genuinely "which one record", not meaningful for
+    # a bulk action across many).
+    await audit(db, user=current_user, action="COSMETIC_BULK_ASSIGNED",
+                table_name="devices", record_id=None,
+                new_value={"assigned_to": engineer.username, "work_ids": work_ids,
+                           "device_ids": [str(d.id) for d in devices],
+                           "count": len(work_ids), "notes": notes},
+                request=None)
+
+    await db.commit()
+    return JSONResponse({"ok": True, "assigned": len(work_ids), "work_ids": work_ids})

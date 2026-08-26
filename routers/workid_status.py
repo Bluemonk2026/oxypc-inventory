@@ -17,7 +17,7 @@ from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.work_order import WorkOrder
 from models.part_request import PartRequest
 from models.iqc_inspection import IQCInspection
-from models.attendance_group import AttendanceGroup, AttendanceGroupMember
+from utils.attendance_groups import managed_usernames
 from services.parts_required import compute_required
 from auth.dependencies import get_current_user
 
@@ -65,21 +65,14 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
 
     is_admin = current_user.role.value == "admin"
 
-    # ── Row visibility (item 33): admin sees everyone; an attendance-group
-    # manager sees every member's WorkID records; anyone else sees only their
-    # own. ──────────────────────────────────────────────────────────────────
+    # ── Row visibility (item 33): admin sees everyone; a Group Config manager
+    # sees every team member's WorkID records — transitively, so a manager of
+    # managers sees every level down the chain (utils/attendance_groups.
+    # managed_usernames), across every group they manage, not just one;
+    # anyone else sees only their own. ───────────────────────────────────────
     if not is_admin:
-        managed_group = (await db.execute(
-            select(AttendanceGroup).where(AttendanceGroup.manager_username == current_user.username)
-        )).scalars().first()
-        if managed_group:
-            member_rows = (await db.execute(
-                select(AttendanceGroupMember.username)
-                .where(AttendanceGroupMember.group_id == managed_group.id)
-            )).scalars().all()
-            visible_usernames = set(member_rows) | {current_user.username}
-        else:
-            visible_usernames = {current_user.username}
+        team = await managed_usernames(db, current_user.username)
+        visible_usernames = set(team) | {current_user.username}
         stmt = stmt.where(WorkOrder.assigned_username.in_(visible_usernames))
 
     rows = (await db.execute(stmt)).all()

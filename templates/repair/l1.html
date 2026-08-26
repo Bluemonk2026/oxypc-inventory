@@ -21,13 +21,47 @@
 
   <!-- Devices in L1/L2 -->
   <div style="flex:1 1 100%; width:100%; min-width:0;">
-    <div class="card border-0 shadow-sm">
-      <div class="card-header bg-transparent d-flex align-items-center justify-content-between">
-        <span class="fw-semibold">Devices in L1/L2 ({{ devices|length }})</span>
-        <div class="form-check mb-0">
-          <input class="form-check-input" type="checkbox" id="onlyPnaL1">
-          <label class="form-check-label small" for="onlyPnaL1">Only show PNA</label>
+
+    <!-- Filters — narrow the Tag table below and the Bulk Part Request table
+         together (see rebuildBulkPartsTable in scripts). -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body py-2">
+        <div class="row g-2 align-items-center">
+          <div class="col-md-3">
+            <input type="text" id="l1SearchBox" class="form-control form-control-sm" placeholder="Search Tag / GRN / Model">
+          </div>
+          <div class="col-md-2">
+            <input type="text" id="l1CpuFilter" class="form-control form-control-sm" placeholder="CPU">
+          </div>
+          <div class="col-md-2">
+            <input type="text" id="l1RamFilter" class="form-control form-control-sm" placeholder="RAM">
+          </div>
+          <div class="col-md-2">
+            <input type="text" id="l1HddFilter" class="form-control form-control-sm" placeholder="Hard Drive">
+          </div>
+          <div class="col-md-2">
+            <select id="l1LotFilter" class="form-select form-select-sm">
+              <option value="">All Lots</option>
+              {% set seen_lots = [] %}
+              {% for device, lot_number in devices %}
+              {% if lot_number and lot_number not in seen_lots %}
+              {% set _ = seen_lots.append(lot_number) %}
+              <option value="{{ lot_number }}">{{ lot_number }}</option>
+              {% endif %}
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-1 form-check mb-0 d-flex align-items-center">
+            <input class="form-check-input" type="checkbox" id="onlyPnaL1">
+            <label class="form-check-label small ms-1" for="onlyPnaL1">PNA</label>
+          </div>
         </div>
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent">
+        <span class="fw-semibold">Devices in L1/L2</span>
       </div>
       <div class="card-body p-0">
         <div class="table-responsive">
@@ -38,7 +72,14 @@
             <tbody>
               {% for device, lot_number in devices %}
               {% set wo = work_map.get(device.id|string) if work_map is defined else None %}
-              <tr data-pna="{{ (pna_map.get(device.id|string, []) | length) if pna_map is defined else 0 }}">
+              {% set hdd_text = device.hdd_summary or ((device.storage_gb|string + 'GB ' + (device.storage_type or '')) if device.storage_gb else '') %}
+              <tr data-device-id="{{ device.id }}"
+                  data-pna="{{ (pna_map.get(device.id|string, []) | length) if pna_map is defined else 0 }}"
+                  data-search="{{ (device.barcode or '') ~ ' ' ~ (device.grn_number or '') ~ ' ' ~ (device.model or '') }}"
+                  data-cpu="{{ device.cpu or '' }}"
+                  data-ram="{{ device.ram_gb or '' }}"
+                  data-hdd="{{ hdd_text }}"
+                  data-lot="{{ lot_number or '' }}">
                 <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
                 <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a></td>
                 {# data-order carries the sortable ISO value; DataTables reads it
@@ -110,16 +151,18 @@
 
 </div>
 
-  <!-- Bulk Part Request — one row per part across every tag in the table above -->
+  <!-- Bulk Part Request — one row per part across every tag currently
+       visible in the Tag table above (filters apply to both — see
+       rebuildBulkPartsTable in scripts). -->
   <div class="row mt-3">
     <div class="col-12">
       <div class="card shadow-sm">
         <div class="card-header bg-white d-flex align-items-center justify-content-between">
           <h6 class="mb-0"><i class="bi bi-basket me-2"></i>Bulk Part Request</h6>
-          <small class="text-muted">Parts required across the {{ devices|length }} tag{{ 's' if devices|length != 1 else '' }} listed above</small>
+          <small class="text-muted" id="bulkPartsScopeNote">Parts required across the {{ devices|length }} tag{{ 's' if devices|length != 1 else '' }} listed above</small>
         </div>
         <div class="table-responsive">
-          <table class="table table-sm table-hover align-middle mb-0">
+          <table id="bulkPartsTable" class="table table-sm table-hover align-middle mb-0">
             <thead class="table-light">
               <tr>
                 <th>Part Name</th>
@@ -255,26 +298,133 @@
 {% endblock %}
 {% block scripts %}
 <script>
+// Per-device required-parts breakdown (compute_required() output, plus each
+// part's requested/changed status) — lets the filter bar below recompute the
+// Bulk Part Request table client-side from just the currently-visible tags,
+// without a server round trip on every keystroke.
+const DEVICE_PARTS_REQUIRED = {{ device_parts_required | tojson }};
+
 $(document).ready(function(){
   // Newest assignment first — the queue is worked in the order tags arrive,
   // so the default sort has to be Date Assigned rather than WorkID.
-  var dt = $('#l1Table').DataTable({ order: [[2, 'desc']] });
+  var dt = $('#l1Table').DataTable({
+    order: [[2, 'desc']],
+    initComplete: function() {
+      // Table-count badge next to DataTables' own "Show N entries" control,
+      // instead of a static count in the card header — updates on every
+      // draw (see drawCallback) so it tracks whatever filters are applied.
+      var badge = $('<span id="l1CountBadge" class="badge bg-warning text-dark ms-2"></span>');
+      $(this.api().table().container()).find('.dataTables_length').append(badge);
+      updateL1CountBadge(this.api());
+    },
+    drawCallback: function() { updateL1CountBadge(this.api()); },
+  });
 
-  // "Only show PNA" — a DataTables search hook rather than row.hide(), so the
-  // filter survives paging and sorting instead of only affecting page 1.
+  function updateL1CountBadge(api) {
+    var info = (api || dt).page.info();
+    $('#l1CountBadge').text(info.recordsDisplay + ' tag' + (info.recordsDisplay === 1 ? '' : 's'));
+  }
+
+  // Filter bar: Search (Tag/GRN/Model), CPU, RAM, Hard Drive, Lot Number, and
+  // the "Only show PNA" checkbox (moved here from the card header) — all as
+  // one DataTables search hook rather than row.hide(), so paging/sorting
+  // never undoes the filter.
   $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
     if (settings.nTable.id !== 'l1Table') return true;
-    if (!$('#onlyPnaL1').prop('checked')) return true;
     var tr = settings.aoData[dataIndex].nTr;
-    return parseInt(tr && tr.getAttribute('data-pna') || '0', 10) > 0;
+    if (!tr) return true;
+    if ($('#onlyPnaL1').prop('checked') && parseInt(tr.getAttribute('data-pna') || '0', 10) <= 0) return false;
+    var q = $('#l1SearchBox').val().trim().toLowerCase();
+    if (q && (tr.getAttribute('data-search') || '').toLowerCase().indexOf(q) === -1) return false;
+    var cpu = $('#l1CpuFilter').val().trim().toLowerCase();
+    if (cpu && (tr.getAttribute('data-cpu') || '').toLowerCase().indexOf(cpu) === -1) return false;
+    var ram = $('#l1RamFilter').val().trim().toLowerCase();
+    if (ram && (tr.getAttribute('data-ram') || '').toLowerCase().indexOf(ram) === -1) return false;
+    var hdd = $('#l1HddFilter').val().trim().toLowerCase();
+    if (hdd && (tr.getAttribute('data-hdd') || '').toLowerCase().indexOf(hdd) === -1) return false;
+    var lot = $('#l1LotFilter').val();
+    if (lot && tr.getAttribute('data-lot') !== lot) return false;
+    return true;
   });
-  $('#onlyPnaL1').on('change', function(){ dt.draw(); });
+
+  function applyL1Filters() {
+    dt.draw();
+    var visibleIds = [];
+    dt.rows({ search: 'applied' }).every(function() {
+      var id = this.node().getAttribute('data-device-id');
+      if (id) visibleIds.push(id);
+    });
+    rebuildBulkPartsTable(visibleIds);
+  }
+
+  $('#l1SearchBox, #l1CpuFilter, #l1RamFilter, #l1HddFilter').on('keyup', applyL1Filters);
+  $('#l1LotFilter, #onlyPnaL1').on('change', applyL1Filters);
 
   // Bootstrap tooltips are opt-in; the PNA badge lists its parts on hover.
   document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {
     new bootstrap.Tooltip(el);
   });
 });
+
+// Rebuilds the Bulk Part Request table from DEVICE_PARTS_REQUIRED, scoped to
+// exactly the tag ids currently passing the Tag table's filters — same
+// aggregation routers/repair.py's bulk_parts does server-side (qty = tags
+// where required, requested/changed = per-part request status), just run
+// client-side so it can react to the filter bar without a page reload.
+function rebuildBulkPartsTable(visibleIds) {
+  var counts = {};
+  visibleIds.forEach(function(did) {
+    (DEVICE_PARTS_REQUIRED[did] || []).forEach(function(r) {
+      var entry = counts[r.label];
+      if (!entry) {
+        entry = counts[r.label] = {
+          label: r.label, category: r.category, qty: 0, requested: 0, changed: 0,
+          can_downgrade: (r.label === 'RAM' || r.label === 'Hard Drive'),
+        };
+      }
+      if (r.required) entry.qty += 1;
+      if (r.requested) entry.requested += 1;
+      if (r.changed) entry.changed += 1;
+    });
+  });
+
+  var labels = Object.keys(counts).sort();
+  var tbody = document.querySelector('#bulkPartsTable tbody');
+  var note = document.getElementById('bulkPartsScopeNote');
+  if (note) {
+    note.textContent = 'Parts required across the ' + visibleIds.length +
+      ' tag' + (visibleIds.length === 1 ? '' : 's') + ' currently shown above';
+  }
+  if (!labels.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">' +
+      (visibleIds.length ? 'No parts required for the tags currently shown.'
+                          : 'No tags match the current filters.') + '</td></tr>';
+    return;
+  }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/'/g, "\\'"); }
+  tbody.innerHTML = labels.map(function(label) {
+    var bp = counts[label];
+    var args = "'" + esc(bp.label) + "', '" + esc(bp.category) + "', " + bp.qty;
+    var dgBtn = bp.can_downgrade
+      ? '<button type="button" class="btn btn-sm btn-outline-dark py-0 px-2" onclick="openBulkPartRequest(\'downgrade\', ' + args + ')">' +
+        '<i class="bi bi-arrow-down-circle"></i> Downgrade</button>'
+      : '';
+    return '<tr>' +
+      '<td class="fw-semibold">' + bp.label + '</td>' +
+      '<td class="text-center"><span class="badge bg-warning text-dark">' + bp.qty + '</span></td>' +
+      '<td class="text-center"><span class="badge bg-' + (bp.requested ? 'primary' : 'light text-muted border') + '">' + bp.requested + '</span></td>' +
+      '<td class="text-center"><span class="badge bg-' + (bp.changed ? 'success' : 'light text-muted border') + '">' + bp.changed + '</span></td>' +
+      '<td><div class="d-flex gap-1 flex-wrap">' +
+        '<button type="button" class="btn btn-sm btn-outline-primary py-0 px-2" onclick="openBulkPartRequest(\'new\', ' + args + ')">' +
+        '<i class="bi bi-bag-plus"></i> New Request</button>' +
+        '<button type="button" class="btn btn-sm btn-outline-warning py-0 px-2" onclick="openBulkPartRequest(\'replace\', ' + args + ')">' +
+        '<i class="bi bi-arrow-repeat"></i> Replace Request</button>' +
+        dgBtn +
+      '</div></td>' +
+    '</tr>';
+  }).join('');
+}
 
 // Bulk Part Request — opens the same Name -> Make -> Model modal as Device
 // Detail, then raises one request per tag in the queue that needs the part.

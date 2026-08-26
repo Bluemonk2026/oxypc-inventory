@@ -13,6 +13,7 @@ class Company(Base):
 
     id                  = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_name        = Column(String(200), nullable=False)
+    company_entity      = Column(String(50), nullable=True)  # Master Data "entity" category — utils/master_data.entity_values
     company_address     = Column(String(500), nullable=True)
     company_gstin       = Column(String(20), nullable=True)
     company_state       = Column(String(100), nullable=True)

@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from database import get_db
 from models.attendance import Attendance
 from models.user import User, UserRole
-from models.attendance_group import AttendanceGroup, AttendanceGroupMember
+from utils.attendance_groups import is_group_manager, managed_usernames
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 
 router = APIRouter(prefix="/attendance", tags=["attendance"], dependencies=[Depends(verify_csrf)])
@@ -61,25 +61,17 @@ async def _lock_attendance_day(db: AsyncSession, user_id, target_date: date):
 
 async def _attendance_report_scope(db: AsyncSession, current_user: User):
     """Returns (allowed, member_usernames) for /attendance/report access.
-    Admin -> (True, None) sees everyone. A user configured as an Attendance
-    Group manager (Application Settings -> Attendance Config) -> (True, [...])
-    scoped to just that group's members. Anyone else -> (False, None)."""
+    Admin -> (True, None) sees everyone. A user configured as a Group Config
+    manager (Application Settings -> Group Config) -> (True, [...]) scoped to
+    their team — transitively, so a manager-of-managers sees every level down
+    the chain (utils/attendance_groups.managed_usernames). Anyone else ->
+    (False, None)."""
     role_val = getattr(current_user.role, "value", None) or str(current_user.role)
     if role_val == "admin":
         return True, None
-    groups = (await db.execute(
-        select(AttendanceGroup).where(
-            AttendanceGroup.manager_username == current_user.username,
-            AttendanceGroup.is_active == True,
-        )
-    )).scalars().all()
-    if not groups:
+    if not await is_group_manager(db, current_user.username):
         return False, None
-    group_ids = [g.id for g in groups]
-    member_rows = (await db.execute(
-        select(AttendanceGroupMember.username).where(AttendanceGroupMember.group_id.in_(group_ids))
-    )).scalars().all()
-    return True, list(set(member_rows))
+    return True, await managed_usernames(db, current_user.username)
 
 
 # ---------------------------------------------------------------------------

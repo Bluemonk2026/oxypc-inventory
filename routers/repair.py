@@ -823,6 +823,35 @@ async def repair_list(stage: str, request: Request,
             entry["can_downgrade"] = entry["label"] in ("RAM", "Hard Drive")
         bulk_parts = sorted(required_counts.values(), key=lambda e: e["label"])
 
+    # ── Per-device parts breakdown, embedded as JSON for the Tag table's
+    # filter bar (search/CPU/RAM/HDD/Lot/PNA): filtering the Tag table client-
+    # side also needs to recompute the Bulk Part Request table above to match
+    # only the currently-visible tags, without a server round trip. Reuses
+    # exactly the same compute_required() + PartRequest status data as
+    # bulk_parts, just kept per-device instead of pre-aggregated, so the two
+    # can never silently drift out of sync with each other.
+    device_parts_required: dict = {}
+    if device_ids:
+        for did_str, dev in dev_by_id.items():
+            iqc = iqc_by_dev.get(did_str)
+            device_parts_required[did_str] = [
+                {"label": r["label"], "category": r["category"], "required": bool(r["required"]),
+                 "requested": False, "changed": False}
+                for r in compute_required(iqc, dev)
+            ]
+        pr_status_rows = (await db.execute(
+            select(PartRequest.device_id, PartRequest.part_name, PartRequest.status)
+            .where(PartRequest.device_id.in_(device_ids),
+                   PartRequest.status.in_(["handed_over", "received"]))
+        )).all()
+        for did, pname, pstatus in pr_status_rows:
+            for entry in device_parts_required.get(str(did), []):
+                if entry["label"] == pname:
+                    if pstatus == "handed_over":
+                        entry["requested"] = True
+                    elif pstatus == "received":
+                        entry["changed"] = True
+
     # ── Timeline pause/resume (item 32): a device is "blocked" while any of
     # its required parts currently has 0 live stock in Part Master. While
     # blocked, the WorkOrder's elapsed-days clock freezes; once every required
@@ -932,6 +961,7 @@ async def repair_list(stage: str, request: Request,
         "parts_requested_map": parts_requested_map,
         "pna_map": await _pna_map(db, device_ids),
         "bulk_parts": bulk_parts,
+        "device_parts_required": device_parts_required,
         # Feeds the Bulk Part Request modals' Name -> Make -> Model cascade,
         # the same shape Device Detail passes to its own request modals.
         "all_spare_parts": [

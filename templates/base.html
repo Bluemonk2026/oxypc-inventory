@@ -168,6 +168,21 @@
         <i class="bi bi-droplet me-2"></i> {{ sidebar_label('cosmetic_received', 'Cosmetic & Paint') }}
       </a></li>
       {% endif %}
+      {# Dynamic "Cosmetic Page" link — for the non-manager cosmetic roles.
+         Jumps straight to whichever of the 6 mid-pipeline stage pages is
+         enabled for this role (Master Data -> Permission Matrix), in
+         pipeline order, since these roles only work one stage at a time. #}
+      {% if role in ['qc_inspector', 'inventory_manager', 'sales_manager'] and any_perm(role,'cosmetic_cleaning','cosmetic_putty','cosmetic_dry_sanding','cosmetic_masking','cosmetic_painting','cosmetic_water_sanding') %}
+      {% set cosmetic_page_url = '/cosmetic/cleaning' if has_perm(role,'cosmetic_cleaning','enable')
+          else '/cosmetic/putty' if has_perm(role,'cosmetic_putty','enable')
+          else '/cosmetic/dry_sanding' if has_perm(role,'cosmetic_dry_sanding','enable')
+          else '/cosmetic/masking' if has_perm(role,'cosmetic_masking','enable')
+          else '/cosmetic/painting' if has_perm(role,'cosmetic_painting','enable')
+          else '/cosmetic/water_sanding' %}
+      <li><a href="{{ cosmetic_page_url }}" class="nav-link {% if request.url.path == cosmetic_page_url %}active{% endif %}">
+        <i class="bi bi-droplet-half me-2"></i> {{ sidebar_label('cosmetic_page', 'Cosmetic Page') }}
+      </a></li>
+      {% endif %}
       {% if has_perm(role,'cosmetic_finalqc','enable') %}
       <li><a href="/cosmetic/final_qc" class="nav-link {% if request.url.path == '/cosmetic/final_qc' %}active{% endif %}">
         <i class="bi bi-shield-check me-2"></i> {{ sidebar_label('cosmetic_finalqc', 'Final QC') }}

@@ -14,7 +14,8 @@ from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.lot import Lot, LotLineItem
 from models.iqc_inspection import IQCInspection
 from models.location import StorageLocation, DeviceLocationLog, LocationAction
-from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm, require_any_module_perm
+from auth.dependencies import (get_current_user, require_roles, verify_csrf, require_module_perm,
+                               require_any_module_perm, require_additional_perm, require_any_additional_perm)
 from services.audit_engine import audit
 from services.control_engine import validate_transition
 from utils.master_data import master_values
@@ -839,6 +840,11 @@ async def iqc_bulk_apply_grade_type(
     # the endpoint still lives under /iqc and accepts either module's edit
     # right so both All Inventory and Inventory Manager can use it.
     _perm: User = Depends(require_any_module_perm("iqc", "devices", action="edit")),
+    # The check above only ever looks at each module's "enable" bit (see
+    # has_perm()'s docstring — the matrix's own Edit checkbox is display-only)
+    # so it never actually blocked anyone. This is the real, enforced gate —
+    # Devices Edit or IQC Edit from the Role Additional Permissions tab.
+    _perm2: User = Depends(require_any_additional_perm("edit_devices", "edit_iqc")),
 ):
     """Bulk-apply Device Type, Entity, Grade, Invoice Number, GRN Number,
     Location ID, Device Price and/or a stage move to a set of devices. Powers
@@ -1237,6 +1243,11 @@ async def iqc_create(
     # built-in allow-list plus the matrix's "add" bit was locking out roles
     # (trc_manager among them) that do this work day to day.
     current_user: User = Depends(get_current_user),
+    # Add IQC (Role Additional Permissions tab) — defaults to permitted for
+    # every role (same "permissive until an admin opts out" convention as
+    # everywhere else), so this changes nothing for the history above unless
+    # an admin explicitly unchecks it for a specific role.
+    _perm: User = Depends(require_additional_perm("add_iqc")),
 ):
     # Case-folded: a tag scanned or typed with different capitalisation than
     # however it was first entered used to pass this check clean and register

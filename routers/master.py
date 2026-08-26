@@ -239,12 +239,23 @@ PERM_ACTIONS = [
 ]
 
 # ── Role Additional Permissions — cross-cutting, not tied to any one module ──
+# "Add New Data" was split into per-record-type toggles (can_add_lot/iqc/grn)
+# so an admin can grant "raise a lot" without also granting "register an IQC
+# device" — the old single switch couldn't distinguish those. The Edit group
+# is new: unlike the per-module matrix's Edit checkbox (display-only — see
+# has_perm()'s docstring), these ARE enforced (require_additional_perm).
 ADDITIONAL_PERMS = [
-    ("can_upload",       "File Upload"),
-    ("can_download",     "File Download"),
-    ("can_export",       "File Export"),
-    ("can_print",        "Print Page"),
-    ("can_add_new_data", "Add New Data"),
+    ("can_upload",        "File Upload"),
+    ("can_download",      "File Download"),
+    ("can_export",        "File Export"),
+    ("can_print",         "Print Page"),
+    ("can_add_lot",       "Add Lot"),
+    ("can_add_iqc",       "Add IQC"),
+    ("can_add_grn",       "Add GRN"),
+    ("can_edit_devices",  "Devices Edit"),
+    ("can_edit_iqc",      "IQC Edit"),
+    ("can_edit_lot",      "Lot Edit"),
+    ("can_edit_grn",      "GRN Edit"),
 ]
 
 CATEGORIES = [
@@ -783,9 +794,7 @@ async def save_additional_permissions(
         select(RoleAdditionalPermission).where(RoleAdditionalPermission.role_name == role_name)
     )).scalar_one()
     set_cached_additional_perms(role_name, {
-        "upload": values["can_upload"], "download": values["can_download"],
-        "export": values["can_export"], "print": values["can_print"],
-        "add_new_data": values["can_add_new_data"],
+        **{key.removeprefix("can_"): val for key, val in values.items()},
         "view_pricing": refreshed.can_view_pricing,
     })
 
@@ -804,7 +813,7 @@ async def save_pricing_visibility(
     """Pricing Visibility tab (Batch 9) — bulk-save can_view_pricing for every
     non-admin role in one submit, matching this page's other tabs' plain-form
     convention. Upserts RoleAdditionalPermission rows without touching their
-    other (upload/download/export/print/add_new_data) fields."""
+    other fields (ADDITIONAL_PERMS)."""
     form = await request.form()
     all_roles, _ = await _role_data(db)
 
@@ -825,7 +834,7 @@ async def save_pricing_visibility(
                                              updated_by=current_user.username))
 
         cached = dict(_ADDITIONAL_PERM_CACHE.get(role_val) or {
-            "upload": True, "download": True, "export": True, "print": True, "add_new_data": True,
+            key.removeprefix("can_"): True for key, _label in ADDITIONAL_PERMS
         })
         cached["view_pricing"] = new_val
         set_cached_additional_perms(role_val, cached)
@@ -972,9 +981,7 @@ async def load_all_permissions_to_cache(db: AsyncSession) -> None:
     tmp_add: dict = {}
     for r in additional_rows:
         tmp_add[r.role_name] = {
-            "upload": r.can_upload, "download": r.can_download,
-            "export": r.can_export, "print": r.can_print,
-            "add_new_data": r.can_add_new_data,
+            **{key.removeprefix("can_"): getattr(r, key) for key, _label in ADDITIONAL_PERMS},
             "view_pricing": r.can_view_pricing,
         }
     _ADDITIONAL_PERM_CACHE.clear()

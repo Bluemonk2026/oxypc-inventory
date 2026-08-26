@@ -26,7 +26,7 @@ from models.work_order import WorkOrder
 from models.engines import DeviceCosting
 from models.sales import Sale
 from services.parts_required import compute_required, LEGACY_LABELS
-from auth.dependencies import get_current_user, require_roles, verify_csrf
+from auth.dependencies import get_current_user, require_roles, verify_csrf, require_additional_perm
 from utils.warranty import warranty_from_sold_at, warranty_status_for_sale
 from utils.master_data import master_values, entity_values
 
@@ -1411,6 +1411,7 @@ async def device_edit_save(
     barcode_new: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(edit_allowed),
+    _perm: User = Depends(require_additional_perm("edit_devices")),
 ):
     device = await _get_device_or_404(barcode, db)
 

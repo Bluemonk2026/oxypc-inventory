@@ -256,6 +256,53 @@ def require_any_module_perm(*modules: str, action: str = "enable"):
     return checker
 
 
+def require_additional_perm(action: str):
+    """Dependency factory enforcing one cross-cutting Role Additional
+    Permission flag (RoleAdditionalPermission — Admin > Master Data > Role
+    Additional Permissions tab), e.g. "edit_devices", "add_lot".
+
+    Unlike require_module_perm (which only ever checks a module's overall
+    "enable" bit — see has_perm()'s docstring — the finer per-action columns
+    there are display-only), this checks the specific action column directly,
+    so these ARE real, enforced gates: admin always passes; no matrix row
+    configured for the role → passes (permissive default, matching every
+    other permission check in this app).
+    """
+    from models.role_permissions import has_additional_perm
+
+    async def checker(current_user: User = Depends(get_current_user)) -> User:
+        role_name = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+        if not has_additional_perm(role_name, action):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Your role ({role_name}) does not have '{action}' permission.",
+            )
+        return current_user
+
+    return checker
+
+
+def require_any_additional_perm(*actions: str):
+    """Like require_additional_perm, but passes if ANY of the actions grants
+    it — the Customise bulk-edit endpoint is reachable from both the Devices
+    and IQC pages, so it's gated on edit_devices OR edit_iqc rather than
+    demanding both."""
+    from models.role_permissions import has_additional_perm
+
+    async def checker(current_user: User = Depends(get_current_user)) -> User:
+        role_name = (current_user.role.value if hasattr(current_user.role, "value")
+                     else str(current_user.role))
+        if any(has_additional_perm(role_name, a) for a in actions):
+            return current_user
+        raise HTTPException(
+            status_code=403,
+            detail=(f"Your role ({role_name}) does not have permission "
+                    f"for any of: {', '.join(actions)}."),
+        )
+
+    return checker
+
+
 async def verify_csrf(request: Request) -> None:
     """Dependency: validate CSRF double-submit cookie for mutating requests.
 

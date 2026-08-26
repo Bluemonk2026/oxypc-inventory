@@ -13,7 +13,7 @@ from models.user import User, UserRole
 from models.device import Device, DeviceStage, DeviceGrade, StageMovement, STAGE_LABELS
 from models.lot import Lot, LotLineItem
 from models.crm import CRMSourcingDeal
-from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
+from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm, require_additional_perm
 from services.audit_engine import audit
 from utils.fk_purge import purge_references
 from services.event_bus import EventType, publish
@@ -410,6 +410,10 @@ async def create_lot(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("lots", "add")),
+    # The check above only looks at the "lots" module's "enable" bit (see
+    # has_perm()'s docstring) — this is the real, enforced gate: Add Lot from
+    # the Role Additional Permissions tab.
+    _perm2: User = Depends(require_additional_perm("add_lot")),
 ):
     existing = await db.execute(select(Lot).where(Lot.lot_number == lot_number))
     if existing.scalar_one_or_none():
@@ -526,6 +530,7 @@ async def edit_lot(
     notes: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
+    _perm: User = Depends(require_additional_perm("edit_lot")),
 ):
     result = await db.execute(select(Lot).where(Lot.id == lot_id))
     lot = result.scalar_one_or_none()

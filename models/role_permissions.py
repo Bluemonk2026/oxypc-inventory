@@ -49,13 +49,27 @@ class RoleAdditionalPermission(Base):
     """Cross-cutting, non-module-specific permissions per role — apply app-wide
     rather than to one module (unlike RoleModulePermission above).
 
-      can_upload      — File Upload (any bulk-upload/import control app-wide)
-      can_download    — File Download (any file/attachment download control)
-      can_export      — File Export (CSV/Excel export buttons)
-      can_print       — Print Page
-      can_add_new_data — Add New Data (create-record actions app-wide)
+      can_upload       — File Upload (any bulk-upload/import control app-wide)
+      can_download     — File Download (any file/attachment download control)
+      can_export       — File Export (CSV/Excel export buttons)
+      can_print        — Print Page
+      can_add_new_data — Add New Data (legacy; superseded by the can_add_*
+                          fields below, kept — unused by the UI — so nothing
+                          that reads the column directly breaks)
+      can_add_lot      — Add Lot (POST /lots/new)
+      can_add_iqc      — Add IQC (POST /iqc/new)
+      can_add_grn      — Add GRN (POST /grn/create-manual)
+      can_edit_devices — Devices Edit (POST /devices/{barcode}/edit, and
+                          jointly with can_edit_iqc gates the Customise bulk
+                          edit at POST /iqc/bulk-apply-grade-type)
+      can_edit_iqc     — IQC Edit (jointly with can_edit_devices gates the
+                          Customise bulk edit — no separate IQC-record-edit
+                          form exists today)
+      can_edit_lot     — Lot Edit (POST /lots/{lot_id}/edit)
+      can_edit_grn     — GRN Edit (POST /grn/{grn_id}/edit)
 
     Admin role always bypasses all checks (full access), same as the module matrix.
+    Additive columns (can_add_lot onward); auto-provisioned by db_validator.
     """
     __tablename__ = "role_additional_permissions"
 
@@ -67,6 +81,13 @@ class RoleAdditionalPermission(Base):
     can_print        = Column(Boolean, default=True)
     can_add_new_data = Column(Boolean, default=True)
     can_view_pricing = Column(Boolean, default=True)  # Pricing Visibility tab (Batch 9)
+    can_add_lot      = Column(Boolean, default=True)
+    can_add_iqc      = Column(Boolean, default=True)
+    can_add_grn      = Column(Boolean, default=True)
+    can_edit_devices = Column(Boolean, default=True)
+    can_edit_iqc     = Column(Boolean, default=True)
+    can_edit_lot     = Column(Boolean, default=True)
+    can_edit_grn     = Column(Boolean, default=True)
     updated_at       = Column(DateTime, default=app_now, onupdate=app_now)
     updated_by       = Column(String(50), nullable=True)
 

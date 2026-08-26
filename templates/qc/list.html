@@ -14,7 +14,7 @@
           <thead class="table-dark">
             <tr>
               <th>Tag Number</th><th>Lot</th><th>L1/L2 Engineer</th><th>Brand</th><th>Model</th>
-              <th>CPU</th><th>RAM</th><th>Storage</th><th>Grade</th>
+              <th class="d-none">CPU</th><th class="d-none">RAM</th><th class="d-none">Storage</th><th>Grade</th>
               <th class="d-none">Location</th><th>Report</th><th>Actions</th>
             </tr>
           </thead>
@@ -27,9 +27,9 @@
               <td class="text-muted small">{{ l1l2_engineer_map.get(device.id|string, '—') }}</td>
               <td>{{ device.brand or '—' }}</td>
               <td>{{ device.model or '—' }}</td>
-              <td class="text-muted small">{{ device.cpu or '—' }}</td>
-              <td>{{ (device.ram_gb|string ~ ' GB') if device.ram_gb else '—' }}</td>
-              <td>{{ (device.storage_gb|string ~ ' GB') if device.storage_gb else '—' }}</td>
+              <td class="d-none text-muted small">{{ device.cpu or '—' }}</td>
+              <td class="d-none">{{ (device.ram_gb|string ~ ' GB') if device.ram_gb else '—' }}</td>
+              <td class="d-none">{{ (device.storage_gb|string ~ ' GB') if device.storage_gb else '—' }}</td>
               <td>{{ device.grade or '—' }}</td>
               <td class="d-none">
                 {% set loc = location_map.get(device.id | string) %}
@@ -391,7 +391,8 @@ $(document).ready(function(){
     // without this, DataTables defaults to sorting by the first visible
     // column (Tag Number), silently undoing it.
     order: [],
-    columnDefs: [{visible: false, targets: [9]}],
+    // CPU/RAM/Storage (5,6,7) hidden per request; Location (9) was already hidden.
+    columnDefs: [{visible: false, targets: [5, 6, 7, 9]}],
     initComplete: function(){
       $(this).closest('.dataTables_wrapper').find('.dataTables_length')
         .append('<span id="qcAwaitingCount" class="text-muted small ms-2"></span>');

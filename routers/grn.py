@@ -22,7 +22,7 @@ from models.grn_import import GRNImport
 from services.invoice_parser import extract_invoice_fields
 from services.audit_engine import audit
 from config import UPLOADS_DIR
-from auth.dependencies import get_current_user, require_roles, verify_csrf
+from auth.dependencies import get_current_user, require_roles, verify_csrf, require_additional_perm
 
 router = APIRouter(prefix="/grn", tags=["grn"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
@@ -662,6 +662,7 @@ async def grn_create_manual(
     # reading the bytes, not by the object being non-None.
     invoice: UploadFile | None = File(None),
     db: AsyncSession = Depends(get_db), current_user: User = Depends(allowed),
+    _perm: User = Depends(require_additional_perm("add_grn")),
 ):
     """Create a GRN by hand, with an optional invoice PDF.
 
@@ -766,6 +767,7 @@ async def grn_edit(
     po_number: str = Form(""), vehicle_number: str = Form(""),
     e_way_bill: str = Form(""), notes: str = Form(""),
     db: AsyncSession = Depends(get_db), current_user: User = Depends(allowed),
+    _perm: User = Depends(require_additional_perm("edit_grn")),
 ):
     from datetime import date as _date
     try:

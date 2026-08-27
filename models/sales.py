@@ -43,6 +43,26 @@ class Sale(Base):
     warranty_expires_at = Column(DateTime, nullable=True)       # server-computed from sold_at + duration
     # ── Sales channel (Admin Dashboard analytics) ─────────────────────────────
     sale_channel = Column(String(20), nullable=True)   # procurement / telecaller / showroom
+    # ── Selling company, resolved and SNAPSHOTTED at sale time (2026-08) ──────
+    # Matched from the sold device's entity to the Company Setting row tagged
+    # with that same entity. company_id is kept for traceability/joins, but
+    # the invoice-relevant fields are copied here too — a genuine snapshot,
+    # not just a foreign key — because a foreign key alone would still change
+    # if someone later edits THAT SAME company's name/GSTIN/address rather
+    # than switching companies. A Tax Invoice/Delivery Challan is a legal
+    # document: it must always show the company exactly as it was on the sale
+    # date, regardless of edits or deactivation afterward. Nullable: sales
+    # recorded before this column existed have no snapshot and print.py/
+    # waybill.py fall back to the pre-existing "oldest active company" live
+    # lookup for those (see get_company_settings).
+    company_id           = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True)
+    company_name         = Column(String(200), nullable=True)
+    company_address      = Column(String(500), nullable=True)
+    company_gstin        = Column(String(20), nullable=True)
+    company_state        = Column(String(100), nullable=True)
+    company_state_code   = Column(String(5), nullable=True)
+    company_phone        = Column(String(50), nullable=True)
+    company_email        = Column(String(100), nullable=True)
 
     device = relationship("Device", back_populates="sales")
     returns = relationship("Return", back_populates="sale", lazy="select")

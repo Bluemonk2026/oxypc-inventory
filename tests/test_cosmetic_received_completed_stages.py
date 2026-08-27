@@ -291,27 +291,15 @@ def test_water_sanding_advances_to_cosmetic_completed_then_final_qc(app_client, 
     _run(_SEED_AT_WATER_SANDING_SRC.format(root=ROOT, barcode=barcode, suffix=suffix))
     try:
         username, password = make_user("admin")
-        eng_username, _ = make_user("cosmetic_manager")
         _login(app_client, username, password)
         csrf = app_client.cookies.get("csrf_token") or "dummy"
 
-        eng_id = _run(f"""
-import asyncio, sys
-sys.path.insert(0, r"{ROOT}")
-from sqlalchemy import select
-from database import AsyncSessionLocal
-from models.user import User
-
-async def main():
-    async with AsyncSessionLocal() as db:
-        u = (await db.execute(select(User).where(User.username == "{eng_username}"))).scalar_one()
-        print(u.id)
-
-asyncio.run(main())
-""")
-
+        # Water Sanding -> Cosmetic Completed needs no assignee at all
+        # (Cosmetic Completed is a Cosmetic-Manager-handled holding stage,
+        # not a per-tag hand-off) — same exemption Cosmetic Completed's own
+        # "Move to Final QC" already had. No modal, no engineer_user_id.
         r = app_client.post("/cosmetic/advance", data={
-            "csrf_token": csrf, "barcode": barcode, "engineer_user_id": eng_id,
+            "csrf_token": csrf, "barcode": barcode,
         })
         assert r.status_code == 200, r.text[:300]
         assert r.json()["moved_to"] == "cosmetic_completed"
@@ -321,11 +309,9 @@ asyncio.run(main())
         assert "<th>Cosmetic Stage</th>" in html
         row = html.split(barcode, 1)[1].split("</tr>", 1)[0]
         assert "Cosmetic Completed" in row
-        # "Assigned to" shows WorkOrder.assigned_name, not the username — every
-        # make_user()-created account gets full_name="IQC Test User" (see
-        # tests/test_iqc_new_user.py _SETUP_SRC), which is what's asserted
-        # here; the WorkOrder's actual assigned_username is checked below.
-        assert "IQC Test User" in row
+        # No WorkOrder for this move — "Assigned to" shows the same "—"
+        # placeholder every other assignee-less move (e.g. Completed's own
+        # "Move to Final QC" below) already renders.
         assert "Move to Final QC" in row
         assert "openFailModal(" in row
 

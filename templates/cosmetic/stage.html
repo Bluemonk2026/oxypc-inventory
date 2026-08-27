@@ -60,7 +60,7 @@
               <td class="text-muted small">{{ device.updated_at.strftime('%d-%b %H:%M') if device.updated_at else '—' }}</td>
               <td>
                 <button type="button" class="btn btn-sm btn-success py-0 px-2"
-                        onclick="openMoveModal('{{ device.barcode }}', '{{ next_stage_label }}')">
+                        onclick="directMoveOrManual('{{ device.barcode }}', '{{ next_stage_label }}', this)">
                   <i class="bi bi-check2 me-1"></i>Move to {{ next_stage_label }}
                 </button>
               </td>
@@ -149,6 +149,35 @@
 <script>
 let _moveBarcode = null;
 const CSRF = (document.cookie.split(';').find(c => c.trim().startsWith('csrf_token=')) || '').split('=').slice(1).join('=').trim();
+
+// "Move to <next stage>" — tries a direct move first (no modal): the
+// server auto-assigns the tag to whoever the mover's Flow Data row says
+// handles the next stage (All Tags -> Flow Data), or — for a move that
+// needs no assignee at all (e.g. Water Sanding -> Cosmetic Completed) —
+// just moves it outright. Only falls back to the manual "pick a user"
+// modal when the server says it needs one (no usable Flow Data match).
+async function directMoveOrManual(barcode, targetLabel, btn) {
+  btn.disabled = true;
+  try {
+    const r = await fetch('/cosmetic/advance', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF},
+      body: 'barcode=' + encodeURIComponent(barcode) + '&csrf_token=' + encodeURIComponent(CSRF),
+    });
+    if (r.ok) { window.location.reload(); return; }
+    if (r.status === 400) {
+      btn.disabled = false;
+      openMoveModal(barcode, targetLabel);
+      return;
+    }
+    const text = await r.text().catch(() => '');
+    alert('Failed to move' + (text ? ': ' + text.slice(0, 200) : ''));
+    btn.disabled = false;
+  } catch (e) {
+    alert('Network error: ' + e.message);
+    btn.disabled = false;
+  }
+}
 
 function openMoveModal(barcode, targetLabel) {
   _moveBarcode = barcode;

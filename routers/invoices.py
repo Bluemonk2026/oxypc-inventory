@@ -17,6 +17,25 @@ from routers.settings import get_company_settings
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
 
+def _sale_company_snapshot(sale: Sale) -> dict | None:
+    """The company details frozen onto this Sale at creation time (see
+    routers/sales.py create_sale) — used verbatim, NEVER re-resolved against
+    the live Company Setting, so a Tax Invoice/Delivery Challan always shows
+    the company as it was on the sale date even if that company's own
+    name/GSTIN/address is edited or the row is deactivated afterward.
+    Returns None for a sale recorded before this column existed (no
+    snapshot), so the caller can fall back to get_company_settings' live
+    "oldest active company" default for those older rows only."""
+    if not sale.company_name and not sale.company_gstin:
+        return None
+    return {
+        "name": sale.company_name or "", "address": sale.company_address or "",
+        "gstin": sale.company_gstin or "", "state": sale.company_state or "",
+        "state_code": sale.company_state_code or "", "phone": sale.company_phone or "",
+        "email": sale.company_email or "",
+    }
+
+
 def _compute_gst(
     sale_price: float,
     company_state: str,
@@ -82,7 +101,7 @@ async def print_invoice(
         return RedirectResponse(url="/sales?error=Sale+not+found", status_code=302)
     sale, device, lot = row
 
-    company    = await get_company_settings(db)
+    company = _sale_company_snapshot(sale) or await get_company_settings(db)
     gst_intra_pct, gst_inter_pct = await _fetch_gst_rates(db)
     gst        = _compute_gst(
         float(sale.sale_price), company["state"],
@@ -115,7 +134,7 @@ async def print_waybill(
     if not row:
         return RedirectResponse(url="/sales?error=Sale+not+found", status_code=302)
     sale, device, lot = row
-    company    = await get_company_settings(db)
+    company    = _sale_company_snapshot(sale) or await get_company_settings(db)
     invoice_no = getattr(sale, "invoice_no", None) or sale.sale_number
     return templates.TemplateResponse("invoices/waybill.html", {
         "request": request, "current_user": current_user,

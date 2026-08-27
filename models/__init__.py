@@ -4,6 +4,7 @@ from .device import Device, StageMovement
 from .repair import RepairJob
 from .qc import QCCheck
 from .sales import Sale, Return
+from .company import Company
 from .spare_parts import SparePart, SparePartPurchase, SparePartConsumption, RAMTracking
 from .master import MasterData
 from .attendance import Attendance

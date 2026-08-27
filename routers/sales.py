@@ -25,6 +25,7 @@ from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
 from models.lot import Lot
 from models.sales import Sale, Return
+from models.company import Company
 from models.crm import CRMSalesOpportunity, CRMContact
 from models.dispatch_request import TelecallerDispatchRequest
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
@@ -520,6 +521,34 @@ async def create_sale(
     # Costing rows for below-cost warnings (2 queries for the whole batch).
     costings = await get_or_create_costings(found, db)
 
+    # ── Selling company per device, resolved once for the whole batch ────────
+    # Matches each device's entity (Deshwal / OxyPC Computers / Renew
+    # Circuits / ...) to the Company Setting row tagged with that same
+    # entity. Falls back to the oldest active company (same rule
+    # get_company_settings already used everywhere) when a device's entity
+    # has no matching company row, so a sale is never blocked for missing
+    # company setup — it just prints with the same default as before this
+    # change until an admin adds that entity's company.
+    active_companies = (await db.execute(
+        select(Company).where(Company.is_active == True).order_by(Company.created_at)
+    )).scalars().all()
+    company_by_entity = {}
+    for c in active_companies:
+        company_by_entity.setdefault(c.company_entity, c)
+    fallback_company = active_companies[0] if active_companies else None
+
+    def _company_snapshot_fields(company):
+        if not company:
+            return {"company_id": None, "company_name": None, "company_address": None,
+                    "company_gstin": None, "company_state": None, "company_state_code": None,
+                    "company_phone": None, "company_email": None}
+        return {
+            "company_id": company.id, "company_name": company.company_name,
+            "company_address": company.company_address, "company_gstin": company.company_gstin,
+            "company_state": company.company_state, "company_state_code": company.company_state_code,
+            "company_phone": company.company_phone, "company_email": company.company_email,
+        }
+
     # Open stage movements to close, keyed by device — one query, not one each.
     open_moves = {}
     if found:
@@ -590,6 +619,7 @@ async def create_sale(
             invoice_file_path=invoice_file_path or None,
             sold_at=sold_at,
             warranty_type=wtype, warranty_expires_at=warranty_expires_at,
+            **_company_snapshot_fields(company_by_entity.get(device.entity, fallback_company)),
         )
         db.add(sale)
 

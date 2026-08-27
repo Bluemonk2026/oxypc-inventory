@@ -151,6 +151,52 @@ FLOW_STAGE_COLUMNS = [
     ("water_sanding", "Water Sanding", "cosmetic_water_sanding"),
 ]
 
+# DeviceStage -> Flow Data field prefix, for the 6 stages above only.
+FLOW_FIELD_BY_STAGE = {
+    DeviceStage.cleaning: "cleaning",
+    DeviceStage.putty: "putty",
+    DeviceStage.dry_sanding: "dry_sanding",
+    DeviceStage.masking: "masking",
+    DeviceStage.painting: "painting",
+    DeviceStage.water_sanding: "water_sanding",
+}
+_FLOW_MODULE_BY_FIELD = {field: module for field, _, module in FLOW_STAGE_COLUMNS}
+
+
+async def _resolve_flow_next_user(db: AsyncSession, current_stage: DeviceStage,
+                                   next_stage: DeviceStage, current_user_id) -> User | None:
+    """Flow Data auto-assign (All Tags -> Flow Data): find a saved flow row
+    where the person moving the tag sits in CURRENT stage's column, and
+    return whoever sits in NEXT stage's column of that SAME row — the
+    tag's next handler, per the flow this operator works in. Returns None
+    (caller falls back to the manual "pick a user" modal, unchanged from
+    before this feature) when no row matches, that row's next-stage cell is
+    blank, or that user is no longer active / no longer permitted for the
+    next stage — a stale Flow Data row must never block work, only skip the
+    shortcut for that one move."""
+    cur_field = FLOW_FIELD_BY_STAGE.get(current_stage)
+    next_field = FLOW_FIELD_BY_STAGE.get(next_stage)
+    if not cur_field or not next_field:
+        return None
+    cur_col = getattr(CosmeticFlowRow, f"{cur_field}_user_id")
+    next_col = getattr(CosmeticFlowRow, f"{next_field}_user_id")
+    row = (await db.execute(
+        select(CosmeticFlowRow).where(cur_col == current_user_id, next_col.isnot(None))
+        .order_by(CosmeticFlowRow.created_at)
+    )).scalars().first()
+    if not row:
+        return None
+    next_user_id = getattr(row, f"{next_field}_user_id")
+    user = (await db.execute(
+        select(User).where(User.id == next_user_id, User.status == True)
+    )).scalar_one_or_none()
+    if not user:
+        return None
+    role_val = user.role.value if hasattr(user.role, "value") else str(user.role)
+    if not has_perm(role_val, _FLOW_MODULE_BY_FIELD[next_field], "enable"):
+        return None
+    return user
+
 
 # Roles that ALWAYS keep pre-existing hub/Group-Config behaviour, no matter
 # what the Permission Matrix says about the 6 mid-pipeline stage modules —
@@ -892,25 +938,35 @@ async def advance_stage(
             raise HTTPException(403, f"Your role ({role_val}) does not have 'edit' permission for the {module_key} module.")
 
     # ── Assignment required for every Move EXCEPT one that lands on Final QC
-    # (Cosmetic Completed's normal "Move to Final QC", and Cosmetic
-    # Received's "skip cosmetic stages" button — both set next_stage to
-    # final_qc): pick who owns the device at its new stage and issue a fresh
-    # WorkID for it — shows as that stage's WorkID column and on
-    # /workid-status. Final QC's own Pass/Fail decisioning (handled above)
-    # never reaches here. ────────────────────────────────────────────────
+    # or Cosmetic Completed (Cosmetic Completed's normal "Move to Final QC",
+    # Cosmetic Received's "skip cosmetic stages" button, and Water Sanding's
+    # "Move to Cosmetic Completed" — Cosmetic Completed is a holding stage
+    # the Cosmetic Manager role handles broadly, not a per-tag hand-off):
+    # pick who owns the device at its new stage and issue a fresh WorkID for
+    # it — shows as that stage's WorkID column and on /workid-status. Final
+    # QC's own Pass/Fail decisioning (handled above) never reaches here. ───
     assigned_engineer = None
-    if current in ASSIGN_ON_MOVE_STAGES and next_stage != DeviceStage.final_qc:
+    if current in ASSIGN_ON_MOVE_STAGES and next_stage not in (DeviceStage.final_qc, DeviceStage.cosmetic_completed):
         if not engineer_user_id:
-            raise HTTPException(400, "Select a user to assign this device to before moving it.")
-        try:
-            eng_uuid = uuid_module.UUID(engineer_user_id)
-        except (ValueError, AttributeError, TypeError):
-            raise HTTPException(400, "Invalid user selected")
-        assigned_engineer = (await db.execute(
-            select(User).where(User.id == eng_uuid, User.status == True)
-        )).scalar_one_or_none()
-        if not assigned_engineer:
-            raise HTTPException(400, "Selected user is not an active user")
+            # Flow Data auto-assign (All Tags -> Flow Data): if the mover
+            # sits in a saved flow row for this exact stage transition, skip
+            # the manual pick entirely — no modal on the frontend. Falls
+            # through to the same "select a user" error below when no
+            # usable flow match exists, which is exactly what makes the
+            # frontend fall back to the pre-existing modal.
+            assigned_engineer = await _resolve_flow_next_user(db, current, next_stage, current_user.id)
+            if not assigned_engineer:
+                raise HTTPException(400, "Select a user to assign this device to before moving it.")
+        else:
+            try:
+                eng_uuid = uuid_module.UUID(engineer_user_id)
+            except (ValueError, AttributeError, TypeError):
+                raise HTTPException(400, "Invalid user selected")
+            assigned_engineer = (await db.execute(
+                select(User).where(User.id == eng_uuid, User.status == True)
+            )).scalar_one_or_none()
+            if not assigned_engineer:
+                raise HTTPException(400, "Selected user is not an active user")
 
     device.current_stage = next_stage
     device.updated_at = app_now()

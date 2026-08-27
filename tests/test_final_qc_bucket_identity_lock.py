@@ -1,15 +1,13 @@
-"""Final QC Fail form — Bucket Name identity lock (routers/cosmetic.py
-advance_stage, Bucket.fail_reason/fail_engineer_*):
+"""Final QC Fail form — Bucket Name (routers/cosmetic.py advance_stage):
 
- - A bucket name's (failure reason, resolved engineer) pair is set by
-   whichever device first fails into it.
- - Every later device failing into the SAME bucket name must match BOTH
-   exactly, or the submission is rejected with:
-   "You cant use same bucket with same reason for multiple Engineer Name.
-   So change Bucket Name." — same reason + different engineer is rejected,
-   and different reason + same engineer is rejected too.
- - A rejected submission leaves nothing half-applied: the device stays at
-   Final QC, its bucket_id/failure_reason are unchanged.
+ - 2026-08-27: dropped the earlier "must match reason+engineer" lock. Any
+   number of tags with ANY mix of failure reasons and resolved engineers can
+   now share the same Bucket Name — routing is a manual pick via the Assign
+   Bucket modal afterward (see test_final_qc_assign_bucket_modal.py), not an
+   auto-resolved reason/engineer pair, so there's nothing left to conflict.
+ - Bucket.fail_reason / fail_engineer_* are still tracked (informational —
+   feeds the Devices Failed table's "Engineer Name" column), just no longer
+   enforced.
 """
 import pathlib
 import subprocess
@@ -98,7 +96,7 @@ asyncio.run(main())
 """)
 
 
-def _bucket_and_device_state(barcode):
+def _device_state(barcode):
     out = _run(f"""
 import asyncio, sys
 sys.path.insert(0, r"{ROOT}")
@@ -112,8 +110,6 @@ async def main():
         dev = (await db.execute(select(Device).where(Device.barcode == "{barcode}"))).scalar_one()
         b = (await db.execute(select(Bucket).where(Bucket.id == dev.bucket_id))).scalar_one_or_none()
         print("device.current_stage=" + dev.current_stage.value)
-        print("device.bucket_id=" + str(dev.bucket_id))
-        print("device.fqc_failure_reason=" + str(dev.fqc_failure_reason))
         print("bucket.fail_reason=" + str(b.fail_reason if b else None))
         print("bucket.fail_engineer_username=" + str(b.fail_engineer_username if b else None))
 
@@ -130,10 +126,44 @@ def _submit_fail(app_client, barcode, failure_reason, bucket_name):
     }, follow_redirects=False)
 
 
-def test_first_fail_into_new_bucket_always_succeeds(app_client, make_user):  # noqa: F811
+def test_multiple_tags_same_bucket_different_reason_and_engineer_all_succeed(app_client, make_user):  # noqa: F811
     suffix = uuid.uuid4().hex[:6]
-    barcode = f"ITLOCKA{suffix}"
-    bucket_name = f"ITestLockA{suffix}"
+    barcode_1 = f"ITNOLOCK1{suffix}"
+    barcode_2 = f"ITNOLOCK2{suffix}"
+    bucket_name = f"ITestNoLock{suffix}"
+    eng_a, _ = make_user("l1_engineer")
+    eng_b, _ = make_user("qc_inspector")
+
+    _seed_device_at_final_qc(barcode_1)
+    _seed_workorder(barcode_1, "l1", eng_a)
+    _seed_device_at_final_qc(barcode_2)
+    _seed_workorder(barcode_2, "qc", eng_b)
+
+    admin_username, admin_password = make_user("admin")
+    _login(app_client, admin_username, admin_password)
+    try:
+        r1 = _submit_fail(app_client, barcode_1, "Hardware", bucket_name)
+        assert r1.status_code == 302, r1.text[:400]
+
+        # Different reason AND different resolved engineer, same bucket name
+        # — must succeed now, no lock.
+        r2 = _submit_fail(app_client, barcode_2, "Software", bucket_name)
+        assert r2.status_code == 302, r2.text[:400]
+
+        state2 = _device_state(barcode_2)
+        assert state2["device.current_stage"] == "final_qc_fail_hold"
+        # Latest fail's resolution wins for the informational display.
+        assert state2["bucket.fail_reason"] == "Software"
+        assert state2["bucket.fail_engineer_username"] == eng_b
+    finally:
+        _cleanup_device(barcode_1)
+        _cleanup_device(barcode_2)
+
+
+def test_bucket_engineer_name_still_shown_as_fyi(app_client, make_user):  # noqa: F811
+    suffix = uuid.uuid4().hex[:6]
+    barcode = f"ITNOLOCKFYI{suffix}"
+    bucket_name = f"ITestFyi{suffix}"
     eng_username, _ = make_user("l1_engineer")
 
     _seed_device_at_final_qc(barcode)
@@ -143,99 +173,25 @@ def test_first_fail_into_new_bucket_always_succeeds(app_client, make_user):  # n
     try:
         r = _submit_fail(app_client, barcode, "Hardware", bucket_name)
         assert r.status_code == 302, r.text[:400]
-        state = _bucket_and_device_state(barcode)
-        assert state["bucket.fail_reason"] == "Hardware"
-        assert state["bucket.fail_engineer_username"] == eng_username
+
+        html = app_client.get("/cosmetic/final_qc", follow_redirects=True).text
+        row = html.split(bucket_name, 1)[1].split("</tr>", 1)[0]
+        engineer_name = _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.device import Device
+from models.bucket import Bucket
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        dev = (await db.execute(select(Device).where(Device.barcode == "{barcode}"))).scalar_one()
+        b = (await db.execute(select(Bucket).where(Bucket.id == dev.bucket_id))).scalar_one()
+        print(b.fail_engineer_name)
+
+asyncio.run(main())
+""")
+        assert engineer_name in row
     finally:
         _cleanup_device(barcode)
-
-
-def test_same_reason_same_engineer_reuses_bucket_fine(app_client, make_user):  # noqa: F811
-    suffix = uuid.uuid4().hex[:6]
-    barcode_1 = f"ITLOCKB1{suffix}"
-    barcode_2 = f"ITLOCKB2{suffix}"
-    bucket_name = f"ITestLockB{suffix}"
-    eng_username, _ = make_user("l1_engineer")
-
-    _seed_device_at_final_qc(barcode_1)
-    _seed_workorder(barcode_1, "l1", eng_username)
-    _seed_device_at_final_qc(barcode_2)
-    _seed_workorder(barcode_2, "l1", eng_username)
-
-    admin_username, admin_password = make_user("admin")
-    _login(app_client, admin_username, admin_password)
-    try:
-        r1 = _submit_fail(app_client, barcode_1, "Hardware", bucket_name)
-        assert r1.status_code == 302, r1.text[:400]
-        r2 = _submit_fail(app_client, barcode_2, "Hardware", bucket_name)
-        assert r2.status_code == 302, r2.text[:400]
-
-        state2 = _bucket_and_device_state(barcode_2)
-        assert state2["device.current_stage"] == "final_qc_fail_hold"
-        assert state2["bucket.fail_engineer_username"] == eng_username
-    finally:
-        _cleanup_device(barcode_1)
-        _cleanup_device(barcode_2)
-
-
-def test_same_reason_different_engineer_is_rejected(app_client, make_user):  # noqa: F811
-    suffix = uuid.uuid4().hex[:6]
-    barcode_1 = f"ITLOCKC1{suffix}"
-    barcode_2 = f"ITLOCKC2{suffix}"
-    bucket_name = f"ITestLockC{suffix}"
-    eng_a, _ = make_user("l1_engineer")
-    eng_b, _ = make_user("l1_engineer")
-
-    _seed_device_at_final_qc(barcode_1)
-    _seed_workorder(barcode_1, "l1", eng_a)
-    _seed_device_at_final_qc(barcode_2)
-    _seed_workorder(barcode_2, "l1", eng_b)
-
-    admin_username, admin_password = make_user("admin")
-    _login(app_client, admin_username, admin_password)
-    try:
-        r1 = _submit_fail(app_client, barcode_1, "Hardware", bucket_name)
-        assert r1.status_code == 302, r1.text[:400]
-
-        r2 = _submit_fail(app_client, barcode_2, "Hardware", bucket_name)
-        assert r2.status_code == 400
-        assert "You cant use same bucket with same reason for multiple Engineer Name" in r2.text
-        assert "change Bucket Name" in r2.text
-
-        # Nothing half-applied on the rejected device.
-        state2 = _bucket_and_device_state(barcode_2)
-        assert state2["device.current_stage"] == "final_qc"
-        assert state2["device.bucket_id"] == "None"
-        assert state2["device.fqc_failure_reason"] == "None"
-    finally:
-        _cleanup_device(barcode_1)
-        _cleanup_device(barcode_2)
-
-
-def test_different_reason_same_engineer_is_rejected(app_client, make_user):  # noqa: F811
-    suffix = uuid.uuid4().hex[:6]
-    barcode_1 = f"ITLOCKD1{suffix}"
-    barcode_2 = f"ITLOCKD2{suffix}"
-    bucket_name = f"ITestLockD{suffix}"
-    eng_username, _ = make_user("qc_inspector")
-
-    _seed_device_at_final_qc(barcode_1)
-    _seed_workorder(barcode_1, "qc", eng_username)
-    _seed_device_at_final_qc(barcode_2)
-    # "comp" (Cosmetic's own source stage) with the SAME engineer — same
-    # resolved engineer as barcode_1, but the reason differs (Cosmetic, not
-    # Software), which alone must still be enough to reject.
-    _seed_workorder(barcode_2, "comp", eng_username)
-
-    admin_username, admin_password = make_user("admin")
-    _login(app_client, admin_username, admin_password)
-    try:
-        r1 = _submit_fail(app_client, barcode_1, "Software", bucket_name)
-        assert r1.status_code == 302, r1.text[:400]
-
-        r2 = _submit_fail(app_client, barcode_2, "Cosmetic", bucket_name)
-        assert r2.status_code == 400
-        assert "You cant use same bucket with same reason for multiple Engineer Name" in r2.text
-    finally:
-        _cleanup_device(barcode_1)
-        _cleanup_device(barcode_2)

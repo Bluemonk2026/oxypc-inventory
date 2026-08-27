@@ -240,35 +240,16 @@ async def _move_assignee_pool(db: AsyncSession, current_user: User) -> list:
     return [{"id": str(u.id), "name": u.full_name or u.username} for u in rows]
 
 
-# Final QC Fail "Devices Failed" bucket resolution — maps each of the 3
-# qc_failure_reason master-data values to (a) the WorkOrder.stage code that
-# identifies who most recently worked this tag through the stage the reason
-# implies, and (b) where Assign sends the tag next. Kept together since
-# every place that touches "Devices Failed" routing needs both.
+# Final QC Fail "Devices Failed" — maps each of the 3 qc_failure_reason
+# master-data values to the WorkOrder.stage code that identifies who most
+# recently worked this tag through the stage the reason implies. Purely
+# informational now (the "Engineer Name" column on Devices Failed) — actual
+# routing is a manual pick via the Assign Bucket modal
+# (/buckets/{bucket_id}/assign, same one Production Manager uses).
 FAIL_REASON_SOURCE_STAGE_CODE = {
     "Hardware": "l1",                                          # L1/L2
     "Software": "qc",                                          # Stress Test
     "Cosmetic": MOVE_STAGE_CODE[DeviceStage.cosmetic_completed],  # "comp"
-}
-FAIL_REASON_DEST_STAGE = {
-    "Hardware": DeviceStage.l1,
-    "Software": DeviceStage.qc_check,
-    "Cosmetic": DeviceStage.cosmetic_received,
-}
-FAIL_REASON_DEST_WORKORDER_CODE = {
-    "Hardware": "l1",
-    "Software": "qc",
-    "Cosmetic": MOVE_STAGE_CODE[DeviceStage.cosmetic_received],  # "recv"
-}
-# Roles Assign will accept for Hardware/Software — the same fixed roles
-# cosmetic_fail_assign (L1/L2) and l1l2_complete_to_stress (qc_inspector)
-# already require. Cosmetic has no such fixed role: cosmetic stage roles are
-# open-ended custom roles by design (Permission Matrix driven), so Assign
-# only requires the resolved engineer to still be an active user for that
-# branch.
-FAIL_REASON_REQUIRED_ROLES = {
-    "Hardware": (UserRole.l1_engineer, UserRole.l2_engineer),
-    "Software": (UserRole.qc_inspector,),
 }
 
 
@@ -629,6 +610,22 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
         passed_buckets = await _bucket_group(db, DeviceStage.final_qc_pass_hold, "pass")
         failed_buckets = await _bucket_group(db, DeviceStage.final_qc_fail_hold, "fail")
 
+        # ── Most recent L1/L2 Engineer per device — shown next to Lot Number
+        # in each device's header card so whoever's deciding Fail can see who
+        # last worked the hardware, before picking a destination in the
+        # Assign Bucket modal later. Same resolution as every other page's
+        # L1/L2 Engineer column (WorkOrder.stage == "l1", latest wins). ──────
+        l1l2_engineer_map: dict[str, str] = {}
+        if device_ids:
+            l1l2_rows = await db.execute(
+                select(WorkOrder.device_id, WorkOrder.assigned_name, WorkOrder.assigned_at)
+                .where(WorkOrder.device_id.in_(device_ids), WorkOrder.stage == "l1",
+                       WorkOrder.assigned_name.isnot(None))
+                .order_by(WorkOrder.assigned_at.desc())
+            )
+            for did, name, _ in l1l2_rows.all():
+                l1l2_engineer_map.setdefault(str(did), name)
+
         # ── "Pick This" state — whoever picked a tag first locks it; the
         # button shows "Picked by <name>" (disabled) for everyone else
         # instead of a clickable "Pick This". See fqc_pick below. ──────────
@@ -648,6 +645,7 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
             "stage": stage, "stage_label": STAGE_LABELS[stage],
             "devices": devices, "iqc_map": iqc_map, "repairs_map": repairs_map,
             "parts_map": parts_map, "price_map": price_map, "fqc_pick_map": fqc_pick_map,
+            "l1l2_engineer_map": l1l2_engineer_map,
             "pipeline": COSMETIC_NAV_STAGES, "stage_labels": STAGE_LABELS,
             "bucket_name_map": bucket_name_map,
             "passed_buckets": passed_buckets, "failed_buckets": failed_buckets,
@@ -842,30 +840,19 @@ async def advance_stage(
         if _is_fail:
             resolved_reason = (failure_reason or "").strip() or None
 
-            # ── Bucket identity lock: a bucket name's (reason, engineer) pair
-            # is set by whichever device first fails into it, and every later
-            # device joining that SAME bucket name must match both exactly —
-            # otherwise the Bucket's single "Assign" button (which acts on
-            # every tag in it at once) would have no unambiguous reason or
-            # engineer to route the whole bucket by. Checked BEFORE touching
-            # device/stage state so a rejection leaves nothing half-applied.
+            # Multiple tags can freely share one Bucket Name regardless of
+            # reason/engineer (2026-08 — dropped the earlier "must match" lock
+            # so any combination can be added to the same bucket). This just
+            # tracks the most recently resolved reason/engineer as FYI info
+            # for the "Engineer Name" column on Devices Failed — the actual
+            # hand-off is now a manual pick via the Assign Bucket modal (see
+            # /buckets/{bucket_id}/assign, same modal Production Manager uses).
             if device.bucket_id:
                 engineer_info = await _resolve_fail_engineer(db, device.id, resolved_reason)
-                new_engineer_id = engineer_info["user_id"] if engineer_info else None
                 bkt = (await db.execute(
                     select(Bucket).where(Bucket.id == device.bucket_id)
                 )).scalar_one_or_none()
-                if bkt and bkt.fail_reason is not None:
-                    reason_matches = bkt.fail_reason == resolved_reason
-                    engineer_matches = (bkt.fail_engineer_user_id is not None
-                                        and bkt.fail_engineer_user_id == new_engineer_id)
-                    if not (reason_matches and engineer_matches):
-                        raise HTTPException(
-                            400,
-                            "You cant use same bucket with same reason for multiple Engineer Name. "
-                            "So change Bucket Name.",
-                        )
-                if bkt and bkt.fail_reason is None:
+                if bkt:
                     bkt.fail_reason = resolved_reason
                     if engineer_info:
                         bkt.fail_engineer_user_id = engineer_info["user_id"]
@@ -874,7 +861,7 @@ async def advance_stage(
 
             # Hold here instead of auto-advancing to Cleaning — the device now
             # sits in the "Devices Failed" table until a human clicks "Assign"
-            # (see /cosmetic/final-qc/move-to-production).
+            # (Assign Bucket modal, same as Production Manager's Repair Line).
             device.fqc_failure_reason = resolved_reason
             device.current_stage = DeviceStage.final_qc_fail_hold
             device.updated_at = app_now()
@@ -1119,86 +1106,6 @@ async def fqc_move_to_inventory(bucket_id: str, db: AsyncSession = Depends(get_d
         ))
     await db.commit()
     return {"ok": True, "moved": len(devices)}
-
-
-@router.post("/final-qc/move-to-production/{bucket_id}")
-async def fqc_move_to_production(bucket_id: str, db: AsyncSession = Depends(get_db),
-                                  current_user: User = Depends(allowed)):
-    """Devices Failed "Assign" button — sends every tag in the bucket to the
-    page its failure reason implies (Hardware -> L1/L2, Software -> Stress
-    Test, Cosmetic -> Cosmetic Received), assigned to the bucket's own
-    resolved engineer (Bucket.fail_engineer_*, set when each device failed
-    in — see advance_stage), each with a fresh WorkID. One click routes the
-    WHOLE bucket to a single destination, by the bucket's own failure reason
-    (first non-null across its devices — same aggregation the Devices Failed
-    table already displays) — not per-device, since in practice a bucket
-    only ever holds one reason (a different reason gets its own bucket
-    name)."""
-    import uuid as _u
-    try:
-        bid = _u.UUID(bucket_id)
-    except ValueError:
-        raise HTTPException(404)
-    bucket = (await db.execute(select(Bucket).where(Bucket.id == bid))).scalar_one_or_none()
-    if not bucket:
-        raise HTTPException(404, "Bucket not found.")
-    devices = (await db.execute(
-        select(Device).where(
-            Device.bucket_id == bid,
-            Device.current_stage == DeviceStage.final_qc_fail_hold,
-            Device.is_active == True,
-        )
-    )).scalars().all()
-    if not devices:
-        raise HTTPException(404, "No devices found in this bucket at Final QC Fail Hold.")
-
-    failure_reason = next((d.fqc_failure_reason for d in devices if d.fqc_failure_reason), None)
-    reason_key = (failure_reason or "").strip()
-    dest_stage = FAIL_REASON_DEST_STAGE.get(reason_key)
-    if not dest_stage:
-        raise HTTPException(400, f'Unrecognized failure reason "{failure_reason}" — cannot determine where to assign this bucket.')
-
-    if not bucket.fail_engineer_user_id:
-        raise HTTPException(400, "No engineer has been resolved for this bucket yet — nothing to assign to.")
-    engineer = (await db.execute(
-        select(User).where(User.id == bucket.fail_engineer_user_id)
-    )).scalar_one_or_none()
-    stale_name = bucket.fail_engineer_name or bucket.fail_engineer_username or "the resolved engineer"
-    if not engineer or not engineer.status:
-        raise HTTPException(400, f"{stale_name} is no longer an active user — pick a new engineer manually before assigning this bucket.")
-    required_roles = FAIL_REASON_REQUIRED_ROLES.get(reason_key)
-    if required_roles and engineer.role not in required_roles:
-        raise HTTPException(400, f"{stale_name}'s role has changed and is no longer eligible for a {reason_key} assignment — pick a new engineer manually before assigning this bucket.")
-
-    dest_code = FAIL_REASON_DEST_WORKORDER_CODE[reason_key]
-    engineer_role_val = engineer.role.value if hasattr(engineer.role, "value") else str(engineer.role)
-    for device in devices:
-        prev = device.current_stage
-        device.current_stage = dest_stage
-        device.updated_at = app_now()
-        db.add(StageMovement(
-            device_id=device.id, from_stage=prev, to_stage=dest_stage,
-            moved_by=current_user.username,
-            notes=f"Assigned from Final QC Fail ({reason_key}) to {engineer.full_name or engineer.username}",
-        ))
-        work_id = await _gen_work_id(db)
-        db.add(WorkOrder(
-            work_id=work_id, device_id=device.id, barcode=device.barcode,
-            stage=dest_code, assigned_role=engineer_role_val,
-            assigned_user_id=engineer.id, assigned_username=engineer.username,
-            assigned_name=engineer.full_name, status="pending",
-            created_by=current_user.username,
-        ))
-        await create_notification(
-            db, user_id=engineer.id, title="Device Assigned to You",
-            message=(f"{device.barcode} failed Final QC ({reason_key}) and has been assigned to you "
-                     f"(WorkID: {work_id})."),
-            notification_type="warning", barcode=device.barcode,
-            brand=device.brand, model=device.model, stage=dest_stage.value,
-        )
-    bucket.assigned_to_production = False
-    await db.commit()
-    return {"ok": True, "moved": len(devices), "assigned_to": engineer.full_name or engineer.username}
 
 
 @router.post("/send-to-cosmetic")

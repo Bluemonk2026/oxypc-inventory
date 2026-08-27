@@ -217,7 +217,7 @@
   </div>
   <div class="tab-pane fade" id="fqcFailedTab">
     <table class="table table-sm table-hover mb-0">
-      <thead><tr><th>Bucket Name</th><th>Bucket ID</th><th>Count of Tag Numbers</th><th>Stage</th><th>Failure Reason</th><th>Action</th></tr></thead>
+      <thead><tr><th>Bucket Name</th><th>Bucket ID</th><th>Count of Tag Numbers</th><th>Stage</th><th>Engineer Name</th><th>Failure Reason</th><th>Action</th></tr></thead>
       <tbody>
         {% for row in failed_buckets %}
         <tr>
@@ -225,11 +225,12 @@
           <td class="font-monospace small">{{ row.bucket_number }}</td>
           <td>{{ row.count }}</td>
           <td><span class="badge bg-warning text-dark">Final QC — Fail Hold</span></td>
+          <td class="small">{{ row.engineer_name or '—' }}</td>
           <td class="small">{{ row.failure_reason or '—' }}</td>
-          <td><button class="btn btn-sm btn-primary fqc-move-prod" data-bucket-id="{{ row.bucket_id }}">Move to Production</button></td>
+          <td><button class="btn btn-sm btn-primary fqc-move-prod" data-bucket-id="{{ row.bucket_id }}">Assign</button></td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="text-center text-muted py-3">No failed devices awaiting production hand-off.</td></tr>
+        <tr><td colspan="7" class="text-center text-muted py-3">No failed devices awaiting assignment.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -326,9 +327,9 @@ $(document).on('click', '.fqc-move-inv', function () {
 $(document).on('click', '.fqc-move-prod', function () {
   var id = $(this).data('bucket-id');
   var csrf = "{{ request.cookies.get('csrf_token','') }}";
-  if (!confirm('Move this bucket to production?')) return;
+  if (!confirm('Assign this bucket to its resolved engineer and move it to the next stage?')) return;
   $.post('/cosmetic/final-qc/move-to-production/' + id, { csrf_token: csrf }).done(function () { location.reload(); })
-    .fail(function (xhr) { alert(xhr.responseJSON && xhr.responseJSON.detail || 'Move failed'); });
+    .fail(function (xhr) { alert(xhr.responseJSON && xhr.responseJSON.detail || 'Assign failed'); });
 });
 // "Pick This" — self-assign, no dropdown. Doesn't reload the page (would
 // lose the currently-selected card) — just flips the button to a confirmed

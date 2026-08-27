@@ -68,6 +68,88 @@
     </div>
   </div>
 </div>
+
+{# Flow Data — Admin/Cosmetic Manager only, deliberately NOT role_allowed():
+   that helper's custom-role backdoor is meant for Permission-Matrix-governed
+   features, but Flow Data has no matrix module of its own, so a custom
+   "Cosmetic Cleaning" role must not see edit controls the backend then 403s
+   on (see routers/cosmetic.py flow_data_allowed). Columns are the 6
+   mid-pipeline stages; each row is a saved user-per-stage assignment.
+   Nothing reads these rows yet — this is just the definition UI; usage is
+   defined separately. #}
+{% if current_user.role.value in ('admin', 'cosmetic_manager') %}
+<div class="row g-4 mt-1">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-diagram-3 me-2"></i>Flow Data</span>
+        <button type="button" id="flowAddRowBtn" class="btn btn-sm btn-teal">
+          <i class="bi bi-plus-lg me-1"></i>Add Row
+        </button>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0 align-middle" id="flowDataTable">
+            <thead class="table-light">
+              <tr>
+                <th style="min-width:140px">Flow Name</th>
+                {% for field, label, _ in flow_columns %}<th style="min-width:160px">{{ label }}</th>{% endfor %}
+                <th style="width:100px">Action</th>
+              </tr>
+            </thead>
+            <tbody id="flowDataBody">
+              {% for row in flow_rows %}
+              <tr data-row-id="{{ row.id }}">
+                <td><input type="text" class="form-control form-control-sm flow-label" value="{{ row.label or '' }}" placeholder="e.g. Team A"></td>
+                {% for field, _, _ in flow_columns %}
+                {% set cell_val = row|attr(field ~ '_user_id') %}
+                <td>
+                  <select class="form-select form-select-sm flow-cell" data-field="{{ field }}">
+                    <option value="">— Select —</option>
+                    {% for u in flow_user_options[field] %}
+                    <option value="{{ u.id }}" {% if cell_val and cell_val|string == u.id %}selected{% endif %}>{{ u.name }}</option>
+                    {% endfor %}
+                  </select>
+                </td>
+                {% endfor %}
+                <td class="text-nowrap">
+                  <button type="button" class="btn btn-sm btn-outline-primary flow-save-btn" title="Save"><i class="bi bi-check-lg"></i></button>
+                  <button type="button" class="btn btn-sm btn-outline-danger flow-delete-btn" title="Delete"><i class="bi bi-trash"></i></button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if not flow_rows %}
+        <p id="flowEmptyMsg" class="text-muted small text-center py-3 mb-0">No flows saved yet. Click "Add Row" to define one.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Flow Data row template (hidden) -->
+<template id="flowRowTemplate">
+  <tr>
+    <td><input type="text" class="form-control form-control-sm flow-label" value="" placeholder="e.g. Team A"></td>
+    {% for field, _, _ in flow_columns %}
+    <td>
+      <select class="form-select form-select-sm flow-cell" data-field="{{ field }}">
+        <option value="">— Select —</option>
+        {% for u in flow_user_options.get(field, []) %}
+        <option value="{{ u.id }}">{{ u.name }}</option>
+        {% endfor %}
+      </select>
+    </td>
+    {% endfor %}
+    <td class="text-nowrap">
+      <button type="button" class="btn btn-sm btn-outline-primary flow-save-btn" title="Save"><i class="bi bi-check-lg"></i></button>
+      <button type="button" class="btn btn-sm btn-outline-danger flow-delete-btn" title="Delete"><i class="bi bi-trash"></i></button>
+    </td>
+  </tr>
+</template>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
@@ -108,6 +190,52 @@ $(document).ready(function(){
     return true;
   });
   $(document).on('change', '#cosmeticStageFilter', function() { dt.draw(); });
+
+  {% if current_user.role.value in ('admin', 'cosmetic_manager') %}
+  // ── Flow Data (Admin/Cosmetic Manager only) — kept out of the page
+  // source entirely for anyone else, not just hidden by CSS/display. ─────
+  var csrf = "{{ request.cookies.get('csrf_token','') }}";
+
+  $('#flowAddRowBtn').on('click', function() {
+    var tpl = document.getElementById('flowRowTemplate');
+    if (!tpl) return;
+    document.getElementById('flowDataBody').appendChild(tpl.content.cloneNode(true));
+    $('#flowEmptyMsg').hide();
+  });
+
+  $(document).on('click', '.flow-save-btn', function() {
+    var $row = $(this).closest('tr');
+    var payload = { csrf_token: csrf, row_id: $row.data('row-id') || '', label: $row.find('.flow-label').val() };
+    $row.find('.flow-cell').each(function() {
+      payload[$(this).data('field') + '_user_id'] = $(this).val();
+    });
+    var $btn = $(this).prop('disabled', true);
+    $.post('/cosmetic/flow-data/save', payload)
+      .done(function(res) {
+        // .data(), not .attr() — jQuery's data() caches on first read, so a
+        // freshly-added row (no data-row-id attribute yet) must have its
+        // cache updated directly or a second Save would still post row_id=''.
+        $row.data('row-id', res.id).attr('data-row-id', res.id);
+        $btn.prop('disabled', false);
+      })
+      .fail(function(xhr) {
+        alert('Could not save this row: ' + (xhr.responseJSON && xhr.responseJSON.detail || xhr.responseText || 'unknown error'));
+        $btn.prop('disabled', false);
+      });
+  });
+
+  $(document).on('click', '.flow-delete-btn', function() {
+    var $row = $(this).closest('tr');
+    var rowId = $row.data('row-id');
+    if (!rowId) { $row.remove(); return; }
+    if (!confirm('Delete this flow row?')) return;
+    $.post('/cosmetic/flow-data/delete', { csrf_token: csrf, row_id: rowId })
+      .done(function() { $row.remove(); })
+      .fail(function(xhr) {
+        alert('Could not delete this row: ' + (xhr.responseJSON && xhr.responseJSON.detail || xhr.responseText || 'unknown error'));
+      });
+  });
+  {% endif %}
 })
 </script>
 {% endblock %}

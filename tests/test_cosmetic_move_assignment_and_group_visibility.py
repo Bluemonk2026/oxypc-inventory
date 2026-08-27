@@ -195,10 +195,17 @@ asyncio.run(main())
 
 
 def test_group_manager_sees_all_tabs_and_devices_member_sees_own_only(app_client, make_user):  # noqa: F811
+    # qc_inspector, not cosmetic_manager: cosmetic_manager is now ALWAYS
+    # treated as a page manager (wired directly to role — see
+    # routers/cosmetic.py _is_cosmetic_stage_role / _COSMETIC_HUB_ROLES), so
+    # it can no longer stand in for a Group-Config-only "member" here.
+    # qc_inspector is a general-purpose supervisor role excluded from that
+    # override, so its manager/member status here is driven purely by
+    # Group Config membership, same as before this feature.
     suffix = uuid.uuid4().hex[:6]
-    manager_username, manager_password = make_user("cosmetic_manager")
-    member_username, member_password = make_user("cosmetic_manager")
-    other_username, _ = make_user("cosmetic_manager")
+    manager_username, manager_password = make_user("qc_inspector")
+    member_username, member_password = make_user("qc_inspector")
+    other_username, _ = make_user("qc_inspector")
     group_id = _seed_group(f"ITestCosmeticTeam{suffix}", manager_username, [member_username])
 
     barcode_mine = f"ITGRPMINE{suffix}"
@@ -228,13 +235,19 @@ async def main():
 asyncio.run(main())
 """)
     try:
-        # Manager view: sees both tags + tabs.
+        # Manager view: sees both tags + tabs. href="/cosmetic/all_tags" is
+        # used (not "/cosmetic/cleaning") because qc_inspector also gets
+        # that SAME href from the sidebar's own dynamic "Cosmetic Stage"
+        # link regardless of manager/member status — the in-page manager
+        # tab bar is the only place href="/cosmetic/all_tags" appears (no
+        # such sidebar entry exists), so it unambiguously signals the tab
+        # bar itself.
         _login(app_client, manager_username, manager_password)
         html_mgr = app_client.get("/cosmetic/putty", follow_redirects=True).text
         assert barcode_mine in html_mgr
         assert barcode_others in html_mgr
         assert "Cosmetic Pipeline" not in html_mgr  # breadcrumb removed
-        assert 'href="/cosmetic/cleaning"' in html_mgr  # tabs visible
+        assert 'href="/cosmetic/all_tags"' in html_mgr  # tabs visible
 
         # Member view: sees only their own tag, no tabs.
         app_client.cookies.clear()
@@ -242,7 +255,7 @@ asyncio.run(main())
         html_mem = app_client.get("/cosmetic/putty", follow_redirects=True).text
         assert barcode_mine in html_mem
         assert barcode_others not in html_mem
-        assert 'href="/cosmetic/cleaning"' not in html_mem  # tabs hidden
+        assert 'href="/cosmetic/all_tags"' not in html_mem  # tabs hidden
     finally:
         _cleanup_device(barcode_mine)
         _cleanup_device(barcode_others)

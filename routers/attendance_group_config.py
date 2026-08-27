@@ -98,7 +98,13 @@ async def create_group(
     name = name.strip()
     if not name:
         return RedirectResponse(url="/admin/attendance-config?error=Group+name+required", status_code=302)
-    existing = (await db.execute(select(AttendanceGroup).where(AttendanceGroup.name == name))).scalar_one_or_none()
+    # is_active filter is defensive: delete_group now permanently removes the
+    # row, so no soft-deleted "ghost" should exist going forward — but any
+    # already soft-deleted before this fix shipped must not keep blocking
+    # name reuse either.
+    existing = (await db.execute(
+        select(AttendanceGroup).where(AttendanceGroup.name == name, AttendanceGroup.is_active == True)
+    )).scalar_one_or_none()
     if existing:
         return RedirectResponse(url="/admin/attendance-config?error=Group+name+already+exists", status_code=302)
 
@@ -161,8 +167,17 @@ async def delete_group(group_id: str, request: Request,
     group = (await db.execute(select(AttendanceGroup).where(AttendanceGroup.id == gid))).scalar_one_or_none()
     if not group:
         raise HTTPException(404, "Group not found")
-    group.is_active = False
+    # Permanent delete, not a soft is_active=False flag — a soft-deleted row
+    # kept blocking the same name from being reused ("Group name already
+    # exists") even though the group was gone from every list. Audit first
+    # (the delete itself is the record of this group ever having existed).
     await audit(db, action="ATTENDANCE_GROUP_DELETE", user=current_user,
-                table_name="attendance_groups", record_id=str(gid))
+                table_name="attendance_groups", record_id=str(gid),
+                old_value={"name": group.name, "manager_username": group.manager_username})
+    for m in (await db.execute(
+        select(AttendanceGroupMember).where(AttendanceGroupMember.group_id == gid)
+    )).scalars().all():
+        await db.delete(m)
+    await db.delete(group)
     await db.commit()
     return RedirectResponse(url="/admin/attendance-config?success=Group+deleted", status_code=302)

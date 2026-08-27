@@ -163,20 +163,35 @@
       </a></li>
       {% endif %}
 
-      {% if any_perm(role,'cosmetic_received','cosmetic_cleaning','cosmetic_putty','cosmetic_dry_sanding','cosmetic_masking','cosmetic_painting','cosmetic_water_sanding','cosmetic_completed') %}
+      {# has_stage_perm: at least one of the 6 mid-pipeline stage permissions
+         is enabled for this role — drives the dynamic "Cosmetic Stage" link
+         below, exactly as before (any non-admin/cosmetic_manager role gets
+         it, including qc_inspector/inventory_manager/sales_manager and any
+         admin-created custom role — those aren't in the UserRole enum at
+         all, so this must be a blacklist, not a whitelist).
+
+         is_cosmetic_user_role: the NARROWER set that also loses the
+         "Cosmetic & Paint" hub link — everyone with a stage permission
+         EXCEPT the 3 general-purpose supervisor roles that were already
+         allowed onto every cosmetic page (qc_inspector/inventory_manager/
+         sales_manager keep seeing both links, unchanged). A genuine
+         single-stage role (e.g. a custom "Cosmetic Cleaning" role) never
+         sees the hub, even if cosmetic_received/cosmetic_completed happen
+         to be enabled for it in the Permission Matrix. Mirrors
+         routers/cosmetic.py _is_cosmetic_stage_role — kept in sync so the
+         nav link and the manager/member page behaviour can never disagree. #}
+      {% set has_stage_perm = any_perm(role,'cosmetic_cleaning','cosmetic_putty','cosmetic_dry_sanding','cosmetic_masking','cosmetic_painting','cosmetic_water_sanding') %}
+      {% set is_cosmetic_user_role = has_stage_perm and role not in ('admin','cosmetic_manager','qc_inspector','inventory_manager','sales_manager') %}
+      {% if not is_cosmetic_user_role and any_perm(role,'cosmetic_received','cosmetic_cleaning','cosmetic_putty','cosmetic_dry_sanding','cosmetic_masking','cosmetic_painting','cosmetic_water_sanding','cosmetic_completed') %}
       <li><a href="/cosmetic/cosmetic_received" class="nav-link {% if request.url.path.startswith('/cosmetic/') and request.url.path != '/cosmetic/final_qc' %}active{% endif %}">
         <i class="bi bi-droplet me-2"></i> {{ sidebar_label('cosmetic_received', 'Cosmetic & Paint') }}
       </a></li>
       {% endif %}
-      {# Dynamic "Cosmetic Page" link — for every non-manager cosmetic role,
-         including admin-created CUSTOM roles (e.g. a "Cosmetic Cleaning"
-         role scoped to one stage) — those aren't in the UserRole enum at
-         all, so this must be a blacklist (exclude admin/cosmetic_manager),
-         not a whitelist of the built-in role names. Jumps straight to
-         whichever of the 6 mid-pipeline stage pages is enabled for this role
-         (Master Data -> Permission Matrix), in pipeline order, since these
-         roles only work one stage at a time. #}
-      {% if role != 'admin' and role != 'cosmetic_manager' and any_perm(role,'cosmetic_cleaning','cosmetic_putty','cosmetic_dry_sanding','cosmetic_masking','cosmetic_painting','cosmetic_water_sanding') %}
+      {# Dynamic "Cosmetic Stage" link (formerly "Cosmetic Page") — jumps
+         straight to whichever of the 6 mid-pipeline stage pages is enabled
+         for this role (Master Data -> Permission Matrix), in pipeline
+         order. #}
+      {% if role != 'admin' and role != 'cosmetic_manager' and has_stage_perm %}
       {% set cosmetic_page_url = '/cosmetic/cleaning' if has_perm(role,'cosmetic_cleaning','enable')
           else '/cosmetic/putty' if has_perm(role,'cosmetic_putty','enable')
           else '/cosmetic/dry_sanding' if has_perm(role,'cosmetic_dry_sanding','enable')
@@ -184,7 +199,7 @@
           else '/cosmetic/painting' if has_perm(role,'cosmetic_painting','enable')
           else '/cosmetic/water_sanding' %}
       <li><a href="{{ cosmetic_page_url }}" class="nav-link {% if request.url.path == cosmetic_page_url %}active{% endif %}">
-        <i class="bi bi-droplet-half me-2"></i> {{ sidebar_label('cosmetic_page', 'Cosmetic Page') }}
+        <i class="bi bi-droplet-half me-2"></i> {{ sidebar_label('cosmetic_page', 'Cosmetic Stage') }}
       </a></li>
       {% endif %}
       {% if has_perm(role,'cosmetic_finalqc','enable') %}

@@ -24,6 +24,7 @@ from services.notifications import create_notification
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from models.work_order import WorkOrder
 from models.role_permissions import has_perm
+from models.cosmetic_flow import CosmeticFlowRow
 from utils.attendance_groups import is_group_manager, managed_usernames
 from routers.transfers import _gen_work_id
 import uuid as uuid_module
@@ -137,6 +138,41 @@ BULK_ASSIGN_STAGES = {
 COSMETIC_ELIGIBLE_ROLES = (UserRole.cosmetic_manager, UserRole.qc_inspector,
                           UserRole.inventory_manager, UserRole.sales_manager)
 
+# The 6 mid-pipeline "Flow Data" columns on All Tags — (field prefix on
+# CosmeticFlowRow, display label, Permission Matrix module key). Same 6
+# stages as PERM_MODULE_BY_STAGE minus Cosmetic Received/Completed, since
+# those are hand-off holding stages, not a role a person works day to day.
+FLOW_STAGE_COLUMNS = [
+    ("cleaning", "Cleaning", "cosmetic_cleaning"),
+    ("putty", "Putty", "cosmetic_putty"),
+    ("dry_sanding", "Dry Sanding", "cosmetic_dry_sanding"),
+    ("masking", "Masking", "cosmetic_masking"),
+    ("painting", "Painting", "cosmetic_painting"),
+    ("water_sanding", "Water Sanding", "cosmetic_water_sanding"),
+]
+
+
+# Roles that ALWAYS keep pre-existing hub/Group-Config behaviour, no matter
+# what the Permission Matrix says about the 6 mid-pipeline stage modules —
+# admin, cosmetic_manager, and the 3 general-purpose supervisor roles that
+# were already allowed onto every cosmetic page (COSMETIC_ELIGIBLE_ROLES).
+# Everyone else — a genuine single-stage custom role like "Cosmetic
+# Cleaning" — is a "Cosmetic User": never sees the "Cosmetic & Paint" hub
+# and is never treated as a page manager, regardless of Group Config.
+_COSMETIC_HUB_ROLES = {"admin"} | {r.value for r in COSMETIC_ELIGIBLE_ROLES}
+
+
+def _is_cosmetic_stage_role(role_val: str) -> bool:
+    """True for a genuine single-stage cosmetic role (e.g. a custom
+    "Cosmetic Cleaning" role) — anyone NOT in _COSMETIC_HUB_ROLES who has at
+    least one of the 6 mid-pipeline stage permissions enabled. Mirrors the
+    matching blacklist used for the sidebar's "Cosmetic & Paint" hub link
+    (templates/base.html) — kept in sync so the nav link and the
+    manager/member page behaviour below can never disagree."""
+    if role_val in _COSMETIC_HUB_ROLES:
+        return False
+    return any(has_perm(role_val, module, "enable") for _, _, module in FLOW_STAGE_COLUMNS)
+
 
 async def _move_assignee_pool(db: AsyncSession, current_user: User) -> list:
     """Users offered in the Move modal's dropdown: the mover's own Group
@@ -156,6 +192,59 @@ async def _move_assignee_pool(db: AsyncSession, current_user: User) -> list:
             .order_by(User.full_name)
         )).scalars().all()
     return [{"id": str(u.id), "name": u.full_name or u.username} for u in rows]
+
+
+# Final QC Fail "Devices Failed" bucket resolution — maps each of the 3
+# qc_failure_reason master-data values to (a) the WorkOrder.stage code that
+# identifies who most recently worked this tag through the stage the reason
+# implies, and (b) where Assign sends the tag next. Kept together since
+# every place that touches "Devices Failed" routing needs both.
+FAIL_REASON_SOURCE_STAGE_CODE = {
+    "Hardware": "l1",                                          # L1/L2
+    "Software": "qc",                                          # Stress Test
+    "Cosmetic": MOVE_STAGE_CODE[DeviceStage.cosmetic_completed],  # "comp"
+}
+FAIL_REASON_DEST_STAGE = {
+    "Hardware": DeviceStage.l1,
+    "Software": DeviceStage.qc_check,
+    "Cosmetic": DeviceStage.cosmetic_received,
+}
+FAIL_REASON_DEST_WORKORDER_CODE = {
+    "Hardware": "l1",
+    "Software": "qc",
+    "Cosmetic": MOVE_STAGE_CODE[DeviceStage.cosmetic_received],  # "recv"
+}
+# Roles Assign will accept for Hardware/Software — the same fixed roles
+# cosmetic_fail_assign (L1/L2) and l1l2_complete_to_stress (qc_inspector)
+# already require. Cosmetic has no such fixed role: cosmetic stage roles are
+# open-ended custom roles by design (Permission Matrix driven), so Assign
+# only requires the resolved engineer to still be an active user for that
+# branch.
+FAIL_REASON_REQUIRED_ROLES = {
+    "Hardware": (UserRole.l1_engineer, UserRole.l2_engineer),
+    "Software": (UserRole.qc_inspector,),
+}
+
+
+async def _resolve_fail_engineer(db: AsyncSession, device_id, failure_reason: str) -> dict | None:
+    """The most recently assigned user on this tag's own WorkOrder history
+    at the stage `failure_reason` implies — same "latest WorkOrder wins"
+    resolution every other stage page's engineer column already uses (see
+    l1l2_engineer_map above). Returns None if the reason is unrecognized or
+    no such WorkOrder exists yet (e.g. the tag never actually reached that
+    stage before landing back at Final QC)."""
+    code = FAIL_REASON_SOURCE_STAGE_CODE.get((failure_reason or "").strip())
+    if not code:
+        return None
+    wo = (await db.execute(
+        select(WorkOrder).where(
+            WorkOrder.device_id == device_id, WorkOrder.stage == code,
+            WorkOrder.assigned_username.isnot(None),
+        ).order_by(WorkOrder.assigned_at.desc())
+    )).scalars().first()
+    if not wo:
+        return None
+    return {"user_id": wo.assigned_user_id, "username": wo.assigned_username, "name": wo.assigned_name}
 
 
 async def _get_devices_at_stage(db: AsyncSession, stage: DeviceStage):
@@ -193,6 +282,9 @@ async def _bucket_group(db: AsyncSession, stage: DeviceStage, status_val: str):
         g = grouped.setdefault(b.id, {
             "bucket_id": str(b.id), "bucket_name": b.name or b.bucket_number, "bucket_number": b.bucket_number,
             "count": 0, "failure_reason": None, "pass_notes": None,
+            # Bucket-level, not aggregated per device — see
+            # Bucket.fail_engineer_name (models/bucket.py).
+            "engineer_name": b.fail_engineer_name,
         })
         g["count"] += 1
         g["failure_reason"] = g["failure_reason"] or d.fqc_failure_reason
@@ -268,15 +360,34 @@ async def cosmetic_all_tags(request: Request, db: AsyncSession = Depends(get_db)
             code = MOVE_STAGE_CODE.get(d.current_stage)
             assigned_map[str(d.id)] = (latest_by_key.get((d.id, code)) or {}) if code else {}
 
-    # ── Manager/Member visibility (Group Config) — same rule as every other
-    # cosmetic page; a Member reaching this URL directly (the tab itself is
-    # hidden for them, same as the rest of the tab bar) still only sees tags
-    # assigned to them.
+    # ── Manager/Member visibility — Admin and Cosmetic Manager always see
+    # every tag here (wired directly to role, not Group Config membership);
+    # a single-stage cosmetic role (e.g. "Cosmetic Cleaning") never does,
+    # even if they happen to manage an unrelated Group Config team. Every
+    # other role falls back to the pre-existing Group Config rule.
     role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
-    manager_mode = role_val == "admin" or await is_group_manager(db, current_user.username)
+    is_stage_role = _is_cosmetic_stage_role(role_val)
+    manager_mode = (role_val in ("admin", "cosmetic_manager")
+                    or (not is_stage_role and await is_group_manager(db, current_user.username)))
     if not manager_mode:
         devices = [(d, ln) for d, ln in devices
                    if assigned_map.get(str(d.id), {}).get("username") == current_user.username]
+
+    # ── Flow Data (below the main table) — Admin/Cosmetic Manager only.
+    flow_rows, flow_user_options = [], {}
+    if role_val in ("admin", "cosmetic_manager"):
+        flow_rows = (await db.execute(
+            select(CosmeticFlowRow).order_by(CosmeticFlowRow.created_at)
+        )).scalars().all()
+        all_active = (await db.execute(
+            select(User).where(User.status == True).order_by(User.full_name)
+        )).scalars().all()
+        for field, _, module in FLOW_STAGE_COLUMNS:
+            flow_user_options[field] = [
+                {"id": str(u.id), "name": u.full_name or u.username}
+                for u in all_active
+                if has_perm(u.role.value if hasattr(u.role, "value") else str(u.role), module, "enable")
+            ]
 
     return templates.TemplateResponse("cosmetic/all_tags.html", {
         "request": request, "current_user": current_user,
@@ -284,7 +395,82 @@ async def cosmetic_all_tags(request: Request, db: AsyncSession = Depends(get_db)
         "pipeline": COSMETIC_NAV_STAGES, "stage_labels": STAGE_LABELS,
         "l1l2_engineer_map": l1l2_engineer_map,
         "assigned_map": assigned_map, "manager_mode": manager_mode,
+        "flow_columns": FLOW_STAGE_COLUMNS, "flow_rows": flow_rows,
+        "flow_user_options": flow_user_options,
     })
+
+
+async def flow_data_allowed(current_user: User = Depends(get_current_user)) -> User:
+    """Admin/Cosmetic Manager only, deliberately NOT require_roles(): that
+    helper's custom-role backdoor lets any admin-created role through
+    non-admin-only gates (they're normally governed by the Permission
+    Matrix instead) — but Flow Data has no Permission Matrix module of its
+    own, so a custom "Cosmetic Cleaning" role must not slip through it."""
+    role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    if role_val not in ("admin", "cosmetic_manager"):
+        raise HTTPException(403, "Only Admin and Cosmetic Manager can edit Flow Data.")
+    return current_user
+
+
+@router.post("/flow-data/save")
+async def cosmetic_flow_data_save(
+    row_id: str = Form(""),
+    label: str = Form(""),
+    cleaning_user_id: str = Form(""),
+    putty_user_id: str = Form(""),
+    dry_sanding_user_id: str = Form(""),
+    masking_user_id: str = Form(""),
+    painting_user_id: str = Form(""),
+    water_sanding_user_id: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(flow_data_allowed),
+):
+    """Create or update one Flow Data row. Cells are optional — a row can be
+    saved with some stages still blank and filled in later."""
+    raw_cells = {
+        "cleaning_user_id": cleaning_user_id, "putty_user_id": putty_user_id,
+        "dry_sanding_user_id": dry_sanding_user_id, "masking_user_id": masking_user_id,
+        "painting_user_id": painting_user_id, "water_sanding_user_id": water_sanding_user_id,
+    }
+    cell_values = {
+        field: (uuid_module.UUID(raw.strip()) if raw and raw.strip() else None)
+        for field, raw in raw_cells.items()
+    }
+
+    if row_id:
+        row = (await db.execute(
+            select(CosmeticFlowRow).where(CosmeticFlowRow.id == uuid_module.UUID(row_id))
+        )).scalar_one_or_none()
+        if not row:
+            raise HTTPException(404, "Flow row not found.")
+        row.updated_by = current_user.username
+    else:
+        row = CosmeticFlowRow(created_by=current_user.username)
+        db.add(row)
+
+    row.label = label.strip() or None
+    for field, value in cell_values.items():
+        setattr(row, field, value)
+
+    await db.commit()
+    await db.refresh(row)
+    return JSONResponse({"ok": True, "id": str(row.id)})
+
+
+@router.post("/flow-data/delete")
+async def cosmetic_flow_data_delete(
+    row_id: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(flow_data_allowed),
+):
+    row = (await db.execute(
+        select(CosmeticFlowRow).where(CosmeticFlowRow.id == uuid_module.UUID(row_id))
+    )).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "Flow row not found.")
+    await db.delete(row)
+    await db.commit()
+    return JSONResponse({"ok": True})
 
 
 @router.get("/{stage_name}", response_class=HTMLResponse)
@@ -468,12 +654,15 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
                 "work_id": wid, "name": name, "username": uname, "date": at,
             })
 
-    # ── Manager/Member visibility (Group Config): admin and anyone who
-    # manages an active Group Config group see every tag on this page and
-    # the stage nav tabs; everyone else sees only tags whose latest WorkID
-    # here is assigned to them, with the tabs hidden. ───────────────────────
+    # ── Manager/Member visibility: Admin and Cosmetic Manager always see
+    # every tag on this page and the stage nav tabs (wired directly to role,
+    # not Group Config membership); a single-stage cosmetic role never does,
+    # even if they happen to manage an unrelated Group Config team. Every
+    # other role falls back to the pre-existing Group Config rule. ─────────
     role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
-    manager_mode = role_val == "admin" or await is_group_manager(db, current_user.username)
+    is_stage_role = _is_cosmetic_stage_role(role_val)
+    manager_mode = (role_val in ("admin", "cosmetic_manager")
+                    or (not is_stage_role and await is_group_manager(db, current_user.username)))
     if not manager_mode:
         devices = [(d, ln) for d, ln in devices
                    if workid_map.get(str(d.id), {}).get("username") == current_user.username]
@@ -590,8 +779,8 @@ async def advance_stage(
         device.final_qc_status = "fail" if _is_fail else "pass"
         if _is_fail:
             # Hold here instead of auto-advancing to Cleaning — the device now
-            # sits in the "Devices Failed" table until a human clicks
-            # "Move to Production" (see /cosmetic/final-qc/move-to-production).
+            # sits in the "Devices Failed" table until a human clicks "Assign"
+            # (see /cosmetic/final-qc/move-to-production).
             device.fqc_failure_reason = (failure_reason or "").strip() or None
             device.current_stage = DeviceStage.final_qc_fail_hold
             device.updated_at = app_now()
@@ -601,6 +790,22 @@ async def advance_stage(
                 notes=f"Final QC Failed — {failure_reason or 'Rework'}. {notes}"
             )
             db.add(movement)
+            # Resolve + store this tag's engineer onto its bucket — the most
+            # recently assigned user at the stage this failure reason implies
+            # (L1/L2 for Hardware, Stress Test for Software, Cosmetic
+            # Completed for Cosmetic). Overwrites whatever the bucket already
+            # had: the latest device to fail into a bucket decides, since
+            # Assign acts on the whole bucket at once.
+            if device.bucket_id:
+                engineer_info = await _resolve_fail_engineer(db, device.id, device.fqc_failure_reason)
+                if engineer_info:
+                    bkt = (await db.execute(
+                        select(Bucket).where(Bucket.id == device.bucket_id)
+                    )).scalar_one_or_none()
+                    if bkt:
+                        bkt.fail_engineer_user_id = engineer_info["user_id"]
+                        bkt.fail_engineer_username = engineer_info["username"]
+                        bkt.fail_engineer_name = engineer_info["name"]
             await db.commit()
             return RedirectResponse(
                 url="/cosmetic/final_qc?warning=Final+QC+Failed+for+" + barcode + "+%E2%80%94+recorded+successfully",
@@ -830,12 +1035,24 @@ async def fqc_move_to_inventory(bucket_id: str, db: AsyncSession = Depends(get_d
 @router.post("/final-qc/move-to-production/{bucket_id}")
 async def fqc_move_to_production(bucket_id: str, db: AsyncSession = Depends(get_db),
                                   current_user: User = Depends(allowed)):
-    """Devices Failed → Final QC Fail (Bucket) on Production Manager, ready for Assign."""
+    """Devices Failed "Assign" button — sends every tag in the bucket to the
+    page its failure reason implies (Hardware -> L1/L2, Software -> Stress
+    Test, Cosmetic -> Cosmetic Received), assigned to the bucket's own
+    resolved engineer (Bucket.fail_engineer_*, set when each device failed
+    in — see advance_stage), each with a fresh WorkID. One click routes the
+    WHOLE bucket to a single destination, by the bucket's own failure reason
+    (first non-null across its devices — same aggregation the Devices Failed
+    table already displays) — not per-device, since in practice a bucket
+    only ever holds one reason (a different reason gets its own bucket
+    name)."""
     import uuid as _u
     try:
         bid = _u.UUID(bucket_id)
     except ValueError:
         raise HTTPException(404)
+    bucket = (await db.execute(select(Bucket).where(Bucket.id == bid))).scalar_one_or_none()
+    if not bucket:
+        raise HTTPException(404, "Bucket not found.")
     devices = (await db.execute(
         select(Device).where(
             Device.bucket_id == bid,
@@ -845,18 +1062,54 @@ async def fqc_move_to_production(bucket_id: str, db: AsyncSession = Depends(get_
     )).scalars().all()
     if not devices:
         raise HTTPException(404, "No devices found in this bucket at Final QC Fail Hold.")
+
+    failure_reason = next((d.fqc_failure_reason for d in devices if d.fqc_failure_reason), None)
+    reason_key = (failure_reason or "").strip()
+    dest_stage = FAIL_REASON_DEST_STAGE.get(reason_key)
+    if not dest_stage:
+        raise HTTPException(400, f'Unrecognized failure reason "{failure_reason}" — cannot determine where to assign this bucket.')
+
+    if not bucket.fail_engineer_user_id:
+        raise HTTPException(400, "No engineer has been resolved for this bucket yet — nothing to assign to.")
+    engineer = (await db.execute(
+        select(User).where(User.id == bucket.fail_engineer_user_id)
+    )).scalar_one_or_none()
+    stale_name = bucket.fail_engineer_name or bucket.fail_engineer_username or "the resolved engineer"
+    if not engineer or not engineer.status:
+        raise HTTPException(400, f"{stale_name} is no longer an active user — pick a new engineer manually before assigning this bucket.")
+    required_roles = FAIL_REASON_REQUIRED_ROLES.get(reason_key)
+    if required_roles and engineer.role not in required_roles:
+        raise HTTPException(400, f"{stale_name}'s role has changed and is no longer eligible for a {reason_key} assignment — pick a new engineer manually before assigning this bucket.")
+
+    dest_code = FAIL_REASON_DEST_WORKORDER_CODE[reason_key]
+    engineer_role_val = engineer.role.value if hasattr(engineer.role, "value") else str(engineer.role)
     for device in devices:
-        device.current_stage = DeviceStage.l1
+        prev = device.current_stage
+        device.current_stage = dest_stage
         device.updated_at = app_now()
         db.add(StageMovement(
-            device_id=device.id, from_stage=DeviceStage.final_qc_fail_hold, to_stage=DeviceStage.l1,
-            moved_by=current_user.username, notes="Moved to Production from Final QC Fail",
+            device_id=device.id, from_stage=prev, to_stage=dest_stage,
+            moved_by=current_user.username,
+            notes=f"Assigned from Final QC Fail ({reason_key}) to {engineer.full_name or engineer.username}",
         ))
-    bucket = (await db.execute(select(Bucket).where(Bucket.id == bid))).scalar_one_or_none()
-    if bucket:
-        bucket.assigned_to_production = False
+        work_id = await _gen_work_id(db)
+        db.add(WorkOrder(
+            work_id=work_id, device_id=device.id, barcode=device.barcode,
+            stage=dest_code, assigned_role=engineer_role_val,
+            assigned_user_id=engineer.id, assigned_username=engineer.username,
+            assigned_name=engineer.full_name, status="pending",
+            created_by=current_user.username,
+        ))
+        await create_notification(
+            db, user_id=engineer.id, title="Device Assigned to You",
+            message=(f"{device.barcode} failed Final QC ({reason_key}) and has been assigned to you "
+                     f"(WorkID: {work_id})."),
+            notification_type="warning", barcode=device.barcode,
+            brand=device.brand, model=device.model, stage=dest_stage.value,
+        )
+    bucket.assigned_to_production = False
     await db.commit()
-    return {"ok": True, "moved": len(devices)}
+    return {"ok": True, "moved": len(devices), "assigned_to": engineer.full_name or engineer.username}
 
 
 @router.post("/send-to-cosmetic")

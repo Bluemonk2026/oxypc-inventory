@@ -44,14 +44,19 @@ class Bucket(Base):
     dept_assigned_by = Column(String(50), nullable=True)
     dept_assigned_at = Column(DateTime, nullable=True)
 
-    # Final QC Fail Hold's resolved "Devices Failed" engineer (Production
-    # Manager -> Repair Line -> Final QC Fail Bucket -> Assign). Set/overwritten
-    # every time a device fails INTO this bucket (routers/cosmetic.py
-    # advance_stage) — the most recent fail decides for the whole bucket, since
-    # a bucket's Assign button acts on all its tags at once. Resolved from
-    # whichever stage the failure reason implies the tag most recently passed
-    # through (L1/L2 for Hardware, Stress Test for Software, Cosmetic
-    # Completed for Cosmetic) — see routers/cosmetic.py _resolve_fail_engineer.
+    # Final QC Fail Hold's resolved "Devices Failed" reason + engineer
+    # (Production Manager -> Repair Line -> Final QC Fail Bucket -> Assign).
+    # LOCKED IN by whichever device first fails into this bucket name — every
+    # later device joining the SAME bucket name must match BOTH fail_reason
+    # and fail_engineer_user_id exactly (routers/cosmetic.py advance_stage),
+    # or the Fail submission is rejected and the operator is told to use a
+    # different Bucket Name. This keeps a bucket's Assign button (which acts
+    # on every tag in it at once) always pointing at one unambiguous
+    # reason/engineer pair. fail_engineer_* is resolved from whichever stage
+    # the failure reason implies the tag most recently passed through
+    # (L1/L2 for Hardware, Stress Test for Software, Cosmetic Completed for
+    # Cosmetic) — see routers/cosmetic.py _resolve_fail_engineer.
+    fail_reason = Column(String(30), nullable=True)
     fail_engineer_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     fail_engineer_username = Column(String(50), nullable=True)
     fail_engineer_name = Column(String(100), nullable=True)

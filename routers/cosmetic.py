@@ -636,7 +636,8 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
         if device_ids:
             pick_rows = await db.execute(
                 select(WorkOrder.device_id, WorkOrder.assigned_name, WorkOrder.assigned_username)
-                .where(WorkOrder.device_id.in_(device_ids), WorkOrder.stage == "fqc")
+                .where(WorkOrder.device_id.in_(device_ids), WorkOrder.stage == "fqc",
+                       WorkOrder.status == "pending")
                 .order_by(WorkOrder.assigned_at.desc())
             )
             for did, name, uname in pick_rows.all():
@@ -784,6 +785,21 @@ async def advance_stage(
     if current == DeviceStage.final_qc:
         if not has_perm(role_val, "cosmetic_finalqc", "edit"):
             raise HTTPException(403, f"Your role ({role_val}) does not have 'edit' permission for the cosmetic_finalqc module.")
+
+        # ── Reset "Pick This" state on exit — a tag leaving Final QC (pass
+        # or fail either way) closes out its "fqc" WorkOrder so a later
+        # return trip (e.g. Assign routes it back through L1/L2 or Stress
+        # Test for rework, then it works its way back to Final QC) shows up
+        # unpicked again for whoever's on shift then — not still "Picked by"
+        # whoever picked it last time. fqc_pick_map/fqc_pick below only ever
+        # look at status == "pending" rows.
+        await db.execute(
+            update(WorkOrder)
+            .where(WorkOrder.device_id == device.id, WorkOrder.stage == "fqc",
+                   WorkOrder.status == "pending")
+            .values(status="completed", completed_at=app_now())
+        )
+
         # Bucket is a free-text Bucket Name here, not a dropdown of existing
         # buckets — typing a name that doesn't exist yet creates it. Before
         # attaching the current device, every OTHER device already linked to
@@ -824,10 +840,42 @@ async def advance_stage(
         _is_fail = final_qc_status.strip().lower() == "fail"
         device.final_qc_status = "fail" if _is_fail else "pass"
         if _is_fail:
+            resolved_reason = (failure_reason or "").strip() or None
+
+            # ── Bucket identity lock: a bucket name's (reason, engineer) pair
+            # is set by whichever device first fails into it, and every later
+            # device joining that SAME bucket name must match both exactly —
+            # otherwise the Bucket's single "Assign" button (which acts on
+            # every tag in it at once) would have no unambiguous reason or
+            # engineer to route the whole bucket by. Checked BEFORE touching
+            # device/stage state so a rejection leaves nothing half-applied.
+            if device.bucket_id:
+                engineer_info = await _resolve_fail_engineer(db, device.id, resolved_reason)
+                new_engineer_id = engineer_info["user_id"] if engineer_info else None
+                bkt = (await db.execute(
+                    select(Bucket).where(Bucket.id == device.bucket_id)
+                )).scalar_one_or_none()
+                if bkt and bkt.fail_reason is not None:
+                    reason_matches = bkt.fail_reason == resolved_reason
+                    engineer_matches = (bkt.fail_engineer_user_id is not None
+                                        and bkt.fail_engineer_user_id == new_engineer_id)
+                    if not (reason_matches and engineer_matches):
+                        raise HTTPException(
+                            400,
+                            "You cant use same bucket with same reason for multiple Engineer Name. "
+                            "So change Bucket Name.",
+                        )
+                if bkt and bkt.fail_reason is None:
+                    bkt.fail_reason = resolved_reason
+                    if engineer_info:
+                        bkt.fail_engineer_user_id = engineer_info["user_id"]
+                        bkt.fail_engineer_username = engineer_info["username"]
+                        bkt.fail_engineer_name = engineer_info["name"]
+
             # Hold here instead of auto-advancing to Cleaning — the device now
             # sits in the "Devices Failed" table until a human clicks "Assign"
             # (see /cosmetic/final-qc/move-to-production).
-            device.fqc_failure_reason = (failure_reason or "").strip() or None
+            device.fqc_failure_reason = resolved_reason
             device.current_stage = DeviceStage.final_qc_fail_hold
             device.updated_at = app_now()
             movement = StageMovement(
@@ -836,22 +884,6 @@ async def advance_stage(
                 notes=f"Final QC Failed — {failure_reason or 'Rework'}. {notes}"
             )
             db.add(movement)
-            # Resolve + store this tag's engineer onto its bucket — the most
-            # recently assigned user at the stage this failure reason implies
-            # (L1/L2 for Hardware, Stress Test for Software, Cosmetic
-            # Completed for Cosmetic). Overwrites whatever the bucket already
-            # had: the latest device to fail into a bucket decides, since
-            # Assign acts on the whole bucket at once.
-            if device.bucket_id:
-                engineer_info = await _resolve_fail_engineer(db, device.id, device.fqc_failure_reason)
-                if engineer_info:
-                    bkt = (await db.execute(
-                        select(Bucket).where(Bucket.id == device.bucket_id)
-                    )).scalar_one_or_none()
-                    if bkt:
-                        bkt.fail_engineer_user_id = engineer_info["user_id"]
-                        bkt.fail_engineer_username = engineer_info["username"]
-                        bkt.fail_engineer_name = engineer_info["name"]
             await db.commit()
             return RedirectResponse(
                 url="/cosmetic/final_qc?warning=Final+QC+Failed+for+" + barcode + "+%E2%80%94+recorded+successfully",
@@ -1035,7 +1067,8 @@ async def fqc_pick(
     if device.current_stage != DeviceStage.final_qc:
         raise HTTPException(400, f"Device {barcode} is not at Final QC")
     already = (await db.execute(
-        select(WorkOrder).where(WorkOrder.device_id == device.id, WorkOrder.stage == "fqc")
+        select(WorkOrder).where(WorkOrder.device_id == device.id, WorkOrder.stage == "fqc",
+                                WorkOrder.status == "pending")
     )).scalars().first()
     if already:
         raise HTTPException(400, f"{barcode} has already been picked by "

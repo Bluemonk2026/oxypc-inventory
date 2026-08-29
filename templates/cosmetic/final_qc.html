@@ -217,80 +217,43 @@
     </table>
   </div>
   <div class="tab-pane fade" id="fqcFailedTab">
-    <table class="table table-sm table-hover mb-0">
-      <thead><tr><th>Bucket Name</th><th>Bucket ID</th><th>Count of Tag Numbers</th><th>Stage</th><th>Engineer Name</th><th>Failure Reason</th><th>Action</th></tr></thead>
-      <tbody>
-        {% for row in failed_buckets %}
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+      <input type="text" id="fqcFailedSearch" class="form-control form-control-sm" style="max-width: 280px;"
+             placeholder="Search Bucket Name or Tag Number">
+      <button type="button" class="btn btn-sm btn-primary" id="fqcBulkMoveBtn" disabled>
+        <i class="bi bi-arrow-right-circle me-1"></i>Bulk Move (<span id="fqcBulkMoveCount">0</span>)
+      </button>
+    </div>
+    <table class="table table-sm table-hover mb-0" id="fqcFailedTable">
+      <thead>
         <tr>
+          <th style="width:2rem;"><input type="checkbox" id="fqcFailedSelectAll"></th>
+          <th>Tag Number</th>
+          <th>Bucket Name</th>
+          <th>Stage</th>
+          <th>Engineer Name</th>
+          <th>Failure Reason</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in failed_devices %}
+        <tr data-barcode="{{ row.barcode|lower }}" data-bucket="{{ (row.bucket_name or '')|lower }}">
+          <td><input type="checkbox" class="fqc-failed-check" value="{{ row.barcode }}"></td>
+          <td class="font-monospace small">{{ row.barcode }}</td>
           <td>{{ row.bucket_name or '—' }}</td>
-          <td class="font-monospace small">{{ row.bucket_number }}</td>
-          <td>{{ row.count }}</td>
           <td><span class="badge bg-warning text-dark">Final QC — Fail Hold</span></td>
           <td class="small">{{ row.engineer_name or '—' }}</td>
           <td class="small">{{ row.failure_reason or '—' }}</td>
           <td>
-            <button class="btn btn-sm btn-primary fqc-assign-bkt" data-id="{{ row.bucket_id }}"
-                    data-number="{{ row.bucket_number }}" data-count="{{ row.count }}">Assign</button>
+            <button type="button" class="btn btn-sm btn-primary fqc-move-one" data-barcode="{{ row.barcode }}">Move</button>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="text-center text-muted py-3">No failed devices awaiting assignment.</td></tr>
+        <tr><td colspan="7" class="text-center text-muted py-3">No failed devices awaiting routing.</td></tr>
         {% endfor %}
       </tbody>
     </table>
-  </div>
-</div>
-
-<!-- Assign Bucket modal — copied from Production Manager's Repair Line
-     (templates/lots/trc_production.html), same modal + same
-     /buckets/{bucket_id}/assign endpoint. Repair Type picks the destination:
-     L1/L2 Repair -> L1/L2 stage (engineer required), QC or Stress -> Stress
-     Test stage (engineer optional), Cosmetic Repair -> Cosmetic Received
-     stage (engineer optional). -->
-<div class="modal fade" id="fqcAssignBktModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-person-check me-2"></i>Assign Bucket</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <input type="hidden" id="fqcAsgBktId">
-        <div class="mb-2">
-          <label class="form-label fw-semibold">Bucket Number</label>
-          <input type="text" id="fqcAsgBktNum" class="form-control" readonly>
-        </div>
-        <div class="mb-2">
-          <label class="form-label fw-semibold">Total Tag Numbers</label>
-          <input type="number" id="fqcAsgBktCount" class="form-control" readonly>
-        </div>
-        <div class="mb-2">
-          <label class="form-label fw-semibold d-block">Repair Type</label>
-          <div class="form-check form-check-inline">
-            <input class="form-check-input fqc-asg-level-radio" type="radio" name="fqcAsgLevel" id="fqcAsgLevelL1L2" value="L1/L2 Repair" checked>
-            <label class="form-check-label" for="fqcAsgLevelL1L2">L1/L2 Repair</label>
-          </div>
-          <div class="form-check form-check-inline">
-            <input class="form-check-input fqc-asg-level-radio" type="radio" name="fqcAsgLevel" id="fqcAsgLevelStress" value="Stress Test">
-            <label class="form-check-label" for="fqcAsgLevelStress">QC or Stress</label>
-          </div>
-          <div class="form-check form-check-inline">
-            <input class="form-check-input fqc-asg-level-radio" type="radio" name="fqcAsgLevel" id="fqcAsgLevelCosmetic" value="Cosmetic Repair">
-            <label class="form-check-label" for="fqcAsgLevelCosmetic">Cosmetic Repair</label>
-          </div>
-        </div>
-        <div class="mb-2" id="fqcAsgEngineerGroup">
-          <label class="form-label fw-semibold">Select Engineer</label>
-          <select id="fqcAsgEngineer" class="form-select">
-            <option value="">— Select Engineer —</option>
-          </select>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-        <button type="button" id="fqcAsgBktSubmit" class="btn btn-primary"><i class="bi bi-send me-1"></i>Assign</button>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -381,70 +344,91 @@ $(document).on('click', '.fqc-move-inv', function () {
   $.post('/cosmetic/final-qc/move-to-inventory/' + id, { csrf_token: csrf }).done(function () { location.reload(); })
     .fail(function (xhr) { alert(xhr.responseJSON && xhr.responseJSON.detail || 'Move failed'); });
 });
-// Assign Bucket modal — copied from Production Manager's Repair Line
-// (templates/lots/trc_production.html): same modal shape, same
-// /buckets/{bucket_id}/assign endpoint, same /api/bucket-engineers list.
-// This page always operates in the "Final QC Fail" context, so — unlike
-// trc_production.html's shared modal — Select Engineer is unconditionally
-// hidden for "QC or Stress"/"Cosmetic Repair" and unconditionally required
-// for "L1/L2 Repair", no separate context flag needed.
-var _fqcEngineers = [];
-fetch('/api/bucket-engineers').then(function (r) { return r.json(); }).then(function (list) { _fqcEngineers = list; });
+// Devices Failed — search (Bucket Name or Tag Number), row select + Bulk
+// Move, and the per-row Move button (2026-08-29 redesign, replacing the
+// Assign Bucket modal). All three post to the SAME endpoint
+// (/cosmetic/final-qc/move-failed) — each tag's own Failure Reason and
+// resolved Engineer Name (this row's own columns) pick where it goes and
+// who it's handed to; no modal, no manual picks.
+(function () {
+  var table = document.getElementById('fqcFailedTable');
+  if (!table) return;
+  var rows = function () { return table.querySelectorAll('tbody tr[data-barcode]'); };
 
-var FQC_ASG_LEVEL_ROLE = {
-  'L1/L2 Repair': 'l1_engineer',
-  'Stress Test': 'qc_inspector',
-  'Cosmetic Repair': 'cosmetic_manager',
-};
-function fqcEngineerHiddenForCurrentSelection() {
-  var checked = document.querySelector('input[name="fqcAsgLevel"]:checked');
-  var level = checked ? checked.value : '';
-  return level === 'Stress Test' || level === 'Cosmetic Repair';
-}
-function fqcPopulateEngineersForLevel() {
-  var checked = document.querySelector('input[name="fqcAsgLevel"]:checked');
-  var roleKey = checked ? FQC_ASG_LEVEL_ROLE[checked.value] : '';
-  var sel = document.getElementById('fqcAsgEngineer');
-  sel.innerHTML = '<option value="">— Select Engineer —</option>';
-  _fqcEngineers.filter(function (e) { return e.role === roleKey; })
-    .forEach(function (e) { sel.add(new Option(e.name, e.id)); });
-  document.getElementById('fqcAsgEngineerGroup').style.display = fqcEngineerHiddenForCurrentSelection() ? 'none' : '';
-}
-document.querySelectorAll('.fqc-asg-level-radio').forEach(function (r) {
-  r.addEventListener('change', fqcPopulateEngineersForLevel);
-});
-$(document).on('click', '.fqc-assign-bkt', function () {
-  document.getElementById('fqcAsgBktId').value = $(this).data('id');
-  document.getElementById('fqcAsgBktNum').value = $(this).data('number');
-  document.getElementById('fqcAsgBktCount').value = $(this).data('count');
-  document.getElementById('fqcAsgLevelL1L2').checked = true;
-  fqcPopulateEngineersForLevel();
-  new bootstrap.Modal(document.getElementById('fqcAssignBktModal')).show();
-});
-document.getElementById('fqcAsgBktSubmit').addEventListener('click', function () {
-  var id = document.getElementById('fqcAsgBktId').value;
-  var checkedLevel = document.querySelector('input[name="fqcAsgLevel"]:checked');
-  var dept = checkedLevel ? checkedLevel.value : '';
-  var engineerNeeded = !fqcEngineerHiddenForCurrentSelection();
-  var engId = document.getElementById('fqcAsgEngineer').value;
-  if (!dept) { alert('Please select a repair type.'); return; }
-  if (engineerNeeded && !engId) { alert('Please select an engineer.'); return; }
-  var csrf = "{{ request.cookies.get('csrf_token','') }}";
-  var fd = new FormData();
-  fd.append('csrf_token', csrf);
-  fd.append('department', dept);
-  if (engineerNeeded) fd.append('assigned_user_id', engId);
-  fetch('/buckets/' + id + '/assign', { method: 'POST', body: fd })
-    .then(function (r) { return r.json(); })
-    .then(function (d) {
-      if (d.ok) {
-        bootstrap.Modal.getInstance(document.getElementById('fqcAssignBktModal')).hide();
-        alert('Assigned ' + d.assigned + ' device(s) successfully.');
+  var searchInput = document.getElementById('fqcFailedSearch');
+  if (searchInput) {
+    searchInput.addEventListener('input', function () {
+      var q = searchInput.value.trim().toLowerCase();
+      rows().forEach(function (tr) {
+        var match = !q || tr.dataset.barcode.indexOf(q) !== -1 || tr.dataset.bucket.indexOf(q) !== -1;
+        tr.classList.toggle('d-none', !match);
+      });
+      refreshBulkState();
+    });
+  }
+
+  var selectAll = document.getElementById('fqcFailedSelectAll');
+  var bulkBtn = document.getElementById('fqcBulkMoveBtn');
+  var bulkCount = document.getElementById('fqcBulkMoveCount');
+
+  function checkedBoxes() {
+    return Array.prototype.filter.call(table.querySelectorAll('.fqc-failed-check'), function (cb) {
+      return cb.checked && !cb.closest('tr').classList.contains('d-none');
+    });
+  }
+  function refreshBulkState() {
+    var n = checkedBoxes().length;
+    if (bulkCount) bulkCount.textContent = n;
+    if (bulkBtn) bulkBtn.disabled = n === 0;
+  }
+  table.addEventListener('change', function (e) {
+    if (e.target.classList.contains('fqc-failed-check')) refreshBulkState();
+  });
+  if (selectAll) {
+    selectAll.addEventListener('change', function () {
+      rows().forEach(function (tr) {
+        if (tr.classList.contains('d-none')) return;
+        var cb = tr.querySelector('.fqc-failed-check');
+        if (cb) cb.checked = selectAll.checked;
+      });
+      refreshBulkState();
+    });
+  }
+
+  function postMove(barcodes) {
+    var csrf = "{{ request.cookies.get('csrf_token','') }}";
+    var fd = new FormData();
+    fd.append('csrf_token', csrf);
+    fd.append('barcodes', barcodes.join(','));
+    fetch('/cosmetic/final-qc/move-failed', { method: 'POST', body: fd })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+      .then(function (res) {
+        if (!res.ok) { alert((res.data && res.data.detail) || 'Move failed'); return; }
+        var d = res.data;
+        var msg = 'Moved ' + d.moved.length + ' tag(s).';
+        if (d.skipped && d.skipped.length) {
+          msg += ' Skipped: ' + d.skipped.map(function (s) { return s.barcode + ' (' + s.reason + ')'; }).join(', ');
+        }
+        alert(msg);
         window.location.reload();
-      }
-    })
-    .catch(function () { alert('Assign failed — please try again.'); });
-});
+      })
+      .catch(function () { alert('Move failed — please try again.'); });
+  }
+
+  $(document).on('click', '.fqc-move-one', function () {
+    var barcode = $(this).data('barcode');
+    if (!confirm('Move ' + barcode + ' to its next stage?')) return;
+    postMove([barcode]);
+  });
+  if (bulkBtn) {
+    bulkBtn.addEventListener('click', function () {
+      var codes = checkedBoxes().map(function (cb) { return cb.value; });
+      if (!codes.length) return;
+      if (!confirm('Bulk move ' + codes.length + ' tag(s) to their next stage?')) return;
+      postMove(codes);
+    });
+  }
+})();
 // "Pick This" — self-assign, no dropdown. Doesn't reload the page (would
 // lose the currently-selected card) — just flips the button to a confirmed
 // state in place.

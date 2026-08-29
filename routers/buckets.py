@@ -493,6 +493,101 @@ async def validate_bucket(
     return JSONResponse({"ok": True})
 
 
+async def _apply_department_move(
+    db: AsyncSession, device: Device, department: str, engineer: User | None,
+    current_user: User, bucket: Bucket | None = None,
+) -> bool:
+    """Move ONE device to the stage `department` implies (DEPT_TO_STAGE),
+    optionally handing it to `engineer` via a fresh WorkOrder + notification.
+    Shared by assign_bucket below (whole-bucket, `bucket` set — every active
+    device sharing that bucket_id moves together) and Final QC's Devices
+    Failed Move/Bulk Move (routers/cosmetic.py fqc_move_failed, `bucket=None`
+    — a tag's own Bucket Name may hold siblings with a different Failure
+    Reason since the 2026-08-27 bucket-lock removal, so that caller always
+    moves exactly one tag at a time regardless of what else shares its
+    bucket). Returns False (no-op, nothing logged) if `department` isn't a
+    recognized destination."""
+    target_stage = DEPT_TO_STAGE.get(department)
+    new_stage = STAGE_ENUM.get(target_stage) if target_stage else None
+    if not new_stage:
+        return False
+
+    _from_wh = getattr(device, "warehouse", None) or "—"
+    transfer = StockTransfer(
+        device_id=device.id,
+        transfer_type="transfer_to_trc",
+        from_warehouse=_from_wh,
+        to_warehouse=_from_wh,
+        transferred_by=current_user.username,
+        department=department,
+        barcode=device.barcode,
+        serial_no=device.serial_no,
+        make=device.brand,
+        model=device.model,
+        ram=str(device.ram_gb) + " GB" if device.ram_gb else None,
+        hdd=str(device.storage_gb) + " GB" if device.storage_gb else None,
+        category=device.sub_category,
+        product_stage=device.current_stage.value if device.current_stage else None,
+        transfer_date=app_now(),
+        notes=(f"Assigned via Bucket {bucket.bucket_number}" if bucket
+               else f"Final QC Fail — moved to {department}"),
+        created_by=current_user.username,
+    )
+    db.add(transfer)
+    await db.flush()
+
+    prev_stage = device.current_stage
+    prev_mv = (await db.execute(
+        select(StageMovement).where(
+            StageMovement.device_id == device.id,
+            StageMovement.to_stage == prev_stage,
+            StageMovement.exited_at == None,
+        ).order_by(StageMovement.moved_at.desc())
+    )).scalars().first()
+    if prev_mv:
+        prev_mv.exited_at = app_now()
+
+    device.current_stage = new_stage
+    device.updated_at = app_now()
+    if bucket:
+        move_note = (f"Bucket {bucket.bucket_number} assigned to {engineer.full_name or engineer.username}"
+                     if engineer else f"Bucket {bucket.bucket_number} moved to {department}")
+    else:
+        move_note = (f"Final QC Fail — assigned to {engineer.full_name or engineer.username}"
+                     if engineer else f"Final QC Fail — moved to {department}")
+    db.add(StageMovement(
+        device_id=device.id, from_stage=prev_stage, to_stage=new_stage,
+        moved_by=current_user.username, notes=move_note,
+    ))
+    if engineer:
+        work_id = await _gen_work_id(db)
+        db.add(WorkOrder(
+            work_id=work_id, device_id=device.id, barcode=device.barcode,
+            stage=target_stage, assigned_role=DEPT_TO_ROLE.get(department),
+            assigned_user_id=engineer.id, assigned_username=engineer.username,
+            assigned_name=engineer.full_name, status="pending",
+            source_transfer_id=transfer.id, created_by=current_user.username,
+        ))
+        _label = f"{device.brand or ''} {device.model or ''}".strip()
+        if bucket:
+            notify_msg = (f"{device.barcode}" + (f" ({_label})" if _label else "")
+                          + f" assigned from Bucket {bucket.bucket_number} for {department} (WorkID: {work_id}).")
+        else:
+            notify_msg = (f"{device.barcode}" + (f" ({_label})" if _label else "")
+                          + f" moved to {department} for Final QC rework and assigned to you (WorkID: {work_id}).")
+        await create_notification(
+            db, user_id=engineer.id,
+            title="Device Assigned to You",
+            message=notify_msg,
+            notification_type="info",
+            barcode=device.barcode,
+            brand=device.brand,
+            model=device.model,
+            stage=new_stage.value if hasattr(new_stage, "value") else str(new_stage),
+        )
+    return True
+
+
 @router.post("/buckets/{bucket_id}/assign")
 async def assign_bucket(
     bucket_id: str,
@@ -529,80 +624,8 @@ async def assign_bucket(
         select(Device).where(Device.bucket_id == uid, Device.is_active == True)
     )).scalars().all()
 
-    target_stage = DEPT_TO_STAGE.get(department)
-    new_stage = STAGE_ENUM.get(target_stage) if target_stage else None
-
     for device in devices:
-        _from_wh = getattr(device, "warehouse", None) or "—"
-        transfer = StockTransfer(
-            device_id=device.id,
-            transfer_type="transfer_to_trc",
-            from_warehouse=_from_wh,
-            to_warehouse=_from_wh,
-            transferred_by=current_user.username,
-            department=department,
-            barcode=device.barcode,
-            serial_no=device.serial_no,
-            make=device.brand,
-            model=device.model,
-            ram=str(device.ram_gb) + " GB" if device.ram_gb else None,
-            hdd=str(device.storage_gb) + " GB" if device.storage_gb else None,
-            category=device.sub_category,
-            product_stage=device.current_stage.value if device.current_stage else None,
-            transfer_date=app_now(),
-            notes=f"Assigned via Bucket {bucket.bucket_number}",
-            created_by=current_user.username,
-        )
-        db.add(transfer)
-        await db.flush()
-
-        if new_stage:
-            prev_stage = device.current_stage
-            prev_mv = (await db.execute(
-                select(StageMovement).where(
-                    StageMovement.device_id == device.id,
-                    StageMovement.to_stage == prev_stage,
-                    StageMovement.exited_at == None,
-                ).order_by(StageMovement.moved_at.desc())
-            )).scalars().first()
-            if prev_mv:
-                prev_mv.exited_at = app_now()
-
-            device.current_stage = new_stage
-            device.updated_at = app_now()
-            db.add(StageMovement(
-                device_id=device.id, from_stage=prev_stage, to_stage=new_stage,
-                moved_by=current_user.username,
-                notes=(f"Bucket {bucket.bucket_number} assigned to {engineer.full_name or engineer.username}"
-                       if engineer else f"Bucket {bucket.bucket_number} moved to {department}"),
-            ))
-            # No engineer picked (Final QC Fail Bucket's "QC or Stress" /
-            # "Cosmetic Repair" — no Select Engineer field) — just the stage
-            # move above, no per-device WorkID handoff or notification.
-            if engineer:
-                work_id = await _gen_work_id(db)
-                db.add(WorkOrder(
-                    work_id=work_id, device_id=device.id, barcode=device.barcode,
-                    stage=target_stage, assigned_role=DEPT_TO_ROLE.get(department),
-                    assigned_user_id=engineer.id, assigned_username=engineer.username,
-                    assigned_name=engineer.full_name, status="pending",
-                    source_transfer_id=transfer.id, created_by=current_user.username,
-                ))
-                _label = f"{device.brand or ''} {device.model or ''}".strip()
-                await create_notification(
-                    db, user_id=engineer.id,
-                    title="Device Assigned to You",
-                    message=(
-                        f"{device.barcode}"
-                        + (f" ({_label})" if _label else "")
-                        + f" assigned from Bucket {bucket.bucket_number} for {department} (WorkID: {work_id})."
-                    ),
-                    notification_type="info",
-                    barcode=device.barcode,
-                    brand=device.brand,
-                    model=device.model,
-                    stage=new_stage.value if hasattr(new_stage, "value") else str(new_stage),
-                )
+        await _apply_department_move(db, device, department, engineer, current_user, bucket=bucket)
 
     # Mark the bucket allocated so it appears in the Production Manager's
     # "Allocation — Buckets in L1/L2 Repair" table (that table filters on

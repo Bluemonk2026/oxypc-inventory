@@ -1,16 +1,20 @@
-"""Final QC "Devices Failed" tab + Assign (2026-08-27 redesign):
+"""Final QC "Devices Failed" tab (2026-08-29 redesign):
 
- - The Assign button now opens the SAME "Assign Bucket" modal Production
-   Manager's Repair Line uses (templates/lots/trc_production.html), backed
-   by the SAME /buckets/{bucket_id}/assign endpoint (routers/buckets.py) —
-   no more auto-resolved-by-failure-reason routing.
- - Submitting the modal with "L1/L2 Repair" selected requires an engineer
-   and moves every tag in the bucket to L1/L2.
- - Submitting with "QC or Stress" moves tags to Stress Test (qc_check);
-   with "Cosmetic Repair" moves tags to Cosmetic Received — an engineer is
-   optional for both.
- - The devices failed table shows "recent L1/L2 Engineer" in each device's
-   own header card (informational only, not tied to routing).
+ - One row PER TAG (Tag Number column), not grouped by bucket — since the
+   bucket-lock removal, a Bucket Name can hold tags with different Failure
+   Reasons / resolved engineers, so a bucket-level row can't show a single
+   correct Engineer Name or be moved as one unit any more.
+ - The per-row button is "Move" (renamed from "Assign") — no modal. It posts
+   the tag's own barcode to /cosmetic/final-qc/move-failed, which routes by
+   the tag's OWN Failure Reason (Hardware -> L1/L2 Repair, Software ->
+   Stress Test, Cosmetic -> Cosmetic Repair) and hands it to the tag's OWN
+   resolved Engineer Name (same lookup that fills the table's Engineer Name
+   column) — engineer is optional (a tag with no resolvable history just
+   moves stage, unassigned).
+ - "Bulk Move" posts the same endpoint with every checked barcode
+   comma-joined — each tag still routes independently by its own reason,
+   even when two checked tags share a Bucket Name but different reasons.
+ - A search box filters rows by Bucket Name or Tag Number (client-side).
 """
 import pathlib
 import subprocess
@@ -103,7 +107,7 @@ asyncio.run(main())
 """)
 
 
-def _bucket_id_and_state(barcode):
+def _device_state(barcode):
     out = _run(f"""
 import asyncio, sys
 sys.path.insert(0, r"{ROOT}")
@@ -117,7 +121,6 @@ async def main():
         dev = (await db.execute(select(Device).where(Device.barcode == "{barcode}"))).scalar_one()
         wo = (await db.execute(select(WorkOrder).where(WorkOrder.device_id == dev.id)
               .order_by(WorkOrder.assigned_at.desc()))).scalars().first()
-        print("bucket_id=" + str(dev.bucket_id))
         print("stage=" + dev.current_stage.value)
         print("assigned_username=" + str(wo.assigned_username if wo else None))
 
@@ -135,7 +138,14 @@ def _submit_fail(app_client, barcode, failure_reason, bucket_name):
     assert r.status_code == 302, r.text[:400]
 
 
-def test_devices_failed_table_shows_assign_button_and_l1l2_engineer_panel(app_client, make_user):  # noqa: F811
+def _move_failed(app_client, barcodes):
+    csrf = app_client.cookies.get("csrf_token") or "dummy"
+    return app_client.post("/cosmetic/final-qc/move-failed", data={
+        "csrf_token": csrf, "barcodes": ",".join(barcodes),
+    })
+
+
+def test_devices_failed_table_lists_each_tag_as_its_own_row_with_move_button(app_client, make_user):  # noqa: F811
     suffix = uuid.uuid4().hex[:6]
     barcode = f"ITFQCTBL{suffix}"
     bucket_name = f"ITestTblBkt{suffix}"
@@ -149,129 +159,141 @@ def test_devices_failed_table_shows_assign_button_and_l1l2_engineer_panel(app_cl
         _submit_fail(app_client, barcode, "Hardware", bucket_name)
 
         html = app_client.get("/cosmetic/final_qc", follow_redirects=True).text
-        assert 'class="fqc-assign-bkt"' in html or "fqc-assign-bkt" in html
-        assert "Move to Production" not in html
-        assert "L1/L2 Engineer:" in html
+        assert 'id="fqcFailedSearch"' in html
+        assert 'id="fqcBulkMoveBtn"' in html
+        assert 'class="fqc-failed-check"' in html
+        assert 'class="btn btn-sm btn-primary fqc-move-one"' in html
+        assert ">Move<" in html
+        assert 'id="fqcAssignBktModal"' not in html
+        assert 'class="fqc-assign-bkt' not in html
+        assert barcode in html
+        assert bucket_name in html
     finally:
         _cleanup_device(barcode)
 
 
-def test_assign_modal_l1l2_repair_requires_engineer_and_moves_to_l1(app_client, make_user):  # noqa: F811
+def test_move_hardware_reason_goes_to_l1_with_resolved_engineer(app_client, make_user):  # noqa: F811
     suffix = uuid.uuid4().hex[:6]
-    barcode = f"ITASGL1{suffix}"
-    bucket_name = f"ITestAsgL1{suffix}"
+    barcode = f"ITMVL1{suffix}"
+    bucket_name = f"ITestMvL1{suffix}"
     eng_username, _ = make_user("l1_engineer")
 
     _seed_device_at_final_qc(barcode)
+    _seed_workorder(barcode, "l1", eng_username)
     admin_username, admin_password = make_user("admin")
     _login(app_client, admin_username, admin_password)
-    csrf = app_client.cookies.get("csrf_token") or "dummy"
     try:
         _submit_fail(app_client, barcode, "Hardware", bucket_name)
-        info = _bucket_id_and_state(barcode)
 
-        eng_id = _run(f"""
-import asyncio, sys
-sys.path.insert(0, r"{ROOT}")
-from sqlalchemy import select
-from database import AsyncSessionLocal
-from models.user import User
-
-async def main():
-    async with AsyncSessionLocal() as db:
-        u = (await db.execute(select(User).where(User.username == "{eng_username}"))).scalar_one()
-        print(u.id)
-
-asyncio.run(main())
-""")
-        r = app_client.post(f"/buckets/{info['bucket_id']}/assign", data={
-            "csrf_token": csrf, "department": "L1/L2 Repair", "assigned_user_id": eng_id,
-        })
+        r = _move_failed(app_client, [barcode])
         assert r.status_code == 200, r.text[:400]
-        assert r.json()["ok"] is True
+        body = r.json()
+        assert body["moved"] == [barcode]
+        assert body["skipped"] == []
 
-        after = _bucket_id_and_state(barcode)
+        after = _device_state(barcode)
         assert after["stage"] == "l1"
         assert after["assigned_username"] == eng_username
     finally:
         _cleanup_device(barcode)
 
 
-def test_assign_modal_qc_or_stress_moves_to_stress_test_engineer_optional(app_client, make_user):  # noqa: F811
+def test_move_software_reason_goes_to_stress_test_engineer_optional(app_client, make_user):  # noqa: F811
     suffix = uuid.uuid4().hex[:6]
-    barcode = f"ITASGQC{suffix}"
-    bucket_name = f"ITestAsgQC{suffix}"
+    barcode = f"ITMVQC{suffix}"
+    bucket_name = f"ITestMvQC{suffix}"
 
     _seed_device_at_final_qc(barcode)
     admin_username, admin_password = make_user("admin")
     _login(app_client, admin_username, admin_password)
-    csrf = app_client.cookies.get("csrf_token") or "dummy"
     try:
         _submit_fail(app_client, barcode, "Software", bucket_name)
-        info = _bucket_id_and_state(barcode)
 
-        r = app_client.post(f"/buckets/{info['bucket_id']}/assign", data={
-            "csrf_token": csrf, "department": "Stress Test",
-        })
+        r = _move_failed(app_client, [barcode])
         assert r.status_code == 200, r.text[:400]
+        assert r.json()["moved"] == [barcode]
 
-        after = _bucket_id_and_state(barcode)
+        after = _device_state(barcode)
         assert after["stage"] == "qc_check"
         assert after["assigned_username"] == "None"
     finally:
         _cleanup_device(barcode)
 
 
-def test_assign_modal_cosmetic_repair_moves_to_cosmetic_received(app_client, make_user):  # noqa: F811
+def test_move_cosmetic_reason_goes_to_cosmetic_received(app_client, make_user):  # noqa: F811
     suffix = uuid.uuid4().hex[:6]
-    barcode = f"ITASGCOS{suffix}"
-    bucket_name = f"ITestAsgCos{suffix}"
+    barcode = f"ITMVCOS{suffix}"
+    bucket_name = f"ITestMvCos{suffix}"
 
     _seed_device_at_final_qc(barcode)
     admin_username, admin_password = make_user("admin")
     _login(app_client, admin_username, admin_password)
-    csrf = app_client.cookies.get("csrf_token") or "dummy"
     try:
         _submit_fail(app_client, barcode, "Cosmetic", bucket_name)
-        info = _bucket_id_and_state(barcode)
 
-        r = app_client.post(f"/buckets/{info['bucket_id']}/assign", data={
-            "csrf_token": csrf, "department": "Cosmetic Repair",
-        })
+        r = _move_failed(app_client, [barcode])
         assert r.status_code == 200, r.text[:400]
+        assert r.json()["moved"] == [barcode]
 
-        after = _bucket_id_and_state(barcode)
+        after = _device_state(barcode)
         assert after["stage"] == "cosmetic_received"
     finally:
         _cleanup_device(barcode)
 
 
-def test_assign_modal_moves_every_tag_in_the_bucket(app_client, make_user):  # noqa: F811
-    """Multiple tags in one bucket — Assign acts on all of them at once."""
+def test_bulk_move_routes_each_tag_independently_even_sharing_a_bucket_name(app_client, make_user):  # noqa: F811
+    """Two tags sharing one Bucket Name but different Failure Reasons — Bulk
+    Move must route each to its OWN destination, unlike the old bucket-wide
+    Assign that moved every tag in a bucket to one shared destination."""
     suffix = uuid.uuid4().hex[:6]
-    barcode_1 = f"ITASGMULTI1{suffix}"
-    barcode_2 = f"ITASGMULTI2{suffix}"
-    bucket_name = f"ITestAsgMulti{suffix}"
+    barcode_1 = f"ITBULK1{suffix}"
+    barcode_2 = f"ITBULK2{suffix}"
+    bucket_name = f"ITestBulk{suffix}"
+    eng_username, _ = make_user("l1_engineer")
 
     _seed_device_at_final_qc(barcode_1)
+    _seed_workorder(barcode_1, "l1", eng_username)
     _seed_device_at_final_qc(barcode_2)
     admin_username, admin_password = make_user("admin")
     _login(app_client, admin_username, admin_password)
-    csrf = app_client.cookies.get("csrf_token") or "dummy"
     try:
-        _submit_fail(app_client, barcode_1, "Software", bucket_name)
-        _submit_fail(app_client, barcode_2, "Hardware", bucket_name)
-        info = _bucket_id_and_state(barcode_1)
-        assert info["bucket_id"] == _bucket_id_and_state(barcode_2)["bucket_id"]
+        _submit_fail(app_client, barcode_1, "Hardware", bucket_name)
+        _submit_fail(app_client, barcode_2, "Software", bucket_name)
 
-        r = app_client.post(f"/buckets/{info['bucket_id']}/assign", data={
-            "csrf_token": csrf, "department": "Stress Test",
-        })
+        r = _move_failed(app_client, [barcode_1, barcode_2])
         assert r.status_code == 200, r.text[:400]
-        assert r.json()["assigned"] == 2
+        body = r.json()
+        assert set(body["moved"]) == {barcode_1, barcode_2}
+        assert body["skipped"] == []
 
-        assert _bucket_id_and_state(barcode_1)["stage"] == "qc_check"
-        assert _bucket_id_and_state(barcode_2)["stage"] == "qc_check"
+        assert _device_state(barcode_1)["stage"] == "l1"
+        assert _device_state(barcode_1)["assigned_username"] == eng_username
+        assert _device_state(barcode_2)["stage"] == "qc_check"
     finally:
         _cleanup_device(barcode_1)
         _cleanup_device(barcode_2)
+
+
+def test_move_skips_tag_no_longer_in_fail_hold_and_reports_it(app_client, make_user):  # noqa: F811
+    suffix = uuid.uuid4().hex[:6]
+    barcode = f"ITMVSKIP{suffix}"
+    bucket_name = f"ITestMvSkip{suffix}"
+
+    _seed_device_at_final_qc(barcode)
+    admin_username, admin_password = make_user("admin")
+    _login(app_client, admin_username, admin_password)
+    try:
+        _submit_fail(app_client, barcode, "Software", bucket_name)
+        first = _move_failed(app_client, [barcode])
+        assert first.json()["moved"] == [barcode]
+
+        # Already moved on to qc_check — a second Move on the same barcode
+        # must be reported as skipped, not silently re-moved or errored.
+        second = _move_failed(app_client, [barcode])
+        assert second.status_code == 200, second.text[:400]
+        body = second.json()
+        assert body["moved"] == []
+        assert len(body["skipped"]) == 1
+        assert body["skipped"][0]["barcode"] == barcode
+    finally:
+        _cleanup_device(barcode)

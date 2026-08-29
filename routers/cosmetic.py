@@ -27,6 +27,7 @@ from models.role_permissions import has_perm
 from models.cosmetic_flow import CosmeticFlowRow
 from utils.attendance_groups import is_group_manager, managed_usernames
 from routers.transfers import _gen_work_id
+from routers.buckets import _apply_department_move
 import uuid as uuid_module
 
 router = APIRouter(prefix="/cosmetic", tags=["cosmetic"], dependencies=[Depends(verify_csrf)])
@@ -242,14 +243,24 @@ async def _move_assignee_pool(db: AsyncSession, current_user: User) -> list:
 
 # Final QC Fail "Devices Failed" — maps each of the 3 qc_failure_reason
 # master-data values to the WorkOrder.stage code that identifies who most
-# recently worked this tag through the stage the reason implies. Purely
-# informational now (the "Engineer Name" column on Devices Failed) — actual
-# routing is a manual pick via the Assign Bucket modal
-# (/buckets/{bucket_id}/assign, same one Production Manager uses).
+# recently worked this tag through the stage the reason implies. Feeds the
+# "Engineer Name" column AND (2026-08-29) is who the per-row "Move" /
+# multi-select "Bulk Move" button hands the tag straight to — no modal.
 FAIL_REASON_SOURCE_STAGE_CODE = {
     "Hardware": "l1",                                          # L1/L2
     "Software": "qc",                                          # Stress Test
     "Cosmetic": MOVE_STAGE_CODE[DeviceStage.cosmetic_completed],  # "comp"
+}
+
+# Same 3 reasons -> the Assign Bucket modal's own department labels
+# (routers/buckets.py DEPT_TO_STAGE / DEPT_TO_ROLE / STAGE_ENUM) so Move /
+# Bulk Move land on the exact same destination stage + WorkOrder role a
+# human picking "L1/L2 Repair" / "QC or Stress" / "Cosmetic Repair" in that
+# modal would have chosen.
+FAIL_REASON_TO_DEPT = {
+    "Hardware": "L1/L2 Repair",
+    "Software": "Stress Test",
+    "Cosmetic": "Cosmetic Repair",
 }
 
 
@@ -317,6 +328,40 @@ async def _bucket_group(db: AsyncSession, stage: DeviceStage, status_val: str):
         g["failure_reason"] = g["failure_reason"] or d.fqc_failure_reason
         g["pass_notes"] = g["pass_notes"] or d.fqc_pass_notes
     return list(grouped.values())
+
+
+async def _failed_device_rows(db: AsyncSession) -> list[dict]:
+    """Devices Failed tab (2026-08-29 redesign) — one row PER TAG, not grouped
+    by bucket: since the bucket-lock removal, one Bucket Name can hold tags
+    with different Failure Reasons and resolved engineers, so a bucket-level
+    row can no longer show a single correct Engineer Name / Failure Reason
+    or be moved as one unit. Feeds the per-row "Move" button, the
+    multi-select "Bulk Move" button, and the Bucket Name/Tag Number search box."""
+    rows = (await db.execute(
+        select(Device).where(
+            Device.current_stage == DeviceStage.final_qc_fail_hold,
+            Device.final_qc_status == "fail",
+            Device.is_active == True,
+        ).order_by(Device.updated_at.desc())
+    )).scalars().all()
+    bucket_ids = {d.bucket_id for d in rows if d.bucket_id}
+    buckets_by_id = {}
+    if bucket_ids:
+        b_rows = (await db.execute(select(Bucket).where(Bucket.id.in_(bucket_ids)))).scalars().all()
+        buckets_by_id = {b.id: b for b in b_rows}
+    out = []
+    for d in rows:
+        b = buckets_by_id.get(d.bucket_id)
+        reason = (d.fqc_failure_reason or "").strip()
+        engineer_info = await _resolve_fail_engineer(db, d.id, reason)
+        out.append({
+            "device_id": str(d.id), "barcode": d.barcode,
+            "bucket_name": (b.name or b.bucket_number) if b else None,
+            "bucket_number": b.bucket_number if b else None,
+            "failure_reason": reason or None,
+            "engineer_name": engineer_info["name"] if engineer_info else None,
+        })
+    return out
 
 
 @router.get("", response_class=HTMLResponse)
@@ -608,7 +653,7 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
             bucket_name_map = {str(d.id): bname_by_id.get(d.bucket_id, "") for d, _ in devices if d.bucket_id}
 
         passed_buckets = await _bucket_group(db, DeviceStage.final_qc_pass_hold, "pass")
-        failed_buckets = await _bucket_group(db, DeviceStage.final_qc_fail_hold, "fail")
+        failed_devices = await _failed_device_rows(db)
 
         # ── Most recent L1/L2 Engineer per device — shown next to Lot Number
         # in each device's header card so whoever's deciding Fail can see who
@@ -648,7 +693,7 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
             "l1l2_engineer_map": l1l2_engineer_map,
             "pipeline": COSMETIC_NAV_STAGES, "stage_labels": STAGE_LABELS,
             "bucket_name_map": bucket_name_map,
-            "passed_buckets": passed_buckets, "failed_buckets": failed_buckets,
+            "passed_buckets": passed_buckets, "failed_devices": failed_devices,
         })
 
     # ── Most recent L1/L2 Engineer per device, for the "L1/L2 Engineer" column
@@ -1077,6 +1122,64 @@ async def fqc_pick(
     )
     await db.commit()
     return JSONResponse({"ok": True, "work_id": work_id})
+
+
+@router.post("/final-qc/move-failed")
+async def fqc_move_failed(
+    barcodes: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Devices Failed tab's per-row "Move" and multi-select "Bulk Move" both
+    post here — Move sends one barcode, Bulk Move sends the checked ones
+    comma-joined. Each tag's OWN Failure Reason picks its destination
+    (FAIL_REASON_TO_DEPT: Hardware -> L1/L2 Repair, Software -> Stress Test,
+    Cosmetic -> Cosmetic Repair) and its OWN resolved Engineer Name (same
+    lookup that fills the table's Engineer Name column, _resolve_fail_engineer)
+    is who it's handed to — no modal, no manual picks, and (unlike the old
+    bucket-wide Assign) two tags sharing a Bucket Name but different Failure
+    Reasons route independently. A tag no longer sitting in Fail Hold, or
+    with no recognized Failure Reason, is skipped and reported back rather
+    than failing the whole batch."""
+    role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    if not has_perm(role_val, "cosmetic_finalqc", "edit"):
+        raise HTTPException(403, f"Your role ({role_val}) does not have 'edit' permission for the cosmetic_finalqc module.")
+
+    codes = [b.strip() for b in barcodes.split(",") if b.strip()]
+    if not codes:
+        raise HTTPException(400, "No tags selected.")
+
+    devices = (await db.execute(
+        select(Device).where(Device.barcode.in_(codes))
+    )).scalars().all()
+    by_barcode = {d.barcode: d for d in devices}
+
+    moved, skipped = [], []
+    for code in codes:
+        device = by_barcode.get(code)
+        if not device or device.current_stage != DeviceStage.final_qc_fail_hold:
+            skipped.append({"barcode": code, "reason": "No longer awaiting Final QC Fail routing."})
+            continue
+        reason = (device.fqc_failure_reason or "").strip()
+        department = FAIL_REASON_TO_DEPT.get(reason)
+        if not department:
+            skipped.append({"barcode": code, "reason": "No recognized Failure Reason to route by."})
+            continue
+        engineer_info = await _resolve_fail_engineer(db, device.id, reason)
+        engineer = None
+        if engineer_info and engineer_info.get("user_id"):
+            engineer = (await db.execute(
+                select(User).where(User.id == engineer_info["user_id"], User.status == True)
+            )).scalar_one_or_none()
+        moved_ok = await _apply_department_move(db, device, department, engineer, current_user)
+        if moved_ok:
+            moved.append(code)
+        else:
+            skipped.append({"barcode": code, "reason": "Could not resolve a destination stage."})
+
+    if moved:
+        await db.commit()
+    return JSONResponse({"ok": True, "moved": moved, "skipped": skipped})
 
 
 @router.post("/final-qc/move-to-inventory/{bucket_id}")

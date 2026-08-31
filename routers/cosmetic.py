@@ -129,6 +129,7 @@ ASSIGN_ON_MOVE_STAGES = set(PERM_MODULE_BY_STAGE.keys())
 # Received/Completed are excluded (not asked for; they already have their own
 # per-row Move/Fail assignment flows).
 BULK_ASSIGN_STAGES = {
+    DeviceStage.cosmetic_received,
     DeviceStage.cleaning, DeviceStage.putty, DeviceStage.dry_sanding,
     DeviceStage.masking, DeviceStage.painting, DeviceStage.water_sanding,
 }
@@ -360,6 +361,7 @@ async def _failed_device_rows(db: AsyncSession) -> list[dict]:
             "bucket_number": b.bucket_number if b else None,
             "failure_reason": reason or None,
             "engineer_name": engineer_info["name"] if engineer_info else None,
+            "final_notes": d.fqc_final_notes,
         })
     return out
 
@@ -905,9 +907,10 @@ async def advance_stage(
                         bkt.fail_engineer_name = engineer_info["name"]
 
             # Hold here instead of auto-advancing to Cleaning — the device now
-            # sits in the "Devices Failed" table until a human clicks "Assign"
-            # (Assign Bucket modal, same as Production Manager's Repair Line).
+            # sits in the "Devices Failed" table until a human clicks "Move"
+            # (or "Bulk Move") — see fqc_move_failed below.
             device.fqc_failure_reason = resolved_reason
+            device.fqc_final_notes = (notes or "").strip() or None
             device.current_stage = DeviceStage.final_qc_fail_hold
             device.updated_at = app_now()
             movement = StageMovement(
@@ -1134,13 +1137,17 @@ async def fqc_move_failed(
     post here — Move sends one barcode, Bulk Move sends the checked ones
     comma-joined. Each tag's OWN Failure Reason picks its destination
     (FAIL_REASON_TO_DEPT: Hardware -> L1/L2 Repair, Software -> Stress Test,
-    Cosmetic -> Cosmetic Repair) and its OWN resolved Engineer Name (same
-    lookup that fills the table's Engineer Name column, _resolve_fail_engineer)
-    is who it's handed to — no modal, no manual picks, and (unlike the old
-    bucket-wide Assign) two tags sharing a Bucket Name but different Failure
-    Reasons route independently. A tag no longer sitting in Fail Hold, or
-    with no recognized Failure Reason, is skipped and reported back rather
-    than failing the whole batch."""
+    Cosmetic -> Cosmetic Repair):
+
+     - Engineer Name resolved (same lookup that fills the table's column,
+       _resolve_fail_engineer) -> routes straight to that person, no modal.
+     - Engineer Name blank (any reason) -> no one to hand it to, so instead
+       of moving it into a stage with no owner it's parked in Production
+       Manager's Tag Number Allocation queue (DeviceStage.trc_production)
+       for manual allocation.
+
+    A tag no longer sitting in Fail Hold, or with no recognized Failure
+    Reason, is skipped and reported back rather than failing the whole batch."""
     role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
     if not has_perm(role_val, "cosmetic_finalqc", "edit"):
         raise HTTPException(403, f"Your role ({role_val}) does not have 'edit' permission for the cosmetic_finalqc module.")
@@ -1165,12 +1172,28 @@ async def fqc_move_failed(
         if not department:
             skipped.append({"barcode": code, "reason": "No recognized Failure Reason to route by."})
             continue
+
         engineer_info = await _resolve_fail_engineer(db, device.id, reason)
         engineer = None
         if engineer_info and engineer_info.get("user_id"):
             engineer = (await db.execute(
                 select(User).where(User.id == engineer_info["user_id"], User.status == True)
             )).scalar_one_or_none()
+
+        if not engineer:
+            # Nobody resolved to hand it to — park it in Production
+            # Manager's Tag Number Allocation queue instead of moving it to
+            # a stage with no owner.
+            device.current_stage = DeviceStage.trc_production
+            device.updated_at = app_now()
+            db.add(StageMovement(
+                device_id=device.id, from_stage=DeviceStage.final_qc_fail_hold,
+                to_stage=DeviceStage.trc_production, moved_by=current_user.username,
+                notes=f"Final QC Fail — {reason}: no engineer resolved, sent to Tag Number Allocation",
+            ))
+            moved.append(code)
+            continue
+
         moved_ok = await _apply_department_move(db, device, department, engineer, current_user)
         if moved_ok:
             moved.append(code)

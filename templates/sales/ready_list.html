@@ -448,7 +448,6 @@ document.getElementById('bulkTagBtn').addEventListener('click', async function()
       if (!tags || !tags.length) return '';
       return '<div class="mt-1"><span class="fw-semibold">' + label + ':</span> <span class="font-monospace">' + tags.join(', ') + '</span></div>';
     }
-    detail += list('Not selectable', noCheckbox);
     detail += list('Not found', d.not_found);
     detail += list('Not ready to sale', d.not_ready);
     detail += list('Row errors', d.errors);

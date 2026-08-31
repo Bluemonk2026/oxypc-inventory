@@ -198,7 +198,7 @@ def test_bulk_assign_skips_tags_no_longer_on_a_bulk_assign_stage(app_client, mak
     barcode_ok = f"ITBASKIPOK{suffix}"
     barcode_moved = f"ITBASKIPMOVED{suffix}"
     _seed_device_at("cleaning", barcode_ok)
-    _seed_device_at("cosmetic_received", barcode_moved)  # not a BULK_ASSIGN_STAGES member
+    _seed_device_at("cosmetic_completed", barcode_moved)  # not a BULK_ASSIGN_STAGES member
     try:
         username, password = make_user("admin")
         eng_username, _ = make_user("cosmetic_manager")

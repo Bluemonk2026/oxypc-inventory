@@ -140,6 +140,7 @@ class Device(Base):
     final_qc_status = Column(String(10), nullable=True, index=True)  # "pass" / "fail" — set on Final QC decision
     fqc_failure_reason = Column(Text, nullable=True)  # set when final_qc_status="fail"; shown on Devices Failed / Final QC Fail (Bucket) tables
     fqc_pass_notes = Column(Text, nullable=True)      # set when final_qc_status="pass"; shown on Devices Passed table
+    fqc_final_notes = Column(Text, nullable=True)     # raw "Final Notes" field from the Final QC fail form; shown as its own column on Devices Failed
     current_stage = Column(SAEnum(DeviceStage), nullable=False, default=DeviceStage.iqc, index=True)
     floor = Column(String(50), nullable=True)          # holds the Zone value (ZoneType) selected on IQC/Edit
     warehouse = Column(String(100), nullable=True)     # legacy free-text; now best-effort mirrors location display_name

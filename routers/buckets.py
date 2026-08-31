@@ -49,6 +49,19 @@ DEPT_TO_ROLE = {
 STAGE_ENUM = {"l1": DeviceStage.l1, "qc_check": DeviceStage.qc_check, "cleaning": DeviceStage.cleaning,
               "cosmetic_received": DeviceStage.cosmetic_received}
 
+# WorkOrder.stage is VARCHAR(5) (models/work_order.py) — DEPT_TO_STAGE's own
+# values ("qc_check", "cosmetic_received") are the DeviceStage/STAGE_ENUM key,
+# not a storable WorkOrder code, and are too long to write there directly
+# (silent DBAPIError: StringDataRightTruncationError the first time an
+# engineer is actually attached to a Stress Test / Cosmetic Repair move).
+# Reuses the same short codes routers/cosmetic.py already writes/reads for
+# these same destinations (MOVE_STAGE_CODE / FAIL_REASON_SOURCE_STAGE_CODE)
+# so a WorkID looks the same regardless of which flow created it.
+DEPT_TO_WO_STAGE_CODE = {
+    "L1 Engineer": "l1", "L2 Engineer": "l1",
+    "L1/L2 Repair": "l1", "Stress Test": "qc", "Cosmetic Repair": "recv",
+}
+
 
 async def _gen_work_id(db: AsyncSession) -> str:
     base = (await db.execute(select(func.count(WorkOrder.id)))).scalar() or 0
@@ -563,7 +576,8 @@ async def _apply_department_move(
         work_id = await _gen_work_id(db)
         db.add(WorkOrder(
             work_id=work_id, device_id=device.id, barcode=device.barcode,
-            stage=target_stage, assigned_role=DEPT_TO_ROLE.get(department),
+            stage=DEPT_TO_WO_STAGE_CODE.get(department, target_stage[:5]),
+            assigned_role=DEPT_TO_ROLE.get(department),
             assigned_user_id=engineer.id, assigned_username=engineer.username,
             assigned_name=engineer.full_name, status="pending",
             source_transfer_id=transfer.id, created_by=current_user.username,

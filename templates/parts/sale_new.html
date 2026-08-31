@@ -72,10 +72,7 @@
             <div class="col-md-3">
               <label class="form-label fw-semibold">Payment Mode</label>
               <select name="payment_mode" class="form-select">
-                <option value="cash">Cash</option>
-                <option value="upi">UPI</option>
-                <option value="card">Card</option>
-                <option value="credit">Credit</option>
+                {% for p in master_options('payment_mode') %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
               </select>
             </div>
             <div class="col-md-3">

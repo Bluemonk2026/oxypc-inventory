@@ -251,8 +251,14 @@ async def grn_map(request: Request, grn_id: str = Form(...),
     moved = 0
     for d in devices:
         d.grn_number = g.grn_number
-        # Mapping a GRN here means the tag is now OxyPC Computers' own stock.
-        d.entity = "OxyPC Computers"
+        # Default new/legacy tags with no Entity yet to OxyPC Computers' own
+        # stock — but never overwrite one that's already set. A tag re-
+        # entering IQC after Entity Movement's "SOLD TO" change (which
+        # deliberately set it to a different entity and cleared its GRN
+        # number so it must be re-mapped here) would otherwise have that
+        # change silently reverted the moment it's mapped to a GRN again.
+        if not d.entity:
+            d.entity = "OxyPC Computers"
         # After GRN mapping the tag leaves IQC and enters the Stock Inward table
         if d.current_stage == DeviceStage.iqc:
             prev = (await db.execute(

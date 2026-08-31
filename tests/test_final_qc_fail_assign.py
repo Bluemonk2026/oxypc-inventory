@@ -4,17 +4,22 @@
    bucket-lock removal, a Bucket Name can hold tags with different Failure
    Reasons / resolved engineers, so a bucket-level row can't show a single
    correct Engineer Name or be moved as one unit any more.
+ - A "Final Notes" column shows the raw Final Notes text from the Final QC
+   fail form (Device.fqc_final_notes).
  - The per-row button is "Move" (renamed from "Assign") — no modal. It posts
    the tag's own barcode to /cosmetic/final-qc/move-failed, which routes by
    the tag's OWN Failure Reason (Hardware -> L1/L2 Repair, Software ->
    Stress Test, Cosmetic -> Cosmetic Repair) and hands it to the tag's OWN
    resolved Engineer Name (same lookup that fills the table's Engineer Name
-   column) — engineer is optional (a tag with no resolvable history just
-   moves stage, unassigned).
+   column). A blank Engineer Name (any reason) has nobody to hand the tag
+   to, so it's parked in Production Manager's Tag Number Allocation queue
+   (DeviceStage.trc_production) instead of moving to a stage with no owner.
  - "Bulk Move" posts the same endpoint with every checked barcode
    comma-joined — each tag still routes independently by its own reason,
    even when two checked tags share a Bucket Name but different reasons.
- - A search box filters rows by Bucket Name or Tag Number (client-side).
+ - A search box filters rows by Bucket Name or Tag Number, and a "No
+   Engineer" checkbox filters to rows with a blank Engineer Name (both
+   client-side).
 """
 import pathlib
 import subprocess
@@ -129,11 +134,11 @@ asyncio.run(main())
     return dict(l.split("=", 1) for l in out.splitlines() if "=" in l)
 
 
-def _submit_fail(app_client, barcode, failure_reason, bucket_name):
+def _submit_fail(app_client, barcode, failure_reason, bucket_name, notes=""):
     csrf = app_client.cookies.get("csrf_token") or "dummy"
     r = app_client.post("/cosmetic/advance", data={
         "csrf_token": csrf, "barcode": barcode, "final_qc_status": "fail",
-        "failure_reason": failure_reason, "bucket_name": bucket_name,
+        "failure_reason": failure_reason, "bucket_name": bucket_name, "notes": notes,
     }, follow_redirects=False)
     assert r.status_code == 302, r.text[:400]
 
@@ -156,14 +161,17 @@ def test_devices_failed_table_lists_each_tag_as_its_own_row_with_move_button(app
     admin_username, admin_password = make_user("admin")
     _login(app_client, admin_username, admin_password)
     try:
-        _submit_fail(app_client, barcode, "Hardware", bucket_name)
+        _submit_fail(app_client, barcode, "Hardware", bucket_name, notes="Cracked hinge, keeps rebooting")
 
         html = app_client.get("/cosmetic/final_qc", follow_redirects=True).text
         assert 'id="fqcFailedSearch"' in html
+        assert 'id="fqcNoEngineerFilter"' in html
         assert 'id="fqcBulkMoveBtn"' in html
         assert 'class="fqc-failed-check"' in html
         assert 'class="btn btn-sm btn-primary fqc-move-one"' in html
         assert ">Move<" in html
+        assert ">Final Notes<" in html
+        assert "Cracked hinge, keeps rebooting" in html
         assert 'id="fqcAssignBktModal"' not in html
         assert 'class="fqc-assign-bkt' not in html
         assert barcode in html
@@ -198,10 +206,62 @@ def test_move_hardware_reason_goes_to_l1_with_resolved_engineer(app_client, make
         _cleanup_device(barcode)
 
 
-def test_move_software_reason_goes_to_stress_test_engineer_optional(app_client, make_user):  # noqa: F811
+def test_move_software_reason_goes_to_stress_test_when_engineer_resolved(app_client, make_user):  # noqa: F811
     suffix = uuid.uuid4().hex[:6]
     barcode = f"ITMVQC{suffix}"
     bucket_name = f"ITestMvQC{suffix}"
+    eng_username, _ = make_user("qc_inspector")
+
+    _seed_device_at_final_qc(barcode)
+    _seed_workorder(barcode, "qc", eng_username)
+    admin_username, admin_password = make_user("admin")
+    _login(app_client, admin_username, admin_password)
+    try:
+        _submit_fail(app_client, barcode, "Software", bucket_name)
+
+        r = _move_failed(app_client, [barcode])
+        assert r.status_code == 200, r.text[:400]
+        assert r.json()["moved"] == [barcode]
+
+        after = _device_state(barcode)
+        assert after["stage"] == "qc_check"
+        assert after["assigned_username"] == eng_username
+    finally:
+        _cleanup_device(barcode)
+
+
+def test_move_cosmetic_reason_goes_to_cosmetic_received_when_engineer_resolved(app_client, make_user):  # noqa: F811
+    suffix = uuid.uuid4().hex[:6]
+    barcode = f"ITMVCOS{suffix}"
+    bucket_name = f"ITestMvCos{suffix}"
+    eng_username, _ = make_user("cosmetic_manager")
+
+    _seed_device_at_final_qc(barcode)
+    _seed_workorder(barcode, "comp", eng_username)
+    admin_username, admin_password = make_user("admin")
+    _login(app_client, admin_username, admin_password)
+    try:
+        _submit_fail(app_client, barcode, "Cosmetic", bucket_name)
+
+        r = _move_failed(app_client, [barcode])
+        assert r.status_code == 200, r.text[:400]
+        assert r.json()["moved"] == [barcode]
+
+        after = _device_state(barcode)
+        assert after["stage"] == "cosmetic_received"
+        assert after["assigned_username"] == eng_username
+    finally:
+        _cleanup_device(barcode)
+
+
+def test_move_software_blank_engineer_parks_in_trc_production(app_client, make_user):  # noqa: F811
+    """Software (or Cosmetic) with no resolvable Engineer Name has nobody to
+    hand the tag to — Move parks it in Production Manager's Tag Number
+    Allocation queue (trc_production) instead of moving it to a stage with
+    no owner."""
+    suffix = uuid.uuid4().hex[:6]
+    barcode = f"ITMVNOENG{suffix}"
+    bucket_name = f"ITestMvNoEng{suffix}"
 
     _seed_device_at_final_qc(barcode)
     admin_username, admin_password = make_user("admin")
@@ -214,29 +274,30 @@ def test_move_software_reason_goes_to_stress_test_engineer_optional(app_client, 
         assert r.json()["moved"] == [barcode]
 
         after = _device_state(barcode)
-        assert after["stage"] == "qc_check"
-        assert after["assigned_username"] == "None"
+        assert after["stage"] == "trc_production"
     finally:
         _cleanup_device(barcode)
 
 
-def test_move_cosmetic_reason_goes_to_cosmetic_received(app_client, make_user):  # noqa: F811
+def test_move_hardware_blank_engineer_also_parks_in_trc_production(app_client, make_user):  # noqa: F811
+    """No special-case modal for Hardware — a blank Engineer Name routes to
+    Tag Number Allocation regardless of Failure Reason."""
     suffix = uuid.uuid4().hex[:6]
-    barcode = f"ITMVCOS{suffix}"
-    bucket_name = f"ITestMvCos{suffix}"
+    barcode = f"ITMVHWNOENG{suffix}"
+    bucket_name = f"ITestMvHwNoEng{suffix}"
 
     _seed_device_at_final_qc(barcode)
     admin_username, admin_password = make_user("admin")
     _login(app_client, admin_username, admin_password)
     try:
-        _submit_fail(app_client, barcode, "Cosmetic", bucket_name)
+        _submit_fail(app_client, barcode, "Hardware", bucket_name)
 
         r = _move_failed(app_client, [barcode])
         assert r.status_code == 200, r.text[:400]
         assert r.json()["moved"] == [barcode]
 
         after = _device_state(barcode)
-        assert after["stage"] == "cosmetic_received"
+        assert after["stage"] == "trc_production"
     finally:
         _cleanup_device(barcode)
 
@@ -268,7 +329,10 @@ def test_bulk_move_routes_each_tag_independently_even_sharing_a_bucket_name(app_
 
         assert _device_state(barcode_1)["stage"] == "l1"
         assert _device_state(barcode_1)["assigned_username"] == eng_username
-        assert _device_state(barcode_2)["stage"] == "qc_check"
+        # barcode_2 (Software, no resolvable engineer) parks in Production
+        # Manager's Tag Number Allocation queue — a different destination
+        # from barcode_1, proving each tag routes independently.
+        assert _device_state(barcode_2)["stage"] == "trc_production"
     finally:
         _cleanup_device(barcode_1)
         _cleanup_device(barcode_2)

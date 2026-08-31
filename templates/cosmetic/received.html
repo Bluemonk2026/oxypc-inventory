@@ -33,6 +33,7 @@
         <table id="cosmeticReceivedTable" class="table table-hover mb-0 small">
           <thead class="table-dark">
             <tr>
+              {% if current_user.role.value == 'admin' %}<th><input type="checkbox" id="cosmeticRecvSelectAll" title="Select all"></th>{% endif %}
               <th>WorkID</th><th>Tag Number</th><th>L1/L2 Engineer</th><th>Lot</th><th>Grade</th>
               <th>Brand</th><th>Model</th><th>Aging</th><th>Assigned to</th>
               <th>Assigned Date</th><th>Action</th>
@@ -42,6 +43,9 @@
             {% for device, lot_number in devices %}
             {% set wo = workid_map.get(device.id|string) %}
             <tr>
+              {% if current_user.role.value == 'admin' %}
+              <td><input type="checkbox" class="cosmeticRecvRowCheck" value="{{ device.barcode }}"></td>
+              {% endif %}
               <td>{% if wo %}<code class="small">{{ wo.work_id }}</code>{% else %}—{% endif %}</td>
               <td><code>{{ device.barcode }}</code></td>
               <td class="text-muted small">{{ l1l2_engineer_map.get(device.id|string, '—') }}</td>
@@ -150,6 +154,43 @@
     </div>
   </div>
 </div>
+{% if current_user.role.value == 'admin' %}
+{# ── Bulk Assign (admin only): pick a batch of checked tags, assign them all
+     to one user — a pure reassignment at their CURRENT stage (no stage
+     change), each getting its own fresh WorkID. Same mechanism as the 6
+     mid-pipeline pages (templates/cosmetic/stage.html), posting to the same
+     /cosmetic/bulk-assign endpoint. #}
+<div class="modal fade" id="cosmeticRecvAssignModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-person-check-fill text-primary me-2"></i>Assign Selected Tags</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-3"><span id="cosmeticRecvAssignCount">0</span> tag(s) selected</p>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Assign to</label>
+          <select id="cosmeticRecvAssignEngineerSelect" class="form-select form-select-sm">
+            <option value="">— Select User —</option>
+            {% for u in move_pool %}
+            <option value="{{ u.id }}">{{ u.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">Notes</label>
+          <textarea id="cosmeticRecvAssignNotes" class="form-control form-control-sm" rows="2" placeholder="Optional notes"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="cosmeticRecvAssignSubmitBtn" class="btn btn-primary btn-sm" onclick="submitCosmeticRecvBulkAssign()">Assign</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
@@ -259,8 +300,10 @@ async function submitCosmeticFail() {
 }
 
 $(document).ready(function(){
+  // The checkbox column (admin only) shifts every later column index by one.
+  var orderCol = {{ 2 if current_user.role.value == 'admin' else 1 }};
   var dt = $('#cosmeticReceivedTable').DataTable({
-    pageLength: 12, order: [[1, 'asc']],
+    pageLength: 12, order: [[orderCol, 'asc']],
     initComplete: function() {
       // Table-count badge next to DataTables' own "Show N entries" control —
       // updates on every draw (see drawCallback) so it tracks whatever
@@ -268,6 +311,12 @@ $(document).ready(function(){
       var badge = $('<span id="cosmeticCountBadge" class="badge bg-warning text-dark ms-2"></span>');
       $(this.api().table().container()).find('.dataTables_length').append(badge);
       updateCosmeticCountBadge(this.api());
+      {% if current_user.role.value == 'admin' %}
+      var btn = $('<button type="button" id="cosmeticRecvAssignBtn" class="btn btn-sm btn-primary me-2" disabled>' +
+                  '<i class="bi bi-person-check me-1"></i>Assign</button>');
+      btn.on('click', openCosmeticRecvBulkAssignModal);
+      $(this.api().table().container()).find('.dataTables_filter').prepend(btn);
+      {% endif %}
     },
     drawCallback: function() { updateCosmeticCountBadge(this.api()); },
   });
@@ -276,6 +325,61 @@ $(document).ready(function(){
     var info = (api || dt).page.info();
     $('#cosmeticCountBadge').text(info.recordsDisplay + ' tag' + (info.recordsDisplay === 1 ? '' : 's'));
   }
+
+  {% if current_user.role.value == 'admin' %}
+  $('#cosmeticRecvSelectAll').on('change', function() {
+    $('.cosmeticRecvRowCheck').prop('checked', $(this).prop('checked'));
+    updateCosmeticRecvAssignButtonState();
+  });
+  $(document).on('change', '.cosmeticRecvRowCheck', function() {
+    if (!$(this).prop('checked')) $('#cosmeticRecvSelectAll').prop('checked', false);
+    updateCosmeticRecvAssignButtonState();
+  });
+  {% endif %}
 })
+
+function updateCosmeticRecvAssignButtonState() {
+  var checked = $('.cosmeticRecvRowCheck:checked').length;
+  $('#cosmeticRecvAssignBtn').prop('disabled', checked === 0);
+}
+
+function openCosmeticRecvBulkAssignModal() {
+  var checked = $('.cosmeticRecvRowCheck:checked');
+  if (!checked.length) return;
+  document.getElementById('cosmeticRecvAssignCount').textContent = checked.length;
+  document.getElementById('cosmeticRecvAssignEngineerSelect').value = '';
+  document.getElementById('cosmeticRecvAssignNotes').value = '';
+  new bootstrap.Modal(document.getElementById('cosmeticRecvAssignModal')).show();
+}
+
+async function submitCosmeticRecvBulkAssign() {
+  var barcodes = $('.cosmeticRecvRowCheck:checked').map(function() { return this.value; }).get();
+  if (!barcodes.length) return;
+  var engineerId = document.getElementById('cosmeticRecvAssignEngineerSelect').value;
+  if (!engineerId) { alert('Please select a user'); return; }
+  var notes = document.getElementById('cosmeticRecvAssignNotes').value;
+  var btn = document.getElementById('cosmeticRecvAssignSubmitBtn');
+  btn.disabled = true;
+  try {
+    var r = await fetch('/cosmetic/bulk-assign', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF},
+      body: 'barcodes=' + encodeURIComponent(barcodes.join(',')) +
+            '&engineer_user_id=' + encodeURIComponent(engineerId) +
+            '&notes=' + encodeURIComponent(notes) +
+            '&csrf_token=' + encodeURIComponent(CSRF),
+    });
+    if (!r.ok) {
+      var text = await r.text().catch(function() { return ''; });
+      alert('Failed to assign' + (text ? ': ' + text.slice(0, 200) : ''));
+      btn.disabled = false;
+      return;
+    }
+    window.location.reload();
+  } catch (e) {
+    alert('Network error: ' + e.message);
+    btn.disabled = false;
+  }
+}
 </script>
 {% endblock %}

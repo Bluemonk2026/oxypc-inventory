@@ -23,6 +23,11 @@ from auth.dependencies import get_current_user
 
 router = APIRouter(tags=["workid_status"])
 
+# Cosmetic-line stages selectable in the "Cosmetic Stage" filter — same set
+# routers/cosmetic.py's own nav bar uses (COSMETIC_NAV_STAGES), imported
+# directly rather than duplicated so the two stay in lockstep.
+from routers.cosmetic import COSMETIC_NAV_STAGES
+
 
 def _parse_date(s):
     if not s:
@@ -43,6 +48,9 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
                         engineer: str = Query(default=""),
                         date_from: str = Query(default=""),
                         date_to: str = Query(default=""),
+                        completed_from: str = Query(default=""),
+                        completed_to: str = Query(default=""),
+                        cosmetic_stage: str = Query(default=""),
                         highlight: str = Query(default="")):
     # ── Base query: WorkOrders joined to their Device ──────────────────────────
     stmt = (select(WorkOrder, Device)
@@ -62,6 +70,15 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         # include the whole end day
         dt_end = dt.replace(hour=23, minute=59, second=59)
         stmt = stmt.where(WorkOrder.assigned_at <= dt_end)
+    cf = _parse_date(completed_from)
+    ct = _parse_date(completed_to)
+    if cf:
+        stmt = stmt.where(WorkOrder.completed_at >= cf)
+    if ct:
+        ct_end = ct.replace(hour=23, minute=59, second=59)
+        stmt = stmt.where(WorkOrder.completed_at <= ct_end)
+    if cosmetic_stage:
+        stmt = stmt.where(Device.current_stage == cosmetic_stage)
 
     is_admin = current_user.role.value == "admin"
 
@@ -125,6 +142,7 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             "work_id": wo.work_id,
             "barcode": wo.barcode or (dev.barcode if dev else "—"),
             "model": (dev.model or dev.brand) if dev else "—",
+            "brand": (dev.brand if dev else None),
             "stage_label": STAGE_LABELS.get(cur_stage, cur_stage.value if cur_stage else "—"),
             "stage_value": cur_stage.value if cur_stage else "",
             "wo_status": wo.status,
@@ -132,11 +150,28 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             "parts_requested": parts_requested_map.get(did, 0),
             "start": start,
             "finalqc": finalqc_dt,
+            "completed_at": wo.completed_at,
             "days": days,
             "ongoing": finalqc_dt is None,
             "notes": (dev.notes if dev else None),
             "engineer": wo.assigned_name or wo.assigned_username or "—",
         })
+
+    # ── Card Count tiles — computed from the SAME filtered `items` list, so
+    # every filter above (including the new Completed From/To and Cosmetic
+    # Stage) narrows the tiles exactly as it narrows the table. "Assigned"
+    # and "Completed" read WorkOrder.status directly (its own pending/
+    # in_progress/completed values) rather than the page's separate
+    # Final-QC-movement-based "ongoing" concept or completed_at, since those
+    # are three genuinely different signals on this page. ──────────────────
+    tag_count = len({it["barcode"] for it in items if it.get("barcode") and it["barcode"] != "—"})
+    tile_counts = {
+        "total_workids": len(items),
+        "total_tags": tag_count,
+        "total_ongoing": sum(1 for it in items if it["ongoing"]),
+        "total_assigned": sum(1 for it in items if it["wo_status"] == "pending"),
+        "total_completed": sum(1 for it in items if it["wo_status"] == "completed"),
+    }
 
     # Distinct engineers for the filter dropdown.
     #
@@ -162,11 +197,16 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             engineers.append((uname, name or uname))
     engineers.sort(key=lambda kv: kv[1].lower())
 
+    cosmetic_stage_choices = [(s.value, STAGE_LABELS.get(s, s.value)) for s in COSMETIC_NAV_STAGES]
+
     return templates.TemplateResponse("workid_status/list.html", {
         "request": request, "current_user": current_user,
         "items": items, "engineers": engineers, "is_admin": is_admin,
+        "tile_counts": tile_counts, "cosmetic_stage_choices": cosmetic_stage_choices,
         "f_workid": workid, "f_tag": tag, "f_engineer": engineer,
         "f_date_from": date_from, "f_date_to": date_to,
+        "f_completed_from": completed_from, "f_completed_to": completed_to,
+        "f_cosmetic_stage": cosmetic_stage,
         "highlight": highlight,
     })
 
@@ -178,7 +218,10 @@ async def workid_status_export(request: Request, db: AsyncSession = Depends(get_
                                tag: str = Query(default=""),
                                engineer: str = Query(default=""),
                                date_from: str = Query(default=""),
-                               date_to: str = Query(default="")):
+                               date_to: str = Query(default=""),
+                               completed_from: str = Query(default=""),
+                               completed_to: str = Query(default=""),
+                               cosmetic_stage: str = Query(default="")):
     """CSV of exactly the rows the page is showing.
 
     Delegates to the page handler rather than repeating its query, so the
@@ -192,25 +235,27 @@ async def workid_status_export(request: Request, db: AsyncSession = Depends(get_
 
     page = await workid_status(request=request, db=db, current_user=current_user,
                                workid=workid, tag=tag, engineer=engineer,
-                               date_from=date_from, date_to=date_to, highlight="")
+                               date_from=date_from, date_to=date_to,
+                               completed_from=completed_from, completed_to=completed_to,
+                               cosmetic_stage=cosmetic_stage, highlight="")
     items = page.context["items"]
 
     buf = _io.StringIO()
     w = _csv.writer(buf)
-    w.writerow(["WorkID", "Tag Number", "Model", "Current Status",
-                "Parts Required", "Parts Requested", "Assigned Engineer",
-                "Start", "Final QC", "Aging (days)", "Notes"])
+    w.writerow(["WorkID", "Tag Number", "Tag Number Make", "Model", "Current Status",
+                "Assigned Engineer", "Start", "Final QC", "Completed Date",
+                "Aging (days)", "Notes"])
     for it in items:
         w.writerow([
             it.get("work_id") or "",
             it.get("barcode") or "",
+            it.get("brand") or "",
             it.get("model") or "",
             it.get("stage_label") or "",
-            it.get("parts_required", 0),
-            it.get("parts_requested", 0),
             it.get("engineer") or "",
             it["start"].strftime("%d-%m-%Y %H:%M") if it.get("start") else "",
             it["finalqc"].strftime("%d-%m-%Y %H:%M") if it.get("finalqc") else "",
+            it["completed_at"].strftime("%d-%m-%Y %H:%M") if it.get("completed_at") else "",
             it.get("days", ""),
             (it.get("notes") or "").replace("\n", " "),
         ])

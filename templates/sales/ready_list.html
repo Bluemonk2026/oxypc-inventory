@@ -184,6 +184,15 @@
   <input type="hidden" name="qty" value="1">
   <div id="multiRequestBarcodes"></div>
 </form>
+<!-- Multi-sell hidden form: POSTs the selected barcodes (arbitrarily many)
+     to the New Sale prefill route instead of a GET with them crammed into
+     the URL, which could trip a 414 Request-URI Too Large on a large
+     selection. -->
+<form method="post" action="/sales/new/prefill" id="multiSellForm" class="d-none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+  <input type="hidden" name="barcodes" id="multiSellBarcodes">
+  <input type="hidden" name="qty" id="multiSellQty">
+</form>
 
 <!-- Requests for Lot — browse every lot, request or approve/handover -->
 <div class="card border-0 shadow-sm mb-3 mt-3">
@@ -328,12 +337,17 @@ function updateReadySel(){
 // in-page form). Both were fragile: the whole flow hung off JavaScript that,
 // if anything above it threw, left the buttons silently dead. A plain
 // navigation has no such failure mode — the row Sell buttons are ordinary
-// links, and Multi-Sell only needs the selected tags in the query string.
+// links (a single barcode is always short enough for a query string).
+// Multi-Sell's selection can run into the hundreds though, and a GET with
+// all of them crammed into the URL risked a 414 Request-URI Too Large from
+// the web server/proxy — POSTs the selection instead (POST /sales/new/prefill,
+// same prefilled New Sale page, no URL length limit).
 document.getElementById('multiSellBtn').addEventListener('click', function(){
   var bcs = selectedReadyBarcodes();
   if (!bcs.length) return;
-  window.location = '/sales/new?barcodes=' + encodeURIComponent(bcs.join(','))
-                  + '&qty=' + bcs.length;
+  document.getElementById('multiSellBarcodes').value = bcs.join(',');
+  document.getElementById('multiSellQty').value = bcs.length;
+  document.getElementById('multiSellForm').submit();
 });
 
 $('#readyTable').on('change', '.readyChk', function(){

@@ -51,20 +51,6 @@
           <span class="ms-auto small">Grade:
             {% if device.grade %}<span class="badge bg-info text-dark">{{ device.grade.value }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
           </span>
-          {# Self-assign: creates a WorkID for whoever clicks first, no
-             dropdown — see routers/cosmetic.py fqc_pick. Shows up on
-             /workid-status. Once picked, locked for everyone else — the
-             button becomes a disabled "Picked by <name>" instead. #}
-          {% set picked_by = fqc_pick_map.get(device.id|string) %}
-          {% if picked_by %}
-          <button type="button" class="btn btn-sm btn-success" disabled>
-            <i class="bi bi-check2 me-1"></i>Picked by {{ picked_by.name or picked_by.username }}
-          </button>
-          {% else %}
-          <button type="button" class="btn btn-sm btn-outline-primary fqc-pick-btn" data-barcode="{{ device.barcode }}">
-            <i class="bi bi-hand-index-thumb me-1"></i>Pick This
-          </button>
-          {% endif %}
         </div>
       </div>
 
@@ -439,27 +425,5 @@ $(document).on('click', '.fqc-move-inv', function () {
     });
   }
 })();
-// "Pick This" — self-assign, no dropdown. Doesn't reload the page (would
-// lose the currently-selected card) — just flips the button to a confirmed
-// state in place.
-$(document).on('click', '.fqc-pick-btn', function () {
-  var btn = $(this);
-  var barcode = btn.data('barcode');
-  var csrf = "{{ request.cookies.get('csrf_token','') }}";
-  btn.prop('disabled', true);
-  $.post('/cosmetic/final-qc/pick', { barcode: barcode, csrf_token: csrf })
-    .done(function () {
-      btn.removeClass('btn-outline-primary').addClass('btn-success')
-         .html('<i class="bi bi-check2 me-1"></i>Picked by {{ current_user.full_name or current_user.username }}');
-    })
-    .fail(function (xhr) {
-      // Someone else may have picked it in the meantime (the server is the
-      // source of truth on the race) — the alert names them; reload so this
-      // button also flips to the disabled "Picked by <name>" state.
-      alert(xhr.responseJSON && xhr.responseJSON.detail || 'Failed to pick this tag');
-      if (xhr.status === 400) { window.location.reload(); return; }
-      btn.prop('disabled', false);
-    });
-});
 </script>
 {% endblock %}

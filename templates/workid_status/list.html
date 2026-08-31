@@ -126,7 +126,7 @@
         <thead class="table-dark">
           <tr>
             <th>WorkID</th><th>Tag Number</th><th>Model</th><th>Current Status</th>
-            <th>Parts Required</th><th>Parts Requested</th><th>Aging</th><th>Notes</th><th>Assigned Engineer</th>
+            <th>Parts Required</th><th>Parts Requested</th><th>Aging</th><th>Completed Date</th><th>Notes</th><th>Assigned Engineer</th>
           </tr>
         </thead>
         <tbody>
@@ -148,11 +148,18 @@
                 {{ it.days }} day{{ 's' if it.days != 1 else '' }}
               </span>
             </td>
+            <td class="text-nowrap text-muted">
+              {# The stage THIS WorkID represents (Cleaning, Putty, ... whatever
+                 it.stage_label shows) — its own assigned date is the "Start"
+                 column above; this is when the tag actually left that stage,
+                 not when it eventually reached Final QC. #}
+              {{ it.completed_at.strftime('%d-%m-%Y %H:%M') if it.completed_at else '—' }}
+            </td>
             <td class="text-muted">{{ it.notes or '' }}</td>
             <td>{{ it.engineer }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="9" class="text-center text-muted py-4">No WorkIDs found.</td></tr>
+          <tr><td colspan="10" class="text-center text-muted py-4">No WorkIDs found.</td></tr>
           {% endfor %}
         </tbody>
       </table>

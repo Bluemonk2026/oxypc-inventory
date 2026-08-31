@@ -673,25 +673,11 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
             for did, name, _ in l1l2_rows.all():
                 l1l2_engineer_map.setdefault(str(did), name)
 
-        # ── "Pick This" state — whoever picked a tag first locks it; the
-        # button shows "Picked by <name>" (disabled) for everyone else
-        # instead of a clickable "Pick This". See fqc_pick below. ──────────
-        fqc_pick_map: dict[str, dict] = {}
-        if device_ids:
-            pick_rows = await db.execute(
-                select(WorkOrder.device_id, WorkOrder.assigned_name, WorkOrder.assigned_username)
-                .where(WorkOrder.device_id.in_(device_ids), WorkOrder.stage == "fqc",
-                       WorkOrder.status == "pending")
-                .order_by(WorkOrder.assigned_at.desc())
-            )
-            for did, name, uname in pick_rows.all():
-                fqc_pick_map.setdefault(str(did), {"name": name, "username": uname})
-
         return templates.TemplateResponse("cosmetic/final_qc.html", {
             "request": request, "current_user": current_user,
             "stage": stage, "stage_label": STAGE_LABELS[stage],
             "devices": devices, "iqc_map": iqc_map, "repairs_map": repairs_map,
-            "parts_map": parts_map, "price_map": price_map, "fqc_pick_map": fqc_pick_map,
+            "parts_map": parts_map, "price_map": price_map,
             "l1l2_engineer_map": l1l2_engineer_map,
             "pipeline": COSMETIC_NAV_STAGES, "stage_labels": STAGE_LABELS,
             "bucket_name_map": bucket_name_map,
@@ -831,19 +817,30 @@ async def advance_stage(
         if not has_perm(role_val, "cosmetic_finalqc", "edit"):
             raise HTTPException(403, f"Your role ({role_val}) does not have 'edit' permission for the cosmetic_finalqc module.")
 
-        # ── Reset "Pick This" state on exit — a tag leaving Final QC (pass
-        # or fail either way) closes out its "fqc" WorkOrder so a later
-        # return trip (e.g. Assign routes it back through L1/L2 or Stress
-        # Test for rework, then it works its way back to Final QC) shows up
-        # unpicked again for whoever's on shift then — not still "Picked by"
-        # whoever picked it last time. fqc_pick_map/fqc_pick below only ever
-        # look at status == "pending" rows.
+        # ── Auto-attribution (2026-09-01, replaces the old "Pick This"
+        # button): whoever submits this Final QC decision automatically
+        # gets a completed "fqc" WorkID for it, visible on /workid-status
+        # like any other WorkID — no separate claim-then-decide step. This
+        # also retires the class of bug where a tag that left Final QC
+        # through some path other than this one (leaving a stale "pending"
+        # pick behind) would come back still showing "Picked by <name>" for
+        # everyone, with no way to clear it short of that same exit path.
+        # Any leftover pending pick from the old flow is still closed out
+        # here for cleanliness. ──────────────────────────────────────────
         await db.execute(
             update(WorkOrder)
             .where(WorkOrder.device_id == device.id, WorkOrder.stage == "fqc",
                    WorkOrder.status == "pending")
             .values(status="completed", completed_at=app_now())
         )
+        fqc_work_id = await _gen_work_id(db)
+        db.add(WorkOrder(
+            work_id=fqc_work_id, device_id=device.id, barcode=device.barcode,
+            stage=MOVE_STAGE_CODE[DeviceStage.final_qc], assigned_role=role_val,
+            assigned_user_id=current_user.id, assigned_username=current_user.username,
+            assigned_name=current_user.full_name, status="completed",
+            completed_at=app_now(), created_by=current_user.username,
+        ))
 
         # Bucket is a free-text Bucket Name here, not a dropdown of existing
         # buckets — typing a name that doesn't exist yet creates it. Before
@@ -989,6 +986,24 @@ async def advance_stage(
         )
 
     prev = current
+    # ── Close out the ORIGIN stage's own pending WorkOrder (whoever was
+    # assigned to work this device at `prev`) so it gets a Completed Date on
+    # /workid-status — mirrors the closure the Final QC branch above already
+    # does for its own "fqc" WorkOrder. Without this, a mid-pipeline stage's
+    # WorkOrder stayed "pending" forever with no completion time even long
+    # after the tag moved on, so "date completed Cleaning/Putty/…" had
+    # nothing to show. Covers every cosmetic-pipeline stage uniformly since
+    # Final QC's own move never reaches this generic code (it returns
+    # earlier, inside the `if current == DeviceStage.final_qc:` branch). ───
+    prev_stage_code = MOVE_STAGE_CODE.get(prev)
+    if prev_stage_code:
+        await db.execute(
+            update(WorkOrder)
+            .where(WorkOrder.device_id == device.id, WorkOrder.stage == prev_stage_code,
+                   WorkOrder.status == "pending")
+            .values(status="completed", completed_at=app_now())
+        )
+
     # A device arriving at Final QC releases any bucket it still carries from
     # an earlier stage (e.g. a Stock In bucket never explicitly released) — a
     # stale bucket_id here is how an unrelated old tag sharing that reused
@@ -1080,51 +1095,6 @@ async def advance_stage(
 
     stage_name = next_stage.value
     return RedirectResponse(url=f"/cosmetic/{stage_name}?success=Device+{barcode}+moved+to+{stage_name.replace('_', '+')}", status_code=302)
-
-
-@router.post("/final-qc/pick")
-async def fqc_pick(
-    barcode: str = Form(...),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(allowed),
-):
-    """"Pick This" button on the Final QC page's per-device card header —
-    self-assigns the device to whoever clicked (no dropdown, unlike every
-    other cosmetic-line Move) via a fresh WorkID, tagged "fqc" the same as
-    MOVE_STAGE_CODE[DeviceStage.final_qc]. Shows up on /workid-status like
-    any other WorkID."""
-    role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
-    if not has_perm(role_val, "cosmetic_finalqc", "edit"):
-        raise HTTPException(403, f"Your role ({role_val}) does not have 'edit' permission for the cosmetic_finalqc module.")
-    device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
-    if not device:
-        raise HTTPException(404, f"Device {barcode} not found")
-    if device.current_stage != DeviceStage.final_qc:
-        raise HTTPException(400, f"Device {barcode} is not at Final QC")
-    already = (await db.execute(
-        select(WorkOrder).where(WorkOrder.device_id == device.id, WorkOrder.stage == "fqc",
-                                WorkOrder.status == "pending")
-    )).scalars().first()
-    if already:
-        raise HTTPException(400, f"{barcode} has already been picked by "
-                                  f"{already.assigned_name or already.assigned_username}.")
-    work_id = await _gen_work_id(db)
-    db.add(WorkOrder(
-        work_id=work_id, device_id=device.id, barcode=device.barcode,
-        stage=MOVE_STAGE_CODE[DeviceStage.final_qc], assigned_role=role_val,
-        assigned_user_id=current_user.id, assigned_username=current_user.username,
-        assigned_name=current_user.full_name, status="pending",
-        created_by=current_user.username,
-    ))
-    await create_notification(
-        db, user_id=current_user.id, title="Final QC Tag Picked",
-        message=f"You picked up {device.barcode} at Final QC (WorkID: {work_id}).",
-        notification_type="info",
-        barcode=device.barcode, brand=device.brand, model=device.model,
-        stage=DeviceStage.final_qc.value,
-    )
-    await db.commit()
-    return JSONResponse({"ok": True, "work_id": work_id})
 
 
 @router.post("/final-qc/move-failed")

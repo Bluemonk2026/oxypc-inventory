@@ -377,16 +377,16 @@ def _unit_stock_price(device, lot) -> float:
     return 0.0
 
 
-@router.get("/sales/new", response_class=HTMLResponse)
-async def sale_new_form(request: Request, barcode: str = None,
-                        barcodes: str = None, qty: int = None,
-                        embed: int = 0,
-                        db: AsyncSession = Depends(get_db),
-                        current_user: User = Depends(allowed)):
+async def _sale_new_response(request: Request, barcode: str, barcodes: str, qty: int,
+                             embed: int, db: AsyncSession, current_user: User):
+    """Shared by GET /sales/new (a single Sell link, or a small ?barcodes=
+    list — still fine in a query string) and POST /sales/new (Multi-Sell
+    with a large selection, which a GET would otherwise cram into the URL
+    and risk a 414 Request-URI Too Large from the web server/proxy)."""
     device = None; lot = None; stage_error = None; approved_qty = None
     stock_price = None; prefill_barcode = None; prefill_qty = None; multi_count = 0
 
-    # ── Multi-sell prefill: comma-separated tag list (?barcodes=A,B&qty=N) ──
+    # ── Multi-sell prefill: comma-separated tag list (barcodes=A,B&qty=N) ──
     if barcodes:
         codes, seen = [], set()
         for c in barcodes.split(","):
@@ -436,6 +436,29 @@ async def sale_new_form(request: Request, barcode: str = None,
         "prefill_qty": prefill_qty, "multi_count": multi_count,
         "embed": bool(embed), "today": app_today().isoformat(),
     })
+
+
+@router.get("/sales/new", response_class=HTMLResponse)
+async def sale_new_form(request: Request, barcode: str = None,
+                        barcodes: str = None, qty: int = None,
+                        embed: int = 0,
+                        db: AsyncSession = Depends(get_db),
+                        current_user: User = Depends(allowed)):
+    return await _sale_new_response(request, barcode, barcodes, qty, embed, db, current_user)
+
+
+@router.post("/sales/new/prefill", response_class=HTMLResponse)
+async def sale_new_form_prefill(request: Request, barcode: str = Form(default=None),
+                                barcodes: str = Form(default=None), qty: int = Form(default=None),
+                                embed: int = Form(default=0),
+                                db: AsyncSession = Depends(get_db),
+                                current_user: User = Depends(allowed)):
+    """POST twin of GET /sales/new, for Multi-Sell's (potentially large)
+    selected-tag list — a GET with hundreds of barcodes crammed into the
+    query string can trip a web server/proxy's max URI length (414 Request-
+    URI Too Large); a POST body has no such limit. Renders the exact same
+    prefilled New Sale page."""
+    return await _sale_new_response(request, barcode, barcodes, qty, embed, db, current_user)
 
 
 @router.post("/sales/new")

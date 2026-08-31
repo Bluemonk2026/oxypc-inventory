@@ -1,14 +1,14 @@
-"""Final QC "Pick This" resets when a tag leaves and later returns
-(routers/cosmetic.py advance_stage, fqc_pick, cosmetic_stage_list):
+"""Final QC re-visits (routers/cosmetic.py advance_stage, 2026-09-01):
 
- - Leaving Final QC (pass or fail) closes out any pending "fqc" WorkOrder
-   for that device (status -> completed) — a tag that later comes back
-   around to Final QC (e.g. after Assign routes it through L1/L2 or Stress
-   Test for rework) must show up unpicked again, not still "Picked by"
-   whoever picked it on the earlier visit.
- - The SAME user who picked it the first time can pick it again on the
-   return visit — this isn't a "can't repick, ever" rule, it's a per-visit
-   lock.
+The old "Pick This" claim button could get stuck showing "Picked by <name>"
+for a tag that left Final QC through some path other than the normal
+Pass/Fail submission (leaving a stale "pending" WorkOrder behind) and later
+came back — nobody could re-pick it. That whole class of bug is retired:
+there is no more claim step. Each time a tag is decided at Final QC (first
+visit, or any later return-trip after rework), submitting the decision
+creates its OWN completed "fqc" WorkID for whoever submitted it — visits
+never block each other and there's no persistent "picked" state to get
+stuck.
 """
 import pathlib
 import subprocess
@@ -50,8 +50,8 @@ asyncio.run(main())
 def _return_device_to_final_qc(barcode):
     """Simulate the device having gone through a full rework loop (fail ->
     L1/L2 -> ... -> back to Final QC) by just resetting current_stage — the
-    actual routing back is exercised elsewhere; this test is only about the
-    Pick state, not the full journey."""
+    actual routing back is exercised elsewhere; this test is only about
+    what happens to WorkID attribution across visits."""
     _run(f"""
 import asyncio, sys
 sys.path.insert(0, r"{ROOT}")
@@ -64,6 +64,7 @@ async def main():
         dev = (await db.execute(select(Device).where(Device.barcode == "{barcode}"))).scalar_one()
         dev.current_stage = DeviceStage.final_qc
         dev.bucket_id = None
+        dev.final_qc_status = None
         await db.commit()
 
 asyncio.run(main())
@@ -116,17 +117,14 @@ asyncio.run(main())
 """)
 
 
-def test_fail_closes_pending_fqc_workorder(app_client, make_user):  # noqa: F811
+def test_decision_creates_a_completed_workorder(app_client, make_user):  # noqa: F811
     suffix = uuid.uuid4().hex[:6]
     barcode = f"ITPICKRST{suffix}"
-    picker_username, picker_password = make_user("admin")
+    username, password = make_user("admin")
     _seed_device_at_final_qc(barcode)
     try:
-        _login(app_client, picker_username, picker_password)
+        _login(app_client, username, password)
         csrf = app_client.cookies.get("csrf_token") or "dummy"
-
-        r_pick = app_client.post("/cosmetic/final-qc/pick", data={"csrf_token": csrf, "barcode": barcode})
-        assert r_pick.status_code == 200, r_pick.text[:300]
 
         r_fail = app_client.post("/cosmetic/advance", data={
             "csrf_token": csrf, "barcode": barcode, "final_qc_status": "fail",
@@ -139,16 +137,15 @@ def test_fail_closes_pending_fqc_workorder(app_client, make_user):  # noqa: F811
         _cleanup_device(barcode)
 
 
-def test_repick_allowed_after_tag_returns_to_final_qc(app_client, make_user):  # noqa: F811
+def test_second_visit_after_rework_gets_its_own_workorder(app_client, make_user):  # noqa: F811
     suffix = uuid.uuid4().hex[:6]
     barcode = f"ITPICKRET{suffix}"
-    picker_username, picker_password = make_user("admin")
+    username, password = make_user("admin")
     _seed_device_at_final_qc(barcode)
     try:
-        _login(app_client, picker_username, picker_password)
+        _login(app_client, username, password)
         csrf = app_client.cookies.get("csrf_token") or "dummy"
 
-        app_client.post("/cosmetic/final-qc/pick", data={"csrf_token": csrf, "barcode": barcode})
         app_client.post("/cosmetic/advance", data={
             "csrf_token": csrf, "barcode": barcode, "final_qc_status": "fail",
             "failure_reason": "Hardware", "bucket_name": f"ITestPickBkt2{suffix}",
@@ -157,19 +154,15 @@ def test_repick_allowed_after_tag_returns_to_final_qc(app_client, make_user):  #
         # Tag comes back around to Final QC after rework.
         _return_device_to_final_qc(barcode)
 
-        html = app_client.get("/cosmetic/final_qc", follow_redirects=True).text
-        # Scope to this device's own card — Final QC can legitimately list
-        # other real tags too.
-        card = html.split(f'href="/devices/{barcode}"', 1)[1][:1200]
-        assert "Picked by" not in card
-        assert 'class="btn btn-sm btn-outline-primary fqc-pick-btn"' in card
+        # No "Pick This" state to block a second decision — the SAME user
+        # (or anyone else permitted) can decide it again immediately.
+        r_pass = app_client.post("/cosmetic/advance", data={
+            "csrf_token": csrf, "barcode": barcode, "final_qc_status": "pass",
+        }, follow_redirects=False)
+        assert r_pass.status_code == 302, r_pass.text[:300]
 
-        # The SAME user who picked it before can pick it again — this is a
-        # per-visit lock, not a permanent one.
-        r_repick = app_client.post("/cosmetic/final-qc/pick", data={"csrf_token": csrf, "barcode": barcode})
-        assert r_repick.status_code == 200, r_repick.text[:300]
-
-        statuses = _fqc_workorder_statuses(barcode)
-        assert statuses == "completed,pending"
+        # Two visits, two independently completed WorkOrders — neither
+        # blocked the other.
+        assert _fqc_workorder_statuses(barcode) == "completed,completed"
     finally:
         _cleanup_device(barcode)

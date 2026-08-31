@@ -910,7 +910,7 @@ async def _export_rows(db: AsyncSession, query) -> StreamingResponse:
 
     def _iqc_cols(iqc):
         if iqc is None:
-            return [""] * 21
+            return [""] * 20  # must match the 20 values in the `else` branch below
         return [
             iqc.power_on, iqc.status, iqc.hdd_connector, iqc.hdd_casing,
             iqc.battery_present, iqc.battery_cable, iqc.charging_port, iqc.dvd_drive,
@@ -933,7 +933,7 @@ async def _export_rows(db: AsyncSession, query) -> StreamingResponse:
     writer.writerow(_EXPORT_HEADER)
     for device, lot_number in rows:
         iqc = iqc_by_device.get(device.id)
-        writer.writerow([
+        row = [
             device.barcode, lot_number, device.grn_number, device.invoice_number, device.entity,
             device.sub_category, device.brand, device.model, device.device_type, device.serial_no,
             device.cpu, device.cpu_make, device.generation, device.ram_gb, device.ram_summary,
@@ -952,7 +952,17 @@ async def _export_rows(db: AsyncSession, query) -> StreamingResponse:
             device.floor, device.warehouse, device.notes,
             device.created_at.strftime("%d-%m-%Y %H:%M") if device.created_at else "",
             device.updated_at.strftime("%d-%m-%Y %H:%M") if device.updated_at else "",
-        ])
+        ]
+        # A silent column-count mismatch (e.g. an IQC/cosmetic helper
+        # returning the wrong placeholder count for a device missing that
+        # data) shifts every later column right for just THAT row — hard to
+        # spot in the file itself, since CSV columns are positional, not
+        # name-matched. Fail loudly instead of exporting misaligned data.
+        assert len(row) == len(_EXPORT_HEADER), (
+            f"Export row for {device.barcode} has {len(row)} columns, "
+            f"expected {len(_EXPORT_HEADER)} — column mapping is out of sync with _EXPORT_HEADER."
+        )
+        writer.writerow(row)
     output.seek(0)
     return StreamingResponse(
         io.BytesIO(output.getvalue().encode("utf-8-sig")),

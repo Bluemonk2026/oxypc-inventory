@@ -1,8 +1,21 @@
 """
 WorkID Status — consolidated view of every WorkID (WorkOrder) with the tag's
-Asset History (Stage/Completed Date/Assigned Engineer sourced from the
-device's most recent StageMovement — From/When/By respectively), an
-IQC→Final-QC timeline, and filters (workid, tag number, engineer, date range).
+Asset History (Stage/Completed Date/Assigned Engineer sourced from a
+StageMovement — From/When/By respectively), an IQC→Final-QC timeline, and
+filters (workid, tag number, engineer, date range).
+
+Each WorkID is matched to ITS OWN StageMovement, not just the device's
+overall latest one (2026-09-02 backfill): a WorkOrder is closed at almost
+the same instant the movement that closes out its stage is recorded (see
+routers/cosmetic.py advance_stage), so for a completed WorkOrder we pick the
+StageMovement for that device whose moved_at is nearest to
+WorkOrder.completed_at, out of ALL of that device's Asset History records —
+not only its most recent one. A device with several WorkIDs across several
+historical stages therefore shows each one's own correct Stage/Completed
+Date/Engineer instead of every row collapsing onto the single latest
+movement. A still-pending WorkOrder (no completed_at yet) has no closing
+movement to match, so it falls back to the device's latest movement as the
+best available "where things stand" hint.
 """
 from datetime import datetime
 from fastapi import APIRouter, Depends, Request, Query
@@ -79,11 +92,12 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
 
     finalqc_date_map = {}
     # ── Asset History (Device Detail's "From"/"To"/"By"/"When" table) — Stage,
-    # Completed Date and Assigned Engineer below now read the device's most
-    # recent StageMovement rather than the device's live current_stage /
-    # WorkOrder.completed_at / WorkOrder.assigned_name, so this page always
-    # matches whatever Asset History shows for that tag. ────────────────────
-    latest_movement_by_device = {}
+    # Completed Date and Assigned Engineer below read a StageMovement rather
+    # than the device's live current_stage / WorkOrder.completed_at /
+    # WorkOrder.assigned_name. movements_by_device holds EVERY movement per
+    # device (not just the latest) so each WorkID below can be matched to its
+    # own — see _movement_for_work_order. ────────────────────────────────────
+    movements_by_device = {}
     display_name_by_username = {}
     if device_ids:
         # Date each device was sent to Final QC (latest movement to final_qc)
@@ -99,17 +113,34 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         move_rows = (await db.execute(
             select(StageMovement)
             .where(StageMovement.device_id.in_(device_ids))
-            .order_by(StageMovement.moved_at.desc())
+            .order_by(StageMovement.moved_at.asc())
         )).scalars().all()
         for mv in move_rows:
-            latest_movement_by_device.setdefault(str(mv.device_id), mv)
+            movements_by_device.setdefault(str(mv.device_id), []).append(mv)
 
-        usernames = {mv.moved_by for mv in latest_movement_by_device.values() if mv.moved_by}
+        usernames = {mv.moved_by for mv in move_rows if mv.moved_by}
         if usernames:
             u_rows = (await db.execute(
                 select(User.username, User.full_name).where(User.username.in_(usernames))
             )).all()
             display_name_by_username = {uname: full for uname, full in u_rows}
+
+    def _movement_for_work_order(wo, dev_movements):
+        """Pick the StageMovement that actually corresponds to this WorkID,
+        not just the device's overall-latest one. A completed WorkOrder is
+        matched to the movement whose moved_at is nearest its completed_at
+        (the two are stamped moments apart in the same request — see module
+        docstring); a still-pending WorkOrder has no closing movement yet, so
+        it falls back to the device's latest as a best-effort hint."""
+        if not dev_movements:
+            return None
+        if wo.completed_at:
+            return min(
+                dev_movements,
+                key=lambda m: abs((m.moved_at - wo.completed_at).total_seconds())
+                if m.moved_at else float("inf"),
+            )
+        return dev_movements[-1]
 
     today = app_now()
     items = []
@@ -119,7 +150,7 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         finalqc_dt = finalqc_date_map.get(did)
         end = finalqc_dt or today
         days = max(0, (end.date() - start.date()).days) if start else 0
-        mv = latest_movement_by_device.get(did)
+        mv = _movement_for_work_order(wo, movements_by_device.get(did, []))
         if mv:
             stage_value = mv.from_stage.value if mv.from_stage else ""
             stage_label = STAGE_LABELS.get(mv.from_stage, mv.from_stage.value if mv.from_stage else "—")

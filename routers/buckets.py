@@ -424,11 +424,23 @@ async def _move_bucket_devices_to_trc(db: AsyncSession, bucket: Bucket, username
     previous batch — and yanked them back to trc_production. Reported as
     "old mapped tags" getting reset when a bucket picked fresh on the Final QC
     page happened to be one reused from an earlier intake.
+
+    is_customer_return buckets (Return Stock's Assign Bucket, routers/stock.py)
+    are exempt from the stock_in restriction: their devices are mid-repair
+    tags re-entering the pipeline at whatever stage they were returned to
+    (iqc, l1, cleaning, ...) — never stock_in — so the filter above matched
+    zero devices for them, the bucket showed 0 tags at trc_production, and
+    /api/buckets?with_stage=trc_production (which drops buckets with zero
+    active devices in that stage) silently omitted it from the Bucket
+    Allocation tab even though Move to Production had "succeeded". These
+    buckets don't carry the stale-reused-bucket-number risk the stock_in
+    filter guards against — every device on one got there specifically via
+    that same Assign Bucket action, never an unrelated earlier intake.
     """
-    devices = (await db.execute(
-        select(Device).where(Device.bucket_id == bucket.id, Device.is_active == True,
-                             Device.current_stage == DeviceStage.stock_in)
-    )).scalars().all()
+    filters = [Device.bucket_id == bucket.id, Device.is_active == True]
+    if not bucket.is_customer_return:
+        filters.append(Device.current_stage == DeviceStage.stock_in)
+    devices = (await db.execute(select(Device).where(*filters))).scalars().all()
 
     moved = 0
     for device in devices:

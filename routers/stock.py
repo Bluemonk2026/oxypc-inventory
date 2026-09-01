@@ -1,13 +1,15 @@
 from templates_config import templates
 import logging
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Form, Query, Request, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, update
+from sqlalchemy import select, func, or_, update, text
 from datetime import datetime as _dt
 from utils.timezone import app_now
 from utils.master_data import master_values, entity_values
+from utils.warranty import compute_warranty_expiry
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, DeviceGrade, StageMovement, STAGE_LABELS
@@ -17,7 +19,7 @@ from auth.dependencies import get_current_user, require_roles, verify_csrf, requ
 from services.audit_engine import audit
 from utils.fk_purge import purge_references
 from services.event_bus import EventType, publish
-from models.sales import Sale
+from models.sales import Sale, Return
 from models.spare_parts import SparePartConsumption
 from models.engines import RepairAttempt
 from models.qc import QCCheck
@@ -29,7 +31,7 @@ from models.part_request import PartRequest
 from models.spare_parts import SparePart
 from models.location import StorageLocation, ZoneType, ZONE_LABELS, UnitType, UNIT_TYPE_LABELS
 from models.work_order import WorkOrder
-from models.bucket import Bucket
+from models.bucket import Bucket, _new_bucket_number
 
 _log = logging.getLogger(__name__)
 
@@ -1037,6 +1039,45 @@ async def stock_in_list(
         fqc_pass_grouped.setdefault(b.id, {"bucket_id": str(b.id), "bucket_name": b.name or b.bucket_number, "bucket_number": b.bucket_number})
     fqc_pass_buckets = list(fqc_pass_grouped.values())
 
+    # ── Return Stock: customer-return tags whose Return has been approved and
+    #    are back in the pipeline for repair/re-sale. A device can carry more
+    #    than one Return over its life (rare); keep only the newest approved
+    #    one per device — the query is already newest-first. ─────────────────
+    return_join_rows = (await db.execute(
+        select(Device, Lot.lot_number, Return)
+        .join(Lot, Device.lot_id == Lot.id)
+        .join(Return, Return.device_id == Device.id)
+        .where(Device.return_status == True, Device.is_active == True,  # noqa: E712
+               Return.approval_status == "approved")
+        .order_by(Return.approved_at.desc())
+    )).all()
+    return_stock_by_device = {}
+    for dev, lot_num, ret in return_join_rows:
+        return_stock_by_device.setdefault(dev.id, (dev, lot_num, ret))
+
+    return_device_ids = list(return_stock_by_device.keys())
+    part_cost_map = {}
+    if return_device_ids:
+        part_cost_rows = (await db.execute(
+            select(SparePartConsumption.device_id,
+                   func.coalesce(func.sum(SparePartConsumption.total_cost), 0))
+            .where(SparePartConsumption.device_id.in_(return_device_ids))
+            .group_by(SparePartConsumption.device_id)
+        )).all()
+        part_cost_map = {did: cost for did, cost in part_cost_rows}
+
+    return_stock_rows = []
+    for dev, lot_num, ret in return_stock_by_device.values():
+        # "Part Cost (if out of warranty then add value of Spare Part consumed
+        # in this tag)" — under-warranty returns don't bill the part back onto
+        # this cost line.
+        part_cost = part_cost_map.get(dev.id, 0) if ret.warranty_status == "out_of_warranty" else 0
+        return_stock_rows.append({
+            "device": dev, "lot_number": lot_num, "ret": ret, "part_cost": part_cost,
+            "stage_label": STAGE_LABELS.get(dev.current_stage, dev.current_stage.value if dev.current_stage else "—"),
+        })
+    return_stock_rows.sort(key=lambda r: r["ret"].approved_at or app_now(), reverse=True)
+
     return templates.TemplateResponse("lots/stock_in.html", {
         "request": request, "current_user": current_user,
         "analytics": analytics,
@@ -1060,7 +1101,158 @@ async def stock_in_list(
         ],
         "unit_type_options": [(u.value, UNIT_TYPE_LABELS.get(u, u.value)) for u in UnitType],
         "fqc_pass_buckets": fqc_pass_buckets,
+        "return_stock_rows": return_stock_rows,
     })
+
+
+async def _latest_approved_return(db: AsyncSession, device_id) -> "Return | None":
+    return (await db.execute(
+        select(Return).where(Return.device_id == device_id, Return.approval_status == "approved")
+        .order_by(Return.approved_at.desc()).limit(1)
+    )).scalars().first()
+
+
+@router.post("/stock/return-stock/assign-bucket")
+async def return_stock_assign_bucket(
+    request: Request,
+    barcodes: str = Form(...),
+    bucket_name: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Assign selected Return Stock tags to a Bucket/Carton — reuses an
+    existing bucket by name (case-insensitive), same lookup-or-create pattern
+    as routers/cosmetic.py's Final QC Fail bucketing, so repeatedly assigning
+    to "Carton A1" keeps accumulating into one bucket rather than making a
+    new one every time. Marked is_customer_return so it carries the "Customer
+    Return" label in the Buckets/Cartons table below.
+    """
+    barcode_list = [b.strip() for b in barcodes.split(",") if b.strip()]
+    if not barcode_list:
+        raise HTTPException(400, "No tags selected")
+    name = bucket_name.strip()
+    if not name:
+        raise HTTPException(400, "Bucket Name is required")
+
+    devices = (await db.execute(
+        select(Device).where(Device.barcode.in_(barcode_list), Device.is_active == True)  # noqa: E712
+    )).scalars().all()
+    if not devices:
+        raise HTTPException(404, "No matching devices found")
+
+    bucket = (await db.execute(
+        select(Bucket).where(func.lower(Bucket.name) == name.lower())
+    )).scalars().first()
+    if not bucket:
+        bucket = Bucket(name=name, bucket_number=_new_bucket_number(),
+                         created_by=current_user.username, is_customer_return=True)
+        db.add(bucket)
+        await db.flush()
+    elif not bucket.is_customer_return:
+        bucket.is_customer_return = True
+
+    for dev in devices:
+        dev.bucket_id = bucket.id
+        dev.updated_at = app_now()
+
+    await audit(db, user=current_user, action="RETURN_STOCK_BUCKET_ASSIGNED",
+                table_name="buckets", record_id=str(bucket.id),
+                new_value={"barcodes": barcode_list, "bucket_number": bucket.bucket_number},
+                request=request)
+    await db.commit()
+    return JSONResponse({"ok": True, "bucket_number": bucket.bucket_number, "bucket_id": str(bucket.id)})
+
+
+@router.post("/stock/return-stock/{barcode}/verify")
+async def return_stock_verify(
+    request: Request,
+    barcode: str,
+    repair_cost: str = Form("0"),
+    labour_cost: str = Form("0"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, f"Device {barcode} not found")
+    ret = await _latest_approved_return(db, device.id)
+    if not ret:
+        raise HTTPException(404, "No approved return found for this tag")
+
+    try:
+        ret.repair_cost = Decimal(repair_cost) if repair_cost.strip() else Decimal("0")
+        ret.labour_cost = Decimal(labour_cost) if labour_cost.strip() else Decimal("0")
+    except InvalidOperation:
+        raise HTTPException(400, "Repair Cost and Labour Cost must be numbers")
+
+    await audit(db, user=current_user, action="RETURN_STOCK_VERIFIED",
+                table_name="returns", record_id=str(ret.id),
+                new_value={"repair_cost": str(ret.repair_cost), "labour_cost": str(ret.labour_cost)},
+                request=request)
+    await db.commit()
+    return JSONResponse({"ok": True, "repair_cost": str(ret.repair_cost), "labour_cost": str(ret.labour_cost)})
+
+
+@router.post("/stock/return-stock/{barcode}/complete")
+async def return_stock_complete(
+    request: Request,
+    barcode: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Mark a Return Stock tag sold again, reusing the customer details from
+    the sale this same tag was returned from — mirrors create_sale's core
+    fields (routers/sales.py) rather than sending the operator through the
+    New Tag Sale form a second time for a customer/tag combination already on
+    file.
+    """
+    device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, f"Device {barcode} not found")
+    ret = await _latest_approved_return(db, device.id)
+    if not ret:
+        raise HTTPException(404, "No approved return found for this tag")
+
+    orig_sale = (await db.execute(select(Sale).where(Sale.id == ret.sale_id))).scalar_one_or_none()
+    if not orig_sale:
+        raise HTTPException(404, "Original sale record not found for this return")
+
+    sold_at = app_now()
+    warranty_expires_at = compute_warranty_expiry(sold_at, orig_sale.warranty_type)
+    sale_num = await _gen_sale_number(db)
+    new_sale = Sale(
+        sale_number=sale_num, device_id=device.id, sale_price=orig_sale.sale_price,
+        customer_name=orig_sale.customer_name, customer_phone=orig_sale.customer_phone,
+        customer_state=orig_sale.customer_state, customer_address=orig_sale.customer_address,
+        payment_mode=orig_sale.payment_mode, sold_by=current_user.username,
+        sales_person=orig_sale.sales_person, sold_at=sold_at,
+        notes=f"Re-sale after customer return (Return {ret.id})",
+        warranty_type=orig_sale.warranty_type, warranty_expires_at=warranty_expires_at,
+        company_id=orig_sale.company_id, company_name=orig_sale.company_name,
+        company_address=orig_sale.company_address, company_gstin=orig_sale.company_gstin,
+        company_state=orig_sale.company_state, company_state_code=orig_sale.company_state_code,
+        company_phone=orig_sale.company_phone, company_email=orig_sale.company_email,
+    )
+    db.add(new_sale)
+
+    prev = device.current_stage
+    device.current_stage = DeviceStage.sold
+    device.return_status = False  # drops it out of the Return Stock table
+    device.updated_at = app_now()
+    db.add(StageMovement(device_id=device.id, from_stage=prev, to_stage=DeviceStage.sold,
+                         moved_by=current_user.username, notes=f"Re-sold after return — {sale_num}"))
+
+    await audit(db, user=current_user, action="RETURN_STOCK_COMPLETED",
+                table_name="sales", record_id=str(device.id),
+                new_value={"sale_number": sale_num, "return_id": str(ret.id)}, request=request)
+    await db.commit()
+    publish(EventType.SALE_COMPLETED, {"barcode": device.barcode, "sale_number": sale_num})
+    return JSONResponse({"ok": True, "sale_number": sale_num})
+
+
+async def _gen_sale_number(db: AsyncSession) -> str:
+    seq = (await db.execute(text("SELECT nextval('sale_number_seq')"))).scalar()
+    return f"SALE-{seq:04d}"
 
 
 @router.get("/stock/move-to-stock")

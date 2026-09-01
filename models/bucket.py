@@ -60,3 +60,11 @@ class Bucket(Base):
     fail_engineer_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     fail_engineer_username = Column(String(50), nullable=True)
     fail_engineer_name = Column(String(100), nullable=True)
+
+    # Set when this bucket was created/assigned via Inventory Manager's Return
+    # Stock table ("Assign Bucket" on customer-return tags). Drives the
+    # "Customer Return" label under Bucket Name in the Buckets/Cartons table —
+    # kept as its own flag rather than overloading the free-text `category`
+    # field, since that column's value already means "brand" on buckets
+    # created through the normal create_bucket path.
+    is_customer_return = Column(Boolean, nullable=False, default=False, server_default="false")

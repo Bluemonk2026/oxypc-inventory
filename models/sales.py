@@ -95,5 +95,11 @@ class Return(Base):
     serial_captured     = Column(String(100), nullable=True)       # serial/barcode scanned at RMA time
     warranty_status     = Column(String(20), nullable=True)        # in_warranty/out_of_warranty/no_warranty (server-computed)
     complaint_text      = Column(Text, nullable=True)               # RMA complaint/issue description
+    # Inventory Manager's "Return Stock" table (Verify action) — captured once
+    # the returned tag has actually been repaired, distinct from refund_amount
+    # above (what the CUSTOMER got back) and from Part Cost (derived on read
+    # from SparePartConsumption, not stored here).
+    repair_cost         = Column(Numeric(12, 2), nullable=True)
+    labour_cost         = Column(Numeric(12, 2), nullable=True)
 
     sale = relationship("Sale", back_populates="returns")

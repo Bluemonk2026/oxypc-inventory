@@ -167,6 +167,7 @@ async def list_buckets(
         "received_qty": b.received_qty,
         "assigned_to_production": bool(b.assigned_to_production),
         "dept_assigned": bool(b.dept_assigned),
+        "is_customer_return": bool(b.is_customer_return),
         "total_pass": pass_map.get(str(b.id), 0),
         "total_fail": fail_map.get(str(b.id), 0),
     } for b in rows])

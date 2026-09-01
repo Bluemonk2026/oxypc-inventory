@@ -59,12 +59,21 @@
       </div>
       <div class="col-12 small text-muted">
         <i class="bi bi-info-circle me-1"></i>Most stage transitions don't create a WorkID (only ones with an
-        engineer assigned do). Search a specific Tag Number, or pick a Stage together with a Completed
-        From/To date, to also see those tags' Asset History here.
+        engineer assigned do). Search a specific Tag Number, or set a Completed From/To date (optionally
+        narrowed further with Stage), to also see those tags' Asset History here.
       </div>
     </div>
   </div>
 </form>
+
+{% if backfill_truncated %}
+<div class="alert alert-warning py-2 small mb-3">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  {{ '{:,}'.format(backfill_total) }} Asset History records matched this date range — showing the most
+  recent {{ '{:,}'.format(backfill_cap) }}. Narrow with a Stage, a Tag Number, or a smaller date range to
+  see the rest.
+</div>
+{% endif %}
 
 <!-- Card Count tiles — reflect the SAME filters as the table below (see
      tile_counts in routers/workid_status.py, computed from the filtered
@@ -123,7 +132,7 @@
         <thead class="table-dark">
           <tr>
             <th>WorkID</th><th>Tag Number</th><th>Model</th><th>Stage</th>
-            <th>Aging</th><th>Completed Date</th><th>Notes</th><th>Assigned Engineer</th>
+            <th>Aging</th><th>Assigned Date</th><th>Completed Date</th><th>Notes</th><th>Assigned Engineer</th>
           </tr>
         </thead>
         <tbody>
@@ -151,6 +160,13 @@
               {% endif %}
             </td>
             <td class="text-nowrap text-muted">
+              {# When the tag arrived at the Stage it's shown completing —
+                 wo.assigned_at for a real WorkID, or (for a backfilled row
+                 with no WorkID) the most recent earlier StageMovement into
+                 that same stage. #}
+              {{ it.assigned_date.strftime('%d-%m-%Y %H:%M') if it.assigned_date else '—' }}
+            </td>
+            <td class="text-nowrap text-muted">
               {# Sourced from the tag's Asset History (Device Detail) — the
                  "When" of its most recent movement, same value as Stage
                  (From) and Assigned Engineer (By) below. #}
@@ -160,7 +176,7 @@
             <td>{{ it.engineer }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="8" class="text-center text-muted py-4">No WorkIDs found.</td></tr>
+          <tr><td colspan="9" class="text-center text-muted py-4">No WorkIDs found.</td></tr>
           {% endfor %}
         </tbody>
       </table>

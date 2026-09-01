@@ -10,12 +10,17 @@ IQC intake, any advance_stage call with no engineer) never create one, so
 those StageMovements had no row to appear on at all, regardless of what
 those rows displayed.
 
-Fix: when the request is bounded (a specific tag, or a Stage narrowed by at
-least one Completed Date bound), StageMovements with no matching WorkOrder
-are added as their own rows (WorkID column shows "— No WorkID —"). An
+Fix: when the request is bounded (a specific tag, OR any Completed Date
+bound — Stage is no longer required alongside the date, "all stages for the
+month" not one at a time, 2026-09-02), StageMovements with no matching
+WorkOrder are added as their own rows (WorkID column shows "— No WorkID —"),
+each carrying an Assigned Date (when the tag arrived at the stage it's shown
+completing — the nearest earlier StageMovement into that same stage). An
 unfiltered page load does NOT run this — production has 131k+ StageMovements
 against under 5k WorkOrders ever created, so an unbounded query would be
-enormous.
+enormous; a date-bounded-but-otherwise-unfiltered query is capped
+(BACKFILL_ROW_CAP) with a visible truncation notice rather than silently
+dropping rows.
 """
 import pathlib
 import subprocess
@@ -122,6 +127,78 @@ def test_movement_with_no_workorder_shows_via_stage_and_date_filter(app_client, 
         assert barcode in html
         assert "Water Sanding" in html
         assert "31-08-2026" in html
+    finally:
+        _cleanup_device(barcode)
+
+
+def test_date_range_alone_backfills_every_stage_not_just_one(app_client, make_user):  # noqa: F811
+    """The literal follow-up ask: a Completed From/To range must surface
+    ALL stages within it, not just whichever one Stage the user happens to
+    have picked."""
+    suffix = uuid.uuid4().hex[:6]
+    barcode_a = f"ITWIDALL1{suffix}"
+    barcode_b = f"ITWIDALL2{suffix}"
+    mover_a = f"itest_alla_{suffix}"
+    mover_b = f"itest_allb_{suffix}"
+    _seed_movement_with_no_work_order(barcode_a, mover_a, "2026-08-15T08:00:00", "cleaning", "putty")
+    _seed_movement_with_no_work_order(barcode_b, mover_b, "2026-08-20T14:00:00", "l1", "qc_check")
+    try:
+        username, password = make_user("admin")
+        _login(app_client, username, password)
+
+        # No cosmetic_stage param at all — just a month-wide date range.
+        html = app_client.get(
+            "/workid-status?completed_from=2026-08-01&completed_to=2026-08-31",
+            follow_redirects=True).text
+        assert barcode_a in html
+        assert "Cleaning" in html
+        assert barcode_b in html
+        assert "L1" in html.upper() or "L1" in html
+    finally:
+        _cleanup_device(barcode_a)
+        _cleanup_device(barcode_b)
+
+
+def test_backfilled_row_shows_assigned_date_from_the_prior_movement(app_client, make_user):  # noqa: F811
+    """Assigned Date column, for a backfilled (no-WorkID) row, = the most
+    recent earlier StageMovement into the stage this row shows completing."""
+    suffix = uuid.uuid4().hex[:6]
+    barcode = f"ITWIDASGD{suffix}"
+    mover = f"itest_asgd_{suffix}"
+    _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from datetime import datetime
+from database import AsyncSessionLocal
+from models.lot import Lot
+from models.device import Device, DeviceStage, StageMovement
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        lot = (await db.execute(select(Lot).limit(1))).scalars().first()
+        dev = Device(barcode="{barcode}", lot_id=lot.id, brand="ITestBrand", model="ITestModel",
+                     current_stage=DeviceStage.putty)
+        db.add(dev)
+        await db.flush()
+        # Arrived at Cleaning on Aug 10, left it (completed) on Aug 12 — no
+        # WorkOrder for either movement.
+        db.add(StageMovement(device_id=dev.id, from_stage=DeviceStage.cosmetic_received,
+                             to_stage=DeviceStage.cleaning, moved_by="{mover}",
+                             moved_at=datetime.fromisoformat("2026-08-10T09:00:00")))
+        db.add(StageMovement(device_id=dev.id, from_stage=DeviceStage.cleaning,
+                             to_stage=DeviceStage.putty, moved_by="{mover}",
+                             moved_at=datetime.fromisoformat("2026-08-12T16:00:00")))
+        await db.commit()
+
+asyncio.run(main())
+""")
+    try:
+        username, password = make_user("admin")
+        _login(app_client, username, password)
+        html = app_client.get(f"/workid-status?tag={barcode}", follow_redirects=True).text
+        assert "12-08-2026" in html  # Completed Date
+        assert "10-08-2026" in html  # Assigned Date — arrived at Cleaning
     finally:
         _cleanup_device(barcode)
 

@@ -24,12 +24,16 @@ an engineer, but plenty of transitions happen without one (bulk stage moves,
 IQC intake, Final QC pass/fail, etc.) — in production, 131k+ StageMovements
 exist against under 5k WorkOrders ever created. Since this page's rows were
 strictly "one per WorkOrder", those movements were invisible here no matter
-how the Stage/Completed Date/Engineer columns were sourced. add_synthetic_
-movement_rows below adds one row per WorkOrder-less StageMovement, scoped to
-whichever of tag / (stage + a completed-date bound) the caller supplied —
-never unscoped, since an unfiltered query would return the full 131k-row
-table. These synthetic rows have no WorkID (work_id is None) and show "—"
-for Aging/Notes.
+how the Stage/Completed Date/Engineer columns were sourced. The backfill
+block below adds one row per WorkOrder-less StageMovement, scoped to
+whichever of tag / any Completed Date bound the caller supplied (Stage is no
+longer required alongside the date — "all stages for the month", not one
+stage at a time) — never unscoped, since an unfiltered query would return
+the full 131k-row table. Results are capped (BACKFILL_ROW_CAP) with a
+visible "narrow further" notice rather than a silent truncation — a full
+August is 64k+ matching rows, an order of magnitude past what a
+browser-rendered table can hold. These backfilled rows have no WorkID
+(work_id is None) and show "—" for Aging/Notes.
 """
 from datetime import datetime
 from fastapi import APIRouter, Depends, Request, Query
@@ -184,6 +188,7 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             "stage_value": stage_value,
             "wo_status": wo.status,
             "start": start,
+            "assigned_date": start,
             "finalqc": finalqc_dt,
             "completed_at": movement_completed_at,
             "days": days,
@@ -193,46 +198,79 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         })
 
     # ── Backfill: StageMovements with no WorkOrder at all ───────────────────
-    # Only run when the request is bounded — a specific tag, or a specific
-    # Stage narrowed by at least one Completed Date bound — never on an
-    # unfiltered load of the page (see module docstring for the 131k-row
-    # reason). engineer/completed_from/completed_to are honoured whenever
-    # present regardless of which of the two bounding filters triggered this.
+    # Only run when the request is bounded — a specific tag, OR any Completed
+    # Date bound (Stage no longer required to also be picked — a date range
+    # alone now backfills every stage within it) — never on an unfiltered
+    # load of the page (see module docstring for the 131k-row reason).
+    BACKFILL_ROW_CAP = 5000
+    backfill_truncated = False
+    backfill_total = 0
     bounded_by_tag = bool(tag.strip())
-    bounded_by_stage_and_date = bool(cosmetic_stage) and (cf or ct)
-    if bounded_by_tag or bounded_by_stage_and_date:
-        mv_stmt = (
+    bounded_by_date = bool(cf or ct)
+    if bounded_by_tag or bounded_by_date:
+        mv_filters = [StageMovement.from_stage.isnot(None)]
+        if tag.strip():
+            mv_filters.append(Device.barcode.ilike(f"%{tag.strip()}%"))
+        if cosmetic_stage:
+            mv_filters.append(StageMovement.from_stage == cosmetic_stage)
+        if engineer:
+            mv_filters.append(StageMovement.moved_by == engineer)
+        if cf:
+            mv_filters.append(StageMovement.moved_at >= cf)
+        if ct:
+            mv_filters.append(StageMovement.moved_at <= ct.replace(hour=23, minute=59, second=59))
+        if not is_admin:
+            mv_filters.append(StageMovement.moved_by.in_(visible_usernames))
+
+        backfill_total = (await db.execute(
+            select(func.count()).select_from(StageMovement)
+            .join(Device, StageMovement.device_id == Device.id).where(*mv_filters)
+        )).scalar() or 0
+        backfill_truncated = backfill_total > BACKFILL_ROW_CAP
+
+        mv_rows = (await db.execute(
             select(StageMovement, Device)
             .join(Device, StageMovement.device_id == Device.id)
-            .where(StageMovement.from_stage.isnot(None))
-        )
-        if tag.strip():
-            mv_stmt = mv_stmt.where(Device.barcode.ilike(f"%{tag.strip()}%"))
-        if cosmetic_stage:
-            mv_stmt = mv_stmt.where(StageMovement.from_stage == cosmetic_stage)
-        if engineer:
-            mv_stmt = mv_stmt.where(StageMovement.moved_by == engineer)
-        if cf:
-            mv_stmt = mv_stmt.where(StageMovement.moved_at >= cf)
-        if ct:
-            mv_stmt = mv_stmt.where(StageMovement.moved_at <= ct.replace(hour=23, minute=59, second=59))
-        if not is_admin:
-            mv_stmt = mv_stmt.where(StageMovement.moved_by.in_(visible_usernames))
+            .where(*mv_filters)
+            .order_by(StageMovement.moved_at.desc())
+            .limit(BACKFILL_ROW_CAP)
+        )).all()
 
-        for mv, dev in (await db.execute(mv_stmt.order_by(StageMovement.moved_at.desc()).limit(2000))).all():
+        # Batch-resolve display names for movers not already covered by the
+        # WorkOrder-scoped lookup above, instead of one query per row.
+        new_usernames = {mv.moved_by for mv, _ in mv_rows
+                         if mv.moved_by and mv.moved_by not in display_name_by_username}
+        if new_usernames:
+            u_rows = (await db.execute(
+                select(User.username, User.full_name).where(User.username.in_(new_usernames))
+            )).all()
+            display_name_by_username.update({uname: full for uname, full in u_rows})
+
+        # Assigned Date for a backfilled row = when the device arrived at the
+        # stage it's shown completing, i.e. the latest earlier StageMovement
+        # into that same stage. Fetched unfiltered (every from_stage,
+        # including the null-from_stage IQC-intake movement) in one query per
+        # batch rather than per row.
+        backfill_device_ids = {mv.device_id for mv, _ in mv_rows}
+        full_movements_by_device = {}
+        if backfill_device_ids:
+            full_rows = (await db.execute(
+                select(StageMovement).where(StageMovement.device_id.in_(backfill_device_ids))
+                .order_by(StageMovement.moved_at.asc())
+            )).scalars().all()
+            for m in full_rows:
+                full_movements_by_device.setdefault(str(m.device_id), []).append(m)
+
+        def _entered_stage_at(device_id, stage, before_dt):
+            candidates = [m.moved_at for m in full_movements_by_device.get(str(device_id), [])
+                         if m.to_stage == stage and m.moved_at and m.moved_at <= before_dt]
+            return max(candidates) if candidates else None
+
+        for mv, dev in mv_rows:
             if mv.id in used_movement_ids:
                 continue  # already shown above via its matching WorkOrder
             used_movement_ids.add(mv.id)
             engineer_name = (display_name_by_username.get(mv.moved_by) or mv.moved_by) if mv.moved_by else "—"
-            if mv.moved_by and mv.moved_by not in display_name_by_username:
-                # Not covered by the WorkOrder-scoped username lookup above
-                # (this movement's mover never appeared on a WorkOrder row).
-                resolved = (await db.execute(
-                    select(User.full_name).where(User.username == mv.moved_by)
-                )).scalar_one_or_none()
-                if resolved:
-                    display_name_by_username[mv.moved_by] = resolved
-                    engineer_name = resolved
             items.append({
                 "row_key": f"mv-{mv.id}",
                 "work_id": None,
@@ -243,6 +281,7 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
                 "stage_value": mv.from_stage.value,
                 "wo_status": None,
                 "start": None,
+                "assigned_date": _entered_stage_at(mv.device_id, mv.from_stage, mv.moved_at),
                 "finalqc": finalqc_date_map.get(str(mv.device_id)),
                 "completed_at": mv.moved_at,
                 "days": 0,
@@ -322,6 +361,8 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         "f_completed_from": completed_from, "f_completed_to": completed_to,
         "f_cosmetic_stage": cosmetic_stage,
         "highlight": highlight,
+        "backfill_truncated": backfill_truncated, "backfill_total": backfill_total,
+        "backfill_cap": BACKFILL_ROW_CAP,
     })
 
 
@@ -354,7 +395,7 @@ async def workid_status_export(request: Request, db: AsyncSession = Depends(get_
     buf = _io.StringIO()
     w = _csv.writer(buf)
     w.writerow(["WorkID", "Tag Number", "Tag Number Make", "Model", "Stage",
-                "Assigned Engineer", "Start", "Final QC", "Completed Date",
+                "Assigned Engineer", "Start", "Final QC", "Assigned Date", "Completed Date",
                 "Aging (days)", "Notes"])
     for it in items:
         w.writerow([
@@ -366,6 +407,7 @@ async def workid_status_export(request: Request, db: AsyncSession = Depends(get_
             it.get("engineer") or "",
             it["start"].strftime("%d-%m-%Y %H:%M") if it.get("start") else "",
             it["finalqc"].strftime("%d-%m-%Y %H:%M") if it.get("finalqc") else "",
+            it["assigned_date"].strftime("%d-%m-%Y %H:%M") if it.get("assigned_date") else "",
             it["completed_at"].strftime("%d-%m-%Y %H:%M") if it.get("completed_at") else "",
             it.get("days", ""),
             (it.get("notes") or "").replace("\n", " "),

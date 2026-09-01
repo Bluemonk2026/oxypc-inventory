@@ -1,15 +1,17 @@
-"""/workid-status (2026-08-31 batch):
+"""/workid-status (2026-08-31 batch, updated 2026-09-01):
 
  - Card Count tiles (Total WorkIDs, Total Tags, Total Ongoing, Total
    Assigned, Total Completed) after the filter row, computed from the SAME
    filtered item list the table uses.
- - "From"/"To" labels renamed to "Assigned From"/"Assigned To" (date_from/
-   date_to params unchanged — they already filtered WorkOrder.assigned_at).
- - New filters: Completed From/To (WorkOrder.completed_at) and Cosmetic
-   Stage (Device.current_stage), all in the same filter row and all applied
-   to the tiles too.
+ - Filters: Completed From/To (WorkOrder.completed_at) and Cosmetic Stage
+   (Device.current_stage), all in the same filter row and all applied to the
+   tiles too. Assigned From/Assigned To (WorkOrder.assigned_at) were removed
+   2026-09-01.
  - Export CSV: dropped Parts Required/Parts Requested columns, added Tag
-   Number Make (Device.brand) and Completed Date (WorkOrder.completed_at).
+   Number Make (Device.brand) and Completed Date. Stage/Completed
+   Date/Assigned Engineer now come from the device's most recent
+   StageMovement (Asset History) rather than current_stage/completed_at/
+   assigned_name — see test_workid_status_asset_history_columns.py.
 """
 import pathlib
 import subprocess
@@ -87,8 +89,10 @@ def test_filter_row_labels_tiles_and_new_filters_render(app_client, make_user): 
     _login(app_client, username, password)
     html = app_client.get("/workid-status", follow_redirects=True).text
 
-    assert ">Assigned From<" in html
-    assert ">Assigned To<" in html
+    assert ">Assigned From<" not in html
+    assert ">Assigned To<" not in html
+    assert 'name="date_from"' not in html
+    assert 'name="date_to"' not in html
     assert ">Completed From<" in html
     assert ">Completed To<" in html
     assert 'name="completed_from"' in html

@@ -40,14 +40,6 @@
         </select>
       </div>
       <div class="col-md-2">
-        <label class="form-label small fw-semibold mb-1">Assigned From</label>
-        <input type="date" name="date_from" value="{{ f_date_from }}" class="form-control form-control-sm">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label small fw-semibold mb-1">Assigned To</label>
-        <input type="date" name="date_to" value="{{ f_date_to }}" class="form-control form-control-sm">
-      </div>
-      <div class="col-md-2">
         <label class="form-label small fw-semibold mb-1">Completed From</label>
         <input type="date" name="completed_from" value="{{ f_completed_from }}" class="form-control form-control-sm">
       </div>
@@ -61,7 +53,7 @@
         {# Carries the current filters, so Export always matches the table —
            with a filter applied or without one. #}
         <a class="btn btn-outline-success btn-sm text-nowrap"
-           href="/workid-status/export?workid={{ f_workid | urlencode }}&tag={{ f_tag | urlencode }}&engineer={{ f_engineer | urlencode }}&date_from={{ f_date_from | urlencode }}&date_to={{ f_date_to | urlencode }}&completed_from={{ f_completed_from | urlencode }}&completed_to={{ f_completed_to | urlencode }}&cosmetic_stage={{ f_cosmetic_stage | urlencode }}">
+           href="/workid-status/export?workid={{ f_workid | urlencode }}&tag={{ f_tag | urlencode }}&engineer={{ f_engineer | urlencode }}&completed_from={{ f_completed_from | urlencode }}&completed_to={{ f_completed_to | urlencode }}&cosmetic_stage={{ f_cosmetic_stage | urlencode }}">
           <i class="bi bi-download me-1"></i>Export
         </a>
       </div>
@@ -125,8 +117,8 @@
       <table id="workidTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark">
           <tr>
-            <th>WorkID</th><th>Tag Number</th><th>Model</th><th>Current Status</th>
-            <th>Parts Required</th><th>Parts Requested</th><th>Aging</th><th>Completed Date</th><th>Notes</th><th>Assigned Engineer</th>
+            <th>WorkID</th><th>Tag Number</th><th>Model</th><th>Stage</th>
+            <th>Aging</th><th>Completed Date</th><th>Notes</th><th>Assigned Engineer</th>
           </tr>
         </thead>
         <tbody>
@@ -136,8 +128,6 @@
             <td><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
             <td>{{ it.model or '—' }}</td>
             <td><span class="badge bg-secondary">{{ it.stage_label }}</span></td>
-            <td class="text-center"><span class="badge bg-{{ 'warning text-dark' if it.parts_required else 'light text-muted border' }}">{{ it.parts_required }}</span></td>
-            <td class="text-center"><span class="badge bg-{{ 'primary' if it.parts_requested else 'light text-muted border' }}">{{ it.parts_requested }}</span></td>
             <td class="text-nowrap">
               <span class="text-muted">{{ it.start.strftime('%d-%m-%Y') if it.start else '—' }}</span>
               <i class="bi bi-arrow-right mx-1 text-muted"></i>
@@ -149,17 +139,16 @@
               </span>
             </td>
             <td class="text-nowrap text-muted">
-              {# The stage THIS WorkID represents (Cleaning, Putty, ... whatever
-                 it.stage_label shows) — its own assigned date is the "Start"
-                 column above; this is when the tag actually left that stage,
-                 not when it eventually reached Final QC. #}
+              {# Sourced from the tag's Asset History (Device Detail) — the
+                 "When" of its most recent movement, same value as Stage
+                 (From) and Assigned Engineer (By) below. #}
               {{ it.completed_at.strftime('%d-%m-%Y %H:%M') if it.completed_at else '—' }}
             </td>
             <td class="text-muted">{{ it.notes or '' }}</td>
             <td>{{ it.engineer }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="10" class="text-center text-muted py-4">No WorkIDs found.</td></tr>
+          <tr><td colspan="8" class="text-center text-muted py-4">No WorkIDs found.</td></tr>
           {% endfor %}
         </tbody>
       </table>

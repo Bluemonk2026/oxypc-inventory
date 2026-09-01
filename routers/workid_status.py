@@ -1,7 +1,8 @@
 """
-WorkID Status — consolidated view of every WorkID (WorkOrder) with the device's
-current status, parts required / requested counts, an IQC→Final-QC timeline, and
-filters (workid, tag number, engineer, date range).
+WorkID Status — consolidated view of every WorkID (WorkOrder) with the tag's
+Asset History (Stage/Completed Date/Assigned Engineer sourced from the
+device's most recent StageMovement — From/When/By respectively), an
+IQC→Final-QC timeline, and filters (workid, tag number, engineer, date range).
 """
 from datetime import datetime
 from fastapi import APIRouter, Depends, Request, Query
@@ -15,10 +16,7 @@ from utils.timezone import app_now
 from models.user import User
 from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.work_order import WorkOrder
-from models.part_request import PartRequest
-from models.iqc_inspection import IQCInspection
 from utils.attendance_groups import managed_usernames
-from services.parts_required import compute_required
 from auth.dependencies import get_current_user
 
 router = APIRouter(tags=["workid_status"])
@@ -46,8 +44,6 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
                         workid: str = Query(default=""),
                         tag: str = Query(default=""),
                         engineer: str = Query(default=""),
-                        date_from: str = Query(default=""),
-                        date_to: str = Query(default=""),
                         completed_from: str = Query(default=""),
                         completed_to: str = Query(default=""),
                         cosmetic_stage: str = Query(default=""),
@@ -62,14 +58,6 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         stmt = stmt.where(WorkOrder.barcode.ilike(f"%{tag.strip()}%"))
     if engineer:
         stmt = stmt.where(WorkOrder.assigned_username == engineer)
-    df = _parse_date(date_from)
-    dt = _parse_date(date_to)
-    if df:
-        stmt = stmt.where(WorkOrder.assigned_at >= df)
-    if dt:
-        # include the whole end day
-        dt_end = dt.replace(hour=23, minute=59, second=59)
-        stmt = stmt.where(WorkOrder.assigned_at <= dt_end)
     cf = _parse_date(completed_from)
     ct = _parse_date(completed_to)
     if cf:
@@ -95,30 +83,15 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
     rows = (await db.execute(stmt)).all()
     device_ids = [d.id for _, d in rows if d is not None]
 
-    # ── Parts Required (IQC-driven) + Parts Requested (requested + handed over) ─
-    parts_required_map, parts_requested_map = {}, {}
     finalqc_date_map = {}
+    # ── Asset History (Device Detail's "From"/"To"/"By"/"When" table) — Stage,
+    # Completed Date and Assigned Engineer below now read the device's most
+    # recent StageMovement rather than the device's live current_stage /
+    # WorkOrder.completed_at / WorkOrder.assigned_name, so this page always
+    # matches whatever Asset History shows for that tag. ────────────────────
+    latest_movement_by_device = {}
+    display_name_by_username = {}
     if device_ids:
-        iqc_rows = (await db.execute(
-            select(IQCInspection).where(IQCInspection.device_id.in_(device_ids))
-        )).scalars().all()
-        iqc_by_dev = {}
-        for iqc in iqc_rows:
-            iqc_by_dev.setdefault(str(iqc.device_id), iqc)
-        dev_by_id = {str(d.id): d for _, d in rows if d is not None}
-        for did, dev in dev_by_id.items():
-            parts_required_map[did] = sum(
-                1 for r in compute_required(iqc_by_dev.get(did), dev) if r["required"]
-            )
-        pr_rows = (await db.execute(
-            select(PartRequest.device_id, func.count(PartRequest.id))
-            .where(PartRequest.device_id.in_(device_ids),
-                   PartRequest.status.in_(["requested", "handed_over"]))
-            .group_by(PartRequest.device_id)
-        )).all()
-        for did, cnt in pr_rows:
-            parts_requested_map[str(did)] = cnt
-
         # Date each device was sent to Final QC (latest movement to final_qc)
         fq_rows = (await db.execute(
             select(StageMovement.device_id, func.max(StageMovement.moved_at))
@@ -129,6 +102,21 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         for did, moved in fq_rows:
             finalqc_date_map[str(did)] = moved
 
+        move_rows = (await db.execute(
+            select(StageMovement)
+            .where(StageMovement.device_id.in_(device_ids))
+            .order_by(StageMovement.moved_at.desc())
+        )).scalars().all()
+        for mv in move_rows:
+            latest_movement_by_device.setdefault(str(mv.device_id), mv)
+
+        usernames = {mv.moved_by for mv in latest_movement_by_device.values() if mv.moved_by}
+        if usernames:
+            u_rows = (await db.execute(
+                select(User.username, User.full_name).where(User.username.in_(usernames))
+            )).all()
+            display_name_by_username = {uname: full for uname, full in u_rows}
+
     today = app_now()
     items = []
     for wo, dev in rows:
@@ -137,24 +125,27 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         finalqc_dt = finalqc_date_map.get(did)
         end = finalqc_dt or today
         days = max(0, (end.date() - start.date()).days) if start else 0
-        cur_stage = dev.current_stage if dev else None
+        mv = latest_movement_by_device.get(did)
+        if mv:
+            stage_label = STAGE_LABELS.get(mv.from_stage, mv.from_stage.value if mv.from_stage else "—")
+            movement_completed_at = mv.moved_at
+            movement_engineer = (display_name_by_username.get(mv.moved_by) or mv.moved_by) if mv.moved_by else "—"
+        else:
+            stage_label, movement_completed_at, movement_engineer = "—", None, "—"
         items.append({
             "work_id": wo.work_id,
             "barcode": wo.barcode or (dev.barcode if dev else "—"),
             "model": (dev.model or dev.brand) if dev else "—",
             "brand": (dev.brand if dev else None),
-            "stage_label": STAGE_LABELS.get(cur_stage, cur_stage.value if cur_stage else "—"),
-            "stage_value": cur_stage.value if cur_stage else "",
+            "stage_label": stage_label,
             "wo_status": wo.status,
-            "parts_required": parts_required_map.get(did, 0),
-            "parts_requested": parts_requested_map.get(did, 0),
             "start": start,
             "finalqc": finalqc_dt,
-            "completed_at": wo.completed_at,
+            "completed_at": movement_completed_at,
             "days": days,
             "ongoing": finalqc_dt is None,
             "notes": (dev.notes if dev else None),
-            "engineer": wo.assigned_name or wo.assigned_username or "—",
+            "engineer": movement_engineer,
         })
 
     # ── Card Count tiles — computed from the SAME filtered `items` list, so
@@ -204,7 +195,6 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         "items": items, "engineers": engineers, "is_admin": is_admin,
         "tile_counts": tile_counts, "cosmetic_stage_choices": cosmetic_stage_choices,
         "f_workid": workid, "f_tag": tag, "f_engineer": engineer,
-        "f_date_from": date_from, "f_date_to": date_to,
         "f_completed_from": completed_from, "f_completed_to": completed_to,
         "f_cosmetic_stage": cosmetic_stage,
         "highlight": highlight,
@@ -217,8 +207,6 @@ async def workid_status_export(request: Request, db: AsyncSession = Depends(get_
                                workid: str = Query(default=""),
                                tag: str = Query(default=""),
                                engineer: str = Query(default=""),
-                               date_from: str = Query(default=""),
-                               date_to: str = Query(default=""),
                                completed_from: str = Query(default=""),
                                completed_to: str = Query(default=""),
                                cosmetic_stage: str = Query(default="")):
@@ -235,14 +223,13 @@ async def workid_status_export(request: Request, db: AsyncSession = Depends(get_
 
     page = await workid_status(request=request, db=db, current_user=current_user,
                                workid=workid, tag=tag, engineer=engineer,
-                               date_from=date_from, date_to=date_to,
                                completed_from=completed_from, completed_to=completed_to,
                                cosmetic_stage=cosmetic_stage, highlight="")
     items = page.context["items"]
 
     buf = _io.StringIO()
     w = _csv.writer(buf)
-    w.writerow(["WorkID", "Tag Number", "Tag Number Make", "Model", "Current Status",
+    w.writerow(["WorkID", "Tag Number", "Tag Number Make", "Model", "Stage",
                 "Assigned Engineer", "Start", "Final QC", "Completed Date",
                 "Aging (days)", "Notes"])
     for it in items:

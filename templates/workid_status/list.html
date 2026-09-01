@@ -57,6 +57,11 @@
           <i class="bi bi-download me-1"></i>Export
         </a>
       </div>
+      <div class="col-12 small text-muted">
+        <i class="bi bi-info-circle me-1"></i>Most stage transitions don't create a WorkID (only ones with an
+        engineer assigned do). Search a specific Tag Number, or pick a Stage together with a Completed
+        From/To date, to also see those tags' Asset History here.
+      </div>
     </div>
   </div>
 </form>
@@ -123,13 +128,18 @@
         </thead>
         <tbody>
           {% for it in items %}
-          <tr id="wo-{{ it.work_id }}" class="{{ 'table-warning' if highlight and highlight == it.work_id else '' }}">
-            <td class="font-monospace fw-bold">{{ it.work_id }}</td>
+          <tr id="{{ it.row_key }}" class="{{ 'table-warning' if highlight and highlight == it.work_id else '' }}">
+            <td class="font-monospace fw-bold">
+              {% if it.work_id %}{{ it.work_id }}
+              {% else %}<span class="text-muted fst-italic" title="No WorkID was ever created for this stage transition — backfilled from Asset History">— No WorkID —</span>
+              {% endif %}
+            </td>
             <td><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
             <td>{{ it.model or '—' }}</td>
             <td><span class="badge bg-secondary">{{ it.stage_label }}</span></td>
             <td class="text-nowrap">
-              <span class="text-muted">{{ it.start.strftime('%d-%m-%Y') if it.start else '—' }}</span>
+              {% if it.start %}
+              <span class="text-muted">{{ it.start.strftime('%d-%m-%Y') }}</span>
               <i class="bi bi-arrow-right mx-1 text-muted"></i>
               {% if it.finalqc %}<span class="text-muted">{{ it.finalqc.strftime('%d-%m-%Y') }}</span>
               {% else %}<span class="text-muted fst-italic">ongoing</span>{% endif %}
@@ -137,6 +147,8 @@
                     title="{{ 'Days from creation to Final QC' if it.finalqc else 'Days since creation (not yet sent to Final QC)' }}">
                 {{ it.days }} day{{ 's' if it.days != 1 else '' }}
               </span>
+              {% else %}<span class="text-muted">—</span>
+              {% endif %}
             </td>
             <td class="text-nowrap text-muted">
               {# Sourced from the tag's Asset History (Device Detail) — the

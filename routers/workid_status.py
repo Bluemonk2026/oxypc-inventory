@@ -16,6 +16,20 @@ Date/Engineer instead of every row collapsing onto the single latest
 movement. A still-pending WorkOrder (no completed_at yet) has no closing
 movement to match, so it falls back to the device's latest movement as the
 best available "where things stand" hint.
+
+Most StageMovements have NO WorkOrder at all (2026-09-02 — reported as
+"can't see tags that completed Cleaning / Water Sanding on <date>" even
+after the above fix): a WorkOrder is only created when advance_stage assigns
+an engineer, but plenty of transitions happen without one (bulk stage moves,
+IQC intake, Final QC pass/fail, etc.) — in production, 131k+ StageMovements
+exist against under 5k WorkOrders ever created. Since this page's rows were
+strictly "one per WorkOrder", those movements were invisible here no matter
+how the Stage/Completed Date/Engineer columns were sourced. add_synthetic_
+movement_rows below adds one row per WorkOrder-less StageMovement, scoped to
+whichever of tag / (stage + a completed-date bound) the caller supplied —
+never unscoped, since an unfiltered query would return the full 131k-row
+table. These synthetic rows have no WorkID (work_id is None) and show "—"
+for Aging/Notes.
 """
 from datetime import datetime
 from fastapi import APIRouter, Depends, Request, Query
@@ -144,6 +158,7 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
 
     today = app_now()
     items = []
+    used_movement_ids = set()
     for wo, dev in rows:
         did = str(wo.device_id)
         start = wo.assigned_at or wo.created_at
@@ -152,6 +167,7 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         days = max(0, (end.date() - start.date()).days) if start else 0
         mv = _movement_for_work_order(wo, movements_by_device.get(did, []))
         if mv:
+            used_movement_ids.add(mv.id)
             stage_value = mv.from_stage.value if mv.from_stage else ""
             stage_label = STAGE_LABELS.get(mv.from_stage, mv.from_stage.value if mv.from_stage else "—")
             movement_completed_at = mv.moved_at
@@ -159,6 +175,7 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         else:
             stage_value, stage_label, movement_completed_at, movement_engineer = "", "—", None, "—"
         items.append({
+            "row_key": f"wo-{wo.work_id}",
             "work_id": wo.work_id,
             "barcode": wo.barcode or (dev.barcode if dev else "—"),
             "model": (dev.model or dev.brand) if dev else "—",
@@ -175,6 +192,65 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             "engineer": movement_engineer,
         })
 
+    # ── Backfill: StageMovements with no WorkOrder at all ───────────────────
+    # Only run when the request is bounded — a specific tag, or a specific
+    # Stage narrowed by at least one Completed Date bound — never on an
+    # unfiltered load of the page (see module docstring for the 131k-row
+    # reason). engineer/completed_from/completed_to are honoured whenever
+    # present regardless of which of the two bounding filters triggered this.
+    bounded_by_tag = bool(tag.strip())
+    bounded_by_stage_and_date = bool(cosmetic_stage) and (cf or ct)
+    if bounded_by_tag or bounded_by_stage_and_date:
+        mv_stmt = (
+            select(StageMovement, Device)
+            .join(Device, StageMovement.device_id == Device.id)
+            .where(StageMovement.from_stage.isnot(None))
+        )
+        if tag.strip():
+            mv_stmt = mv_stmt.where(Device.barcode.ilike(f"%{tag.strip()}%"))
+        if cosmetic_stage:
+            mv_stmt = mv_stmt.where(StageMovement.from_stage == cosmetic_stage)
+        if engineer:
+            mv_stmt = mv_stmt.where(StageMovement.moved_by == engineer)
+        if cf:
+            mv_stmt = mv_stmt.where(StageMovement.moved_at >= cf)
+        if ct:
+            mv_stmt = mv_stmt.where(StageMovement.moved_at <= ct.replace(hour=23, minute=59, second=59))
+        if not is_admin:
+            mv_stmt = mv_stmt.where(StageMovement.moved_by.in_(visible_usernames))
+
+        for mv, dev in (await db.execute(mv_stmt.order_by(StageMovement.moved_at.desc()).limit(2000))).all():
+            if mv.id in used_movement_ids:
+                continue  # already shown above via its matching WorkOrder
+            used_movement_ids.add(mv.id)
+            engineer_name = (display_name_by_username.get(mv.moved_by) or mv.moved_by) if mv.moved_by else "—"
+            if mv.moved_by and mv.moved_by not in display_name_by_username:
+                # Not covered by the WorkOrder-scoped username lookup above
+                # (this movement's mover never appeared on a WorkOrder row).
+                resolved = (await db.execute(
+                    select(User.full_name).where(User.username == mv.moved_by)
+                )).scalar_one_or_none()
+                if resolved:
+                    display_name_by_username[mv.moved_by] = resolved
+                    engineer_name = resolved
+            items.append({
+                "row_key": f"mv-{mv.id}",
+                "work_id": None,
+                "barcode": dev.barcode if dev else "—",
+                "model": (dev.model or dev.brand) if dev else "—",
+                "brand": (dev.brand if dev else None),
+                "stage_label": STAGE_LABELS.get(mv.from_stage, mv.from_stage.value),
+                "stage_value": mv.from_stage.value,
+                "wo_status": None,
+                "start": None,
+                "finalqc": finalqc_date_map.get(str(mv.device_id)),
+                "completed_at": mv.moved_at,
+                "days": 0,
+                "ongoing": finalqc_date_map.get(str(mv.device_id)) is None,
+                "notes": (dev.notes if dev else None),
+                "engineer": engineer_name,
+            })
+
     # ── Completed Date / Stage filters — applied here (not in the SQL stmt
     # above) so they narrow the SAME values the Completed Date and Stage
     # columns display (Asset History's When/From), not the WorkOrder/Device
@@ -186,6 +262,11 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
     if ct:
         ct_end = ct.replace(hour=23, minute=59, second=59)
         items = [it for it in items if it["completed_at"] and it["completed_at"] <= ct_end]
+
+    # WorkOrder rows and backfilled movement-only rows come from two
+    # separately-ordered queries — sort the merged list so it still reads
+    # newest-first regardless of source.
+    items.sort(key=lambda it: it["completed_at"] or it["start"] or datetime.min, reverse=True)
 
     # ── Card Count tiles — computed from the SAME filtered `items` list, so
     # every filter above (including Completed From/To and Stage) narrows the

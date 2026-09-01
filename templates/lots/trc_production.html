@@ -100,7 +100,7 @@
           {% for row in fqc_fail_buckets %}
           <tr>
             <td>{{ row.bucket_name or '—' }}</td>
-            <td class="font-monospace">{{ row.bucket_number }}</td>
+            <td><a href="#" class="font-monospace fw-bold text-decoration-none trc-view-tags" data-id="{{ row.bucket_id }}" data-number="{{ row.bucket_number }}">{{ row.bucket_number }}</a></td>
             <td>{{ row.count }}</td>
             <td><span class="badge bg-warning text-dark">L1 — Pending Assign</span></td>
             <td class="small">{{ row.failure_reason or '—' }}</td>
@@ -423,27 +423,6 @@ function loadTrcBuckets(){
       '</tr>';
     }).join('');
 
-    // View tags
-    tbody.querySelectorAll('.trc-view-tags').forEach(function(el){
-      el.addEventListener('click', function(e){
-        e.preventDefault();
-        var id=this.dataset.id, num=this.dataset.number;
-        document.getElementById('trcBktTagsNum').textContent = num;
-        document.getElementById('trcBktTagsBody').textContent = 'Loading…';
-        new bootstrap.Modal(document.getElementById('trcBktTagsModal')).show();
-        fetch('/api/buckets/'+id+'/tags').then(function(r){return r.json();}).then(function(tags){
-          if(!tags.length){ document.getElementById('trcBktTagsBody').textContent='No devices.'; return; }
-          document.getElementById('trcBktTagsBody').innerHTML = tags.map(function(t){
-            var qc = '';
-            if (t.final_qc_status === 'pass') qc = ' <span class="badge bg-success">Final QC: Pass</span>';
-            else if (t.final_qc_status === 'fail') qc = ' <span class="badge bg-danger">Final QC: Fail</span>';
-            var note = t.failure_note ? '<div class="small text-danger ms-4">'+t.failure_note+'</div>' : '';
-            return '<div class="py-1 border-bottom"><code>'+t.barcode+'</code> <span class="text-muted">'+t.brand+' '+t.model+'</span> <span class="badge bg-light text-dark">'+t.grade+'</span>'+qc+note+'</div>';
-          }).join('');
-        });
-      });
-    });
-
     // Assign bucket
     tbody.querySelectorAll('.trc-assign-bkt').forEach(function(el){
       el.addEventListener('click', function(){
@@ -610,7 +589,9 @@ document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el){ ne
 function loadProdAllocationTable(){
   fetch('/api/buckets?status=stock_in,trc_pending,validated').then(function(r){return r.json();}).then(function(buckets){
     var tbody = document.getElementById('prodAllocationTbody');
-    var relevant = buckets.filter(function(b){ return b.assigned_to_production; });
+    // A bucket with 0 tag numbers left (every device unmapped/moved on) has
+    // nothing to show or act on here — drop it rather than list an empty row.
+    var relevant = buckets.filter(function(b){ return b.assigned_to_production && b.device_count > 0; });
     if(!relevant.length){
       tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No buckets allocated to L1/L2 Engineer yet.</td></tr>';
       return;
@@ -618,7 +599,7 @@ function loadProdAllocationTable(){
     tbody.innerHTML = relevant.map(function(b){
       return '<tr>'+
         '<td>'+(b.name || '—')+'</td>'+
-        '<td><span class="badge bg-secondary">'+b.bucket_number+'</span></td>'+
+        '<td><a href="#" class="font-monospace fw-bold text-decoration-none trc-view-tags" data-id="'+b.id+'" data-number="'+b.bucket_number+'">'+b.bucket_number+'</a></td>'+
         '<td>'+(b.location_unit_id||'—')+'</td>'+
         '<td><span class="badge bg-success">'+b.total_pass+'</span></td>'+
         '<td><span class="badge bg-danger">'+b.total_fail+'</span></td>'+
@@ -630,6 +611,28 @@ function loadProdAllocationTable(){
   });
 }
 loadProdAllocationTable();
+
+// View Tags — one delegated handler covers every "Bucket ID" link on this
+// page (Bucket Allocation's own table built by loadTrcBuckets, the
+// server-rendered Final QC Fail (Bucket) table, and this Buckets in Repair
+// Line table), instead of re-binding per render.
+$(document).on('click', '.trc-view-tags', function(e){
+  e.preventDefault();
+  var id = this.dataset.id, num = this.dataset.number;
+  document.getElementById('trcBktTagsNum').textContent = num;
+  document.getElementById('trcBktTagsBody').textContent = 'Loading…';
+  new bootstrap.Modal(document.getElementById('trcBktTagsModal')).show();
+  fetch('/api/buckets/'+id+'/tags').then(function(r){return r.json();}).then(function(tags){
+    if(!tags.length){ document.getElementById('trcBktTagsBody').textContent='No devices.'; return; }
+    document.getElementById('trcBktTagsBody').innerHTML = tags.map(function(t){
+      var qc = '';
+      if (t.final_qc_status === 'pass') qc = ' <span class="badge bg-success">Final QC: Pass</span>';
+      else if (t.final_qc_status === 'fail') qc = ' <span class="badge bg-danger">Final QC: Fail</span>';
+      var note = t.failure_note ? '<div class="small text-danger ms-4">'+t.failure_note+'</div>' : '';
+      return '<div class="py-1 border-bottom"><code>'+t.barcode+'</code> <span class="text-muted">'+t.brand+' '+t.model+'</span> <span class="badge bg-light text-dark">'+t.grade+'</span>'+qc+note+'</div>';
+    }).join('');
+  });
+});
 
 $(document).on('click', '.release-bkt-btn', function(){
   var id = this.dataset.id, num = this.dataset.number;

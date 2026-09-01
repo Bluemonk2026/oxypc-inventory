@@ -642,6 +642,16 @@ async def startup_event():
     except Exception as _me:
         print(f"  [MasterData] Could not load dropdown-options cache: {_me}")
 
+    # ── Warm Master Data Global Visibility cache from DB ──────────────────────
+    try:
+        from routers.master import load_module_visibility_to_cache
+        from database import AsyncSessionLocal as _ASL7
+        async with _ASL7() as _sess7:
+            await load_module_visibility_to_cache(_sess7)
+        print("  [MasterData] Global Visibility cache loaded")
+    except Exception as _gve:
+        print(f"  [MasterData] Could not load Global Visibility cache: {_gve}")
+
     # ── Periodic cache refresh (enables safe multi-worker deployment) ─────────
     # Every in-memory cache above is populated once here and only invalidated
     # by an explicit save-handler call in whichever worker process handled that
@@ -672,6 +682,9 @@ async def startup_event():
                 from utils.master_data import refresh_master_cache as _mc
                 async with _ASL_periodic() as _sess:
                     await _mc(_sess)
+                from routers.master import load_module_visibility_to_cache as _gv
+                async with _ASL_periodic() as _sess:
+                    await _gv(_sess)
                 from services.control_engine import invalidate_transitions_cache as _itc
                 _itc()  # lazy-reloads on next call in this worker
             except Exception as _rce:

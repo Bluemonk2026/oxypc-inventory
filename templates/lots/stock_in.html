@@ -695,7 +695,12 @@ function esc(s){
 
 // Load bucket table — destroys and reinits DataTable each time
 function loadBucketTable(){
-  fetch('/api/buckets?status=stock_in').then(function(r){return r.json();}).then(function(buckets){
+  // with_stage=stock_in: only show buckets whose tags are actually at Stock
+  // In — a bucket that's moved on (e.g. to Production) shouldn't linger
+  // here. exempt_customer_return keeps Return Stock's buckets visible too,
+  // even though their tags sit at whatever stage their return re-entered
+  // them at (iqc, l1, cleaning, ...), never stock_in.
+  fetch('/api/buckets?status=stock_in&with_stage=stock_in&exempt_customer_return=1').then(function(r){return r.json();}).then(function(buckets){
     if($.fn.DataTable.isDataTable('#bucketTable')){ $('#bucketTable').DataTable().destroy(); }
     var tbody = document.getElementById('bucketTbody');
     if(!buckets.length){

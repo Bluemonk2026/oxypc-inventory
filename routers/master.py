@@ -12,7 +12,9 @@ from models.role_permissions import (
     RoleModulePermission, CustomRole, RoleAdditionalPermission,
     get_cached_perms, set_cached_perms, _PERM_CACHE,
     set_cached_additional_perms, _ADDITIONAL_PERM_CACHE,
+    get_cached_module_hidden, set_cached_module_hidden, _MODULE_HIDDEN_CACHE,
 )
+from models.settings import AppSetting
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from routers.admin import _role_data
 from utils.master_data import refresh_master_cache
@@ -244,6 +246,31 @@ SUB_ADMIN_EXTRA_MODULES = [
 SUB_ADMIN_MODULES = PERM_MODULES + SUB_ADMIN_EXTRA_MODULES
 SUB_ADMIN_ROLE = "sub_admin"
 
+# ── Global Visibility tab ─────────────────────────────────────────────────────
+# Same module list as Sub Admin Role (includes the synthetic 'admin_settings'
+# switch, since hiding the whole Admin Settings accordion is a real, useful
+# toggle) MINUS 'admin_master' — Master Data is the page this very tab lives
+# on, so hiding it would strand admin with no UI path left to undo the hide.
+# Unlike has_perm()/has_explicit_perm() (role-scoped, admin always bypasses),
+# this hides a module from EVERY user including admin — see
+# models/role_permissions.py get_cached_module_hidden / module_hidden() in
+# templates_config.py.
+GLOBAL_VISIBILITY_MODULES = [(k, l) for k, l in SUB_ADMIN_MODULES if k != "admin_master"]
+GLOBAL_HIDDEN_PREFIX = "global_hidden_"
+
+
+async def load_module_visibility_to_cache(db: AsyncSession) -> None:
+    """Populate the in-memory Global Visibility cache from AppSetting rows.
+    Called at app startup and after every toggle. Missing rows default to
+    visible (not hidden) via get_cached_module_hidden()."""
+    rows = (await db.execute(
+        select(AppSetting).where(AppSetting.key.like(f"{GLOBAL_HIDDEN_PREFIX}%"))
+    )).scalars().all()
+    _MODULE_HIDDEN_CACHE.clear()
+    for r in rows:
+        module_key = r.key[len(GLOBAL_HIDDEN_PREFIX):]
+        _MODULE_HIDDEN_CACHE[module_key] = (r.value == "1")
+
 PERM_ACTIONS = [
     ("can_enable", "Enable"),
 ]
@@ -450,6 +477,12 @@ async def master_list(
     )).scalars().all()
     sub_admin_perm_rows = {r.module: r for r in sub_admin_rows}
 
+    # ── Global Visibility data ────────────────────────────────────────────────
+    global_visibility_rows = [
+        (mod_key, mod_label, get_cached_module_hidden(mod_key))
+        for mod_key, mod_label in GLOBAL_VISIBILITY_MODULES
+    ]
+
     return templates.TemplateResponse("admin/master.html", {
         "request": request,
         "grouped": grouped,
@@ -473,7 +506,49 @@ async def master_list(
         "sub_admin_modules": SUB_ADMIN_MODULES,
         "sub_admin_perm_rows": sub_admin_perm_rows,
         "sub_admin_role": SUB_ADMIN_ROLE,
+        # Global Visibility tab data
+        "global_visibility_rows": global_visibility_rows,
     })
+
+
+@router.post("/global-visibility/toggle")
+async def toggle_global_visibility(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(admin_only),
+):
+    """AJAX toggle: hide/show one module from the sidebar for every user,
+    admin included (see GLOBAL_VISIBILITY_MODULES / module_hidden())."""
+    form = await request.form()
+    module_key = (form.get("module_key") or "").strip()
+    hidden = (form.get("hidden") or "").strip() == "1"
+
+    if not module_key:
+        return JSONResponse({"error": "module_key required"}, status_code=400)
+    if module_key == "admin_master":
+        return JSONResponse({"error": "Master Data cannot be hidden — it's where this toggle lives"},
+                            status_code=400)
+
+    setting_key = f"{GLOBAL_HIDDEN_PREFIX}{module_key}"
+    existing = (await db.execute(
+        select(AppSetting).where(AppSetting.key == setting_key)
+    )).scalar_one_or_none()
+
+    value = "1" if hidden else "0"
+    if existing:
+        existing.value = value
+        existing.updated_by = current_user.username
+    else:
+        db.add(AppSetting(
+            key=setting_key,
+            value=value,
+            description=f"Global sidebar visibility for {module_key}",
+            updated_by=current_user.username,
+        ))
+
+    await db.commit()
+    set_cached_module_hidden(module_key, hidden)
+    return JSONResponse({"success": True, "module_key": module_key, "hidden": hidden})
 
 
 @router.post("/add")

@@ -47,10 +47,13 @@
       <i class="bi bi-currency-rupee me-1"></i>Pricing Visibility
     </a>
   </li>
+  {# Sub Admin Role tab hidden from the nav bar 2026-09-02 — the underlying
+     ?main_tab=sub_admin content block and its save endpoint are untouched,
+     just not linked to from here. #}
   <li class="nav-item">
-    <a class="nav-link {{ 'active' if main_tab == 'sub_admin' else '' }}"
-       href="/admin/master?main_tab=sub_admin">
-      <i class="bi bi-shield-lock-fill me-1"></i>Sub Admin Role
+    <a class="nav-link {{ 'active' if main_tab == 'global_visibility' else '' }}"
+       href="/admin/master?main_tab=global_visibility">
+      <i class="bi bi-eye-slash me-1"></i>Global Visibility
     </a>
   </li>
 </ul>
@@ -639,6 +642,80 @@ function toggleAllSubAdmin(state) {
 </script>
 
 {% endif %}{# end tab 5 #}
+
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+{# TAB 6 — GLOBAL VISIBILITY                                                  #}
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+{% if main_tab == 'global_visibility' %}
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-white">
+    <h6 class="mb-0 fw-semibold"><i class="bi bi-eye-slash me-2"></i>Global Visibility</h6>
+    <p class="text-muted small mb-0 mt-1">
+      Hides a module's sidebar entry for <strong>every user, including admin</strong> —
+      a different, stronger control than Module Permissions above (which is per-role and
+      always lets admin through). Each switch saves instantly. Master Data itself can't be
+      hidden here, since this is the only screen that can undo it.
+    </p>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+      <thead class="table-light">
+        <tr><th>Module</th><th style="width:140px;">Visible to Everyone</th></tr>
+      </thead>
+      <tbody>
+        {% for mod_key, mod_label, is_hidden in global_visibility_rows %}
+        <tr>
+          <td>{{ mod_label }}</td>
+          <td>
+            <div class="form-check form-switch mb-0">
+              <input class="form-check-input global-visibility-toggle" type="checkbox"
+                     role="switch" id="gv-{{ mod_key }}" data-module-key="{{ mod_key }}"
+                     {% if not is_hidden %}checked{% endif %}>
+              <label class="form-check-label small" for="gv-{{ mod_key }}">
+                <span id="gv-label-{{ mod_key }}">{{ "Visible" if not is_hidden else "Hidden" }}</span>
+              </label>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('.global-visibility-toggle').forEach(function (sw) {
+  sw.addEventListener('change', function () {
+    var key = this.dataset.moduleKey;
+    var visible = this.checked;
+    var label = document.getElementById('gv-label-' + key);
+    var csrf = (document.cookie.split('; ').find(r => r.startsWith('csrf_token=')) || '').split('=')[1] || '';
+
+    var body = new URLSearchParams();
+    body.set('module_key', key);
+    body.set('hidden', visible ? '0' : '1');
+
+    fetch('/admin/master/global-visibility/toggle', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-CSRF-Token': csrf,
+      },
+      body: body.toString(),
+    })
+      .then(r => r.json())
+      .then(function (data) {
+        if (!data.success) throw new Error(data.error || 'failed');
+        if (label) label.textContent = visible ? 'Visible' : 'Hidden';
+      })
+      .catch(function (err) {
+        sw.checked = !visible; // revert on failure
+        alert(err.message && err.message !== 'failed' ? err.message : 'Could not update visibility setting.');
+      });
+  });
+});
+</script>
+{% endif %}{# end tab 6 #}
 
 {# ─────────────────────── SHARED MODALS (Tab 1) ───────────────────────────── #}
 {% if main_tab == 'dropdowns' %}

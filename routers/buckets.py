@@ -86,6 +86,7 @@ async def list_buckets(
     current_user: User = Depends(get_current_user),
     status: str = "stock_in",
     with_stage: str = "",
+    exempt_customer_return: str = "",
 ):
     """`with_stage` (opt-in) drops any bucket holding zero active devices in that
     stage, AND makes the returned `device_count` ("Bucket Qty") reflect only
@@ -94,7 +95,17 @@ async def list_buckets(
     happened to reuse the same bucket. The Production Manager's Bucket
     Allocation table passes trc_production so both the list and the Bucket
     Qty column only ever reflect devices that are actually in TRC Production;
-    every other caller omits it and sees the unscoped count instead."""
+    every other caller omits it and sees the unscoped count instead.
+
+    `exempt_customer_return` (opt-in, only meaningful alongside with_stage)
+    additionally keeps any is_customer_return bucket in the result even with
+    zero devices at with_stage — its tags are mid-repair at whatever stage
+    their return re-entered them at, never with_stage itself when that's
+    stock_in, so the plain with_stage filter would otherwise hide it.
+    Inventory Manager's own Buckets/Cartons table (with_stage=stock_in) is
+    the one caller that wants this; left off by default so Production
+    Manager's Bucket Allocation tab keeps hiding empty buckets exactly as
+    before."""
     statuses = [s.strip() for s in status.split(",") if s.strip()]
     rows = (await db.execute(
         select(Bucket).where(Bucket.status.in_(statuses)).order_by(Bucket.created_at.desc())
@@ -119,11 +130,28 @@ async def list_buckets(
             .group_by(Device.bucket_id)
         )).all()
         count_map = {str(r[0]): r[1] for r in count_rows}
-        # Only buckets with at least one device actually at `want_stage`.
-        rows = [b for b in rows if count_map.get(str(b.id), 0) > 0]
+        # Only buckets with at least one device actually at `want_stage` —
+        # unless exempt_customer_return opted in and this bucket is one.
+        rows = [b for b in rows
+                if count_map.get(str(b.id), 0) > 0
+                or (exempt_customer_return and b.is_customer_return)]
         if not rows:
             return JSONResponse([])
         bucket_ids = [b.id for b in rows]
+
+        # A bucket kept only via exempt_customer_return has 0 in count_map
+        # (that's what let it through) — replace its Qty with its real,
+        # unscoped device count so the table doesn't show a misleading 0 for
+        # a bucket that plainly has tags, just not at want_stage.
+        exempt_ids = [b.id for b in rows
+                     if count_map.get(str(b.id), 0) == 0 and exempt_customer_return and b.is_customer_return]
+        if exempt_ids:
+            unscoped_rows = (await db.execute(
+                select(Device.bucket_id, func.count(Device.id))
+                .where(Device.bucket_id.in_(exempt_ids), Device.is_active == True)
+                .group_by(Device.bucket_id)
+            )).all()
+            count_map.update({str(r[0]): r[1] for r in unscoped_rows})
     else:
         count_rows = (await db.execute(
             select(Device.bucket_id, func.count(Device.id))

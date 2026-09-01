@@ -144,6 +144,24 @@ def set_cached_breadcrumb_enabled(module_key: str, enabled: bool) -> None:
     _BREADCRUMB_CACHE[module_key] = enabled
 
 
+# ── Master Data "Global Visibility" tab: hide a module from the sidebar for
+#    EVERY user, admin included — a separate layer from has_perm()/
+#    has_explicit_perm() (both of which always let admin through), never
+#    consulted by them. Persisted as AppSetting rows
+#    (key=f"global_hidden_{module_key}"). Structure: {module_key: bool}.
+#    Missing key => not hidden (default visible, matches pre-existing
+#    behavior before this toggle existed).
+_MODULE_HIDDEN_CACHE: dict = {}
+
+
+def get_cached_module_hidden(module_key: str) -> bool:
+    return _MODULE_HIDDEN_CACHE.get(module_key, False)
+
+
+def set_cached_module_hidden(module_key: str, hidden: bool) -> None:
+    _MODULE_HIDDEN_CACHE[module_key] = hidden
+
+
 def get_cached_additional_perms(role_name: str) -> dict:
     return _ADDITIONAL_PERM_CACHE.get(role_name, {})
 

@@ -148,6 +148,17 @@ def _resolve_page_title(path: str):
     return _get_cached_page_title(module_key)
 
 
+def _module_hidden(module_key: str) -> bool:
+    """Master Data's Global Visibility toggle — True hides a module's sidebar
+    entry from EVERY user, admin included (a separate layer from has_perm()/
+    has_explicit_perm(), which always let admin through and are never
+    consulted here). Takes a module_key directly, unlike breadcrumb_enabled
+    (which resolves a request path), since base.html calls this with the
+    same literal keys it already passes to has_perm()."""
+    from models.role_permissions import get_cached_module_hidden
+    return get_cached_module_hidden(module_key)
+
+
 def _breadcrumb_enabled(path: str) -> bool:
     """Whether the breadcrumb trail should render for this request path.
     Defaults to True (shown) for any path not in NAV_PAGE_TITLES, matching
@@ -164,6 +175,7 @@ templates.env.globals["has_explicit_perm"] = _has_explicit_perm
 templates.env.globals["any_perm"] = _any_perm
 templates.env.globals["can_view_pricing"] = _can_view_pricing
 templates.env.globals["breadcrumb_enabled"] = _breadcrumb_enabled
+templates.env.globals["module_hidden"] = _module_hidden
 templates.env.globals["sidebar_label"] = _sidebar_label
 templates.env.globals["resolve_page_title"] = _resolve_page_title
 

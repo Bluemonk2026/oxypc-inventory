@@ -47,13 +47,20 @@
         <label class="form-label small fw-semibold mb-1">Completed To</label>
         <input type="date" name="completed_to" value="{{ f_completed_to }}" class="form-control form-control-sm">
       </div>
+      <div class="col-auto d-flex align-items-center pb-2">
+        <div class="form-check">
+          <input type="checkbox" class="form-check-input" id="excludeAdminChk" name="exclude_admin"
+                 value="1" {% if f_exclude_admin %}checked{% endif %}>
+          <label class="form-check-label small fw-semibold" for="excludeAdminChk">Exclude Admin</label>
+        </div>
+      </div>
       <div class="col-md-2 d-flex gap-1">
         <button type="submit" class="btn btn-primary btn-sm flex-grow-1"><i class="bi bi-search me-1"></i>Search</button>
         <a href="/workid-status" class="btn btn-outline-secondary btn-sm">Reset</a>
         {# Carries the current filters, so Export always matches the table —
            with a filter applied or without one. #}
         <a class="btn btn-outline-success btn-sm text-nowrap"
-           href="/workid-status/export?workid={{ f_workid | urlencode }}&tag={{ f_tag | urlencode }}&engineer={{ f_engineer | urlencode }}&completed_from={{ f_completed_from | urlencode }}&completed_to={{ f_completed_to | urlencode }}&cosmetic_stage={{ f_cosmetic_stage | urlencode }}">
+           href="/workid-status/export?workid={{ f_workid | urlencode }}&tag={{ f_tag | urlencode }}&engineer={{ f_engineer | urlencode }}&completed_from={{ f_completed_from | urlencode }}&completed_to={{ f_completed_to | urlencode }}&cosmetic_stage={{ f_cosmetic_stage | urlencode }}&exclude_admin={{ f_exclude_admin | urlencode }}">
           <i class="bi bi-download me-1"></i>Export
         </a>
       </div>

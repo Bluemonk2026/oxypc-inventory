@@ -132,6 +132,10 @@ def test_tiles_reflect_completed_and_assigned_counts(app_client, make_user):  # 
 
 
 def test_export_columns_dropped_and_added(app_client, make_user):  # noqa: F811
+    """Export columns narrowed 2026-09-02 to exactly: Tag Number, Lot
+    Number, Make, Model, Engineer Name, Stage, Assigned Date, Completed
+    Date — see test_workid_status_exclude_admin_and_export_fields.py for
+    the full column-set assertion."""
     username, password = make_user("admin")
     _login(app_client, username, password)
     r = app_client.get("/workid-status/export", follow_redirects=True)
@@ -139,9 +143,9 @@ def test_export_columns_dropped_and_added(app_client, make_user):  # noqa: F811
     header = r.text.split("\n")[0]
     assert "Parts Required" not in header
     assert "Parts Requested" not in header
-    assert "Tag Number Make" in header
+    assert "WorkID" not in header
+    assert "Lot Number" in header
     assert "Completed Date" in header
-    assert "WorkID" in header
 
 
 def test_completed_date_filter_and_export_column_populated(app_client, make_user):  # noqa: F811

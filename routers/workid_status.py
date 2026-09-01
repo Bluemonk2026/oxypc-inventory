@@ -34,6 +34,15 @@ visible "narrow further" notice rather than a silent truncation — a full
 August is 64k+ matching rows, an order of magnitude past what a
 browser-rendered table can hold. These backfilled rows have no WorkID
 (work_id is None) and show "—" for Aging/Notes.
+
+"Exclude Admin" filter (2026-09-02) drops rows whose engineer (the
+underlying StageMovement.moved_by / WorkOrder.assigned_username, not the
+rendered display name) belongs to an admin-role User — resolved once per
+request, not by string-matching a display name. CSV export (2026-09-02)
+was narrowed to exactly Tag Number / Lot Number / Make / Model / Engineer
+Name / Stage / Assigned Date / Completed Date; Lot Number is looked up once
+across every device appearing in `items`, from both the WorkOrder loop and
+the backfill loop.
 """
 from datetime import datetime
 from fastapi import APIRouter, Depends, Request, Query
@@ -44,9 +53,10 @@ from sqlalchemy import select, func
 from templates_config import templates
 from database import get_db
 from utils.timezone import app_now
-from models.user import User
+from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.work_order import WorkOrder
+from models.lot import Lot
 from utils.attendance_groups import managed_usernames
 from auth.dependencies import get_current_user
 
@@ -73,6 +83,7 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
                         completed_from: str = Query(default=""),
                         completed_to: str = Query(default=""),
                         cosmetic_stage: str = Query(default=""),
+                        exclude_admin: str = Query(default=""),
                         highlight: str = Query(default="")):
     # ── Base query: WorkOrders joined to their Device ──────────────────────────
     stmt = (select(WorkOrder, Device)
@@ -176,11 +187,14 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             stage_label = STAGE_LABELS.get(mv.from_stage, mv.from_stage.value if mv.from_stage else "—")
             movement_completed_at = mv.moved_at
             movement_engineer = (display_name_by_username.get(mv.moved_by) or mv.moved_by) if mv.moved_by else "—"
+            engineer_username = mv.moved_by
         else:
             stage_value, stage_label, movement_completed_at, movement_engineer = "", "—", None, "—"
+            engineer_username = wo.assigned_username
         items.append({
             "row_key": f"wo-{wo.work_id}",
             "work_id": wo.work_id,
+            "device_id": wo.device_id,
             "barcode": wo.barcode or (dev.barcode if dev else "—"),
             "model": (dev.model or dev.brand) if dev else "—",
             "brand": (dev.brand if dev else None),
@@ -195,6 +209,7 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             "ongoing": finalqc_dt is None,
             "notes": (dev.notes if dev else None),
             "engineer": movement_engineer,
+            "engineer_username": engineer_username,
         })
 
     # ── Backfill: StageMovements with no WorkOrder at all ───────────────────
@@ -274,6 +289,7 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             items.append({
                 "row_key": f"mv-{mv.id}",
                 "work_id": None,
+                "device_id": mv.device_id,
                 "barcode": dev.barcode if dev else "—",
                 "model": (dev.model or dev.brand) if dev else "—",
                 "brand": (dev.brand if dev else None),
@@ -288,12 +304,28 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
                 "ongoing": finalqc_date_map.get(str(mv.device_id)) is None,
                 "notes": (dev.notes if dev else None),
                 "engineer": engineer_name,
+                "engineer_username": mv.moved_by,
             })
 
-    # ── Completed Date / Stage filters — applied here (not in the SQL stmt
-    # above) so they narrow the SAME values the Completed Date and Stage
-    # columns display (Asset History's When/From), not the WorkOrder/Device
-    # columns those columns no longer read from. ─────────────────────────
+    # Lot Number (export column) — one lookup covering every device across
+    # both the WorkOrder loop and the backfill loop, rather than joining Lot
+    # into either query above.
+    all_device_ids = {it["device_id"] for it in items if it.get("device_id")}
+    lot_number_by_device = {}
+    if all_device_ids:
+        lot_rows = (await db.execute(
+            select(Device.id, Lot.lot_number)
+            .join(Lot, Device.lot_id == Lot.id)
+            .where(Device.id.in_(all_device_ids))
+        )).all()
+        lot_number_by_device = {str(did): ln for did, ln in lot_rows}
+    for it in items:
+        it["lot_number"] = lot_number_by_device.get(str(it.get("device_id")), "—")
+
+    # ── Completed Date / Stage / Exclude Admin filters — applied here (not in
+    # the SQL stmt above) so they narrow the SAME values the Completed Date
+    # and Stage columns display (Asset History's When/From), not the
+    # WorkOrder/Device columns those columns no longer read from. ─────────
     if cosmetic_stage:
         items = [it for it in items if it["stage_value"] == cosmetic_stage]
     if cf:
@@ -301,6 +333,11 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
     if ct:
         ct_end = ct.replace(hour=23, minute=59, second=59)
         items = [it for it in items if it["completed_at"] and it["completed_at"] <= ct_end]
+    if exclude_admin:
+        admin_usernames = set((await db.execute(
+            select(User.username).where(User.role == UserRole.admin)
+        )).scalars().all())
+        items = [it for it in items if it.get("engineer_username") not in admin_usernames]
 
     # WorkOrder rows and backfilled movement-only rows come from two
     # separately-ordered queries — sort the merged list so it still reads
@@ -359,7 +396,7 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         "tile_counts": tile_counts, "cosmetic_stage_choices": cosmetic_stage_choices,
         "f_workid": workid, "f_tag": tag, "f_engineer": engineer,
         "f_completed_from": completed_from, "f_completed_to": completed_to,
-        "f_cosmetic_stage": cosmetic_stage,
+        "f_cosmetic_stage": cosmetic_stage, "f_exclude_admin": exclude_admin,
         "highlight": highlight,
         "backfill_truncated": backfill_truncated, "backfill_total": backfill_total,
         "backfill_cap": BACKFILL_ROW_CAP,
@@ -374,7 +411,8 @@ async def workid_status_export(request: Request, db: AsyncSession = Depends(get_
                                engineer: str = Query(default=""),
                                completed_from: str = Query(default=""),
                                completed_to: str = Query(default=""),
-                               cosmetic_stage: str = Query(default="")):
+                               cosmetic_stage: str = Query(default=""),
+                               exclude_admin: str = Query(default="")):
     """CSV of exactly the rows the page is showing.
 
     Delegates to the page handler rather than repeating its query, so the
@@ -389,28 +427,23 @@ async def workid_status_export(request: Request, db: AsyncSession = Depends(get_
     page = await workid_status(request=request, db=db, current_user=current_user,
                                workid=workid, tag=tag, engineer=engineer,
                                completed_from=completed_from, completed_to=completed_to,
-                               cosmetic_stage=cosmetic_stage, highlight="")
+                               cosmetic_stage=cosmetic_stage, exclude_admin=exclude_admin, highlight="")
     items = page.context["items"]
 
     buf = _io.StringIO()
     w = _csv.writer(buf)
-    w.writerow(["WorkID", "Tag Number", "Tag Number Make", "Model", "Stage",
-                "Assigned Engineer", "Start", "Final QC", "Assigned Date", "Completed Date",
-                "Aging (days)", "Notes"])
+    w.writerow(["Tag Number", "Lot Number", "Make", "Model", "Engineer Name", "Stage",
+                "Assigned Date", "Completed Date"])
     for it in items:
         w.writerow([
-            it.get("work_id") or "",
             it.get("barcode") or "",
+            it.get("lot_number") or "",
             it.get("brand") or "",
             it.get("model") or "",
-            it.get("stage_label") or "",
             it.get("engineer") or "",
-            it["start"].strftime("%d-%m-%Y %H:%M") if it.get("start") else "",
-            it["finalqc"].strftime("%d-%m-%Y %H:%M") if it.get("finalqc") else "",
+            it.get("stage_label") or "",
             it["assigned_date"].strftime("%d-%m-%Y %H:%M") if it.get("assigned_date") else "",
             it["completed_at"].strftime("%d-%m-%Y %H:%M") if it.get("completed_at") else "",
-            it.get("days", ""),
-            (it.get("notes") or "").replace("\n", " "),
         ])
     # utf-8-sig so Excel opens it without mangling non-ASCII names.
     data = buf.getvalue().encode("utf-8-sig")

@@ -79,7 +79,8 @@ def test_workid_status_filters_and_export(app_client, make_user):  # noqa: F811
     r = app_client.get("/workid-status/export", follow_redirects=True)
     assert r.status_code == 200, r.text[:800]
     assert "text/csv" in r.headers.get("content-type", "")
-    assert "WorkID" in r.text.split("\n")[0]
+    # Export columns narrowed 2026-09-02 — WorkID is no longer one of them.
+    assert "Tag Number" in r.text.split("\n")[0]
 
 
 def test_workid_export_honours_a_filter(app_client, make_user):  # noqa: F811

@@ -1111,10 +1111,14 @@ async def fqc_move_failed(
 
      - Engineer Name resolved (same lookup that fills the table's column,
        _resolve_fail_engineer) -> routes straight to that person, no modal.
-     - Engineer Name blank (any reason) -> no one to hand it to, so instead
-       of moving it into a stage with no owner it's parked in Production
-       Manager's Tag Number Allocation queue (DeviceStage.trc_production)
-       for manual allocation.
+     - Hardware + blank Engineer Name -> no L1/L2 engineer to hand it to, so
+       instead of moving it into a stage with no owner it's parked in
+       Production Manager's Tag Number Allocation queue
+       (DeviceStage.trc_production) for manual allocation.
+     - Software or Cosmetic -> always moves to Stress Test / Cosmetic
+       Received respectively, whether or not an engineer resolved — those
+       stages' own queues are where the tag gets picked up either way, so
+       there's no "no owner" case to park like Hardware/L1/L2 has.
 
     A tag no longer sitting in Fail Hold, or with no recognized Failure
     Reason, is skipped and reported back rather than failing the whole batch."""
@@ -1150,10 +1154,10 @@ async def fqc_move_failed(
                 select(User).where(User.id == engineer_info["user_id"], User.status == True)
             )).scalar_one_or_none()
 
-        if not engineer:
-            # Nobody resolved to hand it to — park it in Production
-            # Manager's Tag Number Allocation queue instead of moving it to
-            # a stage with no owner.
+        if not engineer and reason == "Hardware":
+            # Hardware only: nobody resolved to hand it to — park it in
+            # Production Manager's Tag Number Allocation queue instead of
+            # moving it to L1/L2 Repair with no owner.
             device.current_stage = DeviceStage.trc_production
             device.updated_at = app_now()
             db.add(StageMovement(

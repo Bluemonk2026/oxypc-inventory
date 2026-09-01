@@ -11,9 +11,12 @@
    the tag's OWN Failure Reason (Hardware -> L1/L2 Repair, Software ->
    Stress Test, Cosmetic -> Cosmetic Repair) and hands it to the tag's OWN
    resolved Engineer Name (same lookup that fills the table's Engineer Name
-   column). A blank Engineer Name (any reason) has nobody to hand the tag
-   to, so it's parked in Production Manager's Tag Number Allocation queue
-   (DeviceStage.trc_production) instead of moving to a stage with no owner.
+   column). Only Hardware has a "nobody to hand it to" fallback: a blank
+   Engineer Name there parks the tag in Production Manager's Tag Number
+   Allocation queue (DeviceStage.trc_production) instead of moving it to
+   L1/L2 Repair with no owner. Software/Cosmetic always move to Stress
+   Test/Cosmetic Received respectively, engineer resolved or not — those
+   stages' own queues pick it up either way.
  - "Bulk Move" posts the same endpoint with every checked barcode
    comma-joined — each tag still routes independently by its own reason,
    even when two checked tags share a Bucket Name but different reasons.
@@ -124,7 +127,11 @@ from models.work_order import WorkOrder
 async def main():
     async with AsyncSessionLocal() as db:
         dev = (await db.execute(select(Device).where(Device.barcode == "{barcode}"))).scalar_one()
-        wo = (await db.execute(select(WorkOrder).where(WorkOrder.device_id == dev.id)
+        # Exclude "fqc" — that's the Final QC decision's own auto-attribution
+        # WorkOrder (whoever submitted Pass/Fail), unrelated to who the tag
+        # got handed to at its NEW stage after this Move.
+        wo = (await db.execute(select(WorkOrder).where(
+              WorkOrder.device_id == dev.id, WorkOrder.stage != "fqc")
               .order_by(WorkOrder.assigned_at.desc()))).scalars().first()
         print("stage=" + dev.current_stage.value)
         print("assigned_username=" + str(wo.assigned_username if wo else None))
@@ -254,11 +261,10 @@ def test_move_cosmetic_reason_goes_to_cosmetic_received_when_engineer_resolved(a
         _cleanup_device(barcode)
 
 
-def test_move_software_blank_engineer_parks_in_trc_production(app_client, make_user):  # noqa: F811
-    """Software (or Cosmetic) with no resolvable Engineer Name has nobody to
-    hand the tag to — Move parks it in Production Manager's Tag Number
-    Allocation queue (trc_production) instead of moving it to a stage with
-    no owner."""
+def test_move_software_blank_engineer_still_moves_to_stress_test(app_client, make_user):  # noqa: F811
+    """Software with no resolvable Engineer Name still moves to Stress Test
+    (qc_check), unassigned — only Hardware has a "park in Tag Number
+    Allocation" fallback."""
     suffix = uuid.uuid4().hex[:6]
     barcode = f"ITMVNOENG{suffix}"
     bucket_name = f"ITestMvNoEng{suffix}"
@@ -274,14 +280,38 @@ def test_move_software_blank_engineer_parks_in_trc_production(app_client, make_u
         assert r.json()["moved"] == [barcode]
 
         after = _device_state(barcode)
-        assert after["stage"] == "trc_production"
+        assert after["stage"] == "qc_check"
+        assert after["assigned_username"] == "None"
     finally:
         _cleanup_device(barcode)
 
 
-def test_move_hardware_blank_engineer_also_parks_in_trc_production(app_client, make_user):  # noqa: F811
-    """No special-case modal for Hardware — a blank Engineer Name routes to
-    Tag Number Allocation regardless of Failure Reason."""
+def test_move_cosmetic_blank_engineer_still_moves_to_cosmetic_received(app_client, make_user):  # noqa: F811
+    """Cosmetic with no resolvable Engineer Name still moves to Cosmetic
+    Received, unassigned — same "no fallback" rule as Software."""
+    suffix = uuid.uuid4().hex[:6]
+    barcode = f"ITMVCOSNOENG{suffix}"
+    bucket_name = f"ITestMvCosNoEng{suffix}"
+
+    _seed_device_at_final_qc(barcode)
+    admin_username, admin_password = make_user("admin")
+    _login(app_client, admin_username, admin_password)
+    try:
+        _submit_fail(app_client, barcode, "Cosmetic", bucket_name)
+
+        r = _move_failed(app_client, [barcode])
+        assert r.status_code == 200, r.text[:400]
+        assert r.json()["moved"] == [barcode]
+
+        after = _device_state(barcode)
+        assert after["stage"] == "cosmetic_received"
+    finally:
+        _cleanup_device(barcode)
+
+
+def test_move_hardware_blank_engineer_parks_in_trc_production(app_client, make_user):  # noqa: F811
+    """Hardware is the ONLY reason with a "park in Tag Number Allocation"
+    fallback when no engineer resolves — Software/Cosmetic never do this."""
     suffix = uuid.uuid4().hex[:6]
     barcode = f"ITMVHWNOENG{suffix}"
     bucket_name = f"ITestMvHwNoEng{suffix}"
@@ -329,10 +359,10 @@ def test_bulk_move_routes_each_tag_independently_even_sharing_a_bucket_name(app_
 
         assert _device_state(barcode_1)["stage"] == "l1"
         assert _device_state(barcode_1)["assigned_username"] == eng_username
-        # barcode_2 (Software, no resolvable engineer) parks in Production
-        # Manager's Tag Number Allocation queue — a different destination
-        # from barcode_1, proving each tag routes independently.
-        assert _device_state(barcode_2)["stage"] == "trc_production"
+        # barcode_2 (Software, no resolvable engineer) still moves to Stress
+        # Test — a different destination from barcode_1, proving each tag
+        # routes independently.
+        assert _device_state(barcode_2)["stage"] == "qc_check"
     finally:
         _cleanup_device(barcode_1)
         _cleanup_device(barcode_2)

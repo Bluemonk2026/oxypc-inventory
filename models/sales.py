@@ -20,7 +20,10 @@ class Sale(Base):
     customer_state = Column(String(100), nullable=True)  # For GST state determination (intra/inter)
     customer_address = Column(Text, nullable=True)
     invoice_no = Column(String(50), nullable=True)
-    payment_mode = Column(String(20), nullable=True)
+    # Widened from 20: Payment Mode now sources from Master Data's Dropdown
+    # Configuration (payment_mode category, e.g. "Bank Transfer (NEFT/RTGS/IMPS)"
+    # at 30 chars), not the old hardcoded cash/upi/card/credit codes.
+    payment_mode = Column(String(50), nullable=True)
     sold_by = Column(String(50), nullable=True, index=True)
     # Who gets CREDIT for the sale, which is not the same thing as sold_by —
     # sold_by records the logged-in operator who keyed the entry. Free text

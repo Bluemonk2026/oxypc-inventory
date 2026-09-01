@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import AsyncSessionLocal
 from models.webhook import Webhook
 from models.event_log import EventLog
+from utils.timezone import app_now
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,14 @@ async def handle_event(event_type: str, payload: dict) -> None:
                 event_type=event_type,
                 payload=payload,
                 source_module=payload.get("_source", "unknown"),
-                published_at=datetime.now(timezone.utc),
+                # EventLog.published_at/last_attempt_at are naive DateTime
+                # columns (this app's convention — see utils/timezone.app_now,
+                # "use this everywhere you previously used datetime.utcnow()").
+                # Binding a tz-aware datetime.now(timezone.utc) here throws
+                # "can't subtract offset-naive and offset-aware datetimes" at
+                # the asyncpg driver, silently failing every event log write
+                # (caught below and logged, but the audit trail never lands).
+                published_at=app_now(),
                 webhook_attempts=len(hooks),
             )
             db.add(log_entry)
@@ -115,7 +123,7 @@ async def handle_event(event_type: str, payload: dict) -> None:
             for hook in hooks:
                 status = await dispatch_webhook(hook, event_type, payload, now)
                 last_status = status if status is not None else last_status
-                log_entry.last_attempt_at = datetime.now(timezone.utc)
+                log_entry.last_attempt_at = app_now()
 
             if hooks:
                 log_entry.last_status_code = last_status

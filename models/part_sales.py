@@ -77,7 +77,10 @@ class PartSale(Base):
     customer_state = Column(String(100), nullable=True)
     customer_address = Column(Text, nullable=True)
     invoice_no = Column(String(50), nullable=True)
-    payment_mode = Column(String(20), nullable=True)
+    # Widened from 20: Payment Mode now sources from Master Data's Dropdown
+    # Configuration (payment_mode category, e.g. "Bank Transfer (NEFT/RTGS/IMPS)"
+    # at 30 chars), not the old hardcoded cash/upi/card/credit codes.
+    payment_mode = Column(String(50), nullable=True)
     payment_reference = Column(String(100), nullable=True)
     sold_by = Column(String(50), nullable=True, index=True)
     # Credited salesperson, distinct from sold_by (the logged-in operator).

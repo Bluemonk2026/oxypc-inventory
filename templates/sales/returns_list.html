@@ -22,11 +22,11 @@
         <tr>
           <th>Return Date</th><th>Tag Number</th><th>Device</th><th>Sale No.</th>
           <th>Sale Price</th><th>Refund</th><th>Reason</th><th>Condition</th>
-          <th>Status</th><th>Processed By</th>
+          <th>Status</th><th>Processed By</th><th>Receipt</th>
         </tr>
       </thead>
       <tbody>
-        {% for ret, barcode, brand, model, sale_price, sale_number in returns %}
+        {% for ret, barcode, brand, model, entity, sale_price, sale_number, customer_name, customer_phone, customer_address in returns %}
         <tr>
           <td>{{ ret.return_date.strftime('%d-%b-%Y') if ret.return_date else '—' }}</td>
           <td><code>{{ barcode }}</code></td>
@@ -53,13 +53,90 @@
             {% endif %}
           </td>
           <td class="text-muted">{{ ret.processed_by }}</td>
+          <td>
+            <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 view-receipt-btn"
+                    data-bs-toggle="modal" data-bs-target="#receiptModal"
+                    data-id="{{ ret.id }}"
+                    data-entity="{{ entity or '—' }}"
+                    data-customer-name="{{ customer_name or '—' }}"
+                    data-customer-phone="{{ customer_phone or '—' }}"
+                    data-customer-email="{{ ret.customer_email or '—' }}"
+                    data-customer-address="{{ customer_address or '—' }}"
+                    data-reason="{{ ret.reason or '—' }}"
+                    data-condition="{{ ret.condition_on_return or '—' }}"
+                    data-tag-number="{{ barcode }}"
+                    data-serial-number="{{ ret.serial_captured or '—' }}"
+                    data-make="{{ brand or '—' }}"
+                    data-model="{{ model or '—' }}"
+                    data-paid-repair="{{ '%.2f'|format(ret.refund_amount) if ret.refund_amount is not none else '0.00' }}">
+              <i class="bi bi-receipt me-1"></i>Receipt
+            </button>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+
+<!-- Receipt modal — one shared modal, populated from the clicked row's
+     data-* attributes (already loaded with this page, no extra request) -->
+<div class="modal fade" id="receiptModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-receipt me-2"></i>Return Receipt</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <table class="table table-sm mb-0">
+          <tr><td class="text-muted" style="width:45%">Entity</td><td id="rcpt_entity">—</td></tr>
+          <tr><td class="text-muted">Customer Name</td><td id="rcpt_customer_name">—</td></tr>
+          <tr><td class="text-muted">Customer Phone</td><td id="rcpt_customer_phone">—</td></tr>
+          <tr><td class="text-muted">Customer Email</td><td id="rcpt_customer_email">—</td></tr>
+          <tr><td class="text-muted">Customer Address</td><td id="rcpt_customer_address">—</td></tr>
+          <tr><td class="text-muted">Reason</td><td id="rcpt_reason">—</td></tr>
+          <tr><td class="text-muted">Condition</td><td id="rcpt_condition">—</td></tr>
+          <tr><td class="text-muted">Tag Number</td><td id="rcpt_tag_number">—</td></tr>
+          <tr><td class="text-muted">Serial Number</td><td id="rcpt_serial_number">—</td></tr>
+          <tr><td class="text-muted">Make</td><td id="rcpt_make">—</td></tr>
+          <tr><td class="text-muted">Model</td><td id="rcpt_model">—</td></tr>
+          <tr><td class="text-muted">Quantity</td><td>1</td></tr>
+          <tr><td class="text-muted">Paid Repair</td><td>&#8377;<span id="rcpt_paid_repair">0.00</span></td></tr>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <a id="rcpt_download_link" href="#" target="_blank" class="btn btn-primary">
+          <i class="bi bi-download me-1"></i>Download / Print
+        </a>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 {% block scripts %}
-<script>$(document).ready(function(){ $('#returnsTable').DataTable({order:[[0,'desc']],pageLength: 12}); });</script>
+<script>
+$(document).ready(function(){ $('#returnsTable').DataTable({order:[[0,'desc']],pageLength: 12}); });
+
+document.querySelectorAll('.view-receipt-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var d = this.dataset;
+    document.getElementById('rcpt_entity').textContent = d.entity;
+    document.getElementById('rcpt_customer_name').textContent = d.customerName;
+    document.getElementById('rcpt_customer_phone').textContent = d.customerPhone;
+    document.getElementById('rcpt_customer_email').textContent = d.customerEmail;
+    document.getElementById('rcpt_customer_address').textContent = d.customerAddress;
+    document.getElementById('rcpt_reason').textContent = d.reason;
+    document.getElementById('rcpt_condition').textContent = d.condition;
+    document.getElementById('rcpt_tag_number').textContent = d.tagNumber;
+    document.getElementById('rcpt_serial_number').textContent = d.serialNumber;
+    document.getElementById('rcpt_make').textContent = d.make;
+    document.getElementById('rcpt_model').textContent = d.model;
+    document.getElementById('rcpt_paid_repair').textContent = d.paidRepair;
+    document.getElementById('rcpt_download_link').href = '/returns/' + d.id + '/receipt';
+  });
+});
+</script>
 {% endblock %}

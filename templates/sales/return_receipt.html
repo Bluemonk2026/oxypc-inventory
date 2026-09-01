@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Return Receipt — {{ barcode }}</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; margin: 2rem; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    .sub { color: #666; margin-bottom: 1.5rem; }
+    table { width: 100%; border-collapse: collapse; }
+    td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #e5e5e5; vertical-align: top; }
+    td.label { width: 220px; color: #555; font-weight: 600; }
+    .actions { margin-top: 1.5rem; }
+    .actions button { padding: 0.5rem 1.25rem; font-size: 0.95rem; cursor: pointer; }
+    @media print { .actions { display: none; } }
+  </style>
+</head>
+<body>
+  <h1>Product Return Receipt</h1>
+  <div class="sub">Return ID: {{ ret.id }} &middot; Return Date: {{ ret.return_date.strftime('%d-%b-%Y %H:%M') if ret.return_date else '—' }}</div>
+  <table>
+    <tr><td class="label">Entity</td><td>{{ entity or '—' }}</td></tr>
+    <tr><td class="label">Customer Name</td><td>{{ customer_name or '—' }}</td></tr>
+    <tr><td class="label">Customer Phone</td><td>{{ customer_phone or '—' }}</td></tr>
+    <tr><td class="label">Customer Email</td><td>{{ ret.customer_email or '—' }}</td></tr>
+    <tr><td class="label">Customer Address</td><td>{{ customer_address or '—' }}</td></tr>
+    <tr><td class="label">Reason</td><td>{{ ret.reason or '—' }}</td></tr>
+    <tr><td class="label">Condition</td><td>{{ ret.condition_on_return or '—' }}</td></tr>
+    <tr><td class="label">Tag Number</td><td>{{ barcode or '—' }}</td></tr>
+    <tr><td class="label">Serial Number</td><td>{{ ret.serial_captured or '—' }}</td></tr>
+    <tr><td class="label">Make</td><td>{{ brand or '—' }}</td></tr>
+    <tr><td class="label">Model</td><td>{{ model or '—' }}</td></tr>
+    <tr><td class="label">Quantity</td><td>1</td></tr>
+    <tr><td class="label">Paid Repair</td><td>&#8377;{{ '%.2f'|format(ret.refund_amount) if ret.refund_amount is not none else '0.00' }}</td></tr>
+  </table>
+  <div class="actions">
+    <button onclick="window.print()">Print / Save as PDF</button>
+  </div>
+</body>
+</html>

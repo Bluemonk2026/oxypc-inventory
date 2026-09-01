@@ -1101,9 +1101,13 @@ async def sales_list(
 @router.get("/returns", response_class=HTMLResponse)
 async def returns_list(request: Request, db: AsyncSession = Depends(get_db),
                        current_user: User = Depends(allowed)):
+    # Device.entity + the Sale customer fields are pulled in here (not just
+    # barcode/brand/model/sale_price/sale_number as before) so the Receipt
+    # modal can render entirely from this one row — no per-receipt query.
     result = await db.execute(
-        select(Return, Device.barcode, Device.brand, Device.model,
-               Sale.sale_price, Sale.sale_number)
+        select(Return, Device.barcode, Device.brand, Device.model, Device.entity,
+               Sale.sale_price, Sale.sale_number, Sale.customer_name,
+               Sale.customer_phone, Sale.customer_address)
         .join(Device, Return.device_id == Device.id)
         .join(Sale, Return.sale_id == Sale.id)
         .order_by(Return.return_date.desc())
@@ -1111,6 +1115,35 @@ async def returns_list(request: Request, db: AsyncSession = Depends(get_db),
     returns = result.all()
     return templates.TemplateResponse("sales/returns_list.html", {
         "request": request, "returns": returns, "current_user": current_user,
+    })
+
+
+@router.get("/returns/{return_id}/receipt", response_class=HTMLResponse)
+async def return_receipt(return_id: str, request: Request, db: AsyncSession = Depends(get_db),
+                         current_user: User = Depends(allowed)):
+    """Standalone printable receipt — the Product Return list's Receipt
+    button opens this in a new tab; a browser's own Print -> Save as PDF is
+    the "downloadable copy". Quantity is always 1 (a Return is one device);
+    Serial Number reuses Return.serial_captured (already existed, previously
+    only ever populated with the barcode for Internal returns)."""
+    try:
+        rid = _uuid.UUID(return_id)
+    except ValueError:
+        raise HTTPException(404, "Return not found")
+    row = (await db.execute(
+        select(Return, Device.barcode, Device.brand, Device.model, Device.entity,
+               Sale.customer_name, Sale.customer_phone, Sale.customer_address)
+        .join(Device, Return.device_id == Device.id)
+        .join(Sale, Return.sale_id == Sale.id)
+        .where(Return.id == rid)
+    )).first()
+    if not row:
+        raise HTTPException(404, "Return not found")
+    ret, barcode, brand, model, entity, cust_name, cust_phone, cust_address = row
+    return templates.TemplateResponse("sales/return_receipt.html", {
+        "request": request, "current_user": current_user, "ret": ret,
+        "barcode": barcode, "brand": brand, "model": model, "entity": entity,
+        "customer_name": cust_name, "customer_phone": cust_phone, "customer_address": cust_address,
     })
 
 
@@ -1124,7 +1157,7 @@ async def return_form(request: Request, db: AsyncSession = Depends(get_db),
     default_paid_repair = float(row.value) if row else 1500.0
     return templates.TemplateResponse("sales/return_form.html", {
         "request": request, "current_user": current_user, "error": None, "sale": None,
-        "default_paid_repair": default_paid_repair,
+        "default_paid_repair": default_paid_repair, "active_tab": "internal",
     })
 
 
@@ -1227,6 +1260,128 @@ async def process_return(
 
     await db.commit()
     return RedirectResponse(url="/returns?success=Return+submitted+for+manager+approval",
+                            status_code=302)
+
+
+_EXTERNAL_RETURNS_LOT_NUMBER = "EXT-RETURNS"
+
+
+async def _get_or_create_external_returns_lot(db: AsyncSession) -> Lot:
+    """A dedicated, clearly-labelled Lot for devices created via the
+    External Tag return form, so they never get mixed into a real sourcing
+    lot's records. Lot.lot_number/supplier_name are its only required
+    fields."""
+    lot = (await db.execute(
+        select(Lot).where(Lot.lot_number == _EXTERNAL_RETURNS_LOT_NUMBER)
+    )).scalar_one_or_none()
+    if not lot:
+        # buying_price/qty/purchase_date are NOT NULL on Lot even though they
+        # mean nothing for a lot that only exists to hold external-return
+        # tags — 0/0/now() rather than leaving them unset.
+        lot = Lot(lot_number=_EXTERNAL_RETURNS_LOT_NUMBER, supplier_name="External / Walk-in Returns",
+                  buying_price=Decimal("0"), qty=0, purchase_date=app_now())
+        db.add(lot)
+        await db.flush()
+    return lot
+
+
+@router.post("/returns/new/external")
+async def process_external_return(
+    request: Request,
+    entity: str = Form(""),
+    customer_name: str = Form(""),
+    customer_phone: str = Form(""),
+    customer_email: str = Form(""),
+    customer_address: str = Form(""),
+    reason: str = Form(""),
+    condition_on_return: str = Form(""),
+    tag_number: str = Form(...),
+    serial_number: str = Form(""),
+    make: str = Form(""),
+    model: str = Form(""),
+    quantity: str = Form("1"),
+    paid_repair: str = Form("0"),
+    notes: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+    _perm: User = Depends(require_module_perm("returns", "add")),
+):
+    """"External Tag" tab of Product Return New — a walk-in/external item
+    with no prior Sale in this system (unlike the "Internal Tags" tab's
+    process_return, which requires one). Return.sale_id is NOT NULL, so a
+    placeholder Sale (sale_price=0, clearly noted) is created rather than
+    loosening that constraint — keeps /returns' existing list/approval
+    queries, both inner-joined to Sale, working unchanged for these too.
+
+    Reuses (or creates) the Device by Tag Number and sets return_status=True
+    on it, which is the ONLY thing Inventory Manager's Return Stock table
+    (routers/stock.py stock_in_list) requires — so this submission surfaces
+    there automatically, same as any Internal return once approved.
+    """
+    tag_number = tag_number.strip()
+    if not tag_number:
+        return templates.TemplateResponse("sales/return_form.html", {
+            "request": request, "current_user": current_user, "sale": None,
+            "active_tab": "external", "error": "Tag Number is required.",
+        })
+    if not reason.strip() or not condition_on_return.strip():
+        return templates.TemplateResponse("sales/return_form.html", {
+            "request": request, "current_user": current_user, "sale": None,
+            "active_tab": "external", "error": "Return Reason and Condition on Return are required.",
+        })
+
+    device = (await db.execute(select(Device).where(Device.barcode == tag_number))).scalar_one_or_none()
+    if not device:
+        lot = await _get_or_create_external_returns_lot(db)
+        device = Device(
+            barcode=tag_number, lot_id=lot.id, brand=make.strip() or None, model=model.strip() or None,
+            entity=entity.strip() or None, current_stage=DeviceStage.iqc, is_active=True,
+        )
+        db.add(device)
+        await db.flush()
+
+    try:
+        qty = max(1, int(quantity))
+    except (TypeError, ValueError):
+        qty = 1
+    try:
+        paid_repair_amount = Decimal(paid_repair) if paid_repair else Decimal("0")
+    except Exception:
+        paid_repair_amount = Decimal("0")
+
+    sale_num = await _next_sale_number(db)
+    placeholder_sale = Sale(
+        sale_number=sale_num, device_id=device.id, sale_price=Decimal("0"),
+        customer_name=customer_name.strip() or None, customer_phone=customer_phone.strip() or None,
+        customer_address=customer_address.strip() or None, payment_mode=None,
+        sold_by=current_user.username, sold_at=app_now(), warranty_type="none",
+        notes="Placeholder sale — External Tag return, no prior sale in system",
+    )
+    db.add(placeholder_sale)
+    await db.flush()
+
+    ret = Return(
+        sale_id=placeholder_sale.id, device_id=device.id,
+        reason=reason.strip() or None, condition_on_return=condition_on_return.strip() or None,
+        action_taken="restock", reentered_stage="iqc",
+        processed_by=current_user.username,
+        refund_amount=paid_repair_amount,
+        notes=(f"Qty: {qty}. {notes.strip()}" if notes.strip() else f"Qty: {qty}"),
+        approval_status="pending", return_type="customer",
+        serial_captured=serial_number.strip() or None,
+        warranty_status="no_warranty",
+        customer_email=customer_email.strip() or None,
+    )
+    db.add(ret)
+    device.return_status = True
+
+    await audit(db, user=current_user, action="EXTERNAL_RETURN_SUBMITTED",
+                table_name="returns", record_id=str(device.id),
+                new_value={"tag_number": tag_number, "reason": reason, "quantity": qty,
+                           "paid_repair": str(paid_repair_amount), "approval_status": "pending"},
+                request=request)
+    await db.commit()
+    return RedirectResponse(url="/returns?success=External+return+submitted+for+manager+approval",
                             status_code=302)
 
 

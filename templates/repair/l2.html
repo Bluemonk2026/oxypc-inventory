@@ -68,7 +68,7 @@
                     <form method="post" action="/repair/back-to-production" class="d-inline">
                       <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                       <input type="hidden" name="device_id" value="{{ device.id }}">
-                      <button type="submit" class="btn btn-sm btn-dark"><i class="bi bi-arrow-return-left"></i> Back to Production</button>
+                      <button type="submit" class="btn btn-sm btn-dark"><i class="bi bi-arrow-return-left"></i> Back to Inventory</button>
                     </form>
                   {% elif device.l1l2_status == 'Repair Started' %}
                     <button type="button" class="btn btn-sm btn-success complete-btn"

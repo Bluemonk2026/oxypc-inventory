@@ -101,5 +101,10 @@ class Return(Base):
     # from SparePartConsumption, not stored here).
     repair_cost         = Column(Numeric(12, 2), nullable=True)
     labour_cost         = Column(Numeric(12, 2), nullable=True)
+    # Receipt (Product Return list "Receipt" column / External Tag form) —
+    # no customer_email column exists on Sale, and adding one there would
+    # touch the whole New Tag Sale flow; scoped here since it's only ever
+    # used for the return receipt.
+    customer_email      = Column(String(100), nullable=True)
 
     sale = relationship("Sale", back_populates="returns")

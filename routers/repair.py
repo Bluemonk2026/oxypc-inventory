@@ -14,7 +14,7 @@ from models.location import DeviceLocationLog, StorageLocation
 
 from database import get_db
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, StageMovement
+from models.device import Device, DeviceStage, DeviceGrade, StageMovement
 from models.lot import Lot
 from models.repair import RepairJob, RepairStatus
 from models.engines import RepairAttempt, DeviceCosting
@@ -413,8 +413,13 @@ async def back_to_production(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """After an L3/L4 scrap decision, push the device into the Production
-    Manager's 'Scrap Products from Repair Line' table (current_stage=scrapped)."""
+    """"Back to Inventory" (was "Back to Production") — after an L3/L4 scrap
+    decision (Normal Scrap / Replacement Scrap), send the device straight to
+    the "Tags Scrapped" page (/scrap-products, routers/scrap.py), which
+    requires BOTH grade=scrap AND current_stage=scrap_for_sale. Previously
+    this only set current_stage=scrapped (no grade change), which landed the
+    device on Production Manager's "Scrap Products from Repair Line" table
+    instead — an intermediate stop the tag no longer needs to make."""
     device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
     if not device:
         raise HTTPException(404, "Device not found")
@@ -429,16 +434,17 @@ async def back_to_production(
                RepairJob.status == RepairStatus.in_progress)
         .values(status=RepairStatus.completed, completed_at=app_now())
     )
-    device.current_stage = DeviceStage.scrapped
+    device.current_stage = DeviceStage.scrap_for_sale
+    device.grade = DeviceGrade.scrap
     device.updated_at = app_now()
-    db.add(StageMovement(device_id=device.id, from_stage=prev, to_stage=DeviceStage.scrapped,
+    db.add(StageMovement(device_id=device.id, from_stage=prev, to_stage=DeviceStage.scrap_for_sale,
                          moved_by=current_user.username,
-                         notes=f"Back to Production — {device.l34_status or 'Scrap'} from repair line"))
-    await audit(db, user=current_user, action="BACK_TO_PRODUCTION",
+                         notes=f"Back to Inventory — {device.l34_status or 'Scrap'} from repair line"))
+    await audit(db, user=current_user, action="BACK_TO_INVENTORY",
                 table_name="devices", record_id=str(device.id),
-                notes=f"{device.l34_status or 'Scrap'} → Scrap Products", request=request)
+                notes=f"{device.l34_status or 'Scrap'} → Tags Scrapped", request=request)
     await db.commit()
-    return RedirectResponse(url="/repair/l1?success=Sent+to+Scrap+Products", status_code=302)
+    return RedirectResponse(url="/repair/l1?success=Sent+to+Tags+Scrapped", status_code=302)
 
 
 # ── L3/L4 Repair page (WorkOrder-driven, per assigned engineer) ────────────────

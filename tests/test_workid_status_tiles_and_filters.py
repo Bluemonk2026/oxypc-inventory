@@ -1,12 +1,14 @@
-"""/workid-status (2026-08-31 batch, updated 2026-09-01):
+"""/workid-status (2026-08-31 batch, updated 2026-09-01 and 2026-09-02):
 
  - Card Count tiles (Total WorkIDs, Total Tags, Total Ongoing, Total
    Assigned, Total Completed) after the filter row, computed from the SAME
    filtered item list the table uses.
- - Filters: Completed From/To (WorkOrder.completed_at) and Cosmetic Stage
-   (Device.current_stage), all in the same filter row and all applied to the
-   tiles too. Assigned From/Assigned To (WorkOrder.assigned_at) were removed
-   2026-09-01.
+ - Filters: Completed From/To and "Stage" (renamed from "Cosmetic Stage" and
+   expanded to every DeviceStage, not just the cosmetic-line subset), all in
+   the same filter row and all applied to the tiles too. Both now filter
+   against the Asset-History-sourced values the columns actually display —
+   see test_workid_status_completed_date_and_stage_filters.py. Assigned
+   From/Assigned To (WorkOrder.assigned_at) were removed 2026-09-01.
  - Export CSV: dropped Parts Required/Parts Requested columns, added Tag
    Number Make (Device.brand) and Completed Date. Stage/Completed
    Date/Assigned Engineer now come from the device's most recent

@@ -25,7 +25,7 @@ from database import get_db
 from models.user import User, UserRole
 from models.device import Device
 from models.lot import Lot
-from models.sales import Sale
+from models.sales import Sale, Return
 from services.audit_engine import audit
 from auth.dependencies import require_roles, verify_csrf
 
@@ -82,7 +82,7 @@ async def gate_pass_data(
 ):
     """DataTables server-side feed for the Gate Pass tag-number table."""
     base_join = (
-        select(Sale, Device.barcode, Device.brand, Device.model, Lot.lot_number)
+        select(Sale, Device.id, Device.barcode, Device.brand, Device.model, Lot.lot_number)
         .join(Device, Sale.device_id == Device.id)
         .outerjoin(Lot, Device.lot_id == Lot.id)
     )
@@ -129,8 +129,23 @@ async def gate_pass_data(
     def esc(v):
         return escape(str(v)) if v is not None else ""
 
+    # "Customer Return" label under Tag Number (Return Stock's Complete
+    # action) — a device carries this label forever once it has ANY Return
+    # row, regardless of Device.return_status (which flips back to False the
+    # moment Complete re-sells it), so the badge survives past that reset.
+    device_ids_on_page = [device_id for _sale, device_id, *_rest in rows]
+    returned_device_ids = set()
+    if device_ids_on_page:
+        returned_device_ids = set((await db.execute(
+            select(Return.device_id).where(Return.device_id.in_(device_ids_on_page)).distinct()
+        )).scalars().all())
+
     data = []
-    for sale, barcode, brand, model, lot_number_val in rows:
+    for sale, device_id, barcode, brand, model, lot_number_val in rows:
+        tag_html = f'<code>{esc(barcode)}</code>'
+        if device_id in returned_device_ids:
+            tag_html += '<br><span class="badge bg-info text-dark">Customer Return</span>'
+
         if sale.delivery_status == "delivered":
             status_html = '<span class="badge bg-success">Delivered</span>'
         elif sale.delivery_status == "dispatched":
@@ -152,7 +167,7 @@ async def gate_pass_data(
 
         data.append([
             checkbox_html,
-            f'<code>{esc(barcode)}</code>',
+            tag_html,
             f'<span class="font-monospace">{esc(lot_number_val) or "—"}</span>',
             esc(f"{brand or ''} {model or ''}".strip()) or "—",
             f'<span class="font-monospace">{esc(sale.sale_number)}</span>',

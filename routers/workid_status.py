@@ -21,11 +21,6 @@ from auth.dependencies import get_current_user
 
 router = APIRouter(tags=["workid_status"])
 
-# Cosmetic-line stages selectable in the "Cosmetic Stage" filter — same set
-# routers/cosmetic.py's own nav bar uses (COSMETIC_NAV_STAGES), imported
-# directly rather than duplicated so the two stay in lockstep.
-from routers.cosmetic import COSMETIC_NAV_STAGES
-
 
 def _parse_date(s):
     if not s:
@@ -58,15 +53,14 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         stmt = stmt.where(WorkOrder.barcode.ilike(f"%{tag.strip()}%"))
     if engineer:
         stmt = stmt.where(WorkOrder.assigned_username == engineer)
+    # Completed Date and Stage are both applied AFTER items are built below,
+    # not here — the displayed Completed Date column and Stage column are
+    # sourced from Asset History (the device's latest StageMovement), not
+    # from WorkOrder.completed_at / Device.current_stage, so filtering
+    # against those columns here filtered against a value the page no longer
+    # showed (the reported "Completed Date filter not applying" bug).
     cf = _parse_date(completed_from)
     ct = _parse_date(completed_to)
-    if cf:
-        stmt = stmt.where(WorkOrder.completed_at >= cf)
-    if ct:
-        ct_end = ct.replace(hour=23, minute=59, second=59)
-        stmt = stmt.where(WorkOrder.completed_at <= ct_end)
-    if cosmetic_stage:
-        stmt = stmt.where(Device.current_stage == cosmetic_stage)
 
     is_admin = current_user.role.value == "admin"
 
@@ -127,17 +121,19 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         days = max(0, (end.date() - start.date()).days) if start else 0
         mv = latest_movement_by_device.get(did)
         if mv:
+            stage_value = mv.from_stage.value if mv.from_stage else ""
             stage_label = STAGE_LABELS.get(mv.from_stage, mv.from_stage.value if mv.from_stage else "—")
             movement_completed_at = mv.moved_at
             movement_engineer = (display_name_by_username.get(mv.moved_by) or mv.moved_by) if mv.moved_by else "—"
         else:
-            stage_label, movement_completed_at, movement_engineer = "—", None, "—"
+            stage_value, stage_label, movement_completed_at, movement_engineer = "", "—", None, "—"
         items.append({
             "work_id": wo.work_id,
             "barcode": wo.barcode or (dev.barcode if dev else "—"),
             "model": (dev.model or dev.brand) if dev else "—",
             "brand": (dev.brand if dev else None),
             "stage_label": stage_label,
+            "stage_value": stage_value,
             "wo_status": wo.status,
             "start": start,
             "finalqc": finalqc_dt,
@@ -148,13 +144,25 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             "engineer": movement_engineer,
         })
 
+    # ── Completed Date / Stage filters — applied here (not in the SQL stmt
+    # above) so they narrow the SAME values the Completed Date and Stage
+    # columns display (Asset History's When/From), not the WorkOrder/Device
+    # columns those columns no longer read from. ─────────────────────────
+    if cosmetic_stage:
+        items = [it for it in items if it["stage_value"] == cosmetic_stage]
+    if cf:
+        items = [it for it in items if it["completed_at"] and it["completed_at"] >= cf]
+    if ct:
+        ct_end = ct.replace(hour=23, minute=59, second=59)
+        items = [it for it in items if it["completed_at"] and it["completed_at"] <= ct_end]
+
     # ── Card Count tiles — computed from the SAME filtered `items` list, so
-    # every filter above (including the new Completed From/To and Cosmetic
-    # Stage) narrows the tiles exactly as it narrows the table. "Assigned"
-    # and "Completed" read WorkOrder.status directly (its own pending/
-    # in_progress/completed values) rather than the page's separate
-    # Final-QC-movement-based "ongoing" concept or completed_at, since those
-    # are three genuinely different signals on this page. ──────────────────
+    # every filter above (including Completed From/To and Stage) narrows the
+    # tiles exactly as it narrows the table. "Assigned" and "Completed" read
+    # WorkOrder.status directly (its own pending/in_progress/completed
+    # values) rather than the page's separate Final-QC-movement-based
+    # "ongoing" concept or completed_at, since those are three genuinely
+    # different signals on this page. ──────────────────────────────────────
     tag_count = len({it["barcode"] for it in items if it.get("barcode") and it["barcode"] != "—"})
     tile_counts = {
         "total_workids": len(items),
@@ -188,7 +196,11 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             engineers.append((uname, name or uname))
     engineers.sort(key=lambda kv: kv[1].lower())
 
-    cosmetic_stage_choices = [(s.value, STAGE_LABELS.get(s, s.value)) for s in COSMETIC_NAV_STAGES]
+    # "Stage" filter (renamed from "Cosmetic Stage") now offers every
+    # DeviceStage, not just the cosmetic-line subset — it filters against
+    # Asset History's From value (stage_value above), which can be any stage
+    # a tag has ever moved off of, not only a cosmetic one.
+    cosmetic_stage_choices = [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage]
 
     return templates.TemplateResponse("workid_status/list.html", {
         "request": request, "current_user": current_user,

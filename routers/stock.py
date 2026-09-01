@@ -1039,17 +1039,19 @@ async def stock_in_list(
         fqc_pass_grouped.setdefault(b.id, {"bucket_id": str(b.id), "bucket_name": b.name or b.bucket_number, "bucket_number": b.bucket_number})
     fqc_pass_buckets = list(fqc_pass_grouped.values())
 
-    # ── Return Stock: customer-return tags whose Return has been approved and
-    #    are back in the pipeline for repair/re-sale. A device can carry more
-    #    than one Return over its life (rare); keep only the newest approved
-    #    one per device — the query is already newest-first. ─────────────────
+    # ── Return Stock: every tag with Device.return_status=True (set at
+    #    /returns/new submission time, regardless of manager approval — see
+    #    routers/sales.py process_return), joined to its Reason/Condition/
+    #    Complaint straight from that same form's Return row. A device can
+    #    carry more than one Return over its life (rare); keep only the
+    #    newest by return_date — approved_at is null for pending returns, so
+    #    that field can't be used to order here. ───────────────────────────
     return_join_rows = (await db.execute(
         select(Device, Lot.lot_number, Return)
         .join(Lot, Device.lot_id == Lot.id)
         .join(Return, Return.device_id == Device.id)
-        .where(Device.return_status == True, Device.is_active == True,  # noqa: E712
-               Return.approval_status == "approved")
-        .order_by(Return.approved_at.desc())
+        .where(Device.return_status == True, Device.is_active == True)  # noqa: E712
+        .order_by(Return.return_date.desc())
     )).all()
     return_stock_by_device = {}
     for dev, lot_num, ret in return_join_rows:
@@ -1076,7 +1078,7 @@ async def stock_in_list(
             "device": dev, "lot_number": lot_num, "ret": ret, "part_cost": part_cost,
             "stage_label": STAGE_LABELS.get(dev.current_stage, dev.current_stage.value if dev.current_stage else "—"),
         })
-    return_stock_rows.sort(key=lambda r: r["ret"].approved_at or app_now(), reverse=True)
+    return_stock_rows.sort(key=lambda r: r["ret"].return_date or app_now(), reverse=True)
 
     return templates.TemplateResponse("lots/stock_in.html", {
         "request": request, "current_user": current_user,
@@ -1105,10 +1107,13 @@ async def stock_in_list(
     })
 
 
-async def _latest_approved_return(db: AsyncSession, device_id) -> "Return | None":
+async def _latest_return_for_device(db: AsyncSession, device_id) -> "Return | None":
+    """Most recent Return row for this device regardless of approval_status —
+    Verify/Complete act on whatever /returns/new captured, not gated on the
+    separate manager-approval workflow (see Return Stock query above)."""
     return (await db.execute(
-        select(Return).where(Return.device_id == device_id, Return.approval_status == "approved")
-        .order_by(Return.approved_at.desc()).limit(1)
+        select(Return).where(Return.device_id == device_id)
+        .order_by(Return.return_date.desc()).limit(1)
     )).scalars().first()
 
 
@@ -1175,9 +1180,9 @@ async def return_stock_verify(
     device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
     if not device:
         raise HTTPException(404, f"Device {barcode} not found")
-    ret = await _latest_approved_return(db, device.id)
+    ret = await _latest_return_for_device(db, device.id)
     if not ret:
-        raise HTTPException(404, "No approved return found for this tag")
+        raise HTTPException(404, "No return found for this tag")
 
     try:
         ret.repair_cost = Decimal(repair_cost) if repair_cost.strip() else Decimal("0")
@@ -1205,13 +1210,20 @@ async def return_stock_complete(
     fields (routers/sales.py) rather than sending the operator through the
     New Tag Sale form a second time for a customer/tag combination already on
     file.
+
+    The new Sale row created below is deliberately the ONLY thing this does
+    to reach /gate-pass — that page (routers/gate_pass.py) already lists
+    every Sale unconditionally, so this tag appears there with no extra
+    wiring, carrying a "Customer Return" label under its Tag Number for as
+    long as ANY Return row exists for the device (independent of
+    return_status, which we reset to False below).
     """
     device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
     if not device:
         raise HTTPException(404, f"Device {barcode} not found")
-    ret = await _latest_approved_return(db, device.id)
+    ret = await _latest_return_for_device(db, device.id)
     if not ret:
-        raise HTTPException(404, "No approved return found for this tag")
+        raise HTTPException(404, "No return found for this tag")
 
     orig_sale = (await db.execute(select(Sale).where(Sale.id == ret.sale_id))).scalar_one_or_none()
     if not orig_sale:

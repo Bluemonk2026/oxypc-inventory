@@ -22,41 +22,12 @@
   <!-- Devices in L1/L2 -->
   <div style="flex:1 1 100%; width:100%; min-width:0;">
 
-    <!-- Filters — narrow the Tag table below and the Bulk Part Request table
-         together (see rebuildBulkPartsTable in scripts). -->
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-body py-2">
-        <div class="row g-2 align-items-center">
-          <div class="col-md-3">
-            <input type="text" id="l1SearchBox" class="form-control form-control-sm" placeholder="Search Tag / GRN / Model">
-          </div>
-          <div class="col-md-2">
-            <input type="text" id="l1CpuFilter" class="form-control form-control-sm" placeholder="CPU">
-          </div>
-          <div class="col-md-2">
-            <input type="text" id="l1RamFilter" class="form-control form-control-sm" placeholder="RAM">
-          </div>
-          <div class="col-md-2">
-            <input type="text" id="l1HddFilter" class="form-control form-control-sm" placeholder="Hard Drive">
-          </div>
-          <div class="col-md-2">
-            <select id="l1LotFilter" class="form-select form-select-sm">
-              <option value="">All Lots</option>
-              {% set seen_lots = [] %}
-              {% for device, lot_number in devices %}
-              {% if lot_number and lot_number not in seen_lots %}
-              {% set _ = seen_lots.append(lot_number) %}
-              <option value="{{ lot_number }}">{{ lot_number }}</option>
-              {% endif %}
-              {% endfor %}
-            </select>
-          </div>
-        </div>
-        <!-- PNA and Failed from Final QC checkboxes live in the table
-             wrapper itself (DataTables' own filter box, before the search
-             box) — injected via JS in initComplete below, not here. -->
-      </div>
-    </div>
+    {# Filters — narrow the Tag table below and the Bulk Part Request table
+       together (see rebuildBulkPartsTable in scripts). All of them (Search,
+       CPU, RAM, Hard Drive, Lot, PNA, Failed from Final QC) now live inside
+       the table wrapper itself — DataTables' own filter box, ahead of its
+       search input — injected as one row via JS in initComplete below,
+       rather than a separate filter card above the table. #}
 
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-transparent">
@@ -320,11 +291,30 @@ $(document).ready(function(){
       var badge = $('<span id="l1CountBadge" class="badge bg-warning text-dark ms-2"></span>');
       $(this.api().table().container()).find('.dataTables_length').append(badge);
       updateL1CountBadge(this.api());
-      // PNA and "Failed from Final QC" checkboxes live in DataTables' own
-      // filter box, ahead of the search input, rather than the separate
-      // filter card above the table.
-      var checks = $(
-        '<div class="d-flex align-items-center gap-2 me-2">' +
+      // Search (Tag/GRN/Model), CPU, RAM, Hard Drive, Lot, PNA, and Failed
+      // from Final QC all live together in DataTables' own filter box, ahead
+      // of its search input, as one row — rather than a separate filter
+      // card above the table.
+      var filterRow = $(
+        '<div class="d-flex flex-wrap align-items-center gap-2 me-2">' +
+          '<input type="text" id="l1SearchBox" class="form-control form-control-sm" ' +
+                 'style="width:180px" placeholder="Search Tag / GRN / Model">' +
+          '<input type="text" id="l1CpuFilter" class="form-control form-control-sm" ' +
+                 'style="width:110px" placeholder="CPU">' +
+          '<input type="text" id="l1RamFilter" class="form-control form-control-sm" ' +
+                 'style="width:110px" placeholder="RAM">' +
+          '<input type="text" id="l1HddFilter" class="form-control form-control-sm" ' +
+                 'style="width:130px" placeholder="Hard Drive">' +
+          '<select id="l1LotFilter" class="form-select form-select-sm" style="width:150px">' +
+            '<option value="">All Lots</option>' +
+            {% set seen_lots = [] %}
+            {% for device, lot_number in devices %}
+            {% if lot_number and lot_number not in seen_lots %}
+            {% set _ = seen_lots.append(lot_number) %}
+            '<option value="{{ lot_number }}">{{ lot_number }}</option>' +
+            {% endif %}
+            {% endfor %}
+          '</select>' +
           '<span class="form-check form-check-inline mb-0">' +
             '<input class="form-check-input" type="checkbox" id="onlyPnaL1">' +
             '<label class="form-check-label small" for="onlyPnaL1">PNA</label>' +
@@ -335,8 +325,9 @@ $(document).ready(function(){
           '</span>' +
         '</div>'
       );
-      $(this.api().table().container()).find('.dataTables_filter').prepend(checks);
-      $('#onlyPnaL1, #onlyFqcFailL1').on('change', applyL1Filters);
+      $(this.api().table().container()).find('.dataTables_filter').prepend(filterRow);
+      $('#l1SearchBox, #l1CpuFilter, #l1RamFilter, #l1HddFilter').on('keyup', applyL1Filters);
+      $('#l1LotFilter, #onlyPnaL1, #onlyFqcFailL1').on('change', applyL1Filters);
     },
     drawCallback: function() { updateL1CountBadge(this.api()); },
   });
@@ -379,10 +370,9 @@ $(document).ready(function(){
     rebuildBulkPartsTable(visibleIds);
   }
 
-  $('#l1SearchBox, #l1CpuFilter, #l1RamFilter, #l1HddFilter').on('keyup', applyL1Filters);
-  $('#l1LotFilter').on('change', applyL1Filters);
-  // #onlyPnaL1 / #onlyFqcFailL1 are bound in initComplete above (they don't
-  // exist in the DOM until DataTables injects them into .dataTables_filter).
+  // All filter fields (search/CPU/RAM/HDD/Lot/PNA/Failed from Final QC) are
+  // bound in initComplete above — they don't exist in the DOM until
+  // DataTables injects them into .dataTables_filter.
 
   // Bootstrap tooltips are opt-in; the PNA badge lists its parts on hover.
   document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {

@@ -42,12 +42,16 @@
           <tbody>
             {% for device, lot_number in devices %}
             {% set wo = workid_map.get(device.id|string) %}
-            <tr>
+            {% set failed_fqc = device.final_qc_status == 'fail' %}
+            <tr data-failed-fqc="{{ '1' if failed_fqc else '0' }}">
               {% if current_user.role.value == 'admin' %}
               <td><input type="checkbox" class="cosmeticRecvRowCheck" value="{{ device.barcode }}"></td>
               {% endif %}
               <td>{% if wo %}<code class="small">{{ wo.work_id }}</code>{% else %}—{% endif %}</td>
-              <td><code>{{ device.barcode }}</code></td>
+              <td>
+                <code>{{ device.barcode }}</code>
+                {% if failed_fqc %}<br><span class="badge bg-danger">Failed from Final QC</span>{% endif %}
+              </td>
               <td class="text-muted small">{{ l1l2_engineer_map.get(device.id|string, '—') }}</td>
               <td><span class="badge bg-secondary">{{ lot_number }}</span></td>
               <td>
@@ -299,6 +303,16 @@ async function submitCosmeticFail() {
   }
 }
 
+// "Failed from Final QC" checkbox filter — works alongside DataTables' own
+// search box (both apply together) rather than replacing it.
+$.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
+  if (settings.nTable.id !== 'cosmeticReceivedTable') return true;
+  var checkbox = document.getElementById('cosmeticRecvFailedFqcFilter');
+  if (!checkbox || !checkbox.checked) return true;
+  var row = settings.aoData[dataIndex].nTr;
+  return row && row.getAttribute('data-failed-fqc') === '1';
+});
+
 $(document).ready(function(){
   // The checkbox column (admin only) shifts every later column index by one.
   var orderCol = {{ 2 if current_user.role.value == 'admin' else 1 }};
@@ -317,6 +331,11 @@ $(document).ready(function(){
       btn.on('click', openCosmeticRecvBulkAssignModal);
       $(this.api().table().container()).find('.dataTables_filter').prepend(btn);
       {% endif %}
+      var failedFqcFilter = $('<div class="form-check form-check-inline me-2">' +
+        '<input class="form-check-input" type="checkbox" id="cosmeticRecvFailedFqcFilter">' +
+        '<label class="form-check-label small" for="cosmeticRecvFailedFqcFilter">Failed from Final QC</label></div>');
+      $(this.api().table().container()).find('.dataTables_filter').prepend(failedFqcFilter);
+      $('#cosmeticRecvFailedFqcFilter').on('change', function() { dt.draw(); });
     },
     drawCallback: function() { updateCosmeticCountBadge(this.api()); },
   });

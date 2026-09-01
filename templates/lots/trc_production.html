@@ -45,12 +45,18 @@
     <div class="table-responsive">
       <table id="trcTable" class="table table-hover mb-0 small">
         <thead class="table-dark"><tr>
+          <th><input type="checkbox" id="trcSelectAll" title="Select all"></th>
           <th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th><th>RAM</th><th>Storage</th><th>Grade</th><th>Assigned User</th><th>Action</th>
         </tr></thead>
         <tbody>
           {% for device, lot_number in devices %}
-          <tr>
-            <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a></td>
+          {% set failed_fqc = device.final_qc_status == 'fail' %}
+          <tr data-failed-fqc="{{ '1' if failed_fqc else '0' }}">
+            <td><input type="checkbox" class="trcRowCheck" value="{{ device.barcode }}"></td>
+            <td>
+              <a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a>
+              {% if failed_fqc %}<br><span class="badge bg-danger">Failed from Final QC</span>{% endif %}
+            </td>
             <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
             <td>{{ device.brand or '—' }}</td>
             <td>{{ device.model or '—' }}</td>
@@ -66,7 +72,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="9" class="text-center text-muted py-4">No devices in TRC Production.</td></tr>
+          <tr><td colspan="10" class="text-center text-muted py-4">No devices in TRC Production.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -258,18 +264,28 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-person-check me-2"></i>Assign Device</h5>
+        <h5 class="modal-title"><i class="bi bi-person-check me-2"></i><span id="asgDevModalTitle">Assign Device</span></h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="asgDevBarcode">
-        <div class="mb-2">
-          <label class="form-label fw-semibold">Tag Number</label>
-          <input type="text" id="asgDevBarcodeDisplay" class="form-control font-monospace" readonly>
+        {# Bulk Assign (Tag Number Allocation's checkboxes): comma-joined
+           barcodes — presence of this value is what tells the submit
+           handler to hit the bulk endpoint instead of the single-device one. #}
+        <input type="hidden" id="asgDevBulkBarcodes">
+        <div id="asgDevSingleFields">
+          <div class="mb-2">
+            <label class="form-label fw-semibold">Tag Number</label>
+            <input type="text" id="asgDevBarcodeDisplay" class="form-control font-monospace" readonly>
+          </div>
+          <div class="mb-2">
+            <label class="form-label fw-semibold">Device</label>
+            <input type="text" id="asgDevModel" class="form-control" readonly>
+          </div>
         </div>
-        <div class="mb-2">
-          <label class="form-label fw-semibold">Device</label>
-          <input type="text" id="asgDevModel" class="form-control" readonly>
+        <div id="asgDevBulkFields" class="d-none mb-2">
+          <label class="form-label fw-semibold">Count of Selected Tags</label>
+          <input type="text" id="asgDevBulkCount" class="form-control" readonly>
         </div>
         <div class="mb-2">
           <label class="form-label fw-semibold">Select Engineer</label>
@@ -323,12 +339,48 @@ document.querySelectorAll('.replace-scrap-btn').forEach(function(btn){
   });
 });
 
+// "Failed from Final QC" checkbox filter — works alongside DataTables' own
+// search box (both apply together) rather than replacing it.
+$.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
+  if (settings.nTable.id !== 'trcTable') return true;
+  var checkbox = document.getElementById('trcFailedFqcFilter');
+  if (!checkbox || !checkbox.checked) return true;
+  var row = settings.aoData[dataIndex].nTr;
+  return row && row.getAttribute('data-failed-fqc') === '1';
+});
+
+function updateTrcAssignButtonState() {
+  var checked = $('.trcRowCheck:checked').length;
+  $('#trcBulkAssignBtn').prop('disabled', checked === 0);
+}
+
 $(document).ready(function(){
   // #trcTable now lives in a tab-pane that starts hidden, so DataTables
   // would measure a 0-width table if initialised immediately — the classic
   // "columns collapse until you resize the window" bug. Initialise once,
   // then re-measure whenever the tab is actually shown.
-  var trcDt = ($('#trcTable tbody tr td').length > 1) ? $('#trcTable').DataTable({}) : null;
+  var trcDt = ($('#trcTable tbody tr td').length > 1) ? $('#trcTable').DataTable({
+    initComplete: function() {
+      var failedFqcFilter = $('<div class="form-check form-check-inline me-2">' +
+        '<input class="form-check-input" type="checkbox" id="trcFailedFqcFilter">' +
+        '<label class="form-check-label small" for="trcFailedFqcFilter">Failed from Final QC</label></div>');
+      $(this.api().table().container()).find('.dataTables_filter').prepend(failedFqcFilter);
+      $('#trcFailedFqcFilter').on('change', function() { trcDt.draw(); });
+
+      var bulkBtn = $('<button type="button" id="trcBulkAssignBtn" class="btn btn-sm btn-primary me-2" disabled>' +
+                      '<i class="bi bi-person-check me-1"></i>Bulk Assign</button>');
+      bulkBtn.on('click', openTrcBulkAssignModal);
+      $(this.api().table().container()).find('.dataTables_filter').prepend(bulkBtn);
+    },
+  }) : null;
+  $('#trcSelectAll').on('change', function() {
+    $('.trcRowCheck').prop('checked', $(this).prop('checked'));
+    updateTrcAssignButtonState();
+  });
+  $(document).on('change', '.trcRowCheck', function() {
+    if (!$(this).prop('checked')) $('#trcSelectAll').prop('checked', false);
+    updateTrcAssignButtonState();
+  });
   document.querySelector('[data-bs-target="#tagAllocTab"]').addEventListener('shown.bs.tab', function(){
     if (trcDt) trcDt.columns.adjust();
   });
@@ -479,26 +531,51 @@ document.querySelectorAll('.rl-fqc-assign-btn').forEach(function(btn){
 // Assign Device (item 23) — no Repair Level field: the dropdown lists every
 // L1/L2 engineer directly by display name, department is derived from
 // whichever engineer gets picked (see asgDevSubmit below).
+function _populateAsgDevEngineerSelect() {
+  var sel = document.getElementById('asgDevEngineer');
+  sel.innerHTML = '<option value="">— Select Engineer —</option>';
+  _engineers
+    .filter(function(e){ return /l1_engineer|l2_engineer/.test(e.role); })
+    .forEach(function(e){
+      var opt = new Option(e.name, e.id);
+      opt.setAttribute('data-department', /l1_engineer/.test(e.role) ? 'L1 Engineer' : 'L2 Engineer');
+      sel.add(opt);
+    });
+}
+
 document.querySelectorAll('.dev-assign-btn').forEach(function(btn){
   btn.addEventListener('click', function(){
+    document.getElementById('asgDevModalTitle').textContent = 'Assign Device';
     document.getElementById('asgDevBarcode').value = this.dataset.barcode;
+    document.getElementById('asgDevBulkBarcodes').value = '';
     document.getElementById('asgDevBarcodeDisplay').value = this.dataset.barcode;
     document.getElementById('asgDevModel').value = this.dataset.model;
-    var sel = document.getElementById('asgDevEngineer');
-    sel.innerHTML = '<option value="">— Select Engineer —</option>';
-    _engineers
-      .filter(function(e){ return /l1_engineer|l2_engineer/.test(e.role); })
-      .forEach(function(e){
-        var opt = new Option(e.name, e.id);
-        opt.setAttribute('data-department', /l1_engineer/.test(e.role) ? 'L1 Engineer' : 'L2 Engineer');
-        sel.add(opt);
-      });
+    document.getElementById('asgDevSingleFields').classList.remove('d-none');
+    document.getElementById('asgDevBulkFields').classList.add('d-none');
+    _populateAsgDevEngineerSelect();
     new bootstrap.Modal(document.getElementById('devAssignModal')).show();
   });
 });
 
+// Tag Number Allocation's "Bulk Assign" — same modal, Tag Number/Device
+// fields swapped for a "Count of Selected Tags" display; submitting hits
+// the bulk endpoint instead of the single-device one (see asgDevSubmit).
+function openTrcBulkAssignModal() {
+  var checked = $('.trcRowCheck:checked');
+  if (!checked.length) return;
+  document.getElementById('asgDevModalTitle').textContent = 'Bulk Assign Devices';
+  document.getElementById('asgDevBarcode').value = '';
+  document.getElementById('asgDevBulkBarcodes').value = checked.map(function(){ return this.value; }).get().join(',');
+  document.getElementById('asgDevBulkCount').value = checked.length;
+  document.getElementById('asgDevSingleFields').classList.add('d-none');
+  document.getElementById('asgDevBulkFields').classList.remove('d-none');
+  _populateAsgDevEngineerSelect();
+  new bootstrap.Modal(document.getElementById('devAssignModal')).show();
+}
+
 document.getElementById('asgDevSubmit').addEventListener('click', function(){
   var barcode = document.getElementById('asgDevBarcode').value;
+  var bulkBarcodes = document.getElementById('asgDevBulkBarcodes').value;
   var sel = document.getElementById('asgDevEngineer');
   var engId = sel.value;
   if(!engId){ alert('Please select an engineer.'); return; }
@@ -507,10 +584,20 @@ document.getElementById('asgDevSubmit').addEventListener('click', function(){
   fd.append('csrf_token', getCsrf());
   fd.append('department', dept);
   fd.append('assigned_user_id', engId);
-  fetch('/devices/'+barcode+'/assign', {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
+  var url, successMsg;
+  if (bulkBarcodes) {
+    fd.append('barcodes', bulkBarcodes);
+    url = '/devices/bulk-assign-l1l2';
+  } else {
+    url = '/devices/' + barcode + '/assign';
+  }
+  fetch(url, {method:'POST', body:fd}).then(function(r){return r.json();}).then(function(d){
     if(d.ok){
       bootstrap.Modal.getInstance(document.getElementById('devAssignModal')).hide();
-      alert('Device assigned successfully (WorkID: '+d.work_id+').');
+      successMsg = bulkBarcodes
+        ? 'Assigned ' + d.assigned + ' device(s) successfully.'
+        : 'Device assigned successfully (WorkID: ' + d.work_id + ').';
+      alert(successMsg);
       window.location.reload();
     }
   });

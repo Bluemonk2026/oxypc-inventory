@@ -51,11 +51,10 @@
               {% endfor %}
             </select>
           </div>
-          <div class="col-md-1 form-check mb-0 d-flex align-items-center">
-            <input class="form-check-input" type="checkbox" id="onlyPnaL1">
-            <label class="form-check-label small ms-1" for="onlyPnaL1">PNA</label>
-          </div>
         </div>
+        <!-- PNA and Failed from Final QC checkboxes live in the table
+             wrapper itself (DataTables' own filter box, before the search
+             box) — injected via JS in initComplete below, not here. -->
       </div>
     </div>
 
@@ -73,15 +72,20 @@
               {% for device, lot_number in devices %}
               {% set wo = work_map.get(device.id|string) if work_map is defined else None %}
               {% set hdd_text = device.hdd_summary or ((device.storage_gb|string + 'GB ' + (device.storage_type or '')) if device.storage_gb else '') %}
+              {% set failed_fqc = device.final_qc_status == 'fail' %}
               <tr data-device-id="{{ device.id }}"
                   data-pna="{{ (pna_map.get(device.id|string, []) | length) if pna_map is defined else 0 }}"
+                  data-fqc-fail="{{ '1' if failed_fqc else '0' }}"
                   data-search="{{ (device.barcode or '') ~ ' ' ~ (device.grn_number or '') ~ ' ' ~ (device.model or '') }}"
                   data-cpu="{{ device.cpu or '' }}"
                   data-ram="{{ device.ram_gb or '' }}"
                   data-hdd="{{ hdd_text }}"
                   data-lot="{{ lot_number or '' }}">
                 <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
-                <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a></td>
+                <td>
+                  <a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a>
+                  {% if failed_fqc %}<br><span class="badge bg-danger">Failed from Final QC</span>{% endif %}
+                </td>
                 {# data-order carries the sortable ISO value; DataTables reads it
                    natively, so the visible date can stay in the format the floor
                    reads without breaking the sort. #}
@@ -316,6 +320,23 @@ $(document).ready(function(){
       var badge = $('<span id="l1CountBadge" class="badge bg-warning text-dark ms-2"></span>');
       $(this.api().table().container()).find('.dataTables_length').append(badge);
       updateL1CountBadge(this.api());
+      // PNA and "Failed from Final QC" checkboxes live in DataTables' own
+      // filter box, ahead of the search input, rather than the separate
+      // filter card above the table.
+      var checks = $(
+        '<div class="d-flex align-items-center gap-2 me-2">' +
+          '<span class="form-check form-check-inline mb-0">' +
+            '<input class="form-check-input" type="checkbox" id="onlyPnaL1">' +
+            '<label class="form-check-label small" for="onlyPnaL1">PNA</label>' +
+          '</span>' +
+          '<span class="form-check form-check-inline mb-0">' +
+            '<input class="form-check-input" type="checkbox" id="onlyFqcFailL1">' +
+            '<label class="form-check-label small" for="onlyFqcFailL1">Failed from Final QC</label>' +
+          '</span>' +
+        '</div>'
+      );
+      $(this.api().table().container()).find('.dataTables_filter').prepend(checks);
+      $('#onlyPnaL1, #onlyFqcFailL1').on('change', applyL1Filters);
     },
     drawCallback: function() { updateL1CountBadge(this.api()); },
   });
@@ -334,6 +355,7 @@ $(document).ready(function(){
     var tr = settings.aoData[dataIndex].nTr;
     if (!tr) return true;
     if ($('#onlyPnaL1').prop('checked') && parseInt(tr.getAttribute('data-pna') || '0', 10) <= 0) return false;
+    if ($('#onlyFqcFailL1').prop('checked') && tr.getAttribute('data-fqc-fail') !== '1') return false;
     var q = $('#l1SearchBox').val().trim().toLowerCase();
     if (q && (tr.getAttribute('data-search') || '').toLowerCase().indexOf(q) === -1) return false;
     var cpu = $('#l1CpuFilter').val().trim().toLowerCase();
@@ -358,7 +380,9 @@ $(document).ready(function(){
   }
 
   $('#l1SearchBox, #l1CpuFilter, #l1RamFilter, #l1HddFilter').on('keyup', applyL1Filters);
-  $('#l1LotFilter, #onlyPnaL1').on('change', applyL1Filters);
+  $('#l1LotFilter').on('change', applyL1Filters);
+  // #onlyPnaL1 / #onlyFqcFailL1 are bound in initComplete above (they don't
+  // exist in the DOM until DataTables injects them into .dataTables_filter).
 
   // Bootstrap tooltips are opt-in; the PNA badge lists its parts on hover.
   document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {

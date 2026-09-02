@@ -73,6 +73,8 @@ async def scrap_products(request: Request, db: AsyncSession = Depends(get_db),
             "updated_at": device.updated_at,
             "notes": device.notes or "",
             "scrap_verified": device.scrap_verified,
+            "l34_status": device.l34_status or "",
+            "replace_with_barcode": device.replace_with_barcode or "",
         })
 
     # Scrapped Spare Parts — faulty parts marked Scrap on the Parts Dashboard's
@@ -109,3 +111,29 @@ async def verify_scrap(
 
     await db.commit()
     return JSONResponse({"ok": True})
+
+
+@router.post("/scrap-products/{barcode}/set-replacement")
+async def set_scrap_replacement(
+    barcode: str,
+    replacement_barcode: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Replacement Scrap flow — the 'Replace' button's modal. Records the
+    selected replacement tag on the scrapped device (Device.replace_with_barcode)
+    so the Scrap Products table can show '(Replace with <tag>)' beneath the
+    scrapped tag number. Does not modify the replacement device itself — it is
+    only referenced/clickable, unlike the symmetric L3/TRC 'replaced' swap."""
+    device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+    if device is None:
+        return JSONResponse({"ok": False, "error": "Device not found"}, status_code=404)
+
+    rb = (replacement_barcode or "").strip()
+    replacement = (await db.execute(select(Device).where(Device.barcode == rb))).scalar_one_or_none()
+    if replacement is None:
+        return JSONResponse({"ok": False, "error": f"Tag {rb} not found"}, status_code=404)
+
+    device.replace_with_barcode = replacement.barcode
+    await db.commit()
+    return JSONResponse({"ok": True, "replace_with_barcode": replacement.barcode})

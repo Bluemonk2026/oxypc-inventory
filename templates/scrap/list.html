@@ -17,7 +17,12 @@
         <tbody>
           {% for it in items %}
           <tr>
-            <td><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
+            <td>
+              <a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a>
+              {% if it.replace_with_barcode %}
+              <br><small class="text-muted">(Replace with <a href="/devices/{{ it.replace_with_barcode }}" class="font-monospace">{{ it.replace_with_barcode }}</a>)</small>
+              {% endif %}
+            </td>
             <td>{{ it.brand }}</td>
             <td>{{ it.model }}</td>
             <td><span class="badge bg-secondary">{{ it.grade }}</span></td>
@@ -33,6 +38,13 @@
               {% endif %}
             </td>
             <td class="text-nowrap">
+              {% if it.l34_status == 'Replacement Scrap' %}
+              <button type="button" class="btn btn-sm btn-outline-warning py-0 px-2"
+                      onclick="openReplaceModal('{{ it.barcode }}', '{{ it.brand }} {{ it.model }}')"
+                      title="Search and select the replacement tag">
+                <i class="bi bi-arrow-repeat"></i> Replace
+              </button>
+              {% else %}
               {% if not it.scrap_verified %}
               <button type="button" class="btn btn-sm btn-warning py-0 px-2"
                       onclick="openVerifyModal('{{ it.barcode }}', '{{ it.brand }} {{ it.model }}')"
@@ -43,6 +55,7 @@
               <a href="/sales/new?barcode={{ it.barcode }}" class="btn btn-sm btn-success py-0 px-2"><i class="bi bi-cart-plus"></i> Sell</a>
               {% endif %}
               <a href="/devices/{{ it.barcode }}" class="btn btn-sm btn-outline-primary py-0 px-2"><i class="bi bi-eye"></i> View</a>
+              {% endif %}
             </td>
           </tr>
           {% else %}
@@ -115,6 +128,49 @@
     </div>
   </div>
 </div>
+
+<!-- Replace (Replacement Scrap) Modal -->
+<div class="modal fade" id="replaceScrapModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-warning bg-opacity-10">
+        <h5 class="modal-title"><i class="bi bi-arrow-repeat me-2"></i>Replace — <span id="rModal_device"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="replaceScrapForm">
+        <input type="hidden" id="rModal_barcode" name="barcode">
+        <input type="hidden" name="replacement_barcode" id="rModal_selected">
+        <input type="hidden" name="csrf_token" id="rModal_csrf">
+        <div class="modal-body">
+          <label class="form-label fw-semibold">Search Tag Number</label>
+          <input type="text" id="rModal_search" class="form-control font-monospace" placeholder="Type at least 2 characters..." autocomplete="off">
+          <div id="rModal_results" class="list-group mt-1" style="max-height:180px; overflow-y:auto;"></div>
+
+          <div id="rModal_brief" class="card border-0 bg-light mt-3 d-none">
+            <div class="card-body py-2 px-3 small">
+              <div class="row g-1">
+                <div class="col-6"><span class="text-muted">Stage:</span> <strong id="rb_stage">—</strong></div>
+                <div class="col-6"><span class="text-muted">Tag Number:</span> <strong id="rb_barcode">—</strong></div>
+                <div class="col-6"><span class="text-muted">Lot Number:</span> <strong id="rb_lot">—</strong></div>
+                <div class="col-6"><span class="text-muted">Make:</span> <strong id="rb_make">—</strong></div>
+                <div class="col-6"><span class="text-muted">Model:</span> <strong id="rb_model">—</strong></div>
+                <div class="col-6"><span class="text-muted">CPU:</span> <strong id="rb_cpu">—</strong></div>
+                <div class="col-6"><span class="text-muted">RAM:</span> <strong id="rb_ram">—</strong></div>
+                <div class="col-6"><span class="text-muted">Hard Drive:</span> <strong id="rb_storage">—</strong></div>
+                <div class="col-6"><span class="text-muted">Grade:</span> <strong id="rb_grade">—</strong></div>
+                <div class="col-6"><span class="text-muted">Device Price:</span> <strong id="rb_price">—</strong></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-warning" id="rModal_submit" disabled><i class="bi bi-check2-circle me-1"></i>Submit</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -162,6 +218,90 @@ document.getElementById('verifyScrapForm').addEventListener('submit', function(e
       bootstrap.Modal.getInstance(document.getElementById('verifyScrapModal')).hide();
     } else {
       alert('Verification failed: ' + (d.error || 'Unknown error'));
+    }
+  })
+  .catch(function() { alert('Network error — please try again.'); });
+});
+
+function openReplaceModal(barcode, name) {
+  document.getElementById('rModal_barcode').value = barcode;
+  document.getElementById('rModal_device').textContent = name;
+  document.getElementById('rModal_selected').value = '';
+  document.getElementById('rModal_search').value = '';
+  document.getElementById('rModal_results').innerHTML = '';
+  document.getElementById('rModal_brief').classList.add('d-none');
+  document.getElementById('rModal_submit').disabled = true;
+  var csrfEl = document.querySelector('[name="csrf_token"]');
+  document.getElementById('rModal_csrf').value = csrfEl ? csrfEl.value : '';
+  new bootstrap.Modal(document.getElementById('replaceScrapModal')).show();
+}
+
+(function() {
+  var searchInput = document.getElementById('rModal_search');
+  var resultsBox = document.getElementById('rModal_results');
+  var brief = document.getElementById('rModal_brief');
+  var submitBtn = document.getElementById('rModal_submit');
+  var t = null;
+
+  function renderResults(results) {
+    resultsBox.innerHTML = '';
+    results.forEach(function(r) {
+      var item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'list-group-item list-group-item-action py-1 px-2 small font-monospace';
+      item.textContent = r.barcode + '  —  ' + r.make + ' ' + r.model;
+      item.addEventListener('click', function() {
+        document.getElementById('rModal_selected').value = r.barcode;
+        document.getElementById('rb_stage').textContent = r.stage;
+        document.getElementById('rb_barcode').textContent = r.barcode;
+        document.getElementById('rb_lot').textContent = r.lot_number;
+        document.getElementById('rb_make').textContent = r.make;
+        document.getElementById('rb_model').textContent = r.model;
+        document.getElementById('rb_cpu').textContent = r.cpu;
+        document.getElementById('rb_ram').textContent = r.ram;
+        document.getElementById('rb_storage').textContent = r.storage;
+        document.getElementById('rb_grade').textContent = r.grade;
+        document.getElementById('rb_price').textContent = r.device_price ? ('₹' + r.device_price) : '—';
+        brief.classList.remove('d-none');
+        submitBtn.disabled = false;
+        resultsBox.innerHTML = '';
+        searchInput.value = r.barcode;
+      });
+      resultsBox.appendChild(item);
+    });
+  }
+
+  function doSearch() {
+    var q = searchInput.value.trim();
+    document.getElementById('rModal_selected').value = '';
+    brief.classList.add('d-none');
+    submitBtn.disabled = true;
+    if (q.length < 2) { resultsBox.innerHTML = ''; return; }
+    fetch('/devices/api/search-tags?q=' + encodeURIComponent(q))
+      .then(function(r) { return r.json(); })
+      .then(function(d) { renderResults(d.results || []); })
+      .catch(function() { resultsBox.innerHTML = ''; });
+  }
+
+  searchInput.addEventListener('input', function() { clearTimeout(t); t = setTimeout(doSearch, 300); });
+})();
+
+document.getElementById('replaceScrapForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var fd = new FormData(this);
+  var barcode = fd.get('barcode');
+  if (!fd.get('replacement_barcode')) { alert('Select a replacement tag first.'); return; }
+  fetch('/scrap-products/' + barcode + '/set-replacement', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: new URLSearchParams(fd)
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.ok) {
+      window.location.reload();
+    } else {
+      alert('Failed: ' + (d.error || 'Unknown error'));
     }
   })
   .catch(function() { alert('Network error — please try again.'); });

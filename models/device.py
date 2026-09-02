@@ -148,6 +148,7 @@ class Device(Base):
     grn_number = Column(String(50), nullable=True)     # Goods Receipt Note ref
     return_status = Column(Boolean, nullable=False, default=False, server_default=text("false"))  # True once returned via Process Return
     replaced = Column(String(120), nullable=True)      # "Replaced by <tag>" / "Replaced from <tag>" (L3 device swap)
+    replace_with_barcode = Column(String(100), nullable=True)  # Scrap Products "Replace" modal — selected replacement tag (Replacement Scrap flow)
     # ── L1/L2 → L3/L4 status-driven hand-off flow (additive; auto-provisioned by db_validator) ──
     l1l2_status = Column(String(30), nullable=True, default="New")   # New | Repair Started | Requested to L3/L4
     l34_status  = Column(String(30), nullable=True)                  # (blank) | Repair Started | Completed | Normal Scrap | Replacement Scrap

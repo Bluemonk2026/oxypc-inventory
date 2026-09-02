@@ -18,6 +18,63 @@
 {% if request.query_params.get('success') %}
 <div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success')|replace('+',' ') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
 {% endif %}
+<!-- Summary card tiles -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-xl-2">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <i class="bi bi-person-workspace fs-3 mb-2 d-block" style="color:#6f42c1"></i>
+        <div class="small text-muted mb-1">Total Tags at You</div>
+        <div class="fs-3 fw-bold" style="color:#6f42c1">{{ tags_at_you }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-2">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <i class="bi bi-tools fs-3 mb-2 d-block" style="color:#0d6efd"></i>
+        <div class="small text-muted mb-1">Total Tags in L1/L2</div>
+        <div class="fs-3 fw-bold" style="color:#0d6efd">{{ tags_l1l2 }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-2">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <i class="bi bi-wrench-adjustable fs-3 mb-2 d-block" style="color:#fd7e14"></i>
+        <div class="small text-muted mb-1">Total Tags in L3/L4</div>
+        <div class="fs-3 fw-bold" style="color:#fd7e14">{{ tags_l3l4 }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-2">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <i class="bi bi-exclamation-triangle fs-3 mb-2 d-block" style="color:#dc3545"></i>
+        <div class="small text-muted mb-1">Total Tags in PNA</div>
+        <div class="fs-3 fw-bold" style="color:#dc3545">{{ tags_pna }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-2">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <i class="bi bi-activity fs-3 mb-2 d-block" style="color:#20c997"></i>
+        <div class="small text-muted mb-1">Total Tags in Stress</div>
+        <div class="fs-3 fw-bold" style="color:#20c997">{{ tags_stress }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-2">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <i class="bi bi-patch-check fs-3 mb-2 d-block" style="color:#198754"></i>
+        <div class="small text-muted mb-1">Total Tags in Final QC</div>
+        <div class="fs-3 fw-bold" style="color:#198754">{{ tags_final_qc }}</div>
+      </div>
+    </div>
+  </div>
+</div>
 <!-- Bucket Allocation / Tag Number Allocation tabs -->
 <ul class="nav nav-tabs" id="prodTabs" role="tablist">
   <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#bucketAllocTab" type="button">

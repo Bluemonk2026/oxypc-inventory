@@ -32,6 +32,7 @@ from models.spare_parts import SparePart
 from models.location import StorageLocation, ZoneType, ZONE_LABELS, UnitType, UNIT_TYPE_LABELS
 from models.work_order import WorkOrder
 from models.bucket import Bucket, _new_bucket_number
+from models.pna_part import DevicePNAPart
 
 _log = logging.getLogger(__name__)
 
@@ -1526,6 +1527,34 @@ async def trc_production_list(
         g["failure_reason"] = g["failure_reason"] or d.fqc_failure_reason
     fqc_fail_buckets = list(fqc_fail_grouped.values())
 
+    # ── Summary card tiles ("Total Tags at You / L1/L2 / L3/L4 / PNA / Stress
+    #    / Final QC") — simple stage-scoped counts, each is_active-filtered
+    #    to match every other count on this page. ─────────────────────────
+    tiles_active = Device.is_active == True
+    tags_at_you = (await db.execute(
+        select(func.count(Device.id)).where(Device.current_stage == DeviceStage.trc_production, tiles_active)
+    )).scalar() or 0
+    tags_l1l2 = (await db.execute(
+        select(func.count(Device.id)).where(Device.current_stage.in_([DeviceStage.l1, DeviceStage.l2]), tiles_active)
+    )).scalar() or 0
+    tags_l3l4 = (await db.execute(
+        select(func.count(Device.id)).where(Device.current_stage == DeviceStage.l3, tiles_active)
+    )).scalar() or 0
+    tags_pna = (await db.execute(
+        select(func.count(func.distinct(Device.id)))
+        .join(DevicePNAPart, DevicePNAPart.device_id == Device.id)
+        .where(Device.current_stage.in_([DeviceStage.l1, DeviceStage.l2]),
+               tiles_active, DevicePNAPart.is_active == True)
+    )).scalar() or 0
+    tags_stress = (await db.execute(
+        select(func.count(Device.id)).where(Device.current_stage == DeviceStage.qc_check, tiles_active)
+    )).scalar() or 0
+    tags_final_qc = (await db.execute(
+        select(func.count(Device.id)).where(
+            Device.current_stage.in_([DeviceStage.final_qc, DeviceStage.final_qc_pass_hold, DeviceStage.final_qc_fail_hold]),
+            tiles_active)
+    )).scalar() or 0
+
     return templates.TemplateResponse("lots/trc_production.html", {
         "request": request, "devices": devices, "current_user": current_user,
         "assigned_dept_map": assigned_dept_map, "departments": STOCK_DEPARTMENTS,
@@ -1533,6 +1562,8 @@ async def trc_production_list(
         "repair_line_devices": repair_line_devices, "assigned_name_map": assigned_name_map,
         "total": total, "scrap_devices": scrap_devices,
         "fqc_fail_buckets": fqc_fail_buckets,
+        "tags_at_you": tags_at_you, "tags_l1l2": tags_l1l2, "tags_l3l4": tags_l3l4,
+        "tags_pna": tags_pna, "tags_stress": tags_stress, "tags_final_qc": tags_final_qc,
     })
 
 

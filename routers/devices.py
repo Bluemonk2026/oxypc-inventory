@@ -99,6 +99,45 @@ async def device_brief(barcode: str, db: AsyncSession = Depends(get_db),
     })
 
 
+@router.get("/api/search-tags")
+async def search_tags(q: str = "", db: AsyncSession = Depends(get_db),
+                      current_user: User = Depends(view_allowed)):
+    """Partial tag-number search for the Scrap Products 'Replace' modal — type
+    a few characters, get up to 10 matching devices with the detail fields
+    the modal shows (Stage, Tag Number, Lot Number, Make, Model, CPU, RAM,
+    Hard Drive, Grade, Device Price)."""
+    q = (q or "").strip()
+    if len(q) < 2:
+        return JSONResponse({"results": []})
+    rows = (await db.execute(
+        select(Device, Lot.lot_number)
+        .join(Lot, Device.lot_id == Lot.id, isouter=True)
+        .where(Device.barcode.ilike(f"%{q}%"), Device.is_active == True)
+        .order_by(Device.updated_at.desc())
+        .limit(10)
+    )).all()
+    results = []
+    for device, lot_number in rows:
+        ram = f"{device.ram_gb} GB" if device.ram_gb else "—"
+        if device.storage_gb:
+            storage = f"{device.storage_gb} GB" + (f" {device.storage_type}" if device.storage_type else "")
+        else:
+            storage = "—"
+        results.append({
+            "barcode": device.barcode,
+            "stage": str(device.stage_label),
+            "lot_number": lot_number or "—",
+            "make": device.brand or "—",
+            "model": device.model or "—",
+            "cpu": device.cpu or "—",
+            "ram": ram,
+            "storage": storage,
+            "grade": device.grade.value if device.grade else "—",
+            "device_price": f"{device.device_price:.2f}" if device.device_price is not None else None,
+        })
+    return JSONResponse({"results": results})
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 async def _build_location_map(db: AsyncSession, device_ids: list) -> dict:

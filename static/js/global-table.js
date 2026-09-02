@@ -19,7 +19,7 @@
  *   4. Page length defaults to 12 (matches the site-wide DataTables default
  *      already set in base.html — restated here so this module works even
  *      if that default ever changes).
- *   5. Any cell over 32 characters of plain text (no markup — badges, links,
+ *   5. Any cell at or over 32 characters of plain text (no markup — badges, links,
  *      and buttons are left alone) gets wrapped to 2 lines with the full
  *      value in a native title= tooltip — cheap at any row count, unlike a
  *      Bootstrap Tooltip instance per cell. Applies to every column by
@@ -93,7 +93,12 @@ function initGlobalTable(tableSelector, dtOptions, opts) {
     render: function (data, type) {
       if (type !== 'display' || data === null || data === undefined) return data;
       var text = String(data);
-      if (text.length <= clampLength || text.indexOf('<') !== -1) return data;
+      // < not <= : a value of exactly clampLength characters (e.g. a CPU
+      // string landing right at 32) still clamps — "at or over" the
+      // threshold, not strictly "over" it. Found 2026-09-02: real CPU values
+      // cluster right around this boundary ("Intel Core i7-10810U @ 1.61 GHz"
+      // is exactly 32 chars) and were silently slipping through untouched.
+      if (text.length < clampLength || text.indexOf('<') !== -1) return data;
       var escaped = $('<div>').text(text).html().replace(/"/g, '&quot;');
       return '<span class="gtable-clamp2" title="' + escaped + '">' + text + '</span>';
     },

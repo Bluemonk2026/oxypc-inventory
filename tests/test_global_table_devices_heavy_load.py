@@ -106,6 +106,16 @@ def test_global_table_js_clamps_every_column_by_default():
     assert "'_all'" in js
 
 
+def test_global_table_js_clamps_a_value_of_exactly_clamp_length():
+    """2026-09-02: real CPU strings like "Intel Core i7-10810U @ 1.61 GHz"
+    land at exactly 32 characters and were silently skipping the clamp under
+    the old `<=` comparison ("over 32" only) — confirmed live on /devices.
+    `< clampLength` (not `<=`) means "at or over the threshold" clamps."""
+    js = pathlib.Path(ROOT, "static", "js", "global-table.js").read_text(encoding="utf-8")
+    assert "text.length < clampLength" in js
+    assert "text.length <= clampLength" not in js
+
+
 def test_devices_table_wired_to_global_table(app_client, make_user):  # noqa: F811
     username, password = make_user("admin")
     _login(app_client, username, password)

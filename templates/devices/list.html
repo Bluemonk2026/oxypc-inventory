@@ -56,29 +56,12 @@
       {% if total == 500 %}<span class="text-warning ms-1">(showing first 500 — use filters to narrow)</span>{% endif %}
     {% endif %}
   </span>
-  <div class="d-flex gap-2">
-    <button type="button" id="bulkDeleteBtn" class="btn btn-sm btn-outline-danger" disabled
-            onclick="submitBulkTrash()" title="Move selected devices to Trash">
-      <i class="bi bi-trash3 me-1"></i>Delete Selected (<span id="selCount">0</span>)
-    </button>
-    <button type="button" id="customiseBtn" class="btn btn-outline-primary btn-sm d-none" onclick="openCustomiseModal('devices')">
-      <i class="bi bi-sliders me-1"></i>Customise (<span id="customiseCount">0</span>)
-    </button>
-    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#bulkTagModal">
-      <i class="bi bi-upload me-1"></i>Upload Tags
-    </button>
-    <a id="exportCsvLink"
-       href="/devices/export?q={{ q | urlencode }}&stage={{ stage | urlencode }}&lot={{ lot | urlencode }}&grade={{ grade | urlencode }}&category={{ category | urlencode }}&device_type={{ device_type | urlencode }}&entity={{ entity | urlencode }}&date_from={{ date_from | urlencode }}&date_to={{ date_to | urlencode }}"
-       class="btn btn-sm btn-outline-success" onclick="return submitExport(event)"
-       title="Exports the selected Tag Numbers, or every filtered result if none are ticked">
-      <i class="bi bi-download me-1"></i>Export CSV
-    </a>
-  </div>
 </div>
 
-{# Rendered here, hidden, then moved by JS into the DataTables toolbar slot
-   right after the "Show X entries" length dropdown (see the dom string on
-   #devicesTable's init below). #}
+{# Entity badges — rendered here, hidden, then moved by JS into the
+   DataTables toolbar, right after the row-count badge that sits next to the
+   "Page view" dropdown (see the dom string + JS relocation on #devicesTable's
+   init below). #}
 <div id="entityBadges" class="d-none d-flex flex-wrap gap-2">
   {% for e, c in entity_counts.items() %}
   <span class="badge bg-light text-dark border">{{ e }}: <strong>{{ c }}</strong></span>
@@ -86,10 +69,41 @@
 </div>
 
 <!-- Device Table -->
+{# No .table-responsive wrapper here — initGlobalTable's scrollX already owns
+   horizontal scrolling (with the first column frozen via sticky position),
+   and nesting Bootstrap's own overflow-x:auto around that risks a second,
+   redundant scrollbar. #}
 <div class="card border-0 shadow-sm">
+  {# Global Table convention (see static/js/global-table.js): every table
+     wrapped in initGlobalTable gets a card-header with an icon + title on
+     the left — same pattern as templates/cosmetic/received.html's "Devices
+     in {{ stage_label }}" bar. No count badge on the right here — a plain
+     repeated number isn't useful, and the total already shows in the
+     Results Header above — instead the table's own action buttons live
+     here, since they act only on this table. #}
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span class="fw-semibold"><i class="bi bi-hdd-stack me-2"></i>All Tags Inventory</span>
+    <div class="d-flex gap-2">
+      <button type="button" id="bulkDeleteBtn" class="btn btn-sm btn-outline-danger" disabled
+              onclick="submitBulkTrash()" title="Move selected devices to Trash">
+        <i class="bi bi-trash3 me-1"></i>Delete Selected (<span id="selCount">0</span>)
+      </button>
+      <button type="button" id="customiseBtn" class="btn btn-outline-primary btn-sm d-none" onclick="openCustomiseModal('devices')">
+        <i class="bi bi-sliders me-1"></i>Customise (<span id="customiseCount">0</span>)
+      </button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#bulkTagModal">
+        <i class="bi bi-upload me-1"></i>Upload Tags
+      </button>
+      <a id="exportCsvLink"
+         href="/devices/export?q={{ q | urlencode }}&stage={{ stage | urlencode }}&lot={{ lot | urlencode }}&grade={{ grade | urlencode }}&category={{ category | urlencode }}&device_type={{ device_type | urlencode }}&entity={{ entity | urlencode }}&date_from={{ date_from | urlencode }}&date_to={{ date_to | urlencode }}"
+         class="btn btn-sm btn-outline-success" onclick="return submitExport(event)"
+         title="Exports the selected Tag Numbers, or every filtered result if none are ticked">
+        <i class="bi bi-download me-1"></i>Export CSV
+      </a>
+    </div>
+  </div>
   <div class="card-body p-0">
-    <div class="table-responsive">
-      <table id="devicesTable" class="table table-hover table-sm mb-0">
+      <table id="devicesTable" class="table table-hover table-sm mb-0" style="width:100%">
         <thead class="table-dark">
           <tr>
             <th style="width:32px"><input type="checkbox" id="selectAllChk" class="form-check-input" title="Select all on this page"></th>
@@ -118,7 +132,6 @@
            interactive, the same problem fixed for the Sales list. #}
         <tbody></tbody>
       </table>
-    </div>
   </div>
 </div>
 
@@ -414,10 +427,13 @@ $(document).ready(function() {
   // permanently stuck on "Processing…" — the actual data from /devices/data
   // was fine the whole time.
   var UPDATED_COL = CAN_VIEW_PRICING ? 14 : 12;
-  var dt = $('#devicesTable').DataTable({
+  // Global Table behavior (static/js/global-table.js): scrollX + frozen first
+  // column, 32-character clamp+tooltip on every free-text column, the
+  // Page-view-dropdown-and-count-badge / search-and-pagination toolbar split,
+  // and scan-to-select wired onto the table's own search box.
+  var dt = initGlobalTable('#devicesTable', {
     serverSide: true,
     processing: true,
-    pageLength: 12,
     order: [[UPDATED_COL, 'desc']],
     searchDelay: 400,
     ajax: {
@@ -430,13 +446,18 @@ $(document).ready(function() {
       dataSrc: function (json) { return json.data; },
     },
     columnDefs: [{ orderable: false, targets: [0, -1] }],
-    {# 'f' renders the scan box in this toolbar's right slot, inside the table
-       wrapper. The 'Search:' label is blanked so it matches the bare scan box
-       on Inventory Manager / Product IQC / Ready to Sale. The entity badges
-       (server-rendered, hidden by default) move into '#entityBadgeArea',
-       right after the length ("Show X entries") dropdown. #}
-    dom: '<"d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"l<"#entityBadgeArea">f>t<"d-flex justify-content-end align-items-center gap-3 mt-2"ip>',
-    language: { search: '' },
+    {# Left toolbar group = Page-view dropdown + row-count badge (both from
+       initGlobalTable's default) + the entity badges (server-rendered,
+       hidden by default) moved in right after the count badge. Right
+       toolbar group = the scan/search box + pagination — unchanged.
+       Overrides initGlobalTable's default dom only to add the
+       '#entityBadgeArea' slot. DataTables' dom-string mini-language needs
+       dot-prefixed classes after an id (#id.class1.class2) — a space-
+       separated list gets read as one literal (and broken) id value instead. #}
+    dom: '<"gtable-top d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"' +
+           '<"d-flex align-items-center flex-wrap gap-2"li<"#entityBadgeArea.d-flex.flex-wrap.gap-2">>' +
+           '<"d-flex align-items-center flex-wrap gap-2"fp>' +
+         '>rt',
     drawCallback: function () {
       document.querySelectorAll('#devicesTable tbody .rowChk').forEach(function (c) {
         c.checked = devicesSelected.has(c.value);
@@ -444,10 +465,16 @@ $(document).ready(function() {
       $('#selectAllChk').prop('checked', false);
       updateSel();
     },
+  }, {
+    // No clampColumns override — initGlobalTable now clamps+tooltips any
+    // cell over 32 characters on every column by default, skipping the
+    // HTML-bearing ones (Tag Number, Lot, Grade, Stage, Actions) automatically.
+    scan: { inputId: 'devicesScanInput', selection: devicesSelected, checkboxSelector: '.rowChk', onChange: function () { updateSel(); } },
   });
   window._dtDevices = dt;
   // Entity badges live server-rendered but hidden until moved into the
-  // toolbar slot DataTables creates for them (see the dom string above).
+  // toolbar slot DataTables creates for them (see the dom string above) —
+  // right after the row-count badge, next to the "Page view" dropdown.
   $('#entityBadgeArea').append($('#entityBadges').removeClass('d-none'));
 
   function updateSel(){
@@ -459,24 +486,8 @@ $(document).ready(function() {
   }
   window._devicesUpdateSel = updateSel;
 
-  // Scan-to-select runs on the table's own DataTables search box rather than a
-  // second input of our own. .off() drops DataTables' native keyup->search
-  // binding so the helper is the sole driver — otherwise both would issue the
-  // same query and the table would fetch twice per keystroke.
-  // Located through the DataTables API container rather than the '#<id>_filter'
-  // markup, so a version bump that renames that wrapper can't silently drop
-  // scan-to-select on this page.
-  $(dt.table().container()).find('input[type="search"]').first()
-    .attr({ id: 'devicesScanInput', placeholder: 'Scan Tag Number, or search…', autocomplete: 'off' })
-    .addClass('font-monospace')
-    .off();
-  initScanSelect({
-    inputId: 'devicesScanInput', dt: dt,
-    tableSelector: '#devicesTable', checkboxSelector: '.rowChk',
-    selection: devicesSelected, onChange: updateSel,
-  });
-  // Comma-separated lists tick every match on the current page.
-  initTagScanAutocheck({ inputId: 'devicesScanInput', tableSelector: '#devicesTable', rowCheckboxSelector: '.rowChk' });
+  // Scan-to-select (hijacking the table's own search box, same as before) is
+  // now wired by initGlobalTable itself via the `scan` option passed above.
 
   $('#devicesTable').on('change', '.rowChk', function(){
     if (this.checked) devicesSelected.add(this.value); else devicesSelected.delete(this.value);

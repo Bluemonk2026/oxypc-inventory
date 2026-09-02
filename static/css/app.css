@@ -246,3 +246,135 @@ fieldset:disabled .btn {
   color: #212529 !important;
   opacity: 1 !important;
 }
+
+/* ── Global Table behavior (see static/js/global-table.js) ──────────────────
+   Server-side DataTables with: header text kept to one line (column widths
+   auto-scale around it), horizontal scroll with the first column frozen,
+   truncation (any cell over 32 characters) with the full value in a native
+   title= tooltip, a compact warning-badge row count next to the page-length
+   dropdown, a 14px default text size, and the checkbox/Action end columns
+   centered. */
+
+/* Headers never wrap — DataTables sizes each column to fit the header plus
+   the (already-clamped) body content, so a long header can't blow out the
+   column grid the way wrapped multi-line headers would. */
+.gtable thead th {
+  white-space: nowrap;
+}
+
+/* 14px default (down from the 16px browser/Bootstrap default) for the table
+   itself and its toolbar (Page view dropdown, search box, pagination) — a
+   heavy table reads more like a data grid at this size, and it buys back a
+   little horizontal room before scrollX has to kick in. */
+.gtable-top,
+.gtable {
+  font-size: 14px;
+}
+
+/* First column (checkbox) and last column (Action buttons) are the
+   established convention across this app's tables — centering both reads
+   better than the left-alignment that suits every text column between them. */
+.gtable thead th:first-child, .gtable thead th:last-child,
+.gtable tbody td:first-child, .gtable tbody td:last-child {
+  text-align: center;
+}
+
+/* Action column buttons/links stay on one line — without this, a cell with
+   several text buttons (e.g. "Move to Cleaning" / "Move to Final QC" / "Fail")
+   wraps once their combined width outgrows the column, roughly doubling that
+   row's height. autoWidth just gives the column more room instead. */
+.gtable tbody td:last-child {
+  white-space: nowrap;
+}
+
+/* The app-wide ".card-body table { overflow: hidden }" rule above (rounded
+   card corners) clips the table's own box — and position:sticky's nearest
+   "scrolling ancestor" search stops at ANY ancestor with non-visible
+   overflow, sticky or not. With that rule in effect, the sticky first
+   column sticks relative to the (non-scrolling) <table> itself instead of
+   the real scrolling container two levels up, and never visibly sticks at
+   all. Higher specificity than that rule (two classes vs. one class + one
+   type) restores overflow so the frozen column actually freezes. */
+.card-body .gtable {
+  overflow: visible;
+}
+
+/* Table fills the card when content is narrower than it; scrollX computes and
+   sets its own (wider) inline width once real column widths exceed that, and
+   an inline style naturally outranks this class rule, so scrolling still
+   takes over instead of the columns getting squashed back to fit. */
+.gtable {
+  width: 100%;
+}
+
+/* Clamp a cell's text to 2 lines; the full value lives in this same element's
+   title= attribute (set by initGlobalTable's render helper) — a native
+   tooltip costs nothing per row, unlike instantiating a Bootstrap Tooltip on
+   every cell of a several-thousand-row table. */
+.gtable-clamp2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+/* Freeze the first column while the table scrolls horizontally. DataTables'
+   scrollX splits the header into a cloned table (.dataTables_scrollHead) kept
+   in sync with the body table (.dataTables_scrollBody) — both live under the
+   same .gtable-scroll-wrap wrapper, so this one rule reaches both without
+   needing the separate FixedColumns plugin. */
+.gtable-scroll-wrap td:first-child,
+.gtable-scroll-wrap th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background-color: #fff;
+}
+.gtable-scroll-wrap thead th:first-child {
+  z-index: 3;
+  background-color: #212529; /* matches table-dark header */
+}
+.gtable-scroll-wrap tbody tr:hover td:first-child {
+  background-color: #f1f3f5; /* keep the frozen cell in step with .table-hover */
+}
+
+/* Second frozen column — only active when global-table.js detects a checkbox
+   in column 1 (data-freeze-cols="2") and sets --gtable-col2-left to that
+   column's real rendered width, since a fixed guess would drift with content
+   (device tag lengths, badge widths, ...). Falls back to 40px so the layout
+   doesn't collapse to left:0 (stacking on top of column 1) before JS runs. */
+.gtable-scroll-wrap[data-freeze-cols="2"] td:nth-child(2),
+.gtable-scroll-wrap[data-freeze-cols="2"] th:nth-child(2) {
+  position: sticky;
+  left: var(--gtable-col2-left, 40px);
+  z-index: 2;
+  background-color: #fff;
+}
+.gtable-scroll-wrap[data-freeze-cols="2"] thead th:nth-child(2) {
+  z-index: 3;
+  background-color: #212529;
+}
+.gtable-scroll-wrap[data-freeze-cols="2"] tbody tr:hover td:nth-child(2) {
+  background-color: #f1f3f5;
+}
+
+/* Row-count badge, placed next to the page-length ("Page view") dropdown —
+   updates automatically since it's DataTables' own filtered-count info slot,
+   just re-skinned via language.info/infoEmpty. */
+.gtable-count-badge {
+  font-size: .75rem;
+  vertical-align: middle;
+}
+
+/* DataTables' own CSS (div.dataTables_wrapper div.dataTables_info —
+   specificity 0,2,2) gives .dataTables_info a top padding sized to align it
+   with the pagination control when both sit in the traditional bottom-row
+   layout. The Global Table toolbar instead puts it (re-skinned as the count
+   badge above) top-left next to the length dropdown — that padding has
+   nothing to align with there, and just pushes the badge down out of the
+   row's vertical center. !important because matching/beating that vendor
+   rule's specificity would mean duplicating its two type selectors here. */
+.gtable-top .dataTables_info {
+  padding-top: 0 !important;
+}

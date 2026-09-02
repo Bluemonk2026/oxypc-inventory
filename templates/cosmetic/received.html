@@ -25,9 +25,14 @@
   <!-- Device list -->
   <div class="col-12">
     <div class="card border-0 shadow-sm">
+      {# Global Table convention (see static/js/global-table.js): icon + title
+         on the left, this table's own action buttons on the right if it has
+         any — never a plain count badge (the table-top toolbar's own
+         row-count badge, next to "Page view", already covers that). This
+         table has no page-level buttons of its own (Assign is admin-only and
+         already lives in the table-top toolbar), so the right side is empty. #}
       <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
         <span class="fw-semibold"><i class="bi bi-inbox me-2"></i>Devices in {{ stage_label }}</span>
-        <span class="badge bg-warning text-dark">{{ devices|length }} device(s)</span>
       </div>
       <div class="card-body p-0">
         <table id="cosmeticReceivedTable" class="table table-hover mb-0 small">
@@ -314,17 +319,19 @@ $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
 });
 
 $(document).ready(function(){
+  var ADMIN = {{ 'true' if current_user.role.value == 'admin' else 'false' }};
   // The checkbox column (admin only) shifts every later column index by one.
-  var orderCol = {{ 2 if current_user.role.value == 'admin' else 1 }};
-  var dt = $('#cosmeticReceivedTable').DataTable({
-    pageLength: 12, order: [[orderCol, 'asc']],
+  var orderCol = ADMIN ? 2 : 1;
+  // Global Table behavior (static/js/global-table.js): the row-count badge
+  // now comes from initGlobalTable's own re-skinned info slot (language.info)
+  // rather than a hand-appended <span>, so that piece of the old initComplete
+  // is gone — everything else (Assign button, Failed-from-Final-QC filter)
+  // still prepends into .dataTables_filter, which the new dom layout still
+  // produces via the 'f' token.
+  var dt = initGlobalTable('#cosmeticReceivedTable', {
+    order: [[orderCol, 'asc']],
+    columnDefs: [{ orderable: false, targets: ADMIN ? [0, -1] : [-1] }],
     initComplete: function() {
-      // Table-count badge next to DataTables' own "Show N entries" control —
-      // updates on every draw (see drawCallback) so it tracks whatever
-      // filter (DataTables' own search box, sorting, paging) is applied.
-      var badge = $('<span id="cosmeticCountBadge" class="badge bg-warning text-dark ms-2"></span>');
-      $(this.api().table().container()).find('.dataTables_length').append(badge);
-      updateCosmeticCountBadge(this.api());
       {% if current_user.role.value == 'admin' %}
       var btn = $('<button type="button" id="cosmeticRecvAssignBtn" class="btn btn-sm btn-primary me-2" disabled>' +
                   '<i class="bi bi-person-check me-1"></i>Assign</button>');
@@ -337,13 +344,7 @@ $(document).ready(function(){
       $(this.api().table().container()).find('.dataTables_filter').prepend(failedFqcFilter);
       $('#cosmeticRecvFailedFqcFilter').on('change', function() { dt.draw(); });
     },
-    drawCallback: function() { updateCosmeticCountBadge(this.api()); },
   });
-
-  function updateCosmeticCountBadge(api) {
-    var info = (api || dt).page.info();
-    $('#cosmeticCountBadge').text(info.recordsDisplay + ' tag' + (info.recordsDisplay === 1 ? '' : 's'));
-  }
 
   {% if current_user.role.value == 'admin' %}
   $('#cosmeticRecvSelectAll').on('change', function() {

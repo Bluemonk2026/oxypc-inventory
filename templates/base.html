@@ -877,6 +877,11 @@ $.extend(true, $.fn.dataTable.defaults, {
      crash / network drop / accidental reload doesn't lose typed data. Loads on
      every page; auto-discovers eligible full-page forms. See form-autosave.js. -->
 <script src="/static/js/form-autosave.js?v={{ ASSET_VERSION }}"></script>
+<!-- Global Table behavior: server-side DataTables with a frozen first column,
+     2-line cell truncation, and the standard toolbar layout. Loaded on every
+     page like form-autosave.js above — see static/js/global-table.js. Any
+     page calls initGlobalTable(...) from its own page-specific scripts block below. -->
+<script src="/static/js/global-table.js?v={{ ASSET_VERSION }}"></script>
 {% block scripts %}{% endblock %}
 <script>
 /* Save the sidebar's scroll position continuously (and right before a

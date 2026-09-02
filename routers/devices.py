@@ -441,15 +441,13 @@ async def device_search_data(
         storage = d.hdd_summary or (f"{d.storage_gb}GB {d.storage_type or ''}".strip() if d.storage_gb else "—")
         cells = [
             f'<input type="checkbox" class="form-check-input rowChk" value="{esc(d.barcode)}">',
-            (f'<a href="/devices/{esc(d.barcode)}" class="text-decoration-none">'
-             f'<code class="small fw-bold">{esc(d.barcode)}</code></a>'
-             f'<div style="color:#999999;font-size:12px;">{esc(d.entity) if d.entity else "—"}</div>'),
+            (f'<a href="/devices/{esc(d.barcode)}" class="font-monospace fw-bold text-decoration-none">{esc(d.barcode)}</a>'
+             f'<div><span class="badge bg-light text-dark border">{esc(d.entity) if d.entity else "—"}</span></div>'),
             (f'<a href="/devices?lot={esc(lot_number)}" class="btn btn-sm py-0 px-2 small text-decoration-none" '
              f'style="background-color:#ffffff;border:1px solid #6C757D;color:#6C757D;">{esc(lot_number)}</a>'),
-            (f'<span class="font-monospace small">{esc(location_map[str(d.id)])}</span>'
+            (f'<span class="badge bg-light text-dark border font-monospace">{esc(location_map[str(d.id)])}</span>'
              if str(d.id) in location_map else
-             f'<a href="/locations/device/{d.id}" class="btn btn-xs btn-outline-primary py-0 px-2" '
-             f'style="font-size:.75rem;">Assign</a>'),
+             f'<a href="/locations/device/{d.id}" class="btn btn-sm btn-outline-primary py-0 px-2">Assign</a>'),
             esc(d.brand or "—"), esc(d.model or "—"), esc(d.device_type or "—"), esc(d.cpu or "—"),
             esc(ram), esc(storage),
             (f'<span class="badge bg-{gcls}">{esc(g)}</span>' if g else "—"),
@@ -462,10 +460,10 @@ async def device_search_data(
         cells += [
             f'<span class="badge bg-{_STAGE_BADGE.get(stage_val, "light text-dark")}">{esc(stage_lbl)}</span>',
             d.updated_at.strftime("%d-%m-%Y") if d.updated_at else "—",
-            (f'<div class="d-flex gap-1">'
-             f'<a href="/devices/{esc(d.barcode)}" class="btn btn-xs btn-outline-primary py-0 px-1" title="View"><i class="bi bi-eye"></i></a>'
-             f'<a href="/devices/{esc(d.barcode)}/edit" class="btn btn-xs btn-outline-warning py-0 px-1" title="Edit"><i class="bi bi-pencil"></i></a>'
-             f'<button type="button" class="btn btn-xs btn-outline-danger py-0 px-1 trash-one-btn" data-barcode="{esc(d.barcode)}" title="Move to Trash"><i class="bi bi-trash3"></i></button>'
+            (f'<div class="d-flex gap-1 justify-content-center">'
+             f'<a href="/devices/{esc(d.barcode)}" class="btn btn-sm btn-outline-primary py-0 px-1" title="View"><i class="bi bi-eye"></i></a>'
+             f'<a href="/devices/{esc(d.barcode)}/edit" class="btn btn-sm btn-outline-warning py-0 px-1" title="Edit"><i class="bi bi-pencil"></i></a>'
+             f'<button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 trash-one-btn" data-barcode="{esc(d.barcode)}" title="Move to Trash"><i class="bi bi-trash3"></i></button>'
              f'</div>'),
         ]
         data.append(cells)

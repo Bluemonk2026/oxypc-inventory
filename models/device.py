@@ -108,7 +108,7 @@ class Device(Base):
     brand = Column(String(50), nullable=True, index=True)
     entity = Column(String(30), nullable=True)  # OxyPC Computers / Renew Circuits — additive, auto-provisioned by db_validator
     model = Column(String(100), nullable=True)
-    device_type = Column(String(30), nullable=True)
+    device_type = Column(String(30), nullable=True, index=True)  # exact-match filter + sort column on /devices — see Global Table query optimization
     invoice_number = Column(String(100), nullable=True)  # bulk-set via Product IQC Customise modal
     po_number = Column(String(100), nullable=True)        # bulk-set via Product IQC Customise modal
     serial_no = Column(String(100), nullable=True)

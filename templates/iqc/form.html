@@ -223,19 +223,19 @@
             </div>
             <div class="col-md-3">
               <label class="form-label">GRN Number</label>
-              <input type="text" name="grn_number" id="grn_number" class="form-control font-monospace"
+              <input type="text" name="grn_number" id="grn_number" maxlength="100" class="form-control font-monospace"
                      value="{{ prefill_grn if prefill_grn is defined and prefill_grn else (device.grn_number if device and device.grn_number else '') }}"
                      placeholder="Auto-fills from Lot">
             </div>
             <div class="col-md-3">
               <label class="form-label">Invoice Number</label>
-              <input type="text" name="invoice_number" id="invoice_number" class="form-control"
+              <input type="text" name="invoice_number" id="invoice_number" maxlength="100" class="form-control"
                      value="{{ device.invoice_number if device and device.invoice_number else '' }}"
                      placeholder="Auto-fills from Lot">
             </div>
             <div class="col-md-3">
               <label class="form-label">Color</label>
-              <input type="text" name="color" class="form-control" placeholder="Black / Silver / Dark Grey">
+              <input type="text" name="color" maxlength="30" class="form-control" placeholder="Black / Silver / Dark Grey">
             </div>
           </div>
 
@@ -255,7 +255,7 @@
           <div class="row g-2 mb-3">
             <div class="col-md-3">
               <label class="form-label small">Serial Number</label>
-              <input type="text" name="serial_no" class="form-control form-control-sm font-monospace" tabindex="-1" placeholder="—">
+              <input type="text" name="serial_no" maxlength="100" class="form-control form-control-sm font-monospace" tabindex="-1" placeholder="—">
             </div>
             <div class="col-md-3">
               <label class="form-label small">Device Type</label>
@@ -277,7 +277,7 @@
             </div>
             <div class="col-md-3">
               <label class="form-label small">Model</label>
-              <input type="text" name="model" class="form-control form-control-sm" tabindex="-1" placeholder="—">
+              <input type="text" name="model" maxlength="100" class="form-control form-control-sm" tabindex="-1" placeholder="—">
             </div>
           </div>
 
@@ -285,15 +285,15 @@
           <div class="row g-2 mb-2">
             <div class="col-md-4">
               <label class="form-label small">CPU Make</label>
-              <input type="text" name="cpu_make" id="iqc-cpu-make" class="form-control form-control-sm" value="{{ device.cpu_make if device and device.cpu_make else '' }}" placeholder="Intel / AMD / Apple">
+              <input type="text" name="cpu_make" id="iqc-cpu-make" maxlength="100" class="form-control form-control-sm" value="{{ device.cpu_make if device and device.cpu_make else '' }}" placeholder="Intel / AMD / Apple">
             </div>
             <div class="col-md-4">
               <label class="form-label small">CPU / Processor</label>
-              <input type="text" name="cpu" id="iqc-cpu" class="form-control form-control-sm" value="{{ device.cpu if device else '' }}" placeholder="—">
+              <input type="text" name="cpu" id="iqc-cpu" maxlength="100" class="form-control form-control-sm" value="{{ device.cpu if device else '' }}" placeholder="—">
             </div>
             <div class="col-md-4">
               <label class="form-label small">Generation</label>
-              <input type="text" name="generation" id="iqc-generation" class="form-control form-control-sm" value="{{ device.generation if device else '' }}" placeholder="—">
+              <input type="text" name="generation" id="iqc-generation" maxlength="50" class="form-control form-control-sm" value="{{ device.generation if device else '' }}" placeholder="—">
             </div>
           </div>
 
@@ -301,15 +301,15 @@
           <div class="row g-2 mb-2">
             <div class="col-md-4">
               <label class="form-label small">Total RAM Count</label>
-              <input type="text" name="total_ram_count" class="form-control form-control-sm" value="{{ device.total_ram_count if device and device.total_ram_count else '' }}" placeholder="e.g. 2">
+              <input type="text" name="total_ram_count" maxlength="50" class="form-control form-control-sm" value="{{ device.total_ram_count if device and device.total_ram_count else '' }}" placeholder="e.g. 2">
             </div>
             <div class="col-md-4">
               <label class="form-label small">Total RAM Size</label>
-              <input type="text" name="total_ram_size" class="form-control form-control-sm" value="{{ device.total_ram_size if device and device.total_ram_size else '' }}" placeholder="e.g. 16GB_DDR4_2300_Samsung">
+              <input type="text" name="total_ram_size" maxlength="50" class="form-control form-control-sm" value="{{ device.total_ram_size if device and device.total_ram_size else '' }}" placeholder="e.g. 16GB_DDR4_2300_Samsung">
             </div>
             <div class="col-md-4">
               <label class="form-label small">RAM</label>
-              <input type="text" name="ram_summary" class="form-control form-control-sm" value="{{ device.ram_summary if device and device.ram_summary else '' }}" placeholder="e.g. 16GB or 1TB">
+              <input type="text" name="ram_summary" maxlength="255" class="form-control form-control-sm" value="{{ device.ram_summary if device and device.ram_summary else '' }}" placeholder="e.g. 16GB or 1TB">
             </div>
           </div>
 
@@ -317,15 +317,15 @@
           <div class="row g-2 mb-3">
             <div class="col-md-4">
               <label class="form-label small">Total Hard Drive Count</label>
-              <input type="text" name="total_hdd_count" class="form-control form-control-sm" value="{{ device.total_hdd_count if device and device.total_hdd_count else '' }}" placeholder="e.g. 1">
+              <input type="text" name="total_hdd_count" maxlength="50" class="form-control form-control-sm" value="{{ device.total_hdd_count if device and device.total_hdd_count else '' }}" placeholder="e.g. 1">
             </div>
             <div class="col-md-4">
               <label class="form-label small">Total Hard Drive Size</label>
-              <input type="text" name="total_hdd_size" class="form-control form-control-sm" value="{{ device.total_hdd_size if device and device.total_hdd_size else '' }}" placeholder="e.g. 520GB_SSD_7400_Samsung">
+              <input type="text" name="total_hdd_size" maxlength="50" class="form-control form-control-sm" value="{{ device.total_hdd_size if device and device.total_hdd_size else '' }}" placeholder="e.g. 520GB_SSD_7400_Samsung">
             </div>
             <div class="col-md-4">
               <label class="form-label small">Hard Drive</label>
-              <input type="text" name="hdd_summary" class="form-control form-control-sm" value="{{ device.hdd_summary if device and device.hdd_summary else '' }}" placeholder="e.g. 512GB or 1TB">
+              <input type="text" name="hdd_summary" maxlength="255" class="form-control form-control-sm" value="{{ device.hdd_summary if device and device.hdd_summary else '' }}" placeholder="e.g. 512GB or 1TB">
             </div>
           </div>
 

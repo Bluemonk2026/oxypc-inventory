@@ -34,6 +34,24 @@ def _keep_after_rollback(db, obj):
     *then* render a template that reads current_user, the friendly form error
     turned into a 500 — the failure users were actually hitting. Detaching first
     keeps the already-loaded values usable without further IO.
+
+    MUST be called BEFORE `await db.rollback()`, never after (every call site
+    follows this). It was briefly "fixed" the other way round 2026-09-02
+    while chasing an /iqc/new 500, on the theory that a failure mid-flush
+    leaves the session in a "pending rollback" state where expunge() itself
+    raises — true, but swapping the order made things worse: rollback()
+    first expires obj's attributes, and expunge() second then detaches it
+    *with those attributes already expired*, which is precisely what
+    DetachedInstanceError requires — reproducing the exact crash this
+    function exists to prevent, just one line later. The correct fix for
+    the mid-flush case is what's already here: expunge()'s failure is
+    caught and swallowed below, `obj` stays merely attached (not detached)
+    rather than expunged, and the *next* line's rollback() still runs
+    regardless — clearing the pending-rollback state so obj can lazy-refresh
+    normally off the now-healthy session instead of crashing. The actual
+    /iqc/new bug was unrelated to this ordering: an unguarded
+    `current_user.username` read inside _iqc_form_boundary's own diagnostic
+    print(), before rollback ever ran — see that function.
     """
     try:
         db.expunge(obj)
@@ -68,14 +86,42 @@ def _iqc_form_boundary(fn):
             db = kwargs.get("db")
             request = kwargs.get("request")
             current_user = kwargs.get("current_user")
+            # This is THE bug behind the /iqc/new 500s users actually hit
+            # (found 2026-09-02): a failure mid-flush leaves the session in
+            # SQLAlchemy's "pending rollback" state, where reading ANY
+            # not-yet-loaded attribute on current_user — getattr's default
+            # only covers a missing attribute, not one that raises while
+            # being read — tries to lazy-refresh against the poisoned
+            # session and raises right here, before rollback() below ever
+            # runs. The exception this print() was meant to log instead
+            # replaced it with a second, opaque one, and the print() call
+            # itself never completed — which is also why "IQC ENTRY FAILED"
+            # never once reached the server log despite this happening.
+            try:
+                username_for_log = current_user.username if current_user is not None else "?"
+            except Exception:
+                username_for_log = "?"
             print(f"\n{'='*60}\nIQC ENTRY FAILED for "
-                  f"{getattr(current_user, 'username', '?')} "
+                  f"{username_for_log} "
                   f"barcode={kwargs.get('barcode', '?')!r}\n"
                   f"{type(exc).__name__}: {exc}\n{_tb.format_exc()}{'='*60}",
                   flush=True)
             lots = []
             if db is not None:
                 try:
+                    # Expunge BEFORE rollback (original, correct order —
+                    # briefly "fixed" the other way 2026-09-02 and made it
+                    # worse, see _keep_after_rollback's docstring): rollback()
+                    # expires every attribute the session is tracking, so
+                    # detaching current_user first preserves whatever's
+                    # already loaded (used to render the template below) as
+                    # plain in-memory values. If the session is already in a
+                    # "pending rollback" state (a failure mid-flush) expunge()
+                    # can itself raise here — harmlessly: it's caught, and
+                    # rollback() still runs on the next line regardless,
+                    # clearing that state so current_user (now merely still
+                    # attached rather than detached) can lazy-refresh
+                    # normally off the healthy session instead of crashing.
                     if current_user is not None:
                         _keep_after_rollback(db, current_user)
                     await db.rollback()
@@ -83,13 +129,29 @@ def _iqc_form_boundary(fn):
                         select(Lot).order_by(Lot.lot_number))).scalars().all()
                 except Exception:
                     lots = []
-            return templates.TemplateResponse("iqc/form.html", {
-                "request": request, "lots": lots, "current_user": current_user,
-                "prefill_lot_id": kwargs.get("lot_id", ""),
-                "prefill_grn": kwargs.get("grn_number", ""),
-                "error": f"Could not save this IQC entry — {type(exc).__name__}: "
-                         f"{str(exc)[:300]}. Please screenshot this message.",
-            }, status_code=200)
+            try:
+                return templates.TemplateResponse("iqc/form.html", {
+                    "request": request, "lots": lots, "current_user": current_user,
+                    "prefill_lot_id": kwargs.get("lot_id", ""),
+                    "prefill_grn": kwargs.get("grn_number", ""),
+                    "error": f"Could not save this IQC entry — {type(exc).__name__}: "
+                             f"{str(exc)[:300]}. Please screenshot this message.",
+                }, status_code=200)
+            except Exception:
+                # Last resort: a sufficiently severe session failure (a hard
+                # constraint violation mid-flush, in the rarest cases) can
+                # leave current_user unusable for base.html's own reads
+                # (role/username in the sidebar) even after the expunge/
+                # rollback above — Jinja renders synchronously and eagerly
+                # (Starlette's TemplateResponse.__init__ calls template.render()
+                # immediately), so that failure surfaces right here, not
+                # later. Redirecting (a fresh request, fresh session, fresh
+                # current_user) can never hit this same failure mode — it is
+                # the one response that is guaranteed not to need the
+                # request-scoped session or current_user object at all.
+                return RedirectResponse(
+                    url="/iqc/new?error=Could+not+save+this+entry+—+please+retry+and+screenshot+if+it+happens+again",
+                    status_code=302)
 
     return wrapper
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager, UserRole.iqc_inspector,
@@ -1286,7 +1348,7 @@ async def iqc_create(
             # race handling — any other failure resolving the fallback Lot
             # (not just the known unique-constraint race) still degrades to a
             # clean form error instead of an unhandled 500.
-            _keep_after_rollback(db, current_user)
+            _keep_after_rollback(db, current_user)  # before rollback — see _iqc_form_boundary's wrapper for why
             await db.rollback()
             lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
             lots = lots_result.scalars().all()
@@ -1386,7 +1448,7 @@ async def iqc_create(
         # than as an opaque 500 at commit time.
         await db.flush()
     except Exception as exc:
-        _keep_after_rollback(db, current_user)
+        _keep_after_rollback(db, current_user)  # before rollback — see _iqc_form_boundary's wrapper for why
         await db.rollback()
         lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
         lots = lots_result.scalars().all()

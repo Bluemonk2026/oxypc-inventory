@@ -1379,6 +1379,80 @@ async def device_detail(
 
 # ── 3. DEVICE EDIT ───────────────────────────────────────────────────────────
 
+def _device_edit_boundary(fn):
+    """Never let Device Edit fail with a bare 500.
+
+    Mirrors routers/iqc.py's _iqc_form_boundary for the exact same reason:
+    an unhandled exception here used to reach the user as an opaque 500 with
+    their edits lost and nothing to report. Now it rolls back, expunges
+    current_user so it stays readable if anything downstream (e.g. the
+    request-scoped audit/logging middleware) touches it after rollback, logs
+    a full traceback + the submitted form data server-side, and redirects
+    back to the edit form with a readable error — reusing the ?error=...
+    query param this same route's barcode-clash branch already redirects
+    with, and templates/devices/edit.html already renders.
+    """
+    import functools
+    import traceback as _tb
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            db = kwargs.get("db")
+            barcode = kwargs.get("barcode", "?")
+            current_user = kwargs.get("current_user")
+            form_snapshot = {k: v for k, v in kwargs.items() if k not in ("db", "request", "current_user", "_perm")}
+            # A failure mid-flush (e.g. autoflush hitting an FK violation
+            # before this except block even runs) leaves the session in
+            # SQLAlchemy's "pending rollback" state — where reading ANY
+            # not-yet-loaded attribute on current_user (getattr's default
+            # only covers a missing attribute, not one that raises while
+            # being read) tries to lazy-refresh against the poisoned
+            # session and raises PendingRollbackError right here, before
+            # rollback() below ever runs. Found 2026-09-02 chasing exactly
+            # this: the log line meant to help diagnose the failure was
+            # itself throwing a second, masking exception.
+            try:
+                username_for_log = current_user.username if current_user is not None else "?"
+            except Exception:
+                username_for_log = "?"
+            print(f"\n{'='*60}\nDEVICE EDIT FAILED for "
+                  f"{username_for_log} barcode={barcode!r}\n"
+                  f"form={form_snapshot!r}\n"
+                  f"{type(exc).__name__}: {exc}\n{_tb.format_exc()}{'='*60}",
+                  flush=True)
+            if db is not None:
+                # Expunge BEFORE rollback (see routers/iqc.py's
+                # _keep_after_rollback docstring for the full story — briefly
+                # "fixed" the other way round and made it worse): rollback()
+                # expires every attribute the session is tracking, so
+                # detaching current_user first preserves whatever's already
+                # loaded as plain in-memory values. If the session is already
+                # in a "pending rollback" state (a failure mid-flush) expunge()
+                # can itself raise here — harmlessly: it's caught, and
+                # rollback() still runs next regardless, clearing that state.
+                if current_user is not None:
+                    try:
+                        db.expunge(current_user)
+                    except Exception:
+                        pass
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+            import urllib.parse
+            msg = f"Could not save changes — {type(exc).__name__}: {str(exc)[:200]}. Please screenshot this message."
+            return RedirectResponse(
+                url=f"/devices/{barcode}/edit?error={urllib.parse.quote(msg)}",
+                status_code=302)
+
+    return wrapper
+
+
 @router.get("/{barcode}/edit", response_class=HTMLResponse)
 async def device_edit_form(
     barcode: str,
@@ -1420,6 +1494,7 @@ async def device_edit_form(
 
 
 @router.post("/{barcode}/edit")
+@_device_edit_boundary
 async def device_edit_save(
     barcode: str,
     request: Request,

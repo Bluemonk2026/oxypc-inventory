@@ -24,24 +24,33 @@
  *      value in a native title= tooltip — cheap at any row count, unlike a
  *      Bootstrap Tooltip instance per cell. Applies to every column by
  *      default; opts.clampColumns restricts it to specific columns instead.
- *   6. "Page view" (length) dropdown and a warning-badge filtered-row-count
- *      sit top-left; search + pagination sit top-right — via a dom string,
- *      overridable per caller. 14px default text size (down from the 16px
- *      browser default) and the first/last (checkbox/Action) columns
- *      centered — see app.css.
+ *   6. Table-top toolbar, left side: "Page view" (length) dropdown + a
+ *      warning-badge filtered-row-count, then (optional, caller-added via a
+ *      dom override) entity/category breakdown badges right after the count.
+ *      Right side: search/scan box + pagination, then (optional, same
+ *      mechanism) any buttons or checkboxes this table needs in its own
+ *      toolbar — e.g. Cosmetic Received's admin-only Assign button and its
+ *      Failed-from-Final-QC filter checkbox, prepended into .dataTables_filter.
+ *      14px default text size (down from the 16px browser default) and the
+ *      first/last (checkbox/Action) columns centered — see app.css.
  *   7. Optional scan-to-select: hijacks DataTables' own search box (so
  *      "Scan or Search" is one field, not two) and wires the existing
  *      initScanSelect / initTagScanAutocheck helpers from
  *      tag-scan-autocheck.js onto it.
  *
- * Convention (not enforced here — the title text is page-specific, so this
- * is markup the caller writes, not something initGlobalTable can inject):
- * wrap the table in a plain Bootstrap card and give it a
+ * Convention (not enforced here — the title text and any buttons are
+ * page-specific, so this is markup the caller writes, not something
+ * initGlobalTable can inject): wrap the table in a plain Bootstrap card and
+ * give it a
  * `card-header bg-transparent d-flex justify-content-between align-items-center`
- * with an icon + title on the left (e.g. "All Tags Inventory") and, where a
- * meaningful count already exists, a badge on the right — same pattern as
- * templates/cosmetic/received.html's "Devices in {{ stage_label }}" bar.
- * Every page adopting the Global Table module should include this.
+ * with an icon + title on the left (e.g. "All Tags Inventory") and, only if
+ * this table has action buttons of its own (e.g. Devices' Delete Selected/
+ * Customise/Upload Tags/Export CSV), those on the right — same header shape
+ * as templates/cosmetic/received.html's "Devices in {{ stage_label }}" bar.
+ * Never a plain count badge here — the table-top toolbar's own row-count
+ * badge (point 6 above) already covers that; a repeated number in the
+ * header adds nothing. Every page adopting the Global Table module should
+ * follow this.
  *
  * Every plain DataTables option (ajax, columns, order, drawCallback, ...)
  * still passes straight through via dtOptions — this only supplies shared

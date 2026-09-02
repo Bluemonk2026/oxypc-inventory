@@ -34,7 +34,7 @@
           <thead class="table-dark">
             <tr>
               {% if current_user.role.value == 'admin' %}<th><input type="checkbox" id="cosmeticSelectAll" title="Select all"></th>{% endif %}
-              <th>WorkID</th><th>Tag Number</th><th>L1/L2 Engineer</th><th>Brand</th><th>Model</th><th>CPU</th><th>Grade</th><th>Lot</th><th>Since</th><th>Action</th></tr>
+              <th>Tag Number</th><th>WorkID</th><th>L1/L2 Engineer</th><th>Brand</th><th>Model</th><th>CPU</th><th>Grade</th><th>Lot</th><th>Since</th><th>Action</th></tr>
           </thead>
           <tbody>
             {% for device, lot_number in devices %}
@@ -43,8 +43,8 @@
               {% if current_user.role.value == 'admin' %}
               <td><input type="checkbox" class="cosmeticRowCheck" value="{{ device.barcode }}"></td>
               {% endif %}
-              <td>{% if wo %}<code class="small">{{ wo.work_id }}</code>{% else %}—{% endif %}</td>
               <td><code>{{ device.barcode }}</code></td>
+              <td>{% if wo %}<code class="small">{{ wo.work_id }}</code>{% else %}—{% endif %}</td>
               <td class="text-muted small">{{ l1l2_engineer_map.get(device.id|string, '—') }}</td>
               <td>{{ device.brand or '—' }}</td>
               <td>{{ device.model or '—' }}</td>

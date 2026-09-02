@@ -7,9 +7,18 @@ asyncio_mode = auto, so plain `async def test_*` functions run without any
 extra fixture).
 
 Covers:
-  POST /stress/{barcode}/fail              -> assigns device to an L1 engineer
+  POST /stress/{barcode}/fail              -> assigns device to an L1 engineer,
+                                               AND self-attributes a completed
+                                               "strs" WorkID to whoever submitted
   POST /stress/{barcode}/complete-to-paint  -> sends device to Cleaning, assigned
-                                               to a Paint/Cleaning-pool engineer
+                                               to a Paint/Cleaning-pool engineer,
+                                               AND self-attributes a completed
+                                               "strs" WorkID to whoever submitted
+
+Each device now carries TWO WorkOrders after either endpoint: the downstream
+assignment (stage "l1" or "recv") and the self-attribution (stage "strs",
+same pattern as Final QC's decision WorkID in routers/cosmetic.py) — tests
+below filter by stage explicitly rather than relying on an unordered .first().
 
 Creates its own Lot/Device/User fixtures and cleans them up at the end so it
 can run repeatedly against a real dev DB without leaving residue.
@@ -149,10 +158,21 @@ async def test_stress_fail_and_complete_assign():
                     f"Device not moved to L1/L2, still at {dev.current_stage}"
                 )
                 wo = (await db.execute(
-                    select(WorkOrder).where(WorkOrder.device_id == fail_device_id)
+                    select(WorkOrder).where(WorkOrder.device_id == fail_device_id,
+                                             WorkOrder.stage == "l1")
                 )).scalars().first()
                 assert wo is not None, "No WorkOrder created for /fail assignment"
                 assert wo.assigned_user_id == l1_engineer.id
+
+                strs_wo = (await db.execute(
+                    select(WorkOrder).where(WorkOrder.device_id == fail_device_id,
+                                             WorkOrder.stage == "strs")
+                )).scalars().first()
+                assert strs_wo is not None, "No self-attributed WorkID created for the Fail submission"
+                assert strs_wo.status == "completed"
+                assert strs_wo.completed_at is not None
+                assert strs_wo.assigned_username == "verify_admin"
+                assert strs_wo.assigned_role == "admin"
 
                 # Checklist-driven Stress Notes — shown on L1/L2 Repair and
                 # Device Detail, built from exactly the items marked Fail.
@@ -177,10 +197,21 @@ async def test_stress_fail_and_complete_assign():
                     f"Device not moved to Cosmetic Received, still at {dev2.current_stage}"
                 )
                 wo2 = (await db.execute(
-                    select(WorkOrder).where(WorkOrder.device_id == complete_device_id)
+                    select(WorkOrder).where(WorkOrder.device_id == complete_device_id,
+                                             WorkOrder.stage == "recv")
                 )).scalars().first()
                 assert wo2 is not None, "No WorkOrder created for /complete-to-paint assignment"
                 assert wo2.assigned_user_id == paint_engineer.id
+
+                strs_wo2 = (await db.execute(
+                    select(WorkOrder).where(WorkOrder.device_id == complete_device_id,
+                                             WorkOrder.stage == "strs")
+                )).scalars().first()
+                assert strs_wo2 is not None, "No self-attributed WorkID created for the Complete submission"
+                assert strs_wo2.status == "completed"
+                assert strs_wo2.completed_at is not None
+                assert strs_wo2.assigned_username == "verify_admin"
+                assert strs_wo2.assigned_role == "admin"
 
                 # Complete clears any stale failure note from an earlier run.
                 assert dev2.stress_notes is None, dev2.stress_notes

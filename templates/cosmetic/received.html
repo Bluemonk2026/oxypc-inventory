@@ -39,7 +39,7 @@
           <thead class="table-dark">
             <tr>
               {% if current_user.role.value == 'admin' %}<th><input type="checkbox" id="cosmeticRecvSelectAll" title="Select all"></th>{% endif %}
-              <th>WorkID</th><th>Tag Number</th><th>L1/L2 Engineer</th><th>Lot</th><th>Grade</th>
+              <th>Tag Number</th><th>WorkID</th><th>L1/L2 Engineer</th><th>Lot</th><th>Grade</th>
               <th>Brand</th><th>Model</th><th>Aging</th><th>Assigned to</th>
               <th>Assigned Date</th><th>Action</th>
             </tr>
@@ -52,11 +52,11 @@
               {% if current_user.role.value == 'admin' %}
               <td><input type="checkbox" class="cosmeticRecvRowCheck" value="{{ device.barcode }}"></td>
               {% endif %}
-              <td>{% if wo %}<code class="small">{{ wo.work_id }}</code>{% else %}—{% endif %}</td>
               <td>
                 <code>{{ device.barcode }}</code>
                 {% if failed_fqc %}<br><span class="badge bg-danger">Failed from Final QC</span>{% endif %}
               </td>
+              <td>{% if wo %}<code class="small">{{ wo.work_id }}</code>{% else %}—{% endif %}</td>
               <td class="text-muted small">{{ l1l2_engineer_map.get(device.id|string, '—') }}</td>
               <td><span class="badge bg-secondary">{{ lot_number }}</span></td>
               <td>

@@ -564,6 +564,21 @@ async def stress_fail_assign(
         run_by=current_user.username,
     ))
 
+    # Self-attribution (2026-09-02, same pattern as Final QC's decision WorkID
+    # in routers/cosmetic.py): whoever submits this Stress Test result gets
+    # their own completed "strs" WorkID for it, visible on /workid-status —
+    # distinct from the "l1" WorkOrder below, which tracks the downstream
+    # engineer assignment rather than who ran the test.
+    role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    strs_work_id = await _gen_work_id(db)
+    db.add(WorkOrder(
+        work_id=strs_work_id, device_id=device.id, barcode=device.barcode,
+        stage="strs", assigned_role=role_val,
+        assigned_user_id=current_user.id, assigned_username=current_user.username,
+        assigned_name=current_user.full_name, status="completed",
+        completed_at=app_now(), created_by=current_user.username,
+    ))
+
     work_id = await _gen_work_id(db)
     db.add(WorkOrder(
         work_id=work_id, device_id=device.id, barcode=device.barcode,
@@ -656,6 +671,21 @@ async def stress_complete_to_paint(
         run_at=app_now(), overall_status="PASS",
         results_json={item: "pass" for item in STRESS_CHECKLIST_ITEMS},
         run_by=current_user.username,
+    ))
+
+    # Self-attribution (2026-09-02, same pattern as Final QC's decision WorkID
+    # in routers/cosmetic.py): whoever submits this Stress Test result gets
+    # their own completed "strs" WorkID for it, visible on /workid-status —
+    # distinct from the "recv" WorkOrder below, which tracks the downstream
+    # engineer assignment rather than who ran the test.
+    role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    strs_work_id = await _gen_work_id(db)
+    db.add(WorkOrder(
+        work_id=strs_work_id, device_id=device.id, barcode=device.barcode,
+        stage="strs", assigned_role=role_val,
+        assigned_user_id=current_user.id, assigned_username=current_user.username,
+        assigned_name=current_user.full_name, status="completed",
+        completed_at=app_now(), created_by=current_user.username,
     ))
 
     work_id = await _gen_work_id(db)

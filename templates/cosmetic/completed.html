@@ -33,7 +33,7 @@
         <table id="cosmeticCompletedTable" class="table table-hover mb-0 small">
           <thead class="table-dark">
             <tr>
-              <th>WorkID</th><th>Tag Number</th><th>Cosmetic Stage</th><th>L1/L2 Engineer</th><th>Lot</th><th>Grade</th>
+              <th>Tag Number</th><th>WorkID</th><th>Cosmetic Stage</th><th>L1/L2 Engineer</th><th>Lot</th><th>Grade</th>
               <th>Brand</th><th>Model</th><th>Aging</th><th>Assigned to</th>
               <th>Assigned Date</th><th>Action</th>
             </tr>
@@ -42,8 +42,8 @@
             {% for device, lot_number in devices %}
             {% set wo = workid_map.get(device.id|string) %}
             <tr>
-              <td>{% if wo %}<code class="small">{{ wo.work_id }}</code>{% else %}—{% endif %}</td>
               <td><code>{{ device.barcode }}</code></td>
+              <td>{% if wo %}<code class="small">{{ wo.work_id }}</code>{% else %}—{% endif %}</td>
               <td><span class="badge bg-teal">{{ stage_labels.get(device.current_stage, device.current_stage.value) }}</span></td>
               <td class="text-muted small">{{ l1l2_engineer_map.get(device.id|string, '—') }}</td>
               <td><span class="badge bg-secondary">{{ lot_number }}</span></td>

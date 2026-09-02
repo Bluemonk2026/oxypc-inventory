@@ -138,19 +138,19 @@
       <table id="workidTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark">
           <tr>
-            <th>WorkID</th><th>Tag Number</th><th>Model</th><th>Stage</th>
+            <th>Tag Number</th><th>WorkID</th><th>Model</th><th>Stage</th>
             <th>Aging</th><th>Assigned Date</th><th>Completed Date</th><th>Notes</th><th>Assigned Engineer</th>
           </tr>
         </thead>
         <tbody>
           {% for it in items %}
           <tr id="{{ it.row_key }}" class="{{ 'table-warning' if highlight and highlight == it.work_id else '' }}">
+            <td><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
             <td class="font-monospace fw-bold">
               {% if it.work_id %}{{ it.work_id }}
               {% else %}<span class="text-muted fst-italic" title="No WorkID was ever created for this stage transition — backfilled from Asset History">— No WorkID —</span>
               {% endif %}
             </td>
-            <td><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
             <td>{{ it.model or '—' }}</td>
             <td><span class="badge bg-secondary">{{ it.stage_label }}</span></td>
             <td class="text-nowrap">

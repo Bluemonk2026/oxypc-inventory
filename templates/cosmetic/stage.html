@@ -25,9 +25,14 @@
   <!-- Device list -->
   <div class="col-12">
     <div class="card border-0 shadow-sm">
+      {# Global Table convention (see static/js/global-table.js): icon + title
+         on the left, this table's own action buttons on the right if it has
+         any — never a plain count badge (the table-top toolbar's own
+         row-count badge, next to "Page view", already covers that). This
+         table has no page-level buttons of its own (Assign is admin-only and
+         lives in the table-top toolbar), so the right side is empty. #}
       <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
         <span class="fw-semibold"><i class="bi bi-list-check me-2"></i>Devices in {{ stage_label }}</span>
-        <span class="badge bg-warning text-dark">{{ devices|length }} device(s)</span>
       </div>
       <div class="card-body p-0">
         <table id="cosmeticTable" class="table table-hover mb-0 small">
@@ -218,18 +223,18 @@ async function submitCosmeticMove() {
 }
 
 $(document).ready(function(){
+  var ADMIN = {{ 'true' if current_user.role.value == 'admin' else 'false' }};
   // The checkbox column (admin only) shifts every later column index by one.
-  var sinceCol = {{ 9 if current_user.role.value == 'admin' else 8 }};
-  var dt = $('#cosmeticTable').DataTable({
-    pageLength: 12,
+  var sinceCol = ADMIN ? 9 : 8;
+  // Global Table behavior (static/js/global-table.js): the row-count badge
+  // now comes from initGlobalTable's own re-skinned info slot (language.info)
+  // rather than a hand-appended <span> — that piece of the old initComplete/
+  // drawCallback is gone. The Assign button still prepends into
+  // .dataTables_filter, which the new dom layout still produces via 'f'.
+  var dt = initGlobalTable('#cosmeticTable', {
     order: [[sinceCol, 'asc']],
+    columnDefs: [{ orderable: false, targets: ADMIN ? [0, -1] : [-1] }],
     initComplete: function() {
-      // Table-count badge next to DataTables' own "Show N entries" control —
-      // updates on every draw (see drawCallback) so it tracks whatever
-      // filter (DataTables' own search box, sorting, paging) is applied.
-      var badge = $('<span id="cosmeticCountBadge" class="badge bg-warning text-dark ms-2"></span>');
-      $(this.api().table().container()).find('.dataTables_length').append(badge);
-      updateCosmeticCountBadge(this.api());
       {% if current_user.role.value == 'admin' %}
       // "view Assign button before searchbox" — inject it into DataTables'
       // own filter box, ahead of the search input, rather than a separate
@@ -240,13 +245,7 @@ $(document).ready(function(){
       $(this.api().table().container()).find('.dataTables_filter').prepend(btn);
       {% endif %}
     },
-    drawCallback: function() { updateCosmeticCountBadge(this.api()); },
   });
-
-  function updateCosmeticCountBadge(api) {
-    var info = (api || dt).page.info();
-    $('#cosmeticCountBadge').text(info.recordsDisplay + ' tag' + (info.recordsDisplay === 1 ? '' : 's'));
-  }
 
   {% if current_user.role.value == 'admin' %}
   // Select-all header checkbox + per-row checkboxes — delegated since

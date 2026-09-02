@@ -25,9 +25,14 @@
   <!-- Device list -->
   <div class="col-12">
     <div class="card border-0 shadow-sm">
+      {# Global Table convention (see static/js/global-table.js): icon + title
+         on the left, this table's own action buttons on the right if it has
+         any — never a plain count badge (the table-top toolbar's own
+         row-count badge, next to "Page view", already covers that). This
+         table has no page-level buttons of its own, so the right side is
+         empty. #}
       <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
         <span class="fw-semibold"><i class="bi bi-check2-square me-2"></i>Devices in {{ stage_label }}</span>
-        <span class="badge bg-warning text-dark">{{ devices|length }} device(s)</span>
       </div>
       <div class="card-body p-0">
         <table id="cosmeticCompletedTable" class="table table-hover mb-0 small">
@@ -179,23 +184,16 @@ async function submitCosmeticFail() {
 }
 
 $(document).ready(function(){
-  var dt = $('#cosmeticCompletedTable').DataTable({
-    pageLength: 12, order: [[1, 'asc']],
-    initComplete: function() {
-      // Table-count badge next to DataTables' own "Show N entries" control —
-      // updates on every draw (see drawCallback) so it tracks whatever
-      // filter (DataTables' own search box, sorting, paging) is applied.
-      var badge = $('<span id="cosmeticCountBadge" class="badge bg-warning text-dark ms-2"></span>');
-      $(this.api().table().container()).find('.dataTables_length').append(badge);
-      updateCosmeticCountBadge(this.api());
-    },
-    drawCallback: function() { updateCosmeticCountBadge(this.api()); },
+  // Global Table behavior (static/js/global-table.js): the row-count badge
+  // now comes from initGlobalTable's own re-skinned info slot (language.info)
+  // rather than a hand-appended <span> — that piece of the old initComplete/
+  // drawCallback is gone. Sort by Tag Number ascending (column 0 — since the
+  // 2026-09-02 batch moved Tag Number before WorkID, this index moved with
+  // it; it used to point at WorkID's old position before that swap).
+  var dt = initGlobalTable('#cosmeticCompletedTable', {
+    order: [[0, 'asc']],
+    columnDefs: [{ orderable: false, targets: [-1] }],
   });
-
-  function updateCosmeticCountBadge(api) {
-    var info = (api || dt).page.info();
-    $('#cosmeticCountBadge').text(info.recordsDisplay + ' tag' + (info.recordsDisplay === 1 ? '' : 's'));
-  }
 })
 </script>
 {% endblock %}

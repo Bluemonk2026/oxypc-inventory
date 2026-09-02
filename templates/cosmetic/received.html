@@ -320,8 +320,11 @@ $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
 
 $(document).ready(function(){
   var ADMIN = {{ 'true' if current_user.role.value == 'admin' else 'false' }};
-  // The checkbox column (admin only) shifts every later column index by one.
-  var orderCol = ADMIN ? 2 : 1;
+  // Sort by Tag Number ascending by default. The checkbox column (admin
+  // only) shifts every later column index by one — and since the 2026-09-02
+  // batch moved Tag Number before WorkID, this index moved with it (it used
+  // to point at WorkID's old position before that swap).
+  var orderCol = ADMIN ? 1 : 0;
   // Global Table behavior (static/js/global-table.js): the row-count badge
   // now comes from initGlobalTable's own re-skinned info slot (language.info)
   // rather than a hand-appended <span>, so that piece of the old initComplete

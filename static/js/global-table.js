@@ -31,8 +31,11 @@
  *      mechanism) any buttons or checkboxes this table needs in its own
  *      toolbar — e.g. Cosmetic Received's admin-only Assign button and its
  *      Failed-from-Final-QC filter checkbox, prepended into .dataTables_filter.
- *      14px default text size (down from the 16px browser default) and the
- *      first/last (checkbox/Action) columns centered — see app.css.
+ *      14px default text size (down from the 16px browser default); the
+ *      last (Action) column is always centered, and the first column
+ *      centers too but ONLY when it's a checkbox (.gtable-checkbox-first,
+ *      set below from the rendered first body cell) — a real first column
+ *      (a name, a tag number, ...) stays left-aligned. See app.css.
  *   7. Optional scan-to-select: hijacks DataTables' own search box (so
  *      "Scan or Search" is one field, not two) and wires the existing
  *      initScanSelect / initTagScanAutocheck helpers from
@@ -68,19 +71,24 @@
  *      initGlobalTable touches) — give its own buttons a `text-nowrap`
  *      class if they're ever long enough to be at risk.
  *
- * Convention (not enforced here — the title text and any buttons are
+ * Convention (not enforced here — the title text and any buttons/filters are
  * page-specific, so this is markup the caller writes, not something
  * initGlobalTable can inject): wrap the table in a plain Bootstrap card and
  * give it a
  * `card-header bg-transparent d-flex justify-content-between align-items-center`
  * with an icon + title on the left (e.g. "All Tags Inventory") and, only if
- * this table has action buttons of its own (e.g. Devices' Delete Selected/
- * Customise/Upload Tags/Export CSV), those on the right — same header shape
- * as templates/cosmetic/received.html's "Devices in {{ stage_label }}" bar.
- * Never a plain count badge here — the table-top toolbar's own row-count
- * badge (point 6 above) already covers that; a repeated number in the
- * header adds nothing. Every page adopting the Global Table module should
- * follow this.
+ * this table has action buttons and/or filter controls of its own, those on
+ * the right — action buttons (e.g. Devices' Delete Selected/Customise/
+ * Upload Tags/Export CSV, same header shape as
+ * templates/cosmetic/received.html's "Devices in {{ stage_label }}" bar) OR
+ * filter controls (e.g. L1/L2's whole Search/CPU/RAM/Hard Drive/Lot/PNA/
+ * Failed-from-Final-QC bar, or QC's single Failed-from-Final-QC checkbox —
+ * both server-rendered directly rather than JS-injected into
+ * .dataTables_filter, moved there 2026-09-03 for exactly this reason) OR
+ * both together. Never a plain count badge here — the table-top toolbar's
+ * own row-count badge (point 6 above) already covers that; a repeated
+ * number in the header adds nothing. Every page adopting the Global Table
+ * module should follow this.
  *
  * Every plain DataTables option (ajax, columns, order, drawCallback, ...)
  * still passes straight through via dtOptions — this only supplies shared
@@ -156,17 +164,32 @@ function initGlobalTable(tableSelector, dtOptions, opts) {
 
   var dt = $table.DataTable(merged);
 
+  // Column 1 centers (app.css .gtable-checkbox-first) only when it's
+  // actually a checkbox — every other table's first column is real content
+  // (a name, a tag number, ...) and stays left-aligned like any other
+  // column. Detected from the rendered cell, not assumed, so this works
+  // regardless of whether the caller mentions checkboxes at all. Runs
+  // independently of opts.freeze so the alignment rule doesn't depend on
+  // scrollX being enabled.
+  var markCheckboxFirstColumn = function () {
+    var $firstBodyCell = $table.find('tbody tr:first-child td:first-child');
+    var isCheckbox = $firstBodyCell.find('input[type="checkbox"]').length > 0;
+    $table.toggleClass('gtable-checkbox-first', isCheckbox);
+    return isCheckbox;
+  };
+  dt.on('draw.dt', markCheckboxFirstColumn);
+  markCheckboxFirstColumn();
+
   if (freeze) {
     var $scrollWrap = $table.closest('.dataTables_scroll').addClass('gtable-scroll-wrap');
     // Freeze 2 columns when the first is a checkbox (a lone frozen checkbox
-    // can't identify the row on its own), otherwise just the 1st. Detected
-    // from the rendered cell, not assumed, so this works for any table
-    // regardless of whether the caller mentions checkboxes at all.
+    // can't identify the row on its own), otherwise just the 1st. Reuses
+    // the same checkbox check above rather than re-detecting it.
     var applyFreezeWidth = function () {
-      var $firstBodyCell = $table.find('tbody tr:first-child td:first-child');
-      var twoCols = $firstBodyCell.find('input[type="checkbox"]').length > 0;
+      var twoCols = $table.hasClass('gtable-checkbox-first');
       $scrollWrap.attr('data-freeze-cols', twoCols ? 2 : 1);
       if (twoCols) {
+        var $firstBodyCell = $table.find('tbody tr:first-child td:first-child');
         var width = $firstBodyCell.outerWidth() || 0;
         $scrollWrap.get(0).style.setProperty('--gtable-col2-left', width + 'px');
       }

@@ -271,11 +271,23 @@ fieldset:disabled .btn {
   font-size: 14px;
 }
 
-/* First column (checkbox) and last column (Action buttons) are the
-   established convention across this app's tables — centering both reads
-   better than the left-alignment that suits every text column between them. */
-.gtable thead th:first-child, .gtable thead th:last-child,
-.gtable tbody td:first-child, .gtable tbody td:last-child {
+/* Last column (Action buttons) is the established convention across this
+   app's tables — centering it reads better than the left-alignment that
+   suits every text column before it. Applies to every Global Table
+   regardless of what column 1 is. */
+.gtable thead th:last-child,
+.gtable tbody td:last-child {
+  text-align: center;
+}
+
+/* First column centers ONLY when it's a checkbox (global-table.js adds
+   .gtable-checkbox-first after detecting one in the rendered first body
+   cell) — a real first column (Model Names, Tag Number, WorkID, ...) stays
+   left-aligned like any other text column. Found 2026-09-03: the old rule
+   centered every table's first column unconditionally, including plain-text
+   ones like Model Based Summary's "Model Names". */
+.gtable.gtable-checkbox-first thead th:first-child,
+.gtable.gtable-checkbox-first tbody td:first-child {
   text-align: center;
 }
 

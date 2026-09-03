@@ -129,12 +129,14 @@
 </div>
 
 <div class="card border-0 shadow-sm">
+  {# Global Table convention (static/js/global-table.js): no plain count
+     badge here — the table-top toolbar's own row-count badge already
+     covers that; no .table-responsive wrapper either, since
+     initGlobalTable's own scrollX owns horizontal scrolling. #}
   <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center">
     <span><i class="bi bi-clipboard-check me-2"></i>Work ID Details</span>
-    <span class="text-muted small">{{ items|length }} WorkID(s)</span>
   </div>
   <div class="card-body p-0">
-    <div class="table-responsive">
       <table id="workidTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark">
           <tr>
@@ -187,15 +189,16 @@
           {% endfor %}
         </tbody>
       </table>
-    </div>
   </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
 $(document).ready(function(){
+  // Global Table module (static/js/global-table.js) — skipped when the table
+  // is just the "No WorkIDs found." colspan row (same guard as before).
   if ($('#workidTable tbody tr td').length > 1) {
-    $('#workidTable').DataTable({ pageLength: 12, order: [] });
+    initGlobalTable('#workidTable', { order: [] });
   }
   {% if highlight %}
   // Scroll the highlighted WorkID row into view

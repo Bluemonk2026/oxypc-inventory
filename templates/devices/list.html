@@ -176,13 +176,16 @@
 
 <!-- Model Based Table -->
 <div class="card border-0 shadow-sm mt-3">
+  {# Global Table convention (static/js/global-table.js): search lives in the
+     table's own toolbar now, scoped to the Model Names column via the
+     columnDefs searchable:false/true pair on its initGlobalTable call below
+     — no separate header search box duplicating it. No .table-responsive
+     wrapper either, for the same reason devicesTable above has none:
+     initGlobalTable's own scrollX already owns horizontal scrolling. #}
   <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
     <strong class="small"><i class="bi bi-collection me-1"></i>Model Based Summary</strong>
-    <input type="text" id="modelSearchBox" class="form-control form-control-sm" style="width:220px"
-           placeholder="Search Model Names…">
   </div>
   <div class="card-body p-0">
-    <div class="table-responsive">
       <table id="modelSummaryTable" class="table table-hover table-sm mb-0">
         <thead class="table-dark">
           <tr>
@@ -217,22 +220,23 @@
           {% endif %}
         </tbody>
       </table>
-    </div>
   </div>
 </div>
 
 <!-- Lot Based Table -->
 <div class="card border-0 shadow-sm mt-3">
+  {# Same Global Table convention as Model Based Summary above: search moves
+     into the table's own toolbar (this one keeps its old global-search
+     behavior, unlike Model Based's column-scoped search — see the
+     initGlobalTable call below), and .table-responsive is dropped in favor
+     of scrollX. #}
   <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center gap-2">
     <strong class="small text-nowrap"><i class="bi bi-box-seam me-1"></i>Lot Based Summary</strong>
-    <input type="text" id="lotSearchBox" class="form-control form-control-sm" style="width:220px"
-           placeholder="Search Model Names…">
     <button type="button" id="customiseLotBtn" class="btn btn-outline-primary btn-sm d-none text-nowrap" onclick="openCustomiseModal('lots')">
       <i class="bi bi-sliders me-1"></i>Customise (<span id="customiseLotCount">0</span>)
     </button>
   </div>
   <div class="card-body p-0">
-    <div class="table-responsive">
       <table id="lotSummaryTable" class="table table-hover table-sm mb-0">
         <thead class="table-dark">
           <tr>
@@ -277,7 +281,13 @@
             <td class="small">{% if l.selling_price is not none %}₹{{ "{:,.0f}".format(l.selling_price) }}{% else %}—{% endif %}</td>
             <td class="small">₹{{ "{:,.0f}".format(l.actual_selling) }}</td>
             {% endif %}
-            <td class="small note-clamp" title="{{ l.notes }}">{{ l.notes[:150] }}{% if l.notes and l.notes|length > 150 %}…{% endif %}</td>
+            {# Full text, untruncated — initGlobalTable's own clamp+tooltip
+               (static/js/global-table.js) now handles long Remarks with a
+               2-line clamp and a native title= tooltip carrying the full
+               value; a manual [:150] pre-truncation here would leave that
+               tooltip showing only the already-cut text instead of the
+               real full note. #}
+            <td class="small">{{ l.notes or '' }}</td>
             <td class="text-nowrap">
               <button type="button" class="btn btn-xs btn-outline-primary py-0 px-1 small"
                       title="View" onclick='showLotDetail({{ ld_data | tojson }})'>
@@ -291,7 +301,6 @@
           {% endif %}
         </tbody>
       </table>
-    </div>
   </div>
 </div>
 
@@ -523,27 +532,39 @@ $(document).ready(function() {
     f.submit();
   });
 
-  // Model Based table — paginated + Model Names search box
-  var dtModel = $('#modelSummaryTable').DataTable({
-    pageLength: 12,
+  // Model Based table (Global Table module — static/js/global-table.js).
+  // The old header search box only ever searched the Model Names column
+  // (never Make/Device Type/counts); reusing initGlobalTable's own search
+  // box for that means restricting *it* to column 0 instead, or the box
+  // would start matching Make/Device Type too — a real behavior change,
+  // not just a relocation. NOT a targets:'_all'+override:0 pair — DataTables
+  // resolves '_all' columnDefs last regardless of array position, so a
+  // more-specific same-key override placed after it (or before it) still
+  // loses to '_all'; found live 2026-09-03 (search for "HP" against Model
+  // Make matched despite the "override" entry). Listing the actual
+  // not-column-0 indices sidesteps that resolution order entirely.
+  var MODEL_NOT_SEARCHABLE_COLS = CAN_VIEW_PRICING ? [1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5];
+  var dtModel = initGlobalTable('#modelSummaryTable', {
     order: [],
-    columnDefs: [{ orderable: false, targets: [-1] }],
-    dom: '<"d-flex justify-content-between align-items-center mb-2"lf>t<"d-flex justify-content-end align-items-center gap-3 mt-2"ip>',
+    columnDefs: [
+      { orderable: false, targets: [-1] },
+      { searchable: false, targets: MODEL_NOT_SEARCHABLE_COLS },
+    ],
   });
-  $('#modelSearchBox').on('keyup', function(){
-    dtModel.column(0).search(this.value).draw();
-  });
+  $(dtModel.table().container()).find('input[type="search"]').attr('placeholder', 'Search Model Names…');
 
-  // Lot Based table — paginated + search box
-  var dtLot = $('#lotSummaryTable').DataTable({
-    pageLength: 12,
+  // Lot Based table (Global Table module). Unlike Model Based above, the old
+  // header search box here already searched every column (dtLot.search(),
+  // not column(0)-scoped) — despite its copy-pasted "Search Model Names…"
+  // placeholder, a pre-existing mislabel fixed below — so no searchable
+  // restriction is needed; initGlobalTable's own box reproduces it exactly.
+  // Checkbox-in-column-0 is auto-detected, so Lot Number (column 1) freezes
+  // alongside it, same as Tag Number does on the main Devices table.
+  var dtLot = initGlobalTable('#lotSummaryTable', {
     order: [],
     columnDefs: [{ orderable: false, targets: [0, -1] }],
-    dom: '<"d-flex justify-content-between align-items-center mb-2"lf>t<"d-flex justify-content-end align-items-center gap-3 mt-2"ip>',
   });
-  $('#lotSearchBox').on('keyup', function(){
-    dtLot.search(this.value).draw();
-  });
+  $(dtLot.table().container()).find('input[type="search"]').attr('placeholder', 'Search Lots…');
 
   function updateLotSel(){
     var n = $(dtLot.rows().nodes()).find('.lotRowChk:checked').length;

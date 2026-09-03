@@ -56,6 +56,17 @@
  *      templates_config.py and tests/test_asset_version_cache_busting.py
  *      — so any future edit here always reaches every browser on next
  *      load. Keep it there if this file is ever renamed or split.
+ *   9. Button labels never wrap to a 2nd line, icon or no icon — enforced
+ *      in app.css, not here: `.gtable tbody td:last-child` (the Action
+ *      column) inherits white-space:nowrap down onto every button inside
+ *      it, and `.gtable-top .btn, .gtable-top button` covers the table-top
+ *      toolbar (Assign, the admin bulk-Assign button, any caller-injected
+ *      control prepended into .dataTables_filter) the same way — both
+ *      areas are flex-wrap rows a narrow viewport can otherwise shrink a
+ *      button below its own label's width. The caller-authored card-header
+ *      convention below is a different piece of markup (outside what
+ *      initGlobalTable touches) — give its own buttons a `text-nowrap`
+ *      class if they're ever long enough to be at risk.
  *
  * Convention (not enforced here — the title text and any buttons are
  * page-specific, so this is markup the caller writes, not something

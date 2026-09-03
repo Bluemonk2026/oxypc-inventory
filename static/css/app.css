@@ -282,8 +282,24 @@ fieldset:disabled .btn {
 /* Action column buttons/links stay on one line — without this, a cell with
    several text buttons (e.g. "Move to Cleaning" / "Move to Final QC" / "Fail")
    wraps once their combined width outgrows the column, roughly doubling that
-   row's height. autoWidth just gives the column more room instead. */
+   row's height. autoWidth just gives the column more room instead. Also
+   covers each individual button's own label: white-space is inherited, and
+   Bootstrap's .btn sets no white-space of its own, so this single rule on
+   the <td> already keeps a button's text on one line too — no per-button
+   class needed here. */
 .gtable tbody td:last-child {
+  white-space: nowrap;
+}
+
+/* Same guarantee for the table-top toolbar (2026-09-03): "Page view" /
+   search / pagination controls sit in a flex-wrap row (.gtable-top), and a
+   flex item is free to shrink below its content's natural width unless
+   told otherwise — a toolbar button (Assign, the admin bulk-Assign button,
+   any caller-injected control prepended into .dataTables_filter, icon or
+   no icon) could wrap its own label onto 2 lines once the row gets tight,
+   e.g. on a narrower window. */
+.gtable-top .btn,
+.gtable-top button {
   white-space: nowrap;
 }
 

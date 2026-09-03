@@ -1,13 +1,12 @@
 """Table row count next to DataTables' "Show N entries" dropdown on the
 cosmetic pages. Originally a warning badge hand-injected into
 .dataTables_length, updated on every draw — same pattern as the L1/L2 page's
-count badge (templates/repair/l1.html). Only All Tags still uses that
-original pattern; the three Cosmetic Stage templates below (Cosmetic
-Received 2026-09-02, then Cleaning/Putty/Dry Sanding/Masking/Painting/Water
-Sanding and Cosmetic Completed 2026-09-02) all moved to the Global Table
-module instead (static/js/global-table.js) — their count badge is now
-DataTables' own info slot, re-skinned via language.info, rather than a
-hand-appended <span>.
+count badge (templates/repair/l1.html). Every Cosmetic Stage template below
+(Cosmetic Received 2026-09-02; Cleaning/Putty/Dry Sanding/Masking/Painting/
+Water Sanding and Cosmetic Completed 2026-09-02; All Tags 2026-09-03) has
+since moved to the Global Table module instead (static/js/global-table.js) —
+their count badge is now DataTables' own info slot, re-skinned via
+language.info, rather than a hand-appended <span>.
 """
 import pathlib
 
@@ -18,12 +17,24 @@ def _read(name):
     return open(pathlib.Path(ROOT) / "templates" / "cosmetic" / name, encoding="utf-8").read()
 
 
-def test_count_badge_wired_into_dataTables_length_on_all_tags():
+def test_all_tags_html_uses_global_table():
+    _assert_uses_global_table_no_hand_badge("all_tags.html", "cosmeticAllTagsTable")
+    # Cosmetic Stages filter dropdown still prepends into .dataTables_filter,
+    # same as before the migration (see tests/test_all_tags_stage_filter.py
+    # for the dropdown's own contents/positioning).
     src = _read("all_tags.html")
-    assert 'id="cosmeticCountBadge" class="badge bg-warning text-dark' in src
-    assert ".dataTables_length" in src
-    assert "drawCallback: function() { updateCosmeticCountBadge(this.api()); }" in src
-    assert "$('#cosmeticAllTagsTable').DataTable(" in src
+    assert ".dataTables_filter" in src
+    assert 'id="cosmeticStageFilter"' in src
+
+
+def test_all_tags_html_card_header_has_no_count_badge():
+    src = _read("all_tags.html")
+    header_start = src.index('class="card-header bg-transparent')
+    header_end = src.index('<div class="card-body p-0">')
+    header_block = src[header_start:header_end]
+    assert "All Tags — Cosmetic Pipeline" in header_block
+    assert "badge" not in header_block
+    assert "device(s)" not in header_block
 
 
 def _assert_uses_global_table_no_hand_badge(name, table_id):

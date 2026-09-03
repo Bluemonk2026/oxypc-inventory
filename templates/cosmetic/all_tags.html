@@ -22,9 +22,12 @@
   <!-- Device list -->
   <div class="col-12">
     <div class="card border-0 shadow-sm">
+      {# Global Table convention (static/js/global-table.js): no plain count
+         badge here — the table-top toolbar's own row-count badge already
+         covers that; this table has no page-level buttons of its own, so
+         the header's right side stays empty. #}
       <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
         <span class="fw-semibold"><i class="bi bi-list-check me-2"></i>All Tags — Cosmetic Pipeline</span>
-        <span class="badge bg-warning text-dark">{{ devices|length }} device(s)</span>
       </div>
       <div class="card-body p-0">
         <table id="cosmeticAllTagsTable" class="table table-hover mb-0 small">
@@ -154,9 +157,14 @@
 {% block scripts %}
 <script>
 $(document).ready(function(){
-  // Column 8 is Assigned Date — default sort, most recent first.
-  var dt = $('#cosmeticAllTagsTable').DataTable({
-    pageLength: 12, order: [[8, 'desc']],
+  // Column 8 is Assigned Date — default sort, most recent first. Global
+  // Table module (static/js/global-table.js): the row-count badge now comes
+  // from initGlobalTable's own re-skinned info slot (language.info) rather
+  // than a hand-appended <span> — that piece of the old initComplete/
+  // drawCallback is gone, same as the other Cosmetic pages' 2026-09-02
+  // migration.
+  var dt = initGlobalTable('#cosmeticAllTagsTable', {
+    order: [[8, 'desc']],
     initComplete: function() {
       var container = $(this.api().table().container());
       // Cosmetic Stages filter dropdown, ahead of DataTables' own search box.
@@ -165,21 +173,8 @@ $(document).ready(function(){
                      {% for s in pipeline %}'<option value="{{ s.value }}">{{ stage_labels[s] }}</option>' +{% endfor %}
                      '</select>');
       container.find('.dataTables_filter').prepend(select);
-      // Table-count badge next to DataTables' own "Show N entries" control —
-      // updates on every draw (see drawCallback) so it tracks whatever
-      // filter (this Stage dropdown, DataTables' own search box, sorting,
-      // paging) is applied.
-      var badge = $('<span id="cosmeticCountBadge" class="badge bg-warning text-dark ms-2"></span>');
-      container.find('.dataTables_length').append(badge);
-      updateCosmeticCountBadge(this.api());
     },
-    drawCallback: function() { updateCosmeticCountBadge(this.api()); },
   });
-
-  function updateCosmeticCountBadge(api) {
-    var info = (api || dt).page.info();
-    $('#cosmeticCountBadge').text(info.recordsDisplay + ' tag' + (info.recordsDisplay === 1 ? '' : 's'));
-  }
 
   $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
     if (settings.nTable.id !== 'cosmeticAllTagsTable') return true;

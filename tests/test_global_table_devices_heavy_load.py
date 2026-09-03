@@ -100,6 +100,19 @@ def test_global_table_css_classes_present():
     assert "padding-top: 0 !important" in css
 
 
+def test_global_table_button_labels_never_wrap():
+    """2026-09-03: button labels (icon or no icon) must stay on one line
+    everywhere Global Table owns the markup — the Action column (a flex/
+    inline-block button can still wrap its own text once its column gets
+    tight) and the table-top toolbar (a flex-wrap row that can shrink a
+    button below its label's natural width on a narrow viewport)."""
+    css = pathlib.Path(ROOT, "static", "css", "app.css").read_text(encoding="utf-8")
+    assert ".gtable-top .btn" in css
+    assert ".gtable-top button" in css
+    toolbar_rule = css[css.index(".gtable-top .btn"):][:120]
+    assert "white-space: nowrap;" in toolbar_rule
+
+
 def test_global_table_js_clamps_every_column_by_default():
     js = pathlib.Path(ROOT, "static", "js", "global-table.js").read_text(encoding="utf-8")
     assert "clampLength || 32" in js

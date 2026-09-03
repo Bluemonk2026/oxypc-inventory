@@ -37,6 +37,25 @@
  *      "Scan or Search" is one field, not two) and wires the existing
  *      initScanSelect / initTagScanAutocheck helpers from
  *      tag-scan-autocheck.js onto it.
+ *   8. Cross-browser by construction, not by browser-specific CSS: the
+ *      frozen-column sticky header (point 2) relies only on standard
+ *      position:sticky plus border-collapse:separate (already forced by
+ *      DataTables' own bootstrap5 CSS on table.dataTable) — both work
+ *      identically in Chrome, Edge, Safari, and Firefox, so no vendor
+ *      prefixes or per-browser overrides exist or should be added here.
+ *      The one real cross-browser failure mode found in production
+ *      (2026-09-03) wasn't a rendering gap at all: this file is cache-
+ *      busted via base.html's ?v={{ ASSET_VERSION }} stamp, and that
+ *      stamp is computed in templates_config.py's _VERSIONED_ASSETS list
+ *      — editing this file without also touching one of the other listed
+ *      assets used to leave the stamp unchanged, so a browser that had
+ *      already cached an older copy kept running it indefinitely (seen
+ *      as the sticky header working in one browser but not another,
+ *      both on the same deployed HEAD). global-table.js is now itself
+ *      one of the files that stamp is derived from — see
+ *      templates_config.py and tests/test_asset_version_cache_busting.py
+ *      — so any future edit here always reaches every browser on next
+ *      load. Keep it there if this file is ever renamed or split.
  *
  * Convention (not enforced here — the title text and any buttons are
  * page-specific, so this is markup the caller writes, not something

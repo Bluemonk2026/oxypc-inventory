@@ -1,7 +1,8 @@
 """Stress Test page layout refinements:
  - "QC a Device" button and the top "N device(s) awaiting QC" line removed.
- - That count now lives next to DataTables' native "Show entries" control,
-   and tracks the FILTERED row count (recordsDisplay), not the page total.
+ - That count now comes from the Global Table module's own row-count badge
+   (static/js/global-table.js, 2026-09-03) next to "Page view" — see
+   test_stress_test_count_badge_style.py for the badge itself.
  - "All Pass" checkbox sits to the right of the device label.
  - Unchecking "All Pass" unchecks every item's Pass box (not a no-op).
  - Unchecking any single item's Pass box (directly, or via checking that
@@ -21,15 +22,14 @@ def test_qc_device_button_and_top_count_removed(app_client, make_user):  # noqa:
     assert "device(s) awaiting QC</span>" not in html  # the old top-bar span
 
 
-def test_awaiting_count_wired_to_length_control_and_filtered_count(app_client, make_user):  # noqa: F811
+def test_awaiting_count_comes_from_global_table_not_a_hand_built_badge(app_client, make_user):  # noqa: F811
     username, password = make_user("admin")
     _login(app_client, username, password)
     html = app_client.get("/qc", follow_redirects=True).text
 
-    assert "dataTables_length" in html
-    assert "qcAwaitingCount" in html
-    assert "recordsDisplay" in html  # filtered count, not the unfiltered total
-    assert "drawCallback" in html  # updates on every filter/search/page change
+    assert "initGlobalTable('#qcTable'" in html
+    assert 'id="qcAwaitingCount"' not in html  # replaced by the module's own badge
+    assert "function updateAwaitingCount" not in html
 
 
 def test_all_pass_checkbox_is_beside_device_label(app_client, make_user):  # noqa: F811

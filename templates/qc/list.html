@@ -8,8 +8,9 @@
   {# ── Left: Device Table (2/3) ─────────────────────────────────────────── #}
   <div class="col-12 col-lg-8">
     <div class="card border-0 shadow-sm">
+      {# No .table-responsive wrapper — initGlobalTable's own scrollX
+         (static/js/global-table.js) already owns horizontal scrolling. #}
       <div class="card-body p-0">
-        <div class="table-responsive">
         <table id="qcTable" class="table table-hover mb-0 small">
           <thead class="table-dark">
             <tr>
@@ -71,7 +72,6 @@
             {% endfor %}
           </tbody>
         </table>
-        </div>
       </div>
     </div>
 
@@ -380,15 +380,6 @@ async function submitSave() {
   }
 }
 
-function updateAwaitingCount(api) {
-  // recordsDisplay reflects the CURRENTLY FILTERED count (the Search box),
-  // not the table's full total — the count next to "Show entries" is meant
-  // to answer "how many of what I'm looking at right now", same as the
-  // DataTables-native "Showing X of Y entries" text just below it.
-  const n = api.page.info().recordsDisplay;
-  $('#qcAwaitingCount').text(n + ' device(s) awaiting QC');
-}
-
 // "Failed from Final QC" checkbox filter — works alongside DataTables' own
 // search box (both apply together) rather than replacing it.
 $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
@@ -400,25 +391,26 @@ $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
 });
 
 $(document).ready(function(){
-  const dt = $('#qcTable').DataTable({
+  // Global Table module (static/js/global-table.js): frozen Tag Number
+  // column, 32-char clamp+tooltip, and the row-count badge now comes from
+  // initGlobalTable's own re-skinned info slot (language.info) rather than
+  // a hand-appended <span> — the old updateAwaitingCount()/drawCallback
+  // pairing is gone. The "Failed from Final QC" filter checkbox still
+  // prepends into .dataTables_filter, same as before.
+  const dt = initGlobalTable('#qcTable', {
     // Preserve the server's newest-first order (Device.updated_at desc) -
     // without this, DataTables defaults to sorting by the first visible
     // column (Tag Number), silently undoing it.
     order: [],
-    // CPU/RAM/Storage (5,6,7) hidden per request; Location (9) was already hidden.
-    columnDefs: [{visible: false, targets: [5, 6, 7, 9]}],
+    // CPU/RAM/Storage (5,6,7) hidden per request; Location (9) was already
+    // hidden. Report/Actions (10,-1) aren't sortable columns.
+    columnDefs: [{ visible: false, targets: [5, 6, 7, 9] }, { orderable: false, targets: [10, -1] }],
     initComplete: function(){
-      $(this).closest('.dataTables_wrapper').find('.dataTables_length')
-        .append('<span id="qcAwaitingCount" class="badge bg-warning text-dark ms-2"></span>');
-      updateAwaitingCount(this.api());
       var failedFqcFilter = $('<div class="form-check form-check-inline me-2">' +
         '<input class="form-check-input" type="checkbox" id="qcFailedFqcFilter">' +
         '<label class="form-check-label small" for="qcFailedFqcFilter">Failed from Final QC</label></div>');
       $(this.api().table().container()).find('.dataTables_filter').prepend(failedFqcFilter);
       $('#qcFailedFqcFilter').on('change', function() { dt.draw(); });
-    },
-    drawCallback: function(){
-      updateAwaitingCount(this.api());
     },
   });
 });

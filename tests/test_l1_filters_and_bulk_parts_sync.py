@@ -1,7 +1,8 @@
 """L1/L2 page (templates/repair/l1.html):
- - Table-row count moved next to DataTables' "Show N entries" control as a
-   warning badge (#l1CountBadge), instead of a static count in the card
-   header.
+ - Table-row count moved onto the Global Table module's own row-count badge
+   (static/js/global-table.js, 2026-09-03), instead of a static count in the
+   card header — same migration as Cosmetic/QC/WorkID Status. Tag Number
+   also moved before WorkID in this batch, matching that same convention.
  - New filter bar: Search (Tag/GRN/Model), CPU, RAM, Hard Drive, Lot Number
    dropdown, and the "Only show PNA" checkbox moved in from the header.
  - Filtering the Tag table (client-side, via data-* attributes on each row)
@@ -69,12 +70,13 @@ def test_filter_bar_and_count_badge_present(app_client, make_user):  # noqa: F81
     assert 'id="onlyPnaL1"' in html
     assert 'placeholder="Search Tag / GRN / Model"' in html
 
-    # Count moved out of the card header into a badge next to DataTables'
-    # length control.
+    # Count moved out of the card header onto the Global Table module's own
+    # row-count badge — no hand-built badge/counter function anymore.
     assert "Devices in L1/L2 (" not in html
     assert '<span class="fw-semibold">Devices in L1/L2</span>' in html
-    assert 'id="l1CountBadge"' in html
-    assert "updateL1CountBadge" in html
+    assert "initGlobalTable('#l1Table'" in html
+    assert 'id="l1CountBadge"' not in html
+    assert "function updateL1CountBadge" not in html
 
 
 def test_device_row_has_filter_data_attributes_and_parts_json(app_client, make_user):  # noqa: F811

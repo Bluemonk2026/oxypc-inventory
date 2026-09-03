@@ -34,17 +34,20 @@
   <!-- Devices in L3 (70%) -->
   <div style="flex:1 1 70%; width:70%; min-width:0;">
     <div class="card border-0 shadow-sm">
-      <div class="card-header bg-transparent fw-semibold">Devices in L3 ({{ devices|length }})</div>
+      {# Global Table convention (static/js/global-table.js): no plain count
+         badge here — the table-top toolbar's own row-count badge already
+         covers that. No .table-responsive wrapper either, since
+         initGlobalTable's own scrollX owns horizontal scrolling. #}
+      <div class="card-header bg-transparent fw-semibold">Devices in L3</div>
       <div class="card-body p-0">
-        <div class="table-responsive">
           <table id="l3Table" class="table table-hover mb-0 small">
-            <thead class="table-dark"><tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Location</th><th>Parts Required</th><th>Parts Requested</th><th>Notes</th><th>Aging</th><th>Action</th></tr></thead>
+            <thead class="table-dark"><tr><th>Tag Number</th><th>WorkID</th><th>Bucket</th><th>Location</th><th>Parts Required</th><th>Parts Requested</th><th>Notes</th><th>Aging</th><th>Action</th></tr></thead>
             <tbody>
               {% for device, lot_number in devices %}
               {% set wo = work_map.get(device.id|string) if work_map is defined else None %}
               <tr>
-                <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
                 <td><a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a></td>
+                <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
                 <td>{% set bkt = bucket_map.get(device.id|string) if bucket_map is defined else None %}{% if bkt %}<span class="badge bg-warning text-dark font-monospace">{{ bkt }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                 <td>
                   {% set loc = location_map.get(device.id | string) %}
@@ -81,7 +84,6 @@
               {% endfor %}
             </tbody>
           </table>
-        </div>
       </div>
     </div>
 
@@ -182,7 +184,15 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script>$(document).ready(function(){ $('#l3Table').DataTable({}); });</script>
+<script>
+$(document).ready(function(){
+  // Global Table module (static/js/global-table.js): frozen Tag Number
+  // column (moved before WorkID in this same batch), 32-char clamp+
+  // tooltip, and the row-count badge next to "Page view" replaces the
+  // static count that used to sit in the card header.
+  initGlobalTable('#l3Table', { columnDefs: [{ orderable: false, targets: [-1] }] });
+});
+</script>
 <script>
 (function(){
   var sel = document.getElementById('l3JobSelect');

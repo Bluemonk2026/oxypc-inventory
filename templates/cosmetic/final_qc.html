@@ -315,10 +315,57 @@
       el.style.display = isFail ? 'none' : '';
     });
   }
+
+  // Bucket Name (both Pass and Fail) plus, on Fail, Failure Reason and Final
+  // Notes are required — but checked by hand rather than the native
+  // `required` attribute, since that shows the browser's own validation
+  // bubble/tooltip. Deliberately not that: an empty field instead gets
+  // Bootstrap's red .is-invalid border and keyboard focus, and submission
+  // is blocked until it's filled in — no popup, no thrown error.
+  var REQUIRED_ALWAYS = ['bucket_name'];
+  var REQUIRED_ON_FAIL = ['failure_reason', 'notes'];
+
+  function fieldFor(form, name) {
+    return form.querySelector('[name="' + name + '"]');
+  }
+
+  function clearInvalid(field) {
+    field.classList.remove('is-invalid');
+  }
+
+  function validate(form) {
+    var status = form.querySelector('.fqc-status-select').value;
+    var isFail = (status || '').trim().toLowerCase() === 'fail';
+    var names = REQUIRED_ALWAYS.concat(isFail ? REQUIRED_ON_FAIL : []);
+    var firstInvalid = null;
+    names.forEach(function (name) {
+      var field = fieldFor(form, name);
+      if (!field) return;
+      var empty = !field.value || !field.value.trim();
+      field.classList.toggle('is-invalid', empty);
+      if (empty && !firstInvalid) firstInvalid = field;
+    });
+    if (firstInvalid) {
+      firstInvalid.focus();
+      return false;
+    }
+    return true;
+  }
+
   document.querySelectorAll('.fqc-decision-form').forEach(function (form) {
     applyState(form);
+    form.setAttribute('novalidate', 'novalidate');
     form.querySelector('.fqc-status-select').addEventListener('change', function () {
       applyState(form);
+    });
+    REQUIRED_ALWAYS.concat(REQUIRED_ON_FAIL).forEach(function (name) {
+      var field = fieldFor(form, name);
+      if (!field) return;
+      field.addEventListener('input', function () { clearInvalid(field); });
+      field.addEventListener('change', function () { clearInvalid(field); });
+    });
+    form.addEventListener('submit', function (e) {
+      if (!validate(form)) e.preventDefault();
     });
   });
 })();

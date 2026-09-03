@@ -6,26 +6,35 @@
 <div class="row g-3">
   <div class="col-12">
     <div class="card border-0 shadow-sm">
+      {# Global Table convention (static/js/global-table.js): no plain count
+         badge here — the table-top toolbar's own row-count badge already
+         covers that. The "Only show PNA" filter moves into DataTables' own
+         filter box below (same convention as L1/L2's PNA/Failed-from-
+         Final-QC filters and QC's Failed-from-Final-QC filter), so the
+         header's right side is empty. No .table-responsive wrapper either,
+         since initGlobalTable's own scrollX owns horizontal scrolling. #}
       <div class="card-header bg-transparent d-flex align-items-center justify-content-between">
-        <span class="fw-semibold">L3/L4 Work Orders ({{ items|length }})</span>
-        <div class="form-check mb-0">
-          <input class="form-check-input" type="checkbox" id="onlyPnaL34">
-          <label class="form-check-label small" for="onlyPnaL34">Only show PNA</label>
-        </div>
+        <span class="fw-semibold">L3/L4 Work Orders</span>
       </div>
       <div class="card-body p-0">
-        <div class="table-responsive">
           <table id="l3l4Table" class="table table-hover mb-0 small">
             <thead class="table-dark">
-              <tr><th>WorkID</th><th>Tag Number</th><th>Bucket</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>PNA Parts</th><th>Action</th></tr>
+              <tr><th>Tag Number</th><th>WorkID</th><th>Bucket</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>PNA Parts</th><th>Action</th></tr>
             </thead>
             <tbody>
               {% for it in items %}
               <tr data-pna="{{ (pna_map.get(it.device_id|string, []) | length) if pna_map is defined else 0 }}">
-                <td><span class="font-monospace fw-bold">{{ it.work_id }}</span></td>
                 <td><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
+                <td><span class="font-monospace fw-bold">{{ it.work_id }}</span></td>
                 <td>{% if it.bucket %}<span class="badge bg-warning text-dark font-monospace">{{ it.bucket }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-                <td class="note-clamp text-muted" title="{{ it.repair_notes or '' }}">{% if it.repair_notes %}{{ it.repair_notes[:150] }}{% if it.repair_notes|length > 150 %}…{% endif %}{% else %}—{% endif %}</td>
+                {# Full text, untruncated — initGlobalTable's own clamp+
+                   tooltip now handles long Repair Notes with a 2-line clamp
+                   and a native title= tooltip carrying the full value; a
+                   manual [:150] pre-truncation here would leave that
+                   tooltip showing only the already-cut text instead of the
+                   real full note (same fix as Lot Based Summary's Remarks
+                   column, templates/devices/list.html). #}
+                <td class="text-muted">{{ it.repair_notes or '—' }}</td>
                 <td><span class="badge bg-{{ 'danger' if it.aging >= 3 else ('warning text-dark' if it.aging >= 1 else 'secondary') }}">{{ it.aging }} day{{ 's' if it.aging != 1 else '' }}</span></td>
                 <td>
                   <span class="badge bg-{{ 'success' if it.status == 'Completed' else ('danger' if 'Scrap' in it.status else ('info' if it.status == 'Repair Started' else 'secondary')) }}">{{ it.status }}</span>
@@ -65,7 +74,6 @@
               {% endfor %}
             </tbody>
           </table>
-        </div>
       </div>
     </div>
   </div>
@@ -187,8 +195,22 @@
 {% block scripts %}
 <script>
 $(document).ready(function(){
-  var dt = $('#l3l4Table').DataTable({
-    language: { emptyTable: "No L3/L4 work orders assigned." }
+  // Global Table module (static/js/global-table.js): frozen Tag Number
+  // column (moved before WorkID in this same batch), 32-char clamp+
+  // tooltip, and the row-count badge next to "Page view" replaces the
+  // static count that used to sit in the card header. "Only show PNA"
+  // moves from the card header into DataTables' own filter box, same
+  // convention as L1/L2's and QC's inline filters.
+  var dt = initGlobalTable('#l3l4Table', {
+    language: { emptyTable: "No L3/L4 work orders assigned." },
+    columnDefs: [{ orderable: false, targets: [-1] }],
+    initComplete: function() {
+      var pnaFilter = $('<div class="form-check form-check-inline me-2">' +
+        '<input class="form-check-input" type="checkbox" id="onlyPnaL34">' +
+        '<label class="form-check-label small" for="onlyPnaL34">Only show PNA</label></div>');
+      $(this.api().table().container()).find('.dataTables_filter').prepend(pnaFilter);
+      $('#onlyPnaL34').on('change', function() { dt.draw(); });
+    },
   });
 
   // "Only show PNA" — a DataTables search hook rather than row.hide(), so the
@@ -199,7 +221,6 @@ $(document).ready(function(){
     var tr = settings.aoData[dataIndex].nTr;
     return parseInt(tr && tr.getAttribute('data-pna') || '0', 10) > 0;
   });
-  $('#onlyPnaL34').on('change', function(){ dt.draw(); });
 
   document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {
     new bootstrap.Tooltip(el);

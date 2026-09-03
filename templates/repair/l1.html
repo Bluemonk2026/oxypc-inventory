@@ -33,11 +33,12 @@
       <div class="card-header bg-transparent">
         <span class="fw-semibold">Devices in L1/L2</span>
       </div>
+      {# No .table-responsive wrapper — initGlobalTable's own scrollX
+         (static/js/global-table.js) already owns horizontal scrolling. #}
       <div class="card-body p-0">
-        <div class="table-responsive">
           <table id="l1Table" class="table table-hover mb-0 small">
             <thead class="table-dark">
-              <tr><th>WorkID</th><th>Tag Number</th><th>Date Assigned</th><th>Bucket</th><th>Parts Required</th><th>Parts Requested</th><th>PNA Parts</th><th>Repair Notes</th><th>Stress Notes</th><th>Aging</th><th>Status</th><th>L3/L4 Status</th><th>Action</th></tr>
+              <tr><th>Tag Number</th><th>WorkID</th><th>Date Assigned</th><th>Bucket</th><th>Parts Required</th><th>Parts Requested</th><th>PNA Parts</th><th>Repair Notes</th><th>Stress Notes</th><th>Aging</th><th>Status</th><th>L3/L4 Status</th><th>Action</th></tr>
             </thead>
             <tbody>
               {% for device, lot_number in devices %}
@@ -52,11 +53,11 @@
                   data-ram="{{ device.ram_gb or '' }}"
                   data-hdd="{{ hdd_text }}"
                   data-lot="{{ lot_number or '' }}">
-                <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
                 <td>
                   <a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none">{{ device.barcode }}</a>
                   {% if failed_fqc %}<br><span class="badge bg-danger">Failed from Final QC</span>{% endif %}
                 </td>
+                <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
                 {# data-order carries the sortable ISO value; DataTables reads it
                    natively, so the visible date can stay in the format the floor
                    reads without breaking the sort. #}
@@ -119,7 +120,6 @@
               {% endfor %}
             </tbody>
           </table>
-        </div>
       </div>
     </div>
   </div>
@@ -280,17 +280,17 @@
 const DEVICE_PARTS_REQUIRED = {{ device_parts_required | tojson }};
 
 $(document).ready(function(){
+  // Global Table module (static/js/global-table.js): frozen Tag Number
+  // column (moved before WorkID in this same batch), 32-char clamp+
+  // tooltip, and the row-count badge now comes from initGlobalTable's own
+  // re-skinned info slot (language.info) rather than a hand-appended
+  // <span> — the old updateL1CountBadge()/drawCallback pairing is gone.
   // Newest assignment first — the queue is worked in the order tags arrive,
-  // so the default sort has to be Date Assigned rather than WorkID.
-  var dt = $('#l1Table').DataTable({
+  // so the default sort has to be Date Assigned rather than Tag Number.
+  var dt = initGlobalTable('#l1Table', {
     order: [[2, 'desc']],
+    columnDefs: [{ orderable: false, targets: [-1] }],
     initComplete: function() {
-      // Table-count badge next to DataTables' own "Show N entries" control,
-      // instead of a static count in the card header — updates on every
-      // draw (see drawCallback) so it tracks whatever filters are applied.
-      var badge = $('<span id="l1CountBadge" class="badge bg-warning text-dark ms-2"></span>');
-      $(this.api().table().container()).find('.dataTables_length').append(badge);
-      updateL1CountBadge(this.api());
       // Search (Tag/GRN/Model), CPU, RAM, Hard Drive, Lot, PNA, and Failed
       // from Final QC all live together in DataTables' own filter box, ahead
       // of its search input, as one row — rather than a separate filter
@@ -329,13 +329,7 @@ $(document).ready(function(){
       $('#l1SearchBox, #l1CpuFilter, #l1RamFilter, #l1HddFilter').on('keyup', applyL1Filters);
       $('#l1LotFilter, #onlyPnaL1, #onlyFqcFailL1').on('change', applyL1Filters);
     },
-    drawCallback: function() { updateL1CountBadge(this.api()); },
   });
-
-  function updateL1CountBadge(api) {
-    var info = (api || dt).page.info();
-    $('#l1CountBadge').text(info.recordsDisplay + ' tag' + (info.recordsDisplay === 1 ? '' : 's'));
-  }
 
   // Filter bar: Search (Tag/GRN/Model), CPU, RAM, Hard Drive, Lot Number, and
   // the "Only show PNA" checkbox (moved here from the card header) — all as

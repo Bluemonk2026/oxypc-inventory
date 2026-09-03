@@ -741,8 +741,14 @@
 
   <!-- Main content -->
   <div id="page-content-wrapper" class="flex-grow-1 d-flex flex-column" style="min-width:0">
-    <!-- Topbar -->
-    <nav class="navbar navbar-expand topbar px-3">
+    <!-- Topbar — sticky-top is Bootstrap's own utility (position:sticky;
+         top:0;z-index:1020, with a -webkit-sticky fallback baked in for
+         older Safari) rather than hand-rolled CSS, matching the Global
+         Table module's cross-browser-by-construction approach. Sticks
+         relative to the page's own scroll (body/#wrapper/#page-content-
+         wrapper carry no overflow of their own) the same way #sidebar
+         already does via its own position:sticky in app.css. -->
+    <nav class="navbar navbar-expand topbar px-3 sticky-top">
       <button class="btn btn-link me-3" id="sidebarToggle"><i class="bi bi-list fs-5"></i></button>
       {# Mirrors routers/auth.py's _first_landing() — where login itself drops
          each role — not routers/dashboard.py's bare "/" redirect, which sends

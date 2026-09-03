@@ -339,10 +339,20 @@ fieldset:disabled .btn {
    scrollX splits the header into a cloned table (.dataTables_scrollHead) kept
    in sync with the body table (.dataTables_scrollBody) — both live under the
    same .gtable-scroll-wrap wrapper, so this one rule reaches both without
-   needing the separate FixedColumns plugin. */
+   needing the separate FixedColumns plugin.
+   !important on position: found 2026-09-03 — DataTables' own bootstrap5 CSS
+   sets `position: relative` on every sortable header cell for its sort-arrow
+   icon (table.dataTable thead>tr>th.sorting, specificity 0,2,4), which beats
+   this rule's 0,2,2 whenever column 1 is actually sortable (true on every
+   page except a checkbox-first one — those get "sorting_disabled" instead,
+   which that vendor rule doesn't target, so they never hit this). Reported
+   as "sticky header works with 2 frozen columns but not 1" — the real
+   difference was never column count, just that the 2nd-column rule below
+   happens to out-specificity the same vendor rule via its
+   [data-freeze-cols="2"] attribute selector (0,3,1), while this one didn't. */
 .gtable-scroll-wrap td:first-child,
 .gtable-scroll-wrap th:first-child {
-  position: sticky;
+  position: sticky !important;
   left: 0;
   z-index: 2;
   background-color: #fff;
@@ -359,10 +369,16 @@ fieldset:disabled .btn {
    in column 1 (data-freeze-cols="2") and sets --gtable-col2-left to that
    column's real rendered width, since a fixed guess would drift with content
    (device tag lengths, badge widths, ...). Falls back to 40px so the layout
-   doesn't collapse to left:0 (stacking on top of column 1) before JS runs. */
+   doesn't collapse to left:0 (stacking on top of column 1) before JS runs.
+   !important for the same reason as the first-column rule above — this
+   selector's specificity (0,3,1, thanks to the [data-freeze-cols="2"]
+   attribute) already happens to beat DataTables' sortable-header
+   position:relative rule (0,2,4) when this column is sortable, but
+   !important removes any dependence on that coincidence surviving a future
+   DataTables update or an even-higher-specificity rule appearing later. */
 .gtable-scroll-wrap[data-freeze-cols="2"] td:nth-child(2),
 .gtable-scroll-wrap[data-freeze-cols="2"] th:nth-child(2) {
-  position: sticky;
+  position: sticky !important;
   left: var(--gtable-col2-left, 40px);
   z-index: 2;
   background-color: #fff;

@@ -38,7 +38,10 @@
             <tr id="row-{{ device.barcode }}" class="{% if sr %}table-light{% endif %}" data-failed-fqc="{{ '1' if failed_fqc else '0' }}">
               <td>
                 <a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none text-dark" title="View device details">{{ device.barcode }}</a>
-                {% if failed_fqc %}<br><span class="badge bg-danger">Failed from Final QC</span>{% endif %}
+                {% if failed_fqc %}<br><span class="badge bg-danger">Failed from Final QC</span>
+                <i class="bi bi-info-circle text-danger ms-1" style="cursor:help"
+                   data-bs-toggle="tooltip" data-bs-placement="top"
+                   title="{{ device.fqc_final_notes or 'No fail note recorded' }}"></i>{% endif %}
               </td>
               <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
               <td class="text-muted small">{{ l1l2_engineer_map.get(device.id|string, '—') }}</td>
@@ -422,6 +425,13 @@ $(document).ready(function(){
     columnDefs: [{ visible: false, targets: [5, 6, 7, 9] }, { orderable: false, targets: [10, -1] }],
   });
   $('#qcFailedFqcFilter').on('change', function() { dt.draw(); });
+
+  // Fail Note tooltip on the "Failed from Final QC" badge's info icon —
+  // rows are all present in the DOM at load (client-side DataTables), so a
+  // one-time init here covers every page, not just the first.
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {
+    new bootstrap.Tooltip(el);
+  });
 });
 </script>
 {% endblock %}

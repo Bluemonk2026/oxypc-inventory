@@ -54,7 +54,10 @@
               {% endif %}
               <td>
                 <code>{{ device.barcode }}</code>
-                {% if failed_fqc %}<br><span class="badge bg-danger">Failed from Final QC</span>{% endif %}
+                {% if failed_fqc %}<br><span class="badge bg-danger">Failed from Final QC</span>
+                <i class="bi bi-info-circle text-danger ms-1" style="cursor:help"
+                   data-bs-toggle="tooltip" data-bs-placement="top"
+                   title="{{ device.fqc_final_notes or 'No fail note recorded' }}"></i>{% endif %}
               </td>
               <td>{% if wo %}<code class="small">{{ wo.work_id }}</code>{% else %}—{% endif %}</td>
               <td class="text-muted small">{{ l1l2_engineer_map.get(device.id|string, '—') }}</td>
@@ -347,6 +350,13 @@ $(document).ready(function(){
       $(this.api().table().container()).find('.dataTables_filter').prepend(failedFqcFilter);
       $('#cosmeticRecvFailedFqcFilter').on('change', function() { dt.draw(); });
     },
+  });
+
+  // Fail Note tooltip on the "Failed from Final QC" badge's info icon —
+  // rows are all present in the DOM at load (client-side DataTables), so a
+  // one-time init here covers every page, not just the first.
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {
+    new bootstrap.Tooltip(el);
   });
 
   {% if current_user.role.value == 'admin' %}

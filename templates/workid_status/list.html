@@ -6,21 +6,26 @@
 <!-- Filter bar -->
 <form method="get" action="/workid-status" class="card border-0 shadow-sm mb-3">
   <div class="card-body py-2">
-    {# Every filter and both buttons share one row, wrapping onto a second
-       line on narrower screens rather than stacking one filter per line. #}
-    <div class="row g-2 align-items-end">
-      <div class="col-md-2">
+    {# Every filter and both buttons stay on one row, no matter how many
+       are visible (Engineer only shows up with >1 engineer) — a flex row
+       with flex-wrap:nowrap and a compact fixed width per field, instead
+       of Bootstrap's 12-column grid (which wrapped once the fields alone
+       already added up to more than 12 columns at col-md-2 each). Scrolls
+       horizontally on a narrow screen rather than wrapping, same
+       one-row-only convention as Global Table's own frozen-column tables. #}
+    <div class="d-flex align-items-end flex-nowrap gap-2 overflow-auto pb-1">
+      <div class="flex-shrink-0" style="width:130px">
         <label class="form-label small fw-semibold mb-1">Search WorkID</label>
         <input type="text" name="workid" value="{{ f_workid }}" class="form-control form-control-sm font-monospace" placeholder="WorkID…">
       </div>
-      <div class="col-md-2">
+      <div class="flex-shrink-0" style="width:140px">
         <label class="form-label small fw-semibold mb-1">Search Tag Number</label>
         <input type="text" name="tag" value="{{ f_tag }}" class="form-control form-control-sm font-monospace" placeholder="Tag number…">
       </div>
       {# Shown whenever there is more than one engineer in view — an
          attendance-group manager needs it as much as an admin does. #}
       {% if engineers and engineers|length > 1 %}
-      <div class="col-md-2">
+      <div class="flex-shrink-0" style="width:150px">
         <label class="form-label small fw-semibold mb-1">Engineer</label>
         <select name="engineer" class="form-select form-select-sm">
           <option value="">All Engineers</option>
@@ -30,7 +35,7 @@
         </select>
       </div>
       {% endif %}
-      <div class="col-md-2">
+      <div class="flex-shrink-0" style="width:150px">
         <label class="form-label small fw-semibold mb-1">Stage</label>
         <select name="cosmetic_stage" class="form-select form-select-sm">
           <option value="">All Stages</option>
@@ -39,24 +44,24 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-2">
+      <div class="flex-shrink-0" style="width:150px">
         <label class="form-label small fw-semibold mb-1">Completed From</label>
         <input type="date" name="completed_from" value="{{ f_completed_from }}" class="form-control form-control-sm">
       </div>
-      <div class="col-md-2">
+      <div class="flex-shrink-0" style="width:150px">
         <label class="form-label small fw-semibold mb-1">Completed To</label>
         <input type="date" name="completed_to" value="{{ f_completed_to }}" class="form-control form-control-sm">
       </div>
-      <div class="col-auto d-flex align-items-center pb-2">
-        <div class="form-check">
+      <div class="flex-shrink-0 d-flex align-items-center pb-2">
+        <div class="form-check text-nowrap">
           <input type="checkbox" class="form-check-input" id="excludeAdminChk" name="exclude_admin"
                  value="1" {% if f_exclude_admin %}checked{% endif %}>
           <label class="form-check-label small fw-semibold" for="excludeAdminChk">Exclude Admin</label>
         </div>
       </div>
-      <div class="col-md-2 d-flex gap-1">
-        <button type="submit" class="btn btn-primary btn-sm flex-grow-1"><i class="bi bi-search me-1"></i>Search</button>
-        <a href="/workid-status" class="btn btn-outline-secondary btn-sm">Reset</a>
+      <div class="flex-shrink-0 d-flex gap-1">
+        <button type="submit" class="btn btn-primary btn-sm text-nowrap"><i class="bi bi-search me-1"></i>Search</button>
+        <a href="/workid-status" class="btn btn-outline-secondary btn-sm text-nowrap">Reset</a>
         {# Carries the current filters, so Export always matches the table —
            with a filter applied or without one. #}
         <a class="btn btn-outline-success btn-sm text-nowrap"
@@ -64,11 +69,11 @@
           <i class="bi bi-download me-1"></i>Export
         </a>
       </div>
-      <div class="col-12 small text-muted">
-        <i class="bi bi-info-circle me-1"></i>Most stage transitions don't create a WorkID (only ones with an
-        engineer assigned do). Search a specific Tag Number, or set a Completed From/To date (optionally
-        narrowed further with Stage), to also see those tags' Asset History here.
-      </div>
+    </div>
+    <div class="small text-muted mt-2">
+      <i class="bi bi-info-circle me-1"></i>Most stage transitions don't create a WorkID (only ones with an
+      engineer assigned do). Search a specific Tag Number, or set a Completed From/To date (optionally
+      narrowed further with Stage), to also see those tags' Asset History here.
     </div>
   </div>
 </form>

@@ -14,6 +14,15 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 _VERSIONED_ASSETS = [
     os.path.join(BASE_DIR, "static", "css", "app.css"),
     os.path.join(BASE_DIR, "static", "js", "form-autosave.js"),
+    # global-table.js is tagged with this same ?v= stamp in base.html but was
+    # missing from this list (2026-09-03 bug) — editing it alone never moved
+    # ASSET_VERSION, so a browser that had already cached an older copy under
+    # the unchanged ?v=N URL kept running it indefinitely, even across server
+    # restarts. Confirmed live: a frozen-column header that scrolled away
+    # like a normal column in one browser but stayed pinned in another,
+    # despite both hitting the same deployed HEAD — a stale-cache symptom,
+    # not a real position:sticky engine gap between browsers.
+    os.path.join(BASE_DIR, "static", "js", "global-table.js"),
 ]
 try:
     ASSET_VERSION = str(int(max(

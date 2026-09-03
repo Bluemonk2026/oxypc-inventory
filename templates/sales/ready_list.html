@@ -467,10 +467,14 @@ document.getElementById('bulkTagBtn').addEventListener('click', async function()
     detail += list('Row errors', d.errors);
     bootstrap.Modal.getInstance(document.getElementById('bulkTagModal')).hide();
     var alertBox = document.createElement('div');
-    alertBox.className = 'alert alert-info alert-dismissible fade show small mt-3';
+    alertBox.className = 'alert alert-info alert-dismissible fade show small mb-3';
     alertBox.innerHTML = '<strong>' + parts.join(', ') + '</strong>' + detail +
       '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
-    document.getElementById('readyTable').closest('.card').after(alertBox);
+    // Top of page (2026-09-03, was directly below the table) — the first
+    // thing anyone lands on after an upload, whether or not they scroll
+    // down to the table itself.
+    document.querySelector('main').prepend(alertBox);
+    alertBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch(e) {
     status.innerHTML = '<span class="text-danger">Upload failed.</span>';
   } finally {

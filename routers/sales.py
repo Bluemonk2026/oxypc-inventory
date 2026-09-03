@@ -42,7 +42,12 @@ from utils.warranty import (
 
 router = APIRouter(tags=["sales"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.sales, UserRole.sales_manager, UserRole.telecaller)
-ready_allowed = require_roles(UserRole.admin, UserRole.sales, UserRole.sales_manager, UserRole.telecaller)
+# Opened to every role (2026-09-03) — was require_roles(admin, sales,
+# sales_manager, telecaller), same as `allowed` above. Reused by the page
+# view itself, Multi-Request, Multi-Sell, and Upload Tags alike, so any
+# narrower gate on just one of those (e.g. Upload Tags) would be a no-op —
+# a user outside the old role set couldn't reach the page to use it anyway.
+ready_allowed = get_current_user
 
 
 async def _next_sale_number(db: AsyncSession) -> str:

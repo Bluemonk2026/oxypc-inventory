@@ -70,6 +70,38 @@
  *      convention below is a different piece of markup (outside what
  *      initGlobalTable touches) — give its own buttons a `text-nowrap`
  *      class if they're ever long enough to be at risk.
+ *  10. Frozen-column sticky header always wins, even over DataTables' own
+ *      CSS: its bootstrap5 stylesheet sets `position: relative` on every
+ *      sortable header cell (for its sort-arrow icon), specificity 0,2,4
+ *      — enough to silently beat the first-frozen-column rule's 0,2,2 and
+ *      break the freeze on any table whose column 1 is actually sortable
+ *      (every table except a checkbox-first one, where DataTables applies
+ *      "sorting_disabled" instead, a class that vendor rule doesn't
+ *      target). Found 2026-09-03, reported as "sticky header works with 2
+ *      frozen columns but not 1" — never a browser thing, the 2nd-column
+ *      rule only survived by coincidence (its extra
+ *      [data-freeze-cols="2"] attribute selector happens to out-rank the
+ *      same vendor rule). Both frozen-column rules in app.css now carry
+ *      `!important` so neither depends on out-specificity-ing a
+ *      third-party stylesheet.
+ *  11. Pagination: chevron icons (bi-chevron-left/right) replace the
+ *      "Previous"/"Next" text (language.paginate), and a custom pager
+ *      ($.fn.dataTable.ext.pager.gtable_numbers, pagingType:
+ *      'gtable_numbers', registered once at load below) replaces
+ *      DataTables' own page-number pattern: only 2 pages show at either
+ *      end before the ellipsis (down from DataTables' default of 5), and
+ *      away from both ends only the current page shows, alone between two
+ *      ellipses — no "current-1/current+1" neighbors. Not a tweak to
+ *      DataTables' own numbers_length: that single setting drives the
+ *      edge-page count and the middle-window size together, and the only
+ *      value giving edge-count 2 (numbers_length=4) has a real gap —
+ *      landing exactly on page 3 of a large table falls in DataTables'
+ *      own "near start" branch, whose window doesn't include page 3, so
+ *      the active page is never highlighted at all. The custom pager
+ *      switches to the "current alone" pattern based on where the current
+ *      page actually falls relative to the edge window, not a fixed
+ *      threshold, so every page (including page 3) always renders
+ *      correctly highlighted.
  *
  * Convention (not enforced here — the title text and any buttons/filters are
  * page-specific, so this is markup the caller writes, not something

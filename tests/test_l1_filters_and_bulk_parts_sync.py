@@ -3,8 +3,13 @@
    (static/js/global-table.js, 2026-09-03), instead of a static count in the
    card header — same migration as Cosmetic/QC/WorkID Status. Tag Number
    also moved before WorkID in this batch, matching that same convention.
- - New filter bar: Search (Tag/GRN/Model), CPU, RAM, Hard Drive, Lot Number
-   dropdown, and the "Only show PNA" checkbox moved in from the header.
+ - Filter bar: Search (Tag/GRN/Model), CPU, RAM, Hard Drive, Lot Number
+   dropdown, PNA, and Failed from Final QC. Originally in the card header,
+   then moved into DataTables' own filter box (JS-injected via
+   initComplete) when the page first grew this filter bar, then moved back
+   to the card header's right side (2026-09-03) — this time server-rendered
+   directly rather than JS-constructed, so it exists in the DOM from first
+   paint instead of waiting for DataTables to inject it.
  - Filtering the Tag table (client-side, via data-* attributes on each row)
    also recomputes the Bulk Part Request table client-side from
    DEVICE_PARTS_REQUIRED (routers/repair.py repair_list), scoped to whatever
@@ -77,6 +82,25 @@ def test_filter_bar_and_count_badge_present(app_client, make_user):  # noqa: F81
     assert "initGlobalTable('#l1Table'" in html
     assert 'id="l1CountBadge"' not in html
     assert "function updateL1CountBadge" not in html
+
+
+def test_filters_are_server_rendered_in_the_card_header_not_js_injected(app_client, make_user):  # noqa: F811
+    username, password = make_user("admin")
+    _login(app_client, username, password)
+
+    html = app_client.get("/repair/l1", follow_redirects=True).text
+    header_start = html.index('class="card-header bg-transparent d-flex')
+    header_end = html.index('<div class="card-body p-0">')
+    header_block = html[header_start:header_end]
+    for filter_id in ("l1SearchBox", "l1CpuFilter", "l1RamFilter", "l1HddFilter",
+                       "l1LotFilter", "onlyPnaL1", "onlyFqcFailL1"):
+        assert f'id="{filter_id}"' in header_block, filter_id
+
+    # The old JS-string-construction pattern (prepended into DataTables' own
+    # .dataTables_filter box in initComplete) is gone — these are plain
+    # server-rendered inputs now, bound directly in $(document).ready.
+    assert "var filterRow = $(" not in html
+    assert ".dataTables_filter').prepend(filterRow)" not in html
 
 
 def test_device_row_has_filter_data_attributes_and_parts_json(app_client, make_user):  # noqa: F811

@@ -8,8 +8,20 @@
   {# ── Left: Device Table (2/3) ─────────────────────────────────────────── #}
   <div class="col-12 col-lg-8">
     <div class="card border-0 shadow-sm">
-      {# No .table-responsive wrapper — initGlobalTable's own scrollX
-         (static/js/global-table.js) already owns horizontal scrolling. #}
+      {# Global Table convention (static/js/global-table.js): icon-free
+         title on the left, this table's own filter controls on the right
+         — "Failed from Final QC" server-rendered here directly rather than
+         JS-injected into DataTables' own filter box, same relocation as
+         L1/L2's filter bar (2026-09-03). No .table-responsive wrapper
+         either, since initGlobalTable's own scrollX owns horizontal
+         scrolling. #}
+      <div class="card-header bg-transparent d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <span class="fw-semibold">Devices in Stress Test</span>
+        <div class="form-check form-check-inline mb-0">
+          <input class="form-check-input" type="checkbox" id="qcFailedFqcFilter">
+          <label class="form-check-label small" for="qcFailedFqcFilter">Failed from Final QC</label>
+        </div>
+      </div>
       <div class="card-body p-0">
         <table id="qcTable" class="table table-hover mb-0 small">
           <thead class="table-dark">
@@ -395,8 +407,11 @@ $(document).ready(function(){
   // column, 32-char clamp+tooltip, and the row-count badge now comes from
   // initGlobalTable's own re-skinned info slot (language.info) rather than
   // a hand-appended <span> — the old updateAwaitingCount()/drawCallback
-  // pairing is gone. The "Failed from Final QC" filter checkbox still
-  // prepends into .dataTables_filter, same as before.
+  // pairing is gone. The "Failed from Final QC" filter checkbox now lives
+  // on the right side of the card header (server-rendered above), not
+  // injected into DataTables' own filter box — same relocation as L1/L2's
+  // filter bar (2026-09-03) — so it binds directly here rather than in
+  // initComplete.
   const dt = initGlobalTable('#qcTable', {
     // Preserve the server's newest-first order (Device.updated_at desc) -
     // without this, DataTables defaults to sorting by the first visible
@@ -405,14 +420,8 @@ $(document).ready(function(){
     // CPU/RAM/Storage (5,6,7) hidden per request; Location (9) was already
     // hidden. Report/Actions (10,-1) aren't sortable columns.
     columnDefs: [{ visible: false, targets: [5, 6, 7, 9] }, { orderable: false, targets: [10, -1] }],
-    initComplete: function(){
-      var failedFqcFilter = $('<div class="form-check form-check-inline me-2">' +
-        '<input class="form-check-input" type="checkbox" id="qcFailedFqcFilter">' +
-        '<label class="form-check-label small" for="qcFailedFqcFilter">Failed from Final QC</label></div>');
-      $(this.api().table().container()).find('.dataTables_filter').prepend(failedFqcFilter);
-      $('#qcFailedFqcFilter').on('change', function() { dt.draw(); });
-    },
   });
+  $('#qcFailedFqcFilter').on('change', function() { dt.draw(); });
 });
 </script>
 {% endblock %}

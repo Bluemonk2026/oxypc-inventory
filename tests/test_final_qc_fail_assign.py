@@ -4,8 +4,10 @@
    bucket-lock removal, a Bucket Name can hold tags with different Failure
    Reasons / resolved engineers, so a bucket-level row can't show a single
    correct Engineer Name or be moved as one unit any more.
- - A "Final Notes" column shows the raw Final Notes text from the Final QC
-   fail form (Device.fqc_final_notes).
+ - A "Fail Note" column (renamed from "Final Notes" 2026-09-03, on both the
+   form and this table) shows the raw text from the Final QC fail form's
+   Fail Note field (Device.fqc_final_notes — field/column names unchanged,
+   only the visible label).
  - The per-row button is "Move" (renamed from "Assign") — no modal. It posts
    the tag's own barcode to /cosmetic/final-qc/move-failed, which routes by
    the tag's OWN Failure Reason (Hardware -> L1/L2 Repair, Software ->
@@ -177,7 +179,7 @@ def test_devices_failed_table_lists_each_tag_as_its_own_row_with_move_button(app
         assert 'class="fqc-failed-check"' in html
         assert 'class="btn btn-sm btn-primary fqc-move-one"' in html
         assert ">Move<" in html
-        assert ">Final Notes<" in html
+        assert ">Fail Note<" in html  # renamed from "Final Notes" 2026-09-03
         assert "Cracked hinge, keeps rebooting" in html
         assert 'id="fqcAssignBktModal"' not in html
         assert 'class="fqc-assign-bkt' not in html

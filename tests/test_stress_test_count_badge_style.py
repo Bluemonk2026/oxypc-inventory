@@ -27,8 +27,15 @@ def test_qc_table_has_no_table_responsive_wrapper():
     assert '<div class="table-responsive">' not in preceding[-200:]
 
 
-def test_failed_from_final_qc_filter_still_injected_into_filter_box():
-    # Unaffected by the badge migration — same .dataTables_filter prepend.
+def test_devices_in_stress_test_card_header_has_the_failed_fqc_filter_on_the_right():
+    # 2026-09-03: moved off DataTables' own .dataTables_filter box (where it
+    # used to be JS-injected via initComplete) onto the right side of a new
+    # "Devices in Stress Test" card header instead — server-rendered, same
+    # relocation as L1/L2's filter bar.
     src = (pathlib.Path(ROOT) / "templates" / "qc" / "list.html").read_text(encoding="utf-8")
-    assert ".dataTables_filter" in src
-    assert 'id="qcFailedFqcFilter"' in src
+    assert ".dataTables_filter" not in src
+    header_start = src.index('class="card-header bg-transparent d-flex')
+    header_end = src.index('<div class="card-body p-0">')
+    header_block = src[header_start:header_end]
+    assert ">Devices in Stress Test</span>" in header_block
+    assert 'id="qcFailedFqcFilter"' in header_block

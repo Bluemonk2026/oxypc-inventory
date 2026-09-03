@@ -54,10 +54,10 @@
               {% endif %}
               <td>
                 <code>{{ device.barcode }}</code>
-                {% if failed_fqc %}<br><span class="badge bg-danger">Failed from Final QC</span>
+                {% if failed_fqc %}<br><span class="text-nowrap"><span class="badge bg-danger">Failed from Final QC</span>
                 <i class="bi bi-info-circle text-danger ms-1" style="cursor:help"
                    data-bs-toggle="tooltip" data-bs-placement="top"
-                   title="{{ device.fqc_final_notes or 'No fail note recorded' }}"></i>{% endif %}
+                   title="{{ device.fqc_final_notes or 'No fail note recorded' }}"></i></span>{% endif %}
               </td>
               <td>{% if wo %}<code class="small">{{ wo.work_id }}</code>{% else %}—{% endif %}</td>
               <td class="text-muted small">{{ l1l2_engineer_map.get(device.id|string, '—') }}</td>

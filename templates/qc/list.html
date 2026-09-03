@@ -38,10 +38,10 @@
             <tr id="row-{{ device.barcode }}" class="{% if sr %}table-light{% endif %}" data-failed-fqc="{{ '1' if failed_fqc else '0' }}">
               <td>
                 <a href="/devices/{{ device.barcode }}" class="font-monospace text-decoration-none text-dark" title="View device details">{{ device.barcode }}</a>
-                {% if failed_fqc %}<br><span class="badge bg-danger">Failed from Final QC</span>
+                {% if failed_fqc %}<br><span class="text-nowrap"><span class="badge bg-danger">Failed from Final QC</span>
                 <i class="bi bi-info-circle text-danger ms-1" style="cursor:help"
                    data-bs-toggle="tooltip" data-bs-placement="top"
-                   title="{{ device.fqc_final_notes or 'No fail note recorded' }}"></i>{% endif %}
+                   title="{{ device.fqc_final_notes or 'No fail note recorded' }}"></i></span>{% endif %}
               </td>
               <td><span class="badge bg-info text-dark">{{ lot_number }}</span></td>
               <td class="text-muted small">{{ l1l2_engineer_map.get(device.id|string, '—') }}</td>

@@ -114,6 +114,43 @@
  *
  * Returns the DataTables API instance.
  */
+
+// Custom page-number pattern (2026-09-03), registered once at load: near
+// either end shows only the first/last 2 pages before the ellipsis (down
+// from DataTables' own default of 5), and away from both ends shows just
+// the current page between two ellipses — no "current-1 / current+1"
+// neighbors. Not achievable by tuning DataTables' built-in
+// $.fn.dataTable.ext.pager.numbers_length alone: that single value drives
+// both the edge-page count AND the middle window size together, and the
+// only setting that gives edge-count 2 (numbers_length=4) also has a real
+// gap — landing exactly on page 3 of a large table falls in DataTables'
+// own "near start" branch, whose window ([1,2]) doesn't include page 3, so
+// the active page is never highlighted at all. This custom pager avoids
+// that by switching to the "current page alone" pattern as soon as the
+// current page falls outside the 2-page edge window, instead of at a
+// fixed page-index threshold.
+$.fn.dataTable.ext.pager.gtable_numbers = function (page, pages) {
+  var LEADING = 2;
+  var nums;
+  if (pages <= LEADING + 2) {
+    // Small enough that ellipsis wouldn't save anything — show every page.
+    nums = [];
+    for (var i = 0; i < pages; i++) nums.push(i);
+  } else if (page < LEADING) {
+    nums = [];
+    for (var j = 0; j < LEADING; j++) nums.push(j);
+    nums.push('ellipsis');
+    nums.push(pages - 1);
+  } else if (page >= pages - LEADING) {
+    nums = [0, 'ellipsis'];
+    for (var k = pages - LEADING; k < pages; k++) nums.push(k);
+  } else {
+    nums = [0, 'ellipsis', page, 'ellipsis', pages - 1];
+  }
+  nums.DT_el = 'span';
+  return ['previous', nums, 'next'];
+};
+
 function initGlobalTable(tableSelector, dtOptions, opts) {
   opts = opts || {};
   dtOptions = dtOptions || {};
@@ -145,6 +182,7 @@ function initGlobalTable(tableSelector, dtOptions, opts) {
   var freeze = opts.freeze !== false;
   var base = {
     pageLength: 12,
+    pagingType: 'gtable_numbers',
     dom: '<"gtable-top d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"' +
            '<"d-flex align-items-center flex-wrap gap-2"li>' +
            '<"d-flex align-items-center flex-wrap gap-2"fp>' +
@@ -155,6 +193,13 @@ function initGlobalTable(tableSelector, dtOptions, opts) {
       info: '<span class="badge text-bg-warning gtable-count-badge">_TOTAL_</span>',
       infoEmpty: '<span class="badge text-bg-warning gtable-count-badge">0</span>',
       infoFiltered: '',
+      // Chevron icons instead of "Previous"/"Next" text — the page-number
+      // links (1, 2, ..., last) are untouched, this only swaps the two
+      // end buttons.
+      paginate: {
+        previous: '<i class="bi bi-chevron-left"></i>',
+        next: '<i class="bi bi-chevron-right"></i>',
+      },
     },
   };
   if (freeze) base.scrollX = true;

@@ -350,6 +350,13 @@ $(document).ready(function(){
       $(this.api().table().container()).find('.dataTables_filter').prepend(failedFqcFilter);
       $('#cosmeticRecvFailedFqcFilter').on('change', function() { dt.draw(); });
     },
+  }, {
+    {% if current_user.role.value == 'admin' %}
+    // Select-all header checkbox + per-row checkboxes — see global-table.js
+    // point 12 for why this has to be a module option (dt.table().container()
+    // delegation) rather than a hand-rolled '#cosmeticRecvSelectAll' bind.
+    selectAll: { headerSelector: '#cosmeticRecvSelectAll', rowSelector: '.cosmeticRecvRowCheck', onChange: updateCosmeticRecvAssignButtonState },
+    {% endif %}
   });
 
   // Fail Note tooltip on the "Failed from Final QC" badge's info icon —
@@ -358,17 +365,6 @@ $(document).ready(function(){
   document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {
     new bootstrap.Tooltip(el);
   });
-
-  {% if current_user.role.value == 'admin' %}
-  $('#cosmeticRecvSelectAll').on('change', function() {
-    $('.cosmeticRecvRowCheck').prop('checked', $(this).prop('checked'));
-    updateCosmeticRecvAssignButtonState();
-  });
-  $(document).on('change', '.cosmeticRecvRowCheck', function() {
-    if (!$(this).prop('checked')) $('#cosmeticRecvSelectAll').prop('checked', false);
-    updateCosmeticRecvAssignButtonState();
-  });
-  {% endif %}
 })
 
 function updateCosmeticRecvAssignButtonState() {

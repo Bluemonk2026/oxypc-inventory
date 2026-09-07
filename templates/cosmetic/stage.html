@@ -245,20 +245,14 @@ $(document).ready(function(){
       $(this.api().table().container()).find('.dataTables_filter').prepend(btn);
       {% endif %}
     },
+  }, {
+    {% if current_user.role.value == 'admin' %}
+    // Select-all header checkbox + per-row checkboxes — see global-table.js
+    // point 12 for why this has to be a module option (dt.table().container()
+    // delegation) rather than a hand-rolled '#cosmeticSelectAll' bind.
+    selectAll: { headerSelector: '#cosmeticSelectAll', rowSelector: '.cosmeticRowCheck', onChange: updateAssignButtonState },
+    {% endif %}
   });
-
-  {% if current_user.role.value == 'admin' %}
-  // Select-all header checkbox + per-row checkboxes — delegated since
-  // DataTables re-renders rows on paging/sorting.
-  $('#cosmeticSelectAll').on('change', function() {
-    $('.cosmeticRowCheck').prop('checked', $(this).prop('checked'));
-    updateAssignButtonState();
-  });
-  $(document).on('change', '.cosmeticRowCheck', function() {
-    if (!$(this).prop('checked')) $('#cosmeticSelectAll').prop('checked', false);
-    updateAssignButtonState();
-  });
-  {% endif %}
 });
 
 function updateAssignButtonState() {

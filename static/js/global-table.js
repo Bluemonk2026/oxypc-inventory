@@ -102,6 +102,18 @@
  *      page actually falls relative to the edge window, not a fixed
  *      threshold, so every page (including page 3) always renders
  *      correctly highlighted.
+ *  12. Optional header select-all checkbox (opts.selectAll), safe against
+ *      scrollX's own DOM surgery: when opts.freeze is on, DataTables
+ *      relocates <thead> into a separate .dataTables_scrollHead table so it
+ *      can render outside the scrolling body — the header checkbox the user
+ *      actually sees and clicks now lives outside tableSelector's own
+ *      subtree. A listener delegated from tableSelector itself (the
+ *      instinctive thing to write) never sees that click; this module always
+ *      delegates from dt.table().container() instead, which wraps both the
+ *      relocated head and the body. Found 2026-09-07 on Devices' select-all
+ *      (was delegated from '#devicesTable', silently dead the moment this
+ *      module's scrollX shipped) — folded in here so no future page can
+ *      reintroduce it by hand.
  *
  * Convention (not enforced here — the title text and any buttons/filters are
  * page-specific, so this is markup the caller writes, not something
@@ -143,6 +155,23 @@
  *                        the current page in the DOM, so selection state
  *                        has to live outside it) and `onChange` is called
  *                        after the Set changes, to refresh count badges.
+ *   opts.selectAll     - { headerSelector, rowSelector, onChange, resetOnDraw }
+ *                        if given, wires a header "select all" checkbox onto
+ *                        every currently-rendered row's checkbox (see point
+ *                        12 above) — the simple "check all rows I can see"
+ *                        pattern. headerSelector/rowSelector are jQuery
+ *                        selectors (e.g. '#cosmeticSelectAll',
+ *                        '.cosmeticRowCheck'); onChange fires after any
+ *                        header or row toggle, for count/button-state
+ *                        updates; resetOnDraw (default false — matches
+ *                        pre-existing per-page behavior) unchecks the header
+ *                        on every redraw, for tables where a fresh page/sort
+ *                        should never look like "all selected" by accident.
+ *                        Not a fit for select-all-matching-a-filter-across-
+ *                        every-page semantics (e.g. Devices' own barcode-
+ *                        fetch select-all) — that stays hand-rolled, but
+ *                        must still delegate from dt.table().container(),
+ *                        never tableSelector, for the same reason.
  *
  * Returns the DataTables API instance.
  */
@@ -290,6 +319,36 @@ function initGlobalTable(tableSelector, dtOptions, opts) {
       inputId: opts.scan.inputId, tableSelector: tableSelector,
       rowCheckboxSelector: checkboxSelector,
     });
+  }
+
+  if (opts.selectAll && opts.selectAll.headerSelector) {
+    var saHeader = opts.selectAll.headerSelector;
+    var saRow = opts.selectAll.rowSelector || '.rowChk';
+    var saOnChange = opts.selectAll.onChange || function () {};
+    // Delegated from dt.table().container(), not tableSelector — see point
+    // 12 in the file doc comment above. Scoped to rows({page:'current'})
+    // rather than a bare selector so a deferRender/scrollCollapse table
+    // can't accidentally reach into off-page rows that aren't really on
+    // screen; for a plain table this matches a bare selector exactly, since
+    // DataTables detaches off-page rows from the DOM entirely.
+    $(dt.table().container()).on('change', saHeader, function () {
+      var checked = $(this).prop('checked');
+      $(dt.rows({ page: 'current' }).nodes()).find(saRow).prop('checked', checked);
+      saOnChange();
+    });
+    // Row checkboxes live in tbody, never relocated by scrollX, so a plain
+    // document-level delegation (survives redraws inserting fresh rows) is
+    // safe here — no container-scoping needed the way the header above does.
+    $(document).on('change', saRow, function () {
+      if (!$(this).prop('checked')) $(saHeader).prop('checked', false);
+      saOnChange();
+    });
+    if (opts.selectAll.resetOnDraw) {
+      dt.on('draw.dt', function () {
+        $(saHeader).prop('checked', false);
+        saOnChange();
+      });
+    }
   }
 
   return dt;

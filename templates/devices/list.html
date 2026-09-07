@@ -504,13 +504,15 @@ $(document).ready(function() {
   });
   // "Select all" means every device matching the current filters, not just
   // the page in view — fetch the full barcode list rather than only ticking
-  // on-screen checkboxes.
-  // Delegated from the DataTable's own wrapper, not '#devicesTable' — Global
-  // Table's scrollX clones <thead> into a separate .dataTables_scrollHead
-  // table for display (2026-09-07 regression: the visible header checkbox
-  // the user clicks is that clone, living outside #devicesTable's subtree,
-  // so a listener delegated from #devicesTable never saw the event; tbody
-  // .rowChk checkboxes are untouched since only thead gets cloned).
+  // on-screen checkboxes. Not a fit for global-table.js's opts.selectAll
+  // (that's the plain "check every visible row" pattern; see point 12 in its
+  // doc comment) since this one fetches the full filtered barcode set via
+  // AJAX instead — but it must delegate from dt.table().container(), not
+  // '#devicesTable', for the exact same reason opts.selectAll does: scrollX
+  // relocates <thead> into .dataTables_scrollHead, so the header checkbox
+  // the user actually clicks lives outside '#devicesTable's own subtree
+  // (2026-09-07 regression — tbody .rowChk checkboxes were unaffected since
+  // only thead gets relocated).
   $(dt.table().container()).on('change', '#selectAllChk', async function(){
     var checked = this.checked;
     if (checked) {
@@ -566,26 +568,23 @@ $(document).ready(function() {
   // restriction is needed; initGlobalTable's own box reproduces it exactly.
   // Checkbox-in-column-0 is auto-detected, so Lot Number (column 1) freezes
   // alongside it, same as Tag Number does on the main Devices table.
-  var dtLot = initGlobalTable('#lotSummaryTable', {
-    order: [],
-    columnDefs: [{ orderable: false, targets: [0, -1] }],
-  });
-  $(dtLot.table().container()).find('input[type="search"]').attr('placeholder', 'Search Lots…');
-
   function updateLotSel(){
     var n = $(dtLot.rows().nodes()).find('.lotRowChk:checked').length;
     $('#customiseLotCount').text(n);
     $('#customiseLotBtn').toggleClass('d-none', n === 0);
   }
-  // Same scrollX-clone fix as #selectAllChk above — delegate from the
-  // wrapper, not '#lotSummaryTable', so it still catches the clone.
-  $(dtLot.table().container()).on('change', '#lotSelectAllChk', function(){
-    var checked = this.checked;
-    $(dtLot.rows({page:'current'}).nodes()).find('.lotRowChk').prop('checked', checked);
-    updateLotSel();
+  // Select-all header checkbox + per-row checkboxes — see global-table.js
+  // point 12 for why this has to be a module option (dt.table().container()
+  // delegation) rather than a hand-rolled '#lotSelectAllChk' bind.
+  // resetOnDraw: true — a fresh sort/page shouldn't still read as "all
+  // selected" when it's showing lots the user never actually ticked.
+  var dtLot = initGlobalTable('#lotSummaryTable', {
+    order: [],
+    columnDefs: [{ orderable: false, targets: [0, -1] }],
+  }, {
+    selectAll: { headerSelector: '#lotSelectAllChk', rowSelector: '.lotRowChk', onChange: updateLotSel, resetOnDraw: true },
   });
-  $('#lotSummaryTable').on('change', '.lotRowChk', updateLotSel);
-  dtLot.on('draw', function(){ $('#lotSelectAllChk').prop('checked', false); updateLotSel(); });
+  $(dtLot.table().container()).find('input[type="search"]').attr('placeholder', 'Search Lots…');
 });
 
 function openCustomiseModal(source){

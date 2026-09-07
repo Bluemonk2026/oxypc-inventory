@@ -907,27 +907,40 @@ _EXPORT_HEADER = [
 ]
 
 
-async def _export_rows(db: AsyncSession, query) -> StreamingResponse:
+async def _export_rows(db: AsyncSession, rows) -> StreamingResponse:
     """Shared CSV builder for both the filtered export and the selected-tags
     export — same header, same columns, same cosmetic/hardware lookups,
-    so a selection export can never show fewer fields than a full one."""
+    so a selection export can never show fewer fields than a full one.
+
+    Takes already-fetched (Device, lot_number) rows rather than a query, so a
+    caller whose own WHERE...IN() list could exceed Postgres' 32767-bound-
+    parameter limit (see CHUNK below) can fetch it in batches itself before
+    handing the merged rows in here."""
     from services.part_estimate_matrix import PART_GROUPS
 
-    rows = (await db.execute(query)).all()
     device_ids = [device.id for device, _ in rows]
 
+    # Postgres' wire protocol caps bound parameters at 32767 (an Int16 count
+    # field) — an unfiltered "All Inventory" export easily has more device_ids
+    # than that (37,048 live 2026-09-07, asyncpg raised "the number of query
+    # arguments cannot exceed 32767"), while any filtered/smaller export
+    # stayed under it and looked fine. Chunking keeps this correct at any
+    # inventory size instead of merely working today by coincidence.
+    CHUNK = 20000
+    id_chunks = [device_ids[i:i + CHUNK] for i in range(0, len(device_ids), CHUNK)] if device_ids else []
+
     movements_by_device, iqc_by_device = {}, {}
-    if device_ids:
+    for chunk in id_chunks:
         mv_result = await db.execute(
             select(StageMovement)
-            .where(StageMovement.device_id.in_(device_ids))
+            .where(StageMovement.device_id.in_(chunk))
             .order_by(StageMovement.moved_at.asc())
         )
         for mv in mv_result.scalars().all():
             movements_by_device.setdefault(mv.device_id, []).append(mv)
 
         iqc_result = await db.execute(
-            select(IQCInspection).where(IQCInspection.device_id.in_(device_ids))
+            select(IQCInspection).where(IQCInspection.device_id.in_(chunk))
         )
         for iqc in iqc_result.scalars().all():
             iqc_by_device[iqc.device_id] = iqc
@@ -1031,6 +1044,11 @@ async def export_devices(
     page (missing category, missing is_trashed, an inner join that dropped
     lot-less devices), which made the export look "empty" relative to the list.
     """
+    # A single query, not chunked: _device_search_filters' own IN()s are
+    # small enumerated checkbox lists (stage/grade/category/...), never
+    # anywhere near Postgres' 32767-bound-parameter limit regardless of how
+    # many devices actually match — that risk is in the *result* row count,
+    # which _export_rows' own device_ids lookups chunk internally.
     query = (
         select(Device, Lot.lot_number)
         .outerjoin(Lot, Device.lot_id == Lot.id)
@@ -1039,7 +1057,8 @@ async def export_devices(
                                       date_from, date_to, entity=entity))
         .order_by(Device.updated_at.desc())
     )
-    return await _export_rows(db, query)
+    rows = (await db.execute(query)).all()
+    return await _export_rows(db, rows)
 
 
 @router.post("/export")
@@ -1050,17 +1069,23 @@ async def export_devices_selected(
 ):
     """Export only the Tag Numbers ticked on the page, same columns as the
     filtered export. POST (not a long querystring) because a full-page
-    selection can run into the hundreds of tags."""
+    selection can run into the hundreds of tags — or, via "select all"
+    against an unfiltered/lightly-filtered search, tens of thousands; chunked
+    for the same 32767-bound-parameter reason _export_rows chunks device_ids."""
     barcodes = [b for b in (barcodes or []) if b]
     if not barcodes:
         raise HTTPException(400, "No Tag Numbers selected")
-    query = (
-        select(Device, Lot.lot_number)
-        .outerjoin(Lot, Device.lot_id == Lot.id)
-        .where(Device.is_trashed == False, Device.barcode.in_(barcodes))
-        .order_by(Device.updated_at.desc())
-    )
-    return await _export_rows(db, query)
+    CHUNK = 20000
+    rows = []
+    for i in range(0, len(barcodes), CHUNK):
+        chunk_query = (
+            select(Device, Lot.lot_number)
+            .outerjoin(Lot, Device.lot_id == Lot.id)
+            .where(Device.is_trashed == False, Device.barcode.in_(barcodes[i:i + CHUNK]))
+            .order_by(Device.updated_at.desc())
+        )
+        rows.extend((await db.execute(chunk_query)).all())
+    return await _export_rows(db, rows)
 
 
 # ── 2. DEVICE DETAIL ─────────────────────────────────────────────────────────

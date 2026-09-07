@@ -505,7 +505,13 @@ $(document).ready(function() {
   // "Select all" means every device matching the current filters, not just
   // the page in view — fetch the full barcode list rather than only ticking
   // on-screen checkboxes.
-  $('#devicesTable').on('change', '#selectAllChk', async function(){
+  // Delegated from the DataTable's own wrapper, not '#devicesTable' — Global
+  // Table's scrollX clones <thead> into a separate .dataTables_scrollHead
+  // table for display (2026-09-07 regression: the visible header checkbox
+  // the user clicks is that clone, living outside #devicesTable's subtree,
+  // so a listener delegated from #devicesTable never saw the event; tbody
+  // .rowChk checkboxes are untouched since only thead gets cloned).
+  $(dt.table().container()).on('change', '#selectAllChk', async function(){
     var checked = this.checked;
     if (checked) {
       var p = new URLSearchParams(window.location.search);
@@ -571,7 +577,9 @@ $(document).ready(function() {
     $('#customiseLotCount').text(n);
     $('#customiseLotBtn').toggleClass('d-none', n === 0);
   }
-  $('#lotSummaryTable').on('change', '#lotSelectAllChk', function(){
+  // Same scrollX-clone fix as #selectAllChk above — delegate from the
+  // wrapper, not '#lotSummaryTable', so it still catches the clone.
+  $(dtLot.table().container()).on('change', '#lotSelectAllChk', function(){
     var checked = this.checked;
     $(dtLot.rows({page:'current'}).nodes()).find('.lotRowChk').prop('checked', checked);
     updateLotSel();

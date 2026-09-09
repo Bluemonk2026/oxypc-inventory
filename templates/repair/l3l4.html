@@ -227,22 +227,27 @@ $(document).ready(function(){
   });
 });
 (function(){
+  // Delegated from document, not one-time querySelectorAll+forEach, for all
+  // three row-action buttons below — this table's rows aren't all in the DOM
+  // at page load (DataTables detaches off-page/filtered-out rows), so a
+  // direct bind only ever reached whatever happened to be on screen when
+  // this script first ran. Any row reached via search, sort, or paging
+  // afterward got a fresh button with no listener — clicking it silently did
+  // nothing. Found 2026-09-09 (reported as "Mark Complete, Request Part not
+  // working"; the identical fix applies to Scrap even though it wasn't
+  // reported, since it's wired the same way).
   var cmModal = new bootstrap.Modal(document.getElementById('completeModal'));
-  document.querySelectorAll('.complete-btn').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      document.getElementById('cm_device').value = btn.dataset.device;
-      document.getElementById('cm_barcode').textContent = btn.dataset.barcode;
-      cmModal.show();
-    });
+  $(document).on('click', '.complete-btn', function(){
+    document.getElementById('cm_device').value = this.dataset.device;
+    document.getElementById('cm_barcode').textContent = this.dataset.barcode;
+    cmModal.show();
   });
 
   var scModal = new bootstrap.Modal(document.getElementById('scrapModal'));
-  document.querySelectorAll('.scrap-btn').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      document.getElementById('sc_device').value = btn.dataset.device;
-      document.getElementById('sc_barcode').textContent = btn.dataset.barcode;
-      scModal.show();
-    });
+  $(document).on('click', '.scrap-btn', function(){
+    document.getElementById('sc_device').value = this.dataset.device;
+    document.getElementById('sc_barcode').textContent = this.dataset.barcode;
+    scModal.show();
   });
 
   // Request Part modal — default the Part select to "Motherboard Parts" options
@@ -250,16 +255,14 @@ $(document).ready(function(){
   var rpModal = new bootstrap.Modal(document.getElementById('requestPartModal'));
   var rpSel = document.getElementById('rp_part_name');
   rpSel.querySelectorAll('option[data-hidden="1"]').forEach(function(o){ o.remove(); });
-  document.querySelectorAll('.request-part-btn').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      document.getElementById('rp_barcode_input').value = btn.dataset.barcode;
-      document.getElementById('rp_barcode').textContent = btn.dataset.barcode;
-      rpSel.value = '';
-      document.getElementById('rp_part_id').value = '';
-      document.getElementById('rp_part_category').value = '';
-      document.getElementById('rp_pna_msg').textContent = '';
-      rpModal.show();
-    });
+  $(document).on('click', '.request-part-btn', function(){
+    document.getElementById('rp_barcode_input').value = this.dataset.barcode;
+    document.getElementById('rp_barcode').textContent = this.dataset.barcode;
+    rpSel.value = '';
+    document.getElementById('rp_part_id').value = '';
+    document.getElementById('rp_part_category').value = '';
+    document.getElementById('rp_pna_msg').textContent = '';
+    rpModal.show();
   });
 
   document.getElementById('rp_mark_pna').addEventListener('click', function(){

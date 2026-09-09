@@ -542,12 +542,16 @@ function _openBulkPartRequest(requestType, partLabel, category, qty) {
   var rlEl = document.getElementById('requestL3L4Modal');
   if (!rlEl) return;
   var rlModal = new bootstrap.Modal(rlEl);
-  document.querySelectorAll('.request-l3l4-btn').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      document.getElementById('rl_device').value = btn.dataset.device;
-      document.getElementById('rl_barcode').textContent = btn.dataset.barcode;
-      rlModal.show();
-    });
+  // Delegated from document, not a one-time querySelectorAll+forEach — this
+  // table's rows aren't all in the DOM at page load (DataTables detaches
+  // off-page/filtered-out rows), so a direct bind only ever reached whatever
+  // happened to be on screen when this script first ran. Any row reached via
+  // search, sort, or paging afterward got a fresh .request-l3l4-btn with no
+  // listener — clicking it silently did nothing. Found 2026-09-09.
+  $(document).on('click', '.request-l3l4-btn', function(){
+    document.getElementById('rl_device').value = this.dataset.device;
+    document.getElementById('rl_barcode').textContent = this.dataset.barcode;
+    rlModal.show();
   });
 })();
 </script>

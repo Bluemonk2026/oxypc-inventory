@@ -138,7 +138,6 @@
                       <input type="hidden" name="device_id" value="{{ device.id }}">
                       <button type="submit" class="btn btn-sm btn-success">Mark Complete</button>
                     </form>
-                    <a href="/devices/{{ device.barcode }}" class="btn btn-sm" style="background-color:#ffc107;color:#000;border-color:#ffc107;"><i class="bi bi-bag-plus"></i> Request Part</a>
                     <button type="button" class="btn btn-sm btn-outline-primary request-l3l4-btn"
                             data-device="{{ device.id }}" data-barcode="{{ device.barcode }}">
                       <i class="bi bi-arrow-up-right-circle"></i> Request to L3/L4</button>
@@ -149,6 +148,11 @@
                       <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-play-fill"></i> Start Repair</button>
                     </form>
                   {% endif %}
+                  {# Request Part — outside the if/elif/else above (2026-09-09)
+                     so it's always available regardless of repair status,
+                     not just while "Repair Started". Same plain link-to-
+                     device-page pattern L3/L4's Request Part now matches. #}
+                  <a href="/devices/{{ device.barcode }}" class="btn btn-sm" style="background-color:#ffc107;color:#000;border-color:#ffc107;"><i class="bi bi-bag-plus"></i> Request Part</a>
                 </td>
               </tr>
               {% endfor %}

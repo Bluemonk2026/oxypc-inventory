@@ -487,17 +487,9 @@ async def l3l4_list(request: Request,
             "aging": aging,
         })
 
-    # Available parts for the on-page "Request Part" modal (same query
-    # repair_list uses) — the modal defaults its Part select to the
-    # "Motherboard Parts" category.
-    available_parts = (await db.execute(
-        select(SparePart).where(SparePart.qty_in_stock > 0).order_by(SparePart.name)
-    )).scalars().all()
-
     return templates.TemplateResponse("repair/l3l4.html", {
         "request": request, "current_user": current_user,
         "items": items, "total": len(items),
-        "available_parts": available_parts,
         "pna_map": await _pna_map(db, [it["device_id"] for it in items]),
     })
 
@@ -719,7 +711,10 @@ async def repair_list(stage: str, request: Request,
     # Two columns of the in-stock parts, used only to answer "is this part
     # available?" below. This used to load 1,253 full SparePart objects and pass
     # them to the template as `available_parts` — which repair/l1.html never
-    # referenced. Only repair/l3l4.html uses that name, and it has its own query.
+    # referenced. repair/l3l4.html used to run its own version of that same
+    # heavier query for its on-page Request Part modal; the modal is gone
+    # (2026-09-09 — Request Part is now a plain link to the device page,
+    # matching L1/L2) and so is that query.
     in_stock_parts = (await db.execute(
         select(SparePart.category, SparePart.name).where(SparePart.qty_in_stock > 0)
     )).all()

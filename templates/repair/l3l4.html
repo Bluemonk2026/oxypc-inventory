@@ -39,8 +39,10 @@
                 <td>
                   <span class="badge bg-{{ 'success' if it.status == 'Completed' else ('danger' if 'Scrap' in it.status else ('info' if it.status == 'Repair Started' else 'secondary')) }}">{{ it.status }}</span>
                 </td>
-                {# Parts marked PNA from the Request Parts modal on this board
-                   (and from the tag's Parts Consumption table). Hover lists
+                {# Parts marked PNA from the device page's own Parts flow
+                   (Request Part here is a plain link there now, 2026-09-09 —
+                   matches L1/L2 — no on-page PNA marker of its own anymore)
+                   and from the tag's Parts Consumption table. Hover lists
                    them so the queue itself answers "what is it waiting on". #}
                 <td class="text-center">
                   {% set pna = pna_map.get(it.device_id|string, []) if pna_map is defined else [] %}
@@ -56,19 +58,17 @@
                     <button type="button" class="btn btn-sm btn-danger scrap-btn"
                             data-device="{{ it.device_id }}" data-barcode="{{ it.barcode }}">
                       <i class="bi bi-trash3"></i> Scrap</button>
-                    <button type="button" class="btn btn-sm btn-warning request-part-btn"
-                            data-barcode="{{ it.barcode }}">
-                      <i class="bi bi-bag-plus"></i> Request Part</button>
                   {% else %}
                     <form method="post" action="/repair/l3l4-start" class="d-inline">
                       <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
                       <input type="hidden" name="device_id" value="{{ it.device_id }}">
                       <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-play-fill"></i> Start Repair</button>
                     </form>
-                    <button type="button" class="btn btn-sm btn-warning request-part-btn"
-                            data-barcode="{{ it.barcode }}">
-                      <i class="bi bi-bag-plus"></i> Request Part</button>
                   {% endif %}
+                  {# Request Part — plain link to the device page, same pattern
+                     as L1/L2's own Request Part (2026-09-09), replacing the
+                     on-page modal below. Always shown, both branches above. #}
+                  <a href="/devices/{{ it.barcode }}" class="btn btn-sm" style="background-color:#ffc107;color:#000;border-color:#ffc107;"><i class="bi bi-bag-plus"></i> Request Part</a>
                 </td>
               </tr>
               {% endfor %}
@@ -76,56 +76,6 @@
           </table>
       </div>
     </div>
-  </div>
-</div>
-
-<!-- Request Part modal — defaulted/filtered to the "Motherboard Parts" category -->
-<div class="modal fade" id="requestPartModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
-    <form method="post" action="/part-requests/create" class="modal-content">
-      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-      <input type="hidden" name="barcode" id="rp_barcode_input">
-      <input type="hidden" name="part_id" id="rp_part_id">
-      <input type="hidden" name="part_category" id="rp_part_category">
-      <input type="hidden" name="from_page" value="repair_l3l4">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-bag-plus me-2"></i>Request Part</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="mb-2"><span class="text-muted small">Tag Number:</span> <strong id="rp_barcode">—</strong></div>
-        <label class="form-label small fw-semibold">Part <span class="text-muted">(Motherboard Parts)</span></label>
-        <select name="part_name" id="rp_part_name" class="form-select mb-2" required
-                onchange="var o=this.selectedOptions[0]; document.getElementById('rp_part_id').value=o?o.dataset.id:''; document.getElementById('rp_part_category').value=o?o.dataset.category:'';">
-          <option value="">-- Select part --</option>
-          {% for sp in available_parts %}
-          <option value="{{ sp.name }}" data-id="{{ sp.id }}" data-category="{{ sp.category }}"
-                  {% if sp.category != 'Motherboard Parts' %}data-hidden="1"{% endif %}>{{ sp.name }} ({{ sp.category }}) — stock {{ sp.qty_in_stock }}</option>
-          {% endfor %}
-        </select>
-        <label class="form-label small fw-semibold">Quantity</label>
-        <input type="number" name="qty" class="form-control" min="1" value="1" required>
-        {# Marking PNA here is deliberately separate from submitting the
-           request: the engineer is recording "this part cannot be sourced",
-           which is exactly the case where no request should be raised. The
-           button saves the mark on its own and leaves the form alone. #}
-        <hr class="my-3">
-        <div class="d-flex align-items-center justify-content-between">
-          <div>
-            <div class="fw-semibold small">Part Not Available</div>
-            <div class="text-muted small">Flags this part on the L1/L2 and L3/L4 queues.</div>
-          </div>
-          <button type="button" class="btn btn-outline-danger btn-sm" id="rp_mark_pna">
-            <i class="bi bi-slash-circle me-1"></i>Mark PNA
-          </button>
-        </div>
-        <div id="rp_pna_msg" class="small mt-2"></div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="submit" class="btn btn-warning"><i class="bi bi-check-lg me-1"></i>Submit Request</button>
-      </div>
-    </form>
   </div>
 </div>
 
@@ -227,15 +177,16 @@ $(document).ready(function(){
   });
 });
 (function(){
-  // Delegated from document, not one-time querySelectorAll+forEach, for all
-  // three row-action buttons below — this table's rows aren't all in the DOM
-  // at page load (DataTables detaches off-page/filtered-out rows), so a
-  // direct bind only ever reached whatever happened to be on screen when
-  // this script first ran. Any row reached via search, sort, or paging
-  // afterward got a fresh button with no listener — clicking it silently did
-  // nothing. Found 2026-09-09 (reported as "Mark Complete, Request Part not
-  // working"; the identical fix applies to Scrap even though it wasn't
-  // reported, since it's wired the same way).
+  // Delegated from document, not one-time querySelectorAll+forEach, for both
+  // row-action buttons below — this table's rows aren't all in the DOM at
+  // page load (DataTables detaches off-page/filtered-out rows), so a direct
+  // bind only ever reached whatever happened to be on screen when this
+  // script first ran. Any row reached via search, sort, or paging afterward
+  // got a fresh button with no listener — clicking it silently did nothing.
+  // Found 2026-09-09 (reported as "Mark Complete, Request Part not working";
+  // the identical fix applied to Scrap too even though it wasn't reported,
+  // since it was wired the same way — Request Part itself is a plain link
+  // now, matching L1/L2, so it never needed this fix in the first place).
   var cmModal = new bootstrap.Modal(document.getElementById('completeModal'));
   $(document).on('click', '.complete-btn', function(){
     document.getElementById('cm_device').value = this.dataset.device;
@@ -248,52 +199,6 @@ $(document).ready(function(){
     document.getElementById('sc_device').value = this.dataset.device;
     document.getElementById('sc_barcode').textContent = this.dataset.barcode;
     scModal.show();
-  });
-
-  // Request Part modal — default the Part select to "Motherboard Parts" options
-  // only (options for other categories are flagged data-hidden and removed).
-  var rpModal = new bootstrap.Modal(document.getElementById('requestPartModal'));
-  var rpSel = document.getElementById('rp_part_name');
-  rpSel.querySelectorAll('option[data-hidden="1"]').forEach(function(o){ o.remove(); });
-  $(document).on('click', '.request-part-btn', function(){
-    document.getElementById('rp_barcode_input').value = this.dataset.barcode;
-    document.getElementById('rp_barcode').textContent = this.dataset.barcode;
-    rpSel.value = '';
-    document.getElementById('rp_part_id').value = '';
-    document.getElementById('rp_part_category').value = '';
-    document.getElementById('rp_pna_msg').textContent = '';
-    rpModal.show();
-  });
-
-  document.getElementById('rp_mark_pna').addEventListener('click', function(){
-    var btn = this;
-    var msg = document.getElementById('rp_pna_msg');
-    var name = rpSel.value;
-    if (!name) { msg.className = 'small mt-2 text-danger'; msg.textContent = 'Select a part first.'; return; }
-    var body = new URLSearchParams();
-    body.append('csrf_token', "{{ request.cookies.get('csrf_token','') }}");
-    body.append('part_name', name);
-    body.append('part_category', document.getElementById('rp_part_category').value || '');
-    body.append('part_id', document.getElementById('rp_part_id').value || '');
-    body.append('marked', '1');
-    body.append('source', 'l3l4');
-    btn.disabled = true;
-    fetch('/devices/' + encodeURIComponent(document.getElementById('rp_barcode_input').value) + '/pna', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: body
-    })
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      if (!d || !d.ok) throw new Error((d && d.error) || 'save failed');
-      msg.className = 'small mt-2 text-success';
-      msg.textContent = name + ' marked PNA. Reload to see the updated count.';
-    })
-    .catch(function(e){
-      msg.className = 'small mt-2 text-danger';
-      msg.textContent = 'Could not mark PNA: ' + e.message;
-    })
-    .finally(function(){ btn.disabled = false; });
   });
 })();
 </script>

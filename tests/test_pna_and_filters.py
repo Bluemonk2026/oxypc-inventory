@@ -56,7 +56,10 @@ def test_repair_queues_have_pna_column(app_client, make_user):  # noqa: F811
     l34 = app_client.get("/repair/l3l4", follow_redirects=True).text
     assert "PNA Parts" in l34
     assert 'id="onlyPnaL34"' in l34
-    assert 'id="rp_mark_pna"' in l34
+    # L3/L4's own inline "Mark PNA" button (rp_mark_pna) is gone as of
+    # 2026-09-09 — Request Part there is now a plain link to the device page,
+    # matching L1/L2, which never had an inline PNA marker of its own either.
+    assert 'id="rp_mark_pna"' not in l34
 
 
 def test_post_iqc_has_add_grn_modal(app_client, make_user):  # noqa: F811

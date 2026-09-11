@@ -355,18 +355,35 @@ async def upload_ready_tags(
     if not tags:
         return JSONResponse({"found": [], "not_found": [], "not_ready": [], "errors": errors})
 
-    stages = dict((await db.execute(
-        select(Device.barcode, Device.current_stage).where(Device.barcode.in_(tags))
-    )).all())
+    # Matched case-insensitively — same fix as /devices' own bulk tag upload
+    # (routers/devices.py): tag numbers get typed into spreadsheets by hand
+    # and come back lowercase, while the stored barcode is often upper (or
+    # vice versa — this codebase's barcodes are inconsistently cased). An
+    # exact IN() reported every one of those as "not found" against a tag
+    # that plainly exists and is sitting in Ready to Sale.
+    rows = (await db.execute(
+        select(Device.barcode, Device.current_stage).where(
+            func.upper(Device.barcode).in_([t.upper() for t in tags])
+        )
+    )).all()
+    by_upper = {}
+    for stored_barcode, stage in rows:
+        by_upper.setdefault((stored_barcode or "").upper(), []).append((stored_barcode, stage))
 
     found, not_found, not_ready = [], [], []
     for tag in tags:
-        if tag not in stages:
+        matches = by_upper.get(tag.upper())
+        if not matches:
             not_found.append(tag)
-        elif stages[tag] != DeviceStage.ready_to_sale:
-            not_ready.append(tag)
-        else:
-            found.append(tag)
+            continue
+        # Echo the barcode as STORED, not as typed — the page ticks rows by
+        # exact barcode string, so echoing the user's casing back would
+        # select nothing.
+        for stored_barcode, stage in matches:
+            if stage != DeviceStage.ready_to_sale:
+                not_ready.append(stored_barcode)
+            else:
+                found.append(stored_barcode)
 
     return JSONResponse({"found": found, "not_found": not_found,
                          "not_ready": not_ready, "errors": errors})

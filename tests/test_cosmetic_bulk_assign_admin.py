@@ -1,10 +1,17 @@
 """Admin-only bulk Assign on Cleaning/Putty/Dry Sanding/Masking/Painting/
 Water Sanding (templates/cosmetic/stage.html):
  - Checkbox column + "Assign" button (injected before DataTables' search box)
-   only render for admin.
+   only render for admin on THIS page (unchanged 2026-09-14).
  - Checking rows enables Assign; submitting the modal posts to
-   /cosmetic/bulk-assign, which is admin-gated and issues a fresh WorkID per
-   selected tag for its CURRENT stage — no stage change.
+   /cosmetic/bulk-assign, which issues a fresh WorkID per selected tag for
+   its CURRENT stage — no stage change.
+
+2026-09-14: /cosmetic/bulk-assign's own role check was widened from
+admin-only to admin OR cosmetic_manager (Cosmetic Received's checkbox/Assign
+UI now shows for Cosmetic Manager too — see test_cosmetic_received_bulk_assign.py)
+— it's the same endpoint both pages post to, so the gate is endpoint-wide,
+not page-specific. test_bulk_assign_rejects_non_admin below uses a role
+outside both allow-listed values to keep testing the reject path.
 """
 import pathlib
 import subprocess
@@ -100,7 +107,8 @@ def test_bulk_assign_rejects_non_admin(app_client, make_user):  # noqa: F811
     barcode = f"ITBAREJ{suffix}"
     _seed_device_at("cleaning", barcode)
     try:
-        username, password = make_user("cosmetic_manager")
+        # "sales" — neither admin nor cosmetic_manager, both now allowed.
+        username, password = make_user("sales")
         eng_username, _ = make_user("cosmetic_manager")
         _login(app_client, username, password)
         csrf = app_client.cookies.get("csrf_token") or "dummy"

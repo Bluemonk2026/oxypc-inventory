@@ -38,7 +38,7 @@
         <table id="cosmeticReceivedTable" class="table table-hover mb-0 small">
           <thead class="table-dark">
             <tr>
-              {% if current_user.role.value == 'admin' %}<th><input type="checkbox" id="cosmeticRecvSelectAll" title="Select all"></th>{% endif %}
+              {% if current_user.role.value in ('admin', 'cosmetic_manager') %}<th><input type="checkbox" id="cosmeticRecvSelectAll" title="Select all"></th>{% endif %}
               <th>Tag Number</th><th>WorkID</th><th>L1/L2 Engineer</th><th>Lot</th><th>Grade</th>
               <th>Brand</th><th>Model</th><th>Aging</th><th>Assigned to</th>
               <th>Assigned Date</th><th>Action</th>
@@ -49,7 +49,7 @@
             {% set wo = workid_map.get(device.id|string) %}
             {% set failed_fqc = device.final_qc_status == 'fail' %}
             <tr data-failed-fqc="{{ '1' if failed_fqc else '0' }}">
-              {% if current_user.role.value == 'admin' %}
+              {% if current_user.role.value in ('admin', 'cosmetic_manager') %}
               <td><input type="checkbox" class="cosmeticRecvRowCheck" value="{{ device.barcode }}"></td>
               {% endif %}
               <td>
@@ -166,7 +166,7 @@
     </div>
   </div>
 </div>
-{% if current_user.role.value == 'admin' %}
+{% if current_user.role.value in ('admin', 'cosmetic_manager') %}
 {# ── Bulk Assign (admin only): pick a batch of checked tags, assign them all
      to one user — a pure reassignment at their CURRENT stage (no stage
      change), each getting its own fresh WorkID. Same mechanism as the 6
@@ -322,12 +322,13 @@ $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
 });
 
 $(document).ready(function(){
-  var ADMIN = {{ 'true' if current_user.role.value == 'admin' else 'false' }};
-  // Sort by Tag Number ascending by default. The checkbox column (admin
-  // only) shifts every later column index by one — and since the 2026-09-02
-  // batch moved Tag Number before WorkID, this index moved with it (it used
-  // to point at WorkID's old position before that swap).
-  var orderCol = ADMIN ? 1 : 0;
+  var CAN_BULK_ASSIGN = {{ 'true' if current_user.role.value in ('admin', 'cosmetic_manager') else 'false' }};
+  // Sort by Tag Number ascending by default. The checkbox column (admin /
+  // Cosmetic Manager only) shifts every later column index by one — and
+  // since the 2026-09-02 batch moved Tag Number before WorkID, this index
+  // moved with it (it used to point at WorkID's old position before that
+  // swap).
+  var orderCol = CAN_BULK_ASSIGN ? 1 : 0;
   // Global Table behavior (static/js/global-table.js): the row-count badge
   // now comes from initGlobalTable's own re-skinned info slot (language.info)
   // rather than a hand-appended <span>, so that piece of the old initComplete
@@ -336,9 +337,9 @@ $(document).ready(function(){
   // produces via the 'f' token.
   var dt = initGlobalTable('#cosmeticReceivedTable', {
     order: [[orderCol, 'asc']],
-    columnDefs: [{ orderable: false, targets: ADMIN ? [0, -1] : [-1] }],
+    columnDefs: [{ orderable: false, targets: CAN_BULK_ASSIGN ? [0, -1] : [-1] }],
     initComplete: function() {
-      {% if current_user.role.value == 'admin' %}
+      {% if current_user.role.value in ('admin', 'cosmetic_manager') %}
       var btn = $('<button type="button" id="cosmeticRecvAssignBtn" class="btn btn-sm btn-primary me-2" disabled>' +
                   '<i class="bi bi-person-check me-1"></i>Assign</button>');
       btn.on('click', openCosmeticRecvBulkAssignModal);
@@ -351,11 +352,16 @@ $(document).ready(function(){
       $('#cosmeticRecvFailedFqcFilter').on('change', function() { dt.draw(); });
     },
   }, {
-    {% if current_user.role.value == 'admin' %}
+    {% if current_user.role.value in ('admin', 'cosmetic_manager') %}
     // Select-all header checkbox + per-row checkboxes — see global-table.js
     // point 12 for why this has to be a module option (dt.table().container()
     // delegation) rather than a hand-rolled '#cosmeticRecvSelectAll' bind.
-    selectAll: { headerSelector: '#cosmeticRecvSelectAll', rowSelector: '.cosmeticRecvRowCheck', onChange: updateCosmeticRecvAssignButtonState },
+    // scope:'search' selects every row matching the current search box
+    // filter across ALL pages, not just the 12 rows on the visible page —
+    // the module's default (page-only) left everything past page 1 of a
+    // search result unchecked, which read as "search box not selecting
+    // rows".
+    selectAll: { headerSelector: '#cosmeticRecvSelectAll', rowSelector: '.cosmeticRecvRowCheck', onChange: updateCosmeticRecvAssignButtonState, scope: 'search' },
     {% endif %}
   });
 
@@ -369,7 +375,9 @@ $(document).ready(function(){
 
 function updateCosmeticRecvAssignButtonState() {
   var checked = $('.cosmeticRecvRowCheck:checked').length;
-  $('#cosmeticRecvAssignBtn').prop('disabled', checked === 0);
+  var btn = $('#cosmeticRecvAssignBtn');
+  btn.prop('disabled', checked === 0);
+  btn.html('<i class="bi bi-person-check me-1"></i>Assign' + (checked > 0 ? ' (' + checked + ')' : ''));
 }
 
 function openCosmeticRecvBulkAssignModal() {

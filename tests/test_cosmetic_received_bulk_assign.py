@@ -1,8 +1,16 @@
 """Bulk Assign on Cosmetic Received (2026-08-31): ported from the 6
 mid-pipeline pages' templates/cosmetic/stage.html pattern into
-templates/cosmetic/received.html — checkbox column + "Assign" button
-(admin only), same /cosmetic/bulk-assign endpoint, now also accepting
-DeviceStage.cosmetic_received (added to BULK_ASSIGN_STAGES)."""
+templates/cosmetic/received.html — checkbox column + "Assign" button, same
+/cosmetic/bulk-assign endpoint, now also accepting DeviceStage.cosmetic_received
+(added to BULK_ASSIGN_STAGES).
+
+2026-09-14: gating widened from admin-only to admin OR Cosmetic Manager
+(role "cosmetic_manager") — both the template/JS gate and the
+/cosmetic/bulk-assign endpoint's own role check. Also: the header
+select-all now scopes to every row matching the current search across all
+pages (opts.selectAll.scope:'search' in static/js/global-table.js), not
+just the 12 rows on the visible page, and the Assign button's own label
+now shows the live selected count."""
 import pathlib
 import subprocess
 import sys
@@ -65,8 +73,23 @@ asyncio.run(main())
 """)
 
 
-def test_checkboxes_and_assign_only_for_admin(app_client, make_user):  # noqa: F811
+def test_checkboxes_and_assign_present_for_cosmetic_manager(app_client, make_user):  # noqa: F811
     username, password = make_user("cosmetic_manager")
+    _login(app_client, username, password)
+    html = app_client.get("/cosmetic/cosmetic_received", follow_redirects=True).text
+    assert 'id="cosmeticRecvSelectAll"' in html
+    assert "cosmeticRecvRowCheck" in html
+    assert 'id="cosmeticRecvAssignModal"' in html
+    assert "cosmeticRecvAssignBtn" in html
+    # Select-all now spans every row matching the current search across all
+    # pages, not just the visible page.
+    assert "scope: 'search'" in html
+    # Assign button label grows a live "(N)" count as rows are checked.
+    assert "checked > 0 ? ' (' + checked + ')' : ''" in html
+
+
+def test_checkboxes_and_assign_absent_for_unrelated_role(app_client, make_user):  # noqa: F811
+    username, password = make_user("sales")
     _login(app_client, username, password)
     html = app_client.get("/cosmetic/cosmetic_received", follow_redirects=True).text
     assert 'class="cosmeticRecvRowCheck"' not in html
@@ -84,6 +107,71 @@ def test_checkboxes_and_assign_present_for_admin(app_client, make_user):  # noqa
     assert "cosmeticRecvAssignBtn" in html
     assert "openCosmeticRecvBulkAssignModal" in html
     assert "submitCosmeticRecvBulkAssign" in html
+
+
+def test_bulk_assign_endpoint_allows_cosmetic_manager(app_client, make_user):  # noqa: F811
+    suffix = uuid.uuid4().hex[:6]
+    barcode = f"ITRECVCM{suffix}"
+    _seed_device_at_received(barcode)
+    try:
+        actor_username, actor_password = make_user("cosmetic_manager")
+        eng_username, _ = make_user("cosmetic_manager")
+        _login(app_client, actor_username, actor_password)
+        csrf = app_client.cookies.get("csrf_token") or "dummy"
+
+        eng_id = _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.user import User
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        u = (await db.execute(select(User).where(User.username == "{eng_username}"))).scalar_one()
+        print(u.id)
+
+asyncio.run(main())
+""")
+        r = app_client.post("/cosmetic/bulk-assign", data={
+            "csrf_token": csrf, "barcodes": barcode, "engineer_user_id": eng_id,
+        })
+        assert r.status_code == 200, r.text[:300]
+        assert r.json()["ok"] is True
+    finally:
+        _cleanup_device(barcode)
+
+
+def test_bulk_assign_endpoint_still_rejects_unrelated_role(app_client, make_user):  # noqa: F811
+    suffix = uuid.uuid4().hex[:6]
+    barcode = f"ITRECVSL{suffix}"
+    _seed_device_at_received(barcode)
+    try:
+        actor_username, actor_password = make_user("sales")
+        eng_username, _ = make_user("cosmetic_manager")
+        _login(app_client, actor_username, actor_password)
+        csrf = app_client.cookies.get("csrf_token") or "dummy"
+
+        eng_id = _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.user import User
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        u = (await db.execute(select(User).where(User.username == "{eng_username}"))).scalar_one()
+        print(u.id)
+
+asyncio.run(main())
+""")
+        r = app_client.post("/cosmetic/bulk-assign", data={
+            "csrf_token": csrf, "barcodes": barcode, "engineer_user_id": eng_id,
+        })
+        assert r.status_code == 403, r.text[:300]
+    finally:
+        _cleanup_device(barcode)
 
 
 def test_bulk_assign_creates_workid_per_tag_without_moving_stage(app_client, make_user):  # noqa: F811

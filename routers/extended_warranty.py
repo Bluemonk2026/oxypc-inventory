@@ -13,6 +13,7 @@ No new table — everything lives on the existing Sale row (Sale.sold_at is
 Sale.warranty_days is the running day count), per the smaller-schema-change
 call made for this feature.
 """
+import re
 import uuid as _uuid
 from datetime import datetime
 
@@ -35,6 +36,24 @@ from utils.warranty import compute_warranty_expiry, WARRANTY_DURATIONS
 router = APIRouter(prefix="/extended-warranty", tags=["extended_warranty"],
                    dependencies=[Depends(verify_csrf)])
 allowed = require_module_perm("extended_warranty")
+
+
+def _canonical_warranty_type(raw: str) -> str | None:
+    """Master Data Dropdown Configuration lets admins relabel Warranty Type
+    options freely — production stores "30 Days"/"6 Months"/"1 Year"/
+    "No Warranty" rather than this code's own 30_days/6_months/1_year/none
+    keys, so a straight `in WARRANTY_DURATIONS` check rejected every real
+    selection ("Select a valid Warranty Type" on a perfectly valid pick).
+    Normalize case/spacing-insensitively back to the canonical key so
+    WARRANTY_DURATIONS / compute_warranty_expiry — and every other
+    warranty_type reader in the app — keep working regardless of label."""
+    key = re.sub(r'[^a-z0-9]', '', (raw or '').lower())
+    return {
+        '30days': '30_days',
+        '6months': '6_months',
+        '1year': '1_year',
+        'none': 'none', 'nowarranty': 'none',
+    }.get(key)
 
 
 @router.get("", response_class=HTMLResponse)
@@ -99,8 +118,8 @@ async def extended_warranty_set(
     if not sale:
         return RedirectResponse(url=f"/extended-warranty?error=No+sale+found+for+{bc}", status_code=302)
 
-    wtype = warranty_type if warranty_type in WARRANTY_DURATIONS and warranty_type != "none" else None
-    if not wtype:
+    wtype = _canonical_warranty_type(warranty_type)
+    if not wtype or wtype == "none":
         return RedirectResponse(url="/extended-warranty?error=Select+a+valid+Warranty+Type", status_code=302)
 
     sale.warranty_type = wtype

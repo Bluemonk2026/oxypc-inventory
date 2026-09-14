@@ -155,23 +155,32 @@
  *                        the current page in the DOM, so selection state
  *                        has to live outside it) and `onChange` is called
  *                        after the Set changes, to refresh count badges.
- *   opts.selectAll     - { headerSelector, rowSelector, onChange, resetOnDraw }
+ *   opts.selectAll     - { headerSelector, rowSelector, onChange, resetOnDraw, scope }
  *                        if given, wires a header "select all" checkbox onto
- *                        every currently-rendered row's checkbox (see point
- *                        12 above) — the simple "check all rows I can see"
- *                        pattern. headerSelector/rowSelector are jQuery
- *                        selectors (e.g. '#cosmeticSelectAll',
- *                        '.cosmeticRowCheck'); onChange fires after any
- *                        header or row toggle, for count/button-state
- *                        updates; resetOnDraw (default false — matches
- *                        pre-existing per-page behavior) unchecks the header
- *                        on every redraw, for tables where a fresh page/sort
- *                        should never look like "all selected" by accident.
- *                        Not a fit for select-all-matching-a-filter-across-
- *                        every-page semantics (e.g. Devices' own barcode-
- *                        fetch select-all) — that stays hand-rolled, but
- *                        must still delegate from dt.table().container(),
- *                        never tableSelector, for the same reason.
+ *                        row checkboxes (see point 12 above). headerSelector/
+ *                        rowSelector are jQuery selectors (e.g.
+ *                        '#cosmeticSelectAll', '.cosmeticRowCheck'); onChange
+ *                        fires after any header or row toggle, for count/
+ *                        button-state updates; resetOnDraw (default false —
+ *                        matches pre-existing per-page behavior) unchecks the
+ *                        header on every redraw, for tables where a fresh
+ *                        page/sort should never look like "all selected" by
+ *                        accident. scope (default 'page') controls how wide
+ *                        "all" reaches: 'page' checks only the rows on the
+ *                        currently-displayed page (the simple "check what I
+ *                        can see" pattern); 'search' checks every row
+ *                        matching the current search/filter across every
+ *                        page (rows({search:'applied'})) — use this when the
+ *                        page's own search box needs to drive selection (a
+ *                        plain 'page' scope leaves rows past page 1 of a
+ *                        search result looking un-selectable, which reads as
+ *                        a bug). Neither scope is a fit for select-all-
+ *                        matching-NO-filter-at-all-across-every-page-of-the-
+ *                        UNFILTERED-table semantics (e.g. Devices' own
+ *                        barcode-fetch select-all, which selects rows never
+ *                        even paged into the DOM) — that stays hand-rolled,
+ *                        but must still delegate from dt.table().container(),
+ *                        never tableSelector, for the same reason as point 12.
  *
  * Returns the DataTables API instance.
  */
@@ -326,14 +335,19 @@ function initGlobalTable(tableSelector, dtOptions, opts) {
     var saRow = opts.selectAll.rowSelector || '.rowChk';
     var saOnChange = opts.selectAll.onChange || function () {};
     // Delegated from dt.table().container(), not tableSelector — see point
-    // 12 in the file doc comment above. Scoped to rows({page:'current'})
+    // 12 in the file doc comment above. Default scope is rows({page:'current'})
     // rather than a bare selector so a deferRender/scrollCollapse table
     // can't accidentally reach into off-page rows that aren't really on
     // screen; for a plain table this matches a bare selector exactly, since
     // DataTables detaches off-page rows from the DOM entirely.
+    // opts.selectAll.scope:'search' widens this to every row matching the
+    // CURRENT search/filter across every page (rows({search:'applied'})) —
+    // for a table whose "select all" should mean "select everything the
+    // search box just found", not just the 12 rows currently on screen.
+    var saScope = opts.selectAll.scope === 'search' ? { search: 'applied' } : { page: 'current' };
     $(dt.table().container()).on('change', saHeader, function () {
       var checked = $(this).prop('checked');
-      $(dt.rows({ page: 'current' }).nodes()).find(saRow).prop('checked', checked);
+      $(dt.rows(saScope).nodes()).find(saRow).prop('checked', checked);
       saOnChange();
     });
     // Row checkboxes live in tbody, never relocated by scrollX, so a plain

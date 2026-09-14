@@ -94,6 +94,39 @@ asyncio.run(main())
 """)
 
 
+def test_set_warranty_accepts_human_readable_master_data_labels(app_client, make_user):  # noqa: F811
+    """Production's Warranty Type Master Data category has been relabelled to
+    "30 Days"/"6 Months"/"1 Year"/"No Warranty" (Admin -> Dropdown Config),
+    not this code's own 30_days/6_months/1_year/none keys. A straight
+    `in WARRANTY_DURATIONS` check rejected every real dropdown selection with
+    "Select a valid Warranty Type" — this pins the case/spacing-insensitive
+    fix (_canonical_warranty_type)."""
+    suffix = uuid.uuid4().hex[:6].upper()
+    barcode = f"ITEWLBL{suffix}"
+    sale_id = _seed_sold_device(barcode)
+    try:
+        username, password = make_user("admin")
+        _login(app_client, username, password)
+        csrf = app_client.cookies.get("csrf_token") or ""
+
+        r = app_client.post(
+            "/extended-warranty/set",
+            data={"csrf_token": csrf, "barcode": barcode, "warranty_type": "6 Months"},
+            follow_redirects=False,
+        )
+        assert r.status_code == 302, r.text[:400]
+        location = r.headers.get("location", "")
+        assert "success" in location, location
+        assert "error" not in location, location
+
+        wtype, days, expiry = _read_sale(sale_id).split(" ", 2)
+        assert wtype == "6_months", wtype  # stored canonically, not the raw label
+        assert days == "182", days
+        assert expiry != "None"
+    finally:
+        _cleanup(barcode)
+
+
 def test_table_shows_warranty_left_and_links_tag_number(app_client, make_user):  # noqa: F811
     suffix = uuid.uuid4().hex[:6].upper()
     barcode = f"ITEWLFT{suffix}"

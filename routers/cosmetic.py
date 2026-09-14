@@ -1406,17 +1406,17 @@ async def bulk_assign(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Admin-only bulk (re)assignment on Cleaning/Putty/Dry Sanding/Masking/
-    Painting/Water Sanding: check a batch of tags, pick a user, and each
-    selected tag gets a fresh WorkID for its CURRENT stage — same
-    MOVE_STAGE_CODE the page's own WorkID column reads, so the new
-    assignment shows up immediately without moving the tag anywhere. Unlike
-    Move/Fail this never changes device.current_stage or writes a
-    StageMovement — it is a pure reassignment.
+    """Admin / Cosmetic Manager bulk (re)assignment on Cosmetic Received and
+    Cleaning/Putty/Dry Sanding/Masking/Painting/Water Sanding: check a batch
+    of tags, pick a user, and each selected tag gets a fresh WorkID for its
+    CURRENT stage — same MOVE_STAGE_CODE the page's own WorkID column reads,
+    so the new assignment shows up immediately without moving the tag
+    anywhere. Unlike Move/Fail this never changes device.current_stage or
+    writes a StageMovement — it is a pure reassignment.
     """
     role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
-    if role_val != "admin":
-        raise HTTPException(403, "Bulk Assign is admin-only")
+    if role_val not in ("admin", "cosmetic_manager"):
+        raise HTTPException(403, "Bulk Assign is Admin / Cosmetic Manager only")
 
     barcode_list = [b.strip() for b in barcodes.split(",") if b.strip()]
     if not barcode_list:

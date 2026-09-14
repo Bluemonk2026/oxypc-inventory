@@ -56,15 +56,26 @@
     <table id="warrantyTable" class="table table-hover mb-0 small">
       <thead class="table-dark">
         <tr>
-          <th>Tag Number</th><th>Lot Number</th><th>Warranty (in days)</th>
+          <th>Tag Number</th><th>Lot Number</th><th>Warranty Left</th><th>Warranty (in days)</th>
           <th>Warranty Starts</th><th>Warranty Stops</th><th>Action</th>
         </tr>
       </thead>
       <tbody>
         {% for r in rows %}
         <tr>
-          <td><code>{{ r.barcode }}</code></td>
+          <td><a href="/devices/{{ r.barcode }}" class="font-monospace text-decoration-none"><code>{{ r.barcode }}</code></a></td>
           <td>{{ r.lot_number or '—' }}</td>
+          <td>
+            {% if r.left_days is none %}
+            <span class="text-muted">—</span>
+            {% elif r.left_days <= 0 %}
+            <span class="badge bg-danger">{{ r.warranty_left }}</span>
+            {% elif r.left_days <= 7 %}
+            <span class="badge bg-warning text-dark">{{ r.warranty_left }}</span>
+            {% else %}
+            <span class="badge bg-success">{{ r.warranty_left }}</span>
+            {% endif %}
+          </td>
           <td>{{ r.warranty_days if r.warranty_days is not none else '—' }}</td>
           <td>{{ r.sale.sold_at.strftime('%d-%m-%Y') if r.sale.sold_at else '—' }}</td>
           <td>{{ r.sale.warranty_expires_at.strftime('%d-%m-%Y') if r.sale.warranty_expires_at else '—' }}</td>

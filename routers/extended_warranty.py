@@ -52,6 +52,7 @@ async def extended_warranty_page(
     )).all()
 
     rows = []
+    today = app_now().date()
     for sale, barcode, lot_number in raw_rows:
         days = sale.warranty_days
         if days is None:
@@ -60,7 +61,17 @@ async def extended_warranty_page(
             # same duration table the Sale's own warranty_type maps to.
             delta = WARRANTY_DURATIONS.get(sale.warranty_type)
             days = delta.days if delta else None
-        rows.append({"sale": sale, "barcode": barcode, "lot_number": lot_number, "warranty_days": days})
+
+        if sale.warranty_expires_at:
+            left_days = (sale.warranty_expires_at.date() - today).days
+            warranty_left = f"{left_days} days" if left_days > 0 else "Expired"
+        else:
+            left_days, warranty_left = None, "—"
+
+        rows.append({
+            "sale": sale, "barcode": barcode, "lot_number": lot_number,
+            "warranty_days": days, "warranty_left": warranty_left, "left_days": left_days,
+        })
 
     return templates.TemplateResponse("extended_warranty/index.html", {
         "request": request, "current_user": current_user, "rows": rows,

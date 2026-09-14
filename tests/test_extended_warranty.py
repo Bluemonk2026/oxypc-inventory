@@ -94,6 +94,33 @@ asyncio.run(main())
 """)
 
 
+def test_table_shows_warranty_left_and_links_tag_number(app_client, make_user):  # noqa: F811
+    suffix = uuid.uuid4().hex[:6].upper()
+    barcode = f"ITEWLFT{suffix}"
+    _seed_sold_device(barcode)
+    try:
+        username, password = make_user("admin")
+        _login(app_client, username, password)
+        csrf = app_client.cookies.get("csrf_token") or ""
+        app_client.post(
+            "/extended-warranty/set",
+            data={"csrf_token": csrf, "barcode": barcode, "warranty_type": "30_days"},
+            follow_redirects=False,
+        )
+
+        html = app_client.get("/extended-warranty").text
+        # Warranty Left column header sits directly before Warranty (in days)
+        # in the table (the Set Warranty form above it also has a "Warranty
+        # (in days)" label, so this checks the exact table header, not just
+        # presence anywhere on the page).
+        assert "<th>Warranty Left</th><th>Warranty (in days)</th>" in html
+        assert f'<a href="/devices/{barcode}"' in html
+        # Fresh 30-day warranty — comfortably not expiring soon.
+        assert "bg-success" in html
+    finally:
+        _cleanup(barcode)
+
+
 def test_set_warranty_computes_days_and_expiry(app_client, make_user):  # noqa: F811
     suffix = uuid.uuid4().hex[:6].upper()
     barcode = f"ITEWSET{suffix}"

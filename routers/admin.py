@@ -422,8 +422,12 @@ async def audit_log_view(
 COST_CONFIG_DEFS = [
     ("repair_labour_rate", "Labour Rate per Repair Attempt (Rs)",
      "Used when engineer leaves cost field blank. Default: Rs 150"),
-    ("cosmetic_rate", "Cosmetic Rework Rate per Device (Rs)",
-     "Applied per device that passed through cleaning/rework stage. Default: Rs 50"),
+    # Label renamed 2026-09-14 (was "Cosmetic Rework Rate per Device (Rs)") —
+    # now also feeds Final QC's "Other Price" row (routers/cosmetic.py). Key
+    # stays cosmetic_rate: routers/dashboard.py, routers/stock.py and
+    # db_validator.py all still read it by this exact key.
+    ("cosmetic_rate", "Other Rates per Device (Rs)",
+     "Applied per device that passed through cleaning/rework/other stage. Default: Rs 50"),
     ("gst_rate_intra", "GST Rate — Intra-State (% total)",
      "CGST + SGST for same-state sales. Default: 18 (9+9). Enter total %, system splits equally."),
     ("gst_rate_inter", "GST Rate — Inter-State IGST (%)",

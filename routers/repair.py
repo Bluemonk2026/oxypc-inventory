@@ -780,7 +780,17 @@ async def repair_list(stage: str, request: Request,
     # engineer can raise one request for the whole queue instead of opening
     # each tag. Counts mirror exactly what Device Detail shows per tag:
     #   Total Quantity  — tags where compute_required() says Required = Yes
-    #   Total Requested — requests at 'handed_over' (the Verify button state)
+    #   Total Requested — requests at 'requested' OR 'handed_over' (any OPEN
+    #                     request not yet confirmed received) — 2026-09-14:
+    #                     previously counted 'handed_over' only, so a request
+    #                     just raised here (status='requested') didn't move
+    #                     this badge at all. Looking unrequested right after
+    #                     being requested is exactly what led staff to
+    #                     re-request the same tags through Device Detail
+    #                     instead, creating real duplicate PartRequest rows —
+    #                     the New/Replace Request buttons below are now also
+    #                     disabled once Total Requested reaches Total
+    #                     Quantity, which depends on this count being live.
     #   Total Changed   — requests at 'received'   (the Part Changed state)
     bulk_parts: list = []
     if device_ids:
@@ -806,14 +816,14 @@ async def repair_list(stage: str, request: Request,
             status_rows = (await db.execute(
                 select(PartRequest.part_name, PartRequest.status, func.count(PartRequest.id))
                 .where(PartRequest.device_id.in_(device_ids),
-                       PartRequest.status.in_(["handed_over", "received"]))
+                       PartRequest.status.in_(["requested", "handed_over", "received"]))
                 .group_by(PartRequest.part_name, PartRequest.status)
             )).all()
             for pname, pstatus, cnt in status_rows:
                 entry = required_counts.get(pname)
                 if not entry:
                     continue
-                if pstatus == "handed_over":
+                if pstatus in ("requested", "handed_over"):
                     entry["requested"] += cnt
                 elif pstatus == "received":
                     entry["changed"] += cnt
@@ -843,12 +853,12 @@ async def repair_list(stage: str, request: Request,
         pr_status_rows = (await db.execute(
             select(PartRequest.device_id, PartRequest.part_name, PartRequest.status)
             .where(PartRequest.device_id.in_(device_ids),
-                   PartRequest.status.in_(["handed_over", "received"]))
+                   PartRequest.status.in_(["requested", "handed_over", "received"]))
         )).all()
         for did, pname, pstatus in pr_status_rows:
             for entry in device_parts_required.get(str(did), []):
                 if entry["label"] == pname:
-                    if pstatus == "handed_over":
+                    if pstatus in ("requested", "handed_over"):
                         entry["requested"] = True
                     elif pstatus == "received":
                         entry["changed"] = True

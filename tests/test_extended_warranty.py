@@ -94,13 +94,45 @@ asyncio.run(main())
 """)
 
 
+def test_set_warranty_accepts_newly_added_master_data_values(app_client, make_user):  # noqa: F811
+    """A fixed lookup table (30_days/6_months/1_year only) broke the moment
+    an admin added "60 Days"/"90 Days" to Master Data Dropdown Configuration
+    — "Select a valid Warranty Type" on a perfectly valid, freshly-added
+    pick. _parse_warranty_duration parses "<N> day/month/year" generically,
+    so any future admin-added value (any N, any unit) works with no further
+    code change — this pins that for two values that didn't exist when the
+    page first shipped."""
+    for label, expected_slug, expected_days in [("60 Days", "60_days", "60"), ("90 Days", "90_days", "90")]:
+        suffix = uuid.uuid4().hex[:6].upper()
+        barcode = f"ITEWNEW{suffix}"
+        sale_id = _seed_sold_device(barcode)
+        try:
+            username, password = make_user("admin")
+            _login(app_client, username, password)
+            csrf = app_client.cookies.get("csrf_token") or ""
+
+            r = app_client.post(
+                "/extended-warranty/set",
+                data={"csrf_token": csrf, "barcode": barcode, "warranty_type": label},
+                follow_redirects=False,
+            )
+            assert r.status_code == 302, r.text[:400]
+            location = r.headers.get("location", "")
+            assert "success" in location, location
+
+            wtype, days, expiry = _read_sale(sale_id).split(" ", 2)
+            assert wtype == expected_slug, wtype
+            assert days == expected_days, days
+            assert expiry != "None"
+        finally:
+            _cleanup(barcode)
+
+
 def test_set_warranty_accepts_human_readable_master_data_labels(app_client, make_user):  # noqa: F811
     """Production's Warranty Type Master Data category has been relabelled to
     "30 Days"/"6 Months"/"1 Year"/"No Warranty" (Admin -> Dropdown Config),
-    not this code's own 30_days/6_months/1_year/none keys. A straight
-    `in WARRANTY_DURATIONS` check rejected every real dropdown selection with
-    "Select a valid Warranty Type" — this pins the case/spacing-insensitive
-    fix (_canonical_warranty_type)."""
+    not this code's own 30_days/6_months/1_year/none keys. This pins the
+    case/spacing-insensitive fix (_parse_warranty_duration)."""
     suffix = uuid.uuid4().hex[:6].upper()
     barcode = f"ITEWLBL{suffix}"
     sale_id = _seed_sold_device(barcode)

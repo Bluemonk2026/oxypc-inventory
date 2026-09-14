@@ -15,7 +15,7 @@ call made for this feature.
 """
 import re
 import uuid as _uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
@@ -31,29 +31,45 @@ from models.lot import Lot
 from models.sales import Sale
 from auth.dependencies import verify_csrf, require_module_perm
 from services.audit_engine import audit
-from utils.warranty import compute_warranty_expiry, WARRANTY_DURATIONS
+from utils.warranty import WARRANTY_DURATIONS
 
 router = APIRouter(prefix="/extended-warranty", tags=["extended_warranty"],
                    dependencies=[Depends(verify_csrf)])
 allowed = require_module_perm("extended_warranty")
 
+_WARRANTY_DURATION_RE = re.compile(r'(\d+)[\s_-]*(day|month|year)')
 
-def _canonical_warranty_type(raw: str) -> str | None:
-    """Master Data Dropdown Configuration lets admins relabel Warranty Type
-    options freely — production stores "30 Days"/"6 Months"/"1 Year"/
-    "No Warranty" rather than this code's own 30_days/6_months/1_year/none
-    keys, so a straight `in WARRANTY_DURATIONS` check rejected every real
-    selection ("Select a valid Warranty Type" on a perfectly valid pick).
-    Normalize case/spacing-insensitively back to the canonical key so
-    WARRANTY_DURATIONS / compute_warranty_expiry — and every other
-    warranty_type reader in the app — keep working regardless of label."""
-    key = re.sub(r'[^a-z0-9]', '', (raw or '').lower())
-    return {
-        '30days': '30_days',
-        '6months': '6_months',
-        '1year': '1_year',
-        'none': 'none', 'nowarranty': 'none',
-    }.get(key)
+
+def _parse_warranty_duration(raw: str):
+    """Parse a Master Data Warranty Type label into (canonical_slug, days).
+
+    First attempt (2026-09-14) matched a fixed 3-entry lookup table
+    (30_days/6_months/1_year) — broke the moment production's admin added
+    "60 Days"/"90 Days" to the Master Data Dropdown Configuration, since
+    neither was in the table ("Select a valid Warranty Type" on a perfectly
+    valid pick, again). This parses the "<N> day/month/year" pattern
+    generically instead — case/spacing/underscore-insensitive — so ANY
+    admin-added value (any N, any unit) works with no further code change.
+    "No Warranty" / "none" / the blank placeholder all lack a digit+unit
+    pattern and correctly fall through to (None, None) — not a real
+    duration, same as an unrecognized value.
+    """
+    m = _WARRANTY_DURATION_RE.search((raw or '').lower())
+    if not m:
+        return None, None
+    n = int(m.group(1))
+    unit = m.group(2)
+    if unit == 'day':
+        days = n
+    elif unit == 'month':
+        # Preserve the pre-existing "6 Months" = 182 days convention
+        # (utils.warranty.WARRANTY_DURATIONS) exactly; any other month
+        # count uses the average month length.
+        days = 182 if n == 6 else round(n * 30.44)
+    else:
+        days = n * 365
+    slug = f"{n}_{unit}" + ('' if n == 1 else 's')
+    return slug, days
 
 
 @router.get("", response_class=HTMLResponse)
@@ -118,18 +134,17 @@ async def extended_warranty_set(
     if not sale:
         return RedirectResponse(url=f"/extended-warranty?error=No+sale+found+for+{bc}", status_code=302)
 
-    wtype = _canonical_warranty_type(warranty_type)
-    if not wtype or wtype == "none":
+    slug, days = _parse_warranty_duration(warranty_type)
+    if not slug or not days:
         return RedirectResponse(url="/extended-warranty?error=Select+a+valid+Warranty+Type", status_code=302)
 
-    sale.warranty_type = wtype
-    sale.warranty_expires_at = compute_warranty_expiry(sale.sold_at, wtype)
-    delta = WARRANTY_DURATIONS.get(wtype)
-    sale.warranty_days = delta.days if delta else None
+    sale.warranty_type = slug
+    sale.warranty_days = days
+    sale.warranty_expires_at = (sale.sold_at or app_now()) + timedelta(days=days)
 
     await audit(db, user=current_user, action="WARRANTY_SET",
                 table_name="sales", record_id=str(sale.id),
-                new_value={"barcode": bc, "warranty_type": wtype, "warranty_days": sale.warranty_days},
+                new_value={"barcode": bc, "warranty_type": slug, "warranty_days": sale.warranty_days},
                 request=request)
     await db.commit()
     return RedirectResponse(url="/extended-warranty?success=Warranty+set", status_code=302)

@@ -131,7 +131,22 @@
 $(document).ready(function(){ $('#warrantyTable').DataTable({pageLength: 15}); });
 
 var EW_CSRF = "{{ request.cookies.get('csrf_token','') }}";
-var WARRANTY_DAY_MAP = { '30_days': 30, '6_months': 182, '1_year': 365 };
+
+// Mirrors routers/extended_warranty.py's _parse_warranty_duration — a fixed
+// { '30_days': 30, ... } map never matched the actual dropdown value (Master
+// Data stores "30 Days"/"6 Months"/"1 Year", not underscore-style keys, and
+// production later added "60 Days"/"90 Days" too), so Warranty Stops just
+// stayed blank for every real selection. Parses "<N> day/month/year"
+// generically instead, so it works for any admin-added value.
+function parseWarrantyDays(label){
+  var m = (label || '').toLowerCase().match(/(\d+)[\s_-]*(day|month|year)/);
+  if(!m) return null;
+  var n = parseInt(m[1], 10);
+  var unit = m[2];
+  if(unit === 'day') return n;
+  if(unit === 'month') return (n === 6) ? 182 : Math.round(n * 30.44);
+  return n * 365;
+}
 
 (function(){
   var barcodeInput = document.getElementById('ewBarcode');
@@ -145,7 +160,7 @@ var WARRANTY_DAY_MAP = { '30_days': 30, '6_months': 182, '1_year': 365 };
 
   function recomputeStops(){
     if(!startsIso || !typeEl.value){ stopsEl.value = ''; return; }
-    var days = WARRANTY_DAY_MAP[typeEl.value];
+    var days = parseWarrantyDays(typeEl.value);
     if(!days){ stopsEl.value = ''; return; }
     var d = new Date(startsIso);
     d.setDate(d.getDate() + days);

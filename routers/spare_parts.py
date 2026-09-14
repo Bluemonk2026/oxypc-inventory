@@ -68,7 +68,7 @@ async def _computed_stock(part_id, db: AsyncSession) -> int:
 async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
                      current_user: User = Depends(allowed),
                      added_from: str = "", added_to: str = "",
-                     category: str = "", part_name: str = ""):
+                     category: str = "", part_name: str = "", engineer: str = ""):
     from datetime import date
 
     # Part master — `all_parts` (unfiltered) feeds Qty Available cross-lookups
@@ -271,6 +271,15 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     all_part_reqs_unfiltered = (await db.execute(
         select(PartRequest).order_by(PartRequest.created_at.desc())
     )).scalars().all()
+    # Every distinct engineer who has ever raised a request — sourced from
+    # the fully unfiltered set so the dropdown's own option list never
+    # shrinks just because another filter (category/date/engineer itself) is
+    # already applied.
+    engineer_options = sorted({
+        (r.engineer_name or r.requested_by or "").strip()
+        for r in all_part_reqs_unfiltered
+        if (r.engineer_name or r.requested_by or "").strip()
+    })
     # Filtered the same way as parts (category/part name/added-date), so the
     # global filter bar's stated scope — "Part Master, Part Requests and
     # Faulty Request" — actually holds for these two tables too.
@@ -278,6 +287,18 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         r for r in all_part_reqs_unfiltered
         if _in_filter(r.part_category, r.part_name, r.created_at)
     ]
+    # Engineer is its own filter, applied only here — Part Master rows have
+    # no engineer to match against, so this deliberately isn't folded into
+    # _in_filter (which parts/all_part_reqs share above). Without this,
+    # "who does dilip_kumar actually still need parts for" was unanswerable
+    # on this page: the tab showed every request ever raised, any engineer,
+    # any status, any device, forever (see the 2026-09-14 investigation into
+    # his 33-tag queue vs. 45 unrelated historical rows).
+    if engineer:
+        all_part_reqs = [
+            r for r in all_part_reqs
+            if (r.engineer_name or r.requested_by or "").strip().lower() == engineer.strip().lower()
+        ]
     part_reqs = [r for r in all_part_reqs if r.request_type != "faulty"]
     faulty_reqs = [r for r in all_part_reqs if r.request_type == "faulty"]
     part_requested_count = sum(1 for r in all_part_reqs if r.status == "requested")
@@ -405,6 +426,7 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         # what's actually applied after the Filter button reloads the page.
         "added_from": added_from, "added_to": added_to,
         "filter_category": category, "filter_part_name": part_name,
+        "filter_engineer": engineer, "engineer_options": engineer_options,
     })
 
 

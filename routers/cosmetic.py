@@ -25,6 +25,7 @@ from auth.dependencies import get_current_user, require_roles, verify_csrf, requ
 from models.work_order import WorkOrder
 from models.role_permissions import has_perm
 from models.cosmetic_flow import CosmeticFlowRow
+from models.cost_config import CostConfig
 from utils.attendance_groups import is_group_manager, managed_usernames
 from routers.transfers import _gen_work_id
 from routers.buckets import _apply_department_move
@@ -630,18 +631,52 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
                 .group_by(SparePartConsumption.device_id)
             )).all()
             parts_cost_by_device = {str(r.device_id): float(r.parts_cost or 0) for r in cost_rows}
+
+            # Avg Lot Price — fallback for Current Unit Price when a device
+            # has no device_price of its own (blank/None). Same lot.buying_price
+            # / lot.qty computation IQC intake already uses to SEED device_price
+            # in the first place (routers/iqc.py) — devices that never got that
+            # seed, or had it cleared, would otherwise show a bare ₹0.00.
+            lot_avg_by_device = {}
+            lot_rows = (await db.execute(
+                select(Device.id, Lot.buying_price, Lot.qty)
+                .join(Lot, Device.lot_id == Lot.id)
+                .where(Device.id.in_(device_ids))
+            )).all()
+            for did, buying_price, qty in lot_rows:
+                lot_avg_by_device[str(did)] = float(buying_price / qty) if qty else 0.0
+
+            # Labour Price / Other Price — Admin -> Cost Config's Labour Rate
+            # (repair_labour_rate) and Other Rates (cosmetic_rate, labelled
+            # "Cosmetic Rework" before 2026-09-14) flat rates, same CostConfig
+            # rows routers/dashboard.py and routers/stock.py already read for
+            # Lot P&L. Informational rows only — not folded into After Repair
+            # Price / Updated Price, which stay parts-cost-only as before.
+            _cfg_rows = (await db.execute(select(CostConfig))).scalars().all()
+            _cfg = {r.key: float(r.value) for r in _cfg_rows}
+            labour_rate = _cfg.get("repair_labour_rate", 150.0)
+            other_rate = _cfg.get("cosmetic_rate", 50.0)
+
             for d, _ in devices:
-                current_price = float(d.device_price or 0)
+                if d.device_price is not None:
+                    current_price = float(d.device_price)
+                    current_price_is_avg_lot = False
+                else:
+                    current_price = lot_avg_by_device.get(str(d.id), 0.0)
+                    current_price_is_avg_lot = True
                 parts_cost = parts_cost_by_device.get(str(d.id), 0.0)
                 changed_cost = sum(p["total"] for p in changed_parts_pricing.get(str(d.id), []))
                 after_repair_price = current_price + parts_cost + changed_cost
                 price_map[str(d.id)] = {
                     "current_price": current_price,
+                    "current_price_is_avg_lot": current_price_is_avg_lot,
                     "parts_cost": parts_cost,
                     "changed_parts": changed_parts_pricing.get(str(d.id), []),
                     "changed_parts_cost": changed_cost,
                     "after_repair_price": after_repair_price,
                     "updated_price": after_repair_price,
+                    "labour_price": labour_rate,
+                    "other_price": other_rate,
                 }
 
         bucket_ids_for_page = {d.bucket_id for d, _ in devices if d.bucket_id}

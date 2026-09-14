@@ -73,13 +73,23 @@
       {% for n in part_names %}<option value="{{ n }}" {% if filter_part_name == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
     </select>
   </div>
+  <div>
+    <label class="form-label small text-muted mb-0">Engineer</label>
+    {# Part Requests / Faulty Request only — Part Master and tiles have no
+       engineer to filter by, so unlike Category/Part Name/Added Date this
+       doesn't touch them. #}
+    <select name="engineer" class="form-select form-select-sm" style="min-width:170px">
+      <option value="">All</option>
+      {% for e in engineer_options %}<option value="{{ e }}" {% if filter_engineer == e %}selected{% endif %}>{{ e }}</option>{% endfor %}
+    </select>
+  </div>
   <button type="submit" class="btn btn-primary btn-sm">
     <i class="bi bi-funnel me-1"></i>Filter
   </button>
   <a href="/spare-parts" class="btn btn-outline-secondary btn-sm">
     <i class="bi bi-x-circle me-1"></i>Clear
   </a>
-  <span class="text-muted small">Filters Part Master, Part Requests and Faulty Request (tiles included).</span>
+  <span class="text-muted small">Category/Part Name/Added Date filter Part Master, Part Requests and Faulty Request (tiles included). Engineer filters Part Requests and Faulty Request only.</span>
 </form>
 
 {% if request.query_params.get('success') %}

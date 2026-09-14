@@ -37,10 +37,16 @@ edit_allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
 
 
 @router.get("/api/brief")
-async def device_brief(barcode: str, db: AsyncSession = Depends(get_db),
+async def device_brief(barcode: str, require_stage: str = "", db: AsyncSession = Depends(get_db),
                        current_user: User = Depends(view_allowed)):
     """Brief device info for live tag lookups (Process Return + L3 'Replace Device
-    with'). Returns Make/Model/RAM/Storage/Location/Status/Warranty as JSON."""
+    with' + Product Return 'Replace Now' + Extended Warranty). Returns
+    Make/Model/CPU/Lot/RAM/Storage/Location/Status/Warranty as JSON.
+
+    `require_stage`, when passed (e.g. "ready_to_sale"), restricts the match to a
+    device currently in that stage and reports found:false with an explanatory
+    error otherwise — used by Replace Now, which must only ever offer a device
+    that's actually sellable right now."""
     from fastapi.responses import JSONResponse
     bc = (barcode or "").strip()
     if not bc:
@@ -50,6 +56,14 @@ async def device_brief(barcode: str, db: AsyncSession = Depends(get_db),
     )).scalar_one_or_none()
     if not device:
         return JSONResponse({"found": False})
+    if require_stage and device.current_stage.value != require_stage:
+        return JSONResponse({
+            "found": False,
+            "error": (f"{device.barcode} is not in Ready to Sale stage "
+                      f"(currently {STAGE_LABELS.get(device.current_stage, device.current_stage)})."),
+        })
+    lot = (await db.execute(select(Lot).where(Lot.id == device.lot_id))).scalar_one_or_none()
+    lot_number = lot.lot_number if lot else "—"
     sale = (await db.execute(
         select(Sale).where(Sale.device_id == device.id).order_by(Sale.sold_at.desc()).limit(1)
     )).scalars().first()
@@ -84,6 +98,8 @@ async def device_brief(barcode: str, db: AsyncSession = Depends(get_db),
         "barcode": device.barcode,
         "make": device.brand or "—",
         "model": device.model or "—",
+        "cpu": device.cpu or "—",
+        "lot_number": lot_number,
         "ram": ram,
         "storage": storage,
         "location": loc,
@@ -903,7 +919,7 @@ _EXPORT_HEADER = [
     "Display Panel Cosmetic", "Bezel Frame Cosmetic", "Screen Cosmetic", "Hinge Cosmetic",
     "Touchpad Cosmetic", "Bottom Base Cosmetic", "Palmrest Cosmetic",
     "Device Price", "Grade", "Stage", "Final QC Status", "Stage History",
-    "Floor", "Warehouse", "Notes", "Created", "Updated",
+    "Location ID", "Warehouse", "Notes", "Created", "Updated",
 ]
 
 
@@ -929,7 +945,7 @@ async def _export_rows(db: AsyncSession, rows) -> StreamingResponse:
     CHUNK = 20000
     id_chunks = [device_ids[i:i + CHUNK] for i in range(0, len(device_ids), CHUNK)] if device_ids else []
 
-    movements_by_device, iqc_by_device = {}, {}
+    movements_by_device, iqc_by_device, location_map = {}, {}, {}
     for chunk in id_chunks:
         mv_result = await db.execute(
             select(StageMovement)
@@ -944,6 +960,12 @@ async def _export_rows(db: AsyncSession, rows) -> StreamingResponse:
         )
         for iqc in iqc_result.scalars().all():
             iqc_by_device[iqc.device_id] = iqc
+
+        # _build_location_map issues its own un-chunked .in_() query, so it
+        # must be called per-chunk here too — otherwise a full "All
+        # Inventory" export would reintroduce the exact 32767-bound-parameter
+        # crash the movements/IQC chunking above already exists to avoid.
+        location_map.update(await _build_location_map(db, [str(did) for did in chunk]))
 
     cosmetic_parts = next(p for g, _h, _f, _s, p in PART_GROUPS if g == "cosmetic")
 
@@ -983,6 +1005,11 @@ async def _export_rows(db: AsyncSession, rows) -> StreamingResponse:
     writer.writerow(_EXPORT_HEADER)
     for device, lot_number in rows:
         iqc = iqc_by_device.get(device.id)
+        loc_info = location_map.get(str(device.id)) or {}
+        # Same resolution order as /api/brief's own location display —
+        # most-recent DeviceLocationLog entry, falling back to the legacy
+        # free-text fields when a device has no logged location yet.
+        location_display = loc_info.get("unit_id") or device.warehouse or device.floor or ""
         row = [
             device.barcode, lot_number, device.grn_number, device.invoice_number, device.entity,
             device.sub_category, device.brand, device.model, device.device_type, device.serial_no,
@@ -999,7 +1026,7 @@ async def _export_rows(db: AsyncSession, rows) -> StreamingResponse:
             STAGE_LABELS.get(device.current_stage, device.current_stage),
             device.final_qc_status or "",
             _stage_history(device),
-            device.floor, device.warehouse, device.notes,
+            location_display, device.warehouse, device.notes,
             device.created_at.strftime("%d-%m-%Y %H:%M") if device.created_at else "",
             device.updated_at.strftime("%d-%m-%Y %H:%M") if device.updated_at else "",
         ]

@@ -1135,8 +1135,25 @@ async def returns_list(request: Request, db: AsyncSession = Depends(get_db),
         .order_by(Return.return_date.desc())
     )
     returns = result.all()
+
+    # Replace Now (Product Return) replacement rows — these tags were never
+    # "returned" (no Return record exists for them), they were sold at ₹0 as
+    # a replacement for a returned tag. Device.replaced, prefixed "Replaced
+    # with " by process_return above, flags them; merged into the same
+    # table — DataTables re-sorts both blocks together by Return Date on init.
+    repl_result = await db.execute(
+        select(Device.barcode, Device.brand, Device.model, Device.entity, Device.replaced,
+               Sale.sale_price, Sale.sale_number, Sale.sold_at, Sale.sold_by,
+               Sale.customer_name, Sale.customer_phone, Sale.customer_address)
+        .join(Sale, Sale.device_id == Device.id)
+        .where(Device.replaced.like('Replaced with %'), Sale.sale_price == 0)
+        .order_by(Sale.sold_at.desc())
+    )
+    replacements = repl_result.all()
+
     return templates.TemplateResponse("sales/returns_list.html", {
-        "request": request, "returns": returns, "current_user": current_user,
+        "request": request, "returns": returns, "replacements": replacements,
+        "current_user": current_user,
     })
 
 
@@ -1193,6 +1210,8 @@ async def process_return(
     refund_amount: str = Form("0"),
     notes: str = Form(""),
     return_type: str = Form("customer"),
+    replace_now: str = Form("no"),
+    replace_tag: str = Form(""),
     complaint_text: str = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
@@ -1242,6 +1261,42 @@ async def process_return(
             "error": "Condition on Return is required.", "sale": sale,
         })
 
+    # Replace Now — mark a Ready to Sale device sold at ₹0 as a replacement
+    # for the returned tag, using the same customer details as the original
+    # sale. Validated (and re-validated, never trusting the client) here,
+    # before anything is created, so a bad replacement tag never leaves a
+    # half-processed Return behind.
+    do_replace = (replace_now or "").strip().lower() == "yes"
+    replacement_device = None
+    if do_replace:
+        rtag = (replace_tag or "").strip()
+        if not rtag:
+            return templates.TemplateResponse("sales/return_form.html", {
+                "request": request, "current_user": current_user,
+                "error": "Select a Tag Number to replace with, or set Replace Now to No.",
+                "sale": sale,
+            })
+        if rtag == barcode:
+            return templates.TemplateResponse("sales/return_form.html", {
+                "request": request, "current_user": current_user,
+                "error": "Replacement Tag Number cannot be the same as the returned Tag Number.",
+                "sale": sale,
+            })
+        replacement_device = (await db.execute(
+            select(Device).where(Device.barcode == rtag)
+        )).scalar_one_or_none()
+        if not replacement_device:
+            return templates.TemplateResponse("sales/return_form.html", {
+                "request": request, "current_user": current_user,
+                "error": f"Replacement device {rtag} not found.", "sale": sale,
+            })
+        if replacement_device.current_stage != DeviceStage.ready_to_sale:
+            return templates.TemplateResponse("sales/return_form.html", {
+                "request": request, "current_user": current_user,
+                "error": f"Replacement device {rtag} is not in Ready to Sale stage.",
+                "sale": sale,
+            })
+
     # Determine intended re-entry stage (used once approved)
     if action_taken == "scrap":
         reentered_stage = "scrapped"
@@ -1279,6 +1334,32 @@ async def process_return(
                            "return_type": rtype, "warranty_status": warranty_status,
                            "complaint_text": complaint_text or None},
                 request=request)
+
+    if do_replace and replacement_device is not None:
+        sale_num = await _next_sale_number(db)
+        replacement_sale = Sale(
+            sale_number=sale_num, device_id=replacement_device.id, sale_price=Decimal("0"),
+            customer_name=sale.customer_name, customer_phone=sale.customer_phone,
+            customer_address=sale.customer_address, sold_by=current_user.username,
+            sold_at=app_now(), warranty_type="none",
+            notes=f"Replacement for returned tag {barcode}",
+        )
+        db.add(replacement_sale)
+        prev_stage = replacement_device.current_stage
+        replacement_device.current_stage = DeviceStage.sold
+        replacement_device.updated_at = app_now()
+        # Reuses the existing Device.replaced field (no new schema needed) —
+        # same field routers/stock.py and routers/repair.py already use for
+        # "Replaced by/from <tag>"; "Replaced with " here is this page's own
+        # prefix and is what the Returns list badge matches on.
+        replacement_device.replaced = f"Replaced with {barcode}"
+        db.add(StageMovement(device_id=replacement_device.id, from_stage=prev_stage,
+                             to_stage=DeviceStage.sold, moved_by=current_user.username,
+                             notes=f"Replacement sale for returned tag {barcode} — {sale_num}"))
+        await audit(db, user=current_user, action="RETURN_REPLACEMENT_SOLD",
+                    table_name="devices", record_id=str(replacement_device.id),
+                    new_value={"replaced_with": barcode, "sale_number": sale_num},
+                    request=request)
 
     await db.commit()
     return RedirectResponse(url="/returns?success=Return+submitted+for+manager+approval",

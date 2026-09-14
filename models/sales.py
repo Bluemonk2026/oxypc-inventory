@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from utils.timezone import app_now
-from sqlalchemy import Column, String, DateTime, Numeric, ForeignKey, Text
+from sqlalchemy import Column, String, DateTime, Numeric, ForeignKey, Text, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from database import Base
@@ -44,6 +44,14 @@ class Sale(Base):
     # ── Warranty at sale (Phase 1a) ──────────────────────────────────────────────
     warranty_type       = Column(String(20), default="none")   # none/30_days/6_months/1_year
     warranty_expires_at = Column(DateTime, nullable=True)       # server-computed from sold_at + duration
+    # ── Extended Warranty page (2026-09-14) ───────────────────────────────────────
+    # Running total of warranty length in days. Set from Warranty Type's duration
+    # when (re)assigned via the Extended Warranty page's top form; incremented by
+    # the Update modal's "Extended Warranty" date whenever a warranty is extended
+    # past its current Warranty Stops date. Nullable — sales that have never had
+    # their warranty touched by this page fall back to WARRANTY_DURATIONS[warranty_type]
+    # for display (see routers/extended_warranty.py).
+    warranty_days = Column(Integer, nullable=True)
     # ── Sales channel (Admin Dashboard analytics) ─────────────────────────────
     sale_channel = Column(String(20), nullable=True)   # procurement / telecaller / showroom
     # ── Selling company, resolved and SNAPSHOTTED at sale time (2026-08) ──────

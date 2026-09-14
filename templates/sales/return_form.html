@@ -55,12 +55,38 @@
             </div>
           </div>
           <div class="mb-3">
-            <label class="form-label fw-semibold">Return Type</label>
-            <select name="return_type" class="form-select">
-              {% for t in master_options('return_type') %}
-              <option value="{{ t }}">{{ t | title }} Return</option>
-              {% endfor %}
-            </select>
+            <label class="form-label fw-semibold d-block">Replace Now</label>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="replace_now" id="replaceNowNo" value="no" checked>
+              <label class="form-check-label" for="replaceNowNo">No</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="replace_now" id="replaceNowYes" value="yes">
+              <label class="form-check-label" for="replaceNowYes">Yes</label>
+            </div>
+          </div>
+          <div class="mb-3 d-none" id="replaceNowBox">
+            <label class="form-label fw-semibold">Replace With — Tag Number</label>
+            <input type="hidden" name="replace_tag" id="replaceTagHidden">
+            <div class="input-group">
+              <input type="text" id="replaceIdentity" class="form-control barcode-field font-monospace"
+                     placeholder="Scan Tag Number to replace with (Ready to Sale only)">
+              <button type="button" class="btn btn-outline-primary" id="replaceSearchBtn">
+                <i class="bi bi-search me-1"></i>Search</button>
+            </div>
+            <div id="replaceBriefMsg" class="mt-2"></div>
+            <div id="replaceBrief" class="card border-0 bg-light mt-2 d-none">
+              <div class="card-body py-2 px-3 small">
+                <div class="row g-2">
+                  <div class="col-6"><span class="text-muted">Tag Number:</span> <strong id="rp_barcode">—</strong></div>
+                  <div class="col-6"><span class="text-muted">Lot Number:</span> <strong id="rp_lot">—</strong></div>
+                  <div class="col-6"><span class="text-muted">Model:</span> <strong id="rp_model">—</strong></div>
+                  <div class="col-6"><span class="text-muted">CPU:</span> <strong id="rp_cpu">—</strong></div>
+                  <div class="col-6"><span class="text-muted">RAM:</span> <strong id="rp_ram">—</strong></div>
+                  <div class="col-6"><span class="text-muted">Storage:</span> <strong id="rp_storage">—</strong></div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Return Reason</label>
@@ -268,6 +294,76 @@
 
   checkBtn.addEventListener('click', check);
   identity.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); check(); } });
+})();
+
+(function(){
+  var noRadio = document.getElementById('replaceNowNo');
+  var yesRadio = document.getElementById('replaceNowYes');
+  var box = document.getElementById('replaceNowBox');
+  var replaceIdentity = document.getElementById('replaceIdentity');
+  var replaceTagHidden = document.getElementById('replaceTagHidden');
+  var searchBtn = document.getElementById('replaceSearchBtn');
+  var brief = document.getElementById('replaceBrief');
+  var msg = document.getElementById('replaceBriefMsg');
+  var form = document.querySelector('#internalTagsTab form');
+  if(!noRadio || !yesRadio) return;
+
+  function clearReplace(){
+    brief.classList.add('d-none');
+    msg.innerHTML = '';
+    replaceTagHidden.value = '';
+  }
+
+  function toggleBox(){
+    if(yesRadio.checked){
+      box.classList.remove('d-none');
+    } else {
+      box.classList.add('d-none');
+      replaceIdentity.value = '';
+      clearReplace();
+    }
+  }
+  noRadio.addEventListener('change', toggleBox);
+  yesRadio.addEventListener('change', toggleBox);
+
+  function searchReplace(){
+    var val = replaceIdentity.value.trim();
+    if(!val){
+      clearReplace();
+      msg.innerHTML = '<div class="alert alert-warning py-2 px-3 small mb-0">Enter a Tag Number to search.</div>';
+      return;
+    }
+    fetch('/devices/api/brief?barcode=' + encodeURIComponent(val) + '&require_stage=ready_to_sale')
+      .then(function(r){ return r.ok ? r.json() : {found:false}; })
+      .then(function(d){
+        if(d && d.found){
+          replaceTagHidden.value = d.barcode;
+          document.getElementById('rp_barcode').textContent = d.barcode;
+          document.getElementById('rp_lot').textContent = d.lot_number || '—';
+          document.getElementById('rp_model').textContent = d.model;
+          document.getElementById('rp_cpu').textContent = d.cpu;
+          document.getElementById('rp_ram').textContent = d.ram;
+          document.getElementById('rp_storage').textContent = d.storage;
+          brief.classList.remove('d-none');
+          msg.innerHTML = '';
+        } else {
+          clearReplace();
+          msg.innerHTML = '<div class="alert alert-danger py-2 px-3 small mb-0">' +
+            (d.error || (val + ' is not listed in our database.')) + '</div>';
+        }
+      }).catch(function(){ clearReplace(); });
+  }
+  searchBtn.addEventListener('click', searchReplace);
+  replaceIdentity.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); searchReplace(); } });
+
+  if(form){
+    form.addEventListener('submit', function(e){
+      if(yesRadio.checked && !replaceTagHidden.value){
+        e.preventDefault();
+        alert('Search and select a valid Ready to Sale Tag Number to replace with, or set Replace Now to No.');
+      }
+    });
+  }
 })();
 </script>
 {% endblock %}

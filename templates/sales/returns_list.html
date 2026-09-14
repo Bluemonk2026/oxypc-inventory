@@ -74,6 +74,21 @@
           </td>
         </tr>
         {% endfor %}
+        {% for barcode, brand, model, entity, replaced, sale_price, sale_number, sold_at, sold_by, customer_name, customer_phone, customer_address in replacements %}
+        <tr>
+          <td>{{ sold_at.strftime('%d-%b-%Y') if sold_at else '—' }}</td>
+          <td><code>{{ barcode }}</code><br><span class="badge bg-info text-dark">{{ replaced }}</span></td>
+          <td>{{ brand }} {{ model }}</td>
+          <td><code>{{ sale_number }}</code></td>
+          <td>&#8377;{{ "{:,.0f}".format(sale_price) }}</td>
+          <td>—</td>
+          <td>—</td>
+          <td>—</td>
+          <td><span class="badge bg-secondary">Replacement</span></td>
+          <td class="text-muted">{{ sold_by or '—' }}</td>
+          <td>—</td>
+        </tr>
+        {% endfor %}
       </tbody>
     </table>
   </div>

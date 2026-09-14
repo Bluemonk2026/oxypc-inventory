@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}Extended Warranty — OxyPC{% endblock %}
+{% block page_title %}Extended Warranty{% endblock %}
+{% block content %}
+{% if success %}<div class="alert alert-success">{{ success }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-shield-check me-2"></i>Set Warranty</div>
+  <div class="card-body">
+    <form action="/extended-warranty/set" method="post" id="warrantySetForm">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">Tag Number</label>
+          <div class="input-group">
+            <input type="text" name="barcode" id="ewBarcode" class="form-control barcode-field font-monospace"
+                   placeholder="Scan Tag Number" required autofocus>
+            <button type="button" class="btn btn-outline-primary" id="ewSearchBtn"><i class="bi bi-search"></i></button>
+          </div>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Lot Number</label>
+          <input type="text" id="ewLot" class="form-control" readonly>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label fw-semibold">Warranty (in days)</label>
+          <select name="warranty_type" id="ewWarrantyType" class="form-select" required>
+            <option value="">-- Select --</option>
+            {% for t in master_options('sale_warranty_type') %}
+            {% if t != 'none' %}
+            <option value="{{ t }}">{{ t | replace('_',' ') | title }}</option>
+            {% endif %}
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Warranty Starts</label>
+          <input type="text" id="ewStarts" class="form-control" readonly placeholder="Date of mark sold">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Warranty Stops</label>
+          <input type="text" id="ewStops" class="form-control" readonly>
+        </div>
+        <div class="col-md-1">
+          <button type="submit" class="btn btn-warning w-100"><i class="bi bi-check2"></i></button>
+        </div>
+      </div>
+      <div id="ewMsg" class="mt-2"></div>
+    </form>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <table id="warrantyTable" class="table table-hover mb-0 small">
+      <thead class="table-dark">
+        <tr>
+          <th>Tag Number</th><th>Lot Number</th><th>Warranty (in days)</th>
+          <th>Warranty Starts</th><th>Warranty Stops</th><th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><code>{{ r.barcode }}</code></td>
+          <td>{{ r.lot_number or '—' }}</td>
+          <td>{{ r.warranty_days if r.warranty_days is not none else '—' }}</td>
+          <td>{{ r.sale.sold_at.strftime('%d-%m-%Y') if r.sale.sold_at else '—' }}</td>
+          <td>{{ r.sale.warranty_expires_at.strftime('%d-%m-%Y') if r.sale.warranty_expires_at else '—' }}</td>
+          <td>
+            <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 ew-update-btn"
+                    data-sale-id="{{ r.sale.id }}"
+                    data-barcode="{{ r.barcode }}"
+                    data-starts="{{ r.sale.sold_at.strftime('%d-%m-%Y') if r.sale.sold_at else '—' }}"
+                    data-expires-iso="{{ r.sale.warranty_expires_at.isoformat() if r.sale.warranty_expires_at else '' }}">
+              Update
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Update modal — shared, populated from the clicked row's data-* attributes -->
+<div class="modal fade" id="ewUpdateModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-shield-plus me-2"></i>Extend Warranty</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="ewuSaleId">
+        <div class="mb-2"><span class="text-muted small">Tag Number:</span> <strong id="ewu_barcode">—</strong></div>
+        <div class="mb-2"><span class="text-muted small">Warranty Starts:</span> <strong id="ewu_starts">—</strong></div>
+        <div class="mb-2"><span class="text-muted small">Warranty Left:</span> <strong id="ewu_left">—</strong></div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Extended Warranty</label>
+          <input type="date" id="ewuDate" class="form-control">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Notes</label>
+          <textarea id="ewuNotes" class="form-control" rows="2"></textarea>
+        </div>
+        <div id="ewuMsg"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="ewuSubmit" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){ $('#warrantyTable').DataTable({pageLength: 15}); });
+
+var EW_CSRF = "{{ request.cookies.get('csrf_token','') }}";
+var WARRANTY_DAY_MAP = { '30_days': 30, '6_months': 182, '1_year': 365 };
+
+(function(){
+  var barcodeInput = document.getElementById('ewBarcode');
+  var searchBtn = document.getElementById('ewSearchBtn');
+  var lotEl = document.getElementById('ewLot');
+  var startsEl = document.getElementById('ewStarts');
+  var stopsEl = document.getElementById('ewStops');
+  var typeEl = document.getElementById('ewWarrantyType');
+  var msg = document.getElementById('ewMsg');
+  var startsIso = null;
+
+  function recomputeStops(){
+    if(!startsIso || !typeEl.value){ stopsEl.value = ''; return; }
+    var days = WARRANTY_DAY_MAP[typeEl.value];
+    if(!days){ stopsEl.value = ''; return; }
+    var d = new Date(startsIso);
+    d.setDate(d.getDate() + days);
+    stopsEl.value = d.toLocaleDateString('en-GB').replace(/\//g,'-');
+  }
+
+  function search(){
+    var val = barcodeInput.value.trim();
+    if(!val) return;
+    fetch('/devices/api/brief?barcode=' + encodeURIComponent(val))
+      .then(function(r){ return r.ok ? r.json() : {found:false}; })
+      .then(function(d){
+        if(d && d.found){
+          lotEl.value = d.lot_number || '—';
+          startsEl.value = d.sold_on || '—';
+          startsIso = (d.sold_on && d.sold_on !== '—') ? d.sold_on.split('-').reverse().join('-') : null;
+          msg.innerHTML = '';
+          recomputeStops();
+        } else {
+          lotEl.value = ''; startsEl.value = ''; stopsEl.value = ''; startsIso = null;
+          msg.innerHTML = '<div class="alert alert-danger py-2 px-3 small mb-0">' +
+            (d.error || (val + ' not found, or not sold yet.')) + '</div>';
+        }
+      });
+  }
+  searchBtn.addEventListener('click', search);
+  barcodeInput.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); search(); } });
+  typeEl.addEventListener('change', recomputeStops);
+})();
+
+document.querySelectorAll('.ew-update-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.getElementById('ewuSaleId').value = btn.dataset.saleId;
+    document.getElementById('ewu_barcode').textContent = btn.dataset.barcode;
+    document.getElementById('ewu_starts').textContent = btn.dataset.starts;
+    var left = '—';
+    if(btn.dataset.expiresIso){
+      var diffDays = Math.ceil((new Date(btn.dataset.expiresIso) - new Date()) / 86400000);
+      left = diffDays > 0 ? (diffDays + ' days') : 'Expired';
+    }
+    document.getElementById('ewu_left').textContent = left;
+    document.getElementById('ewuDate').value = '';
+    document.getElementById('ewuNotes').value = '';
+    document.getElementById('ewuMsg').innerHTML = '';
+    new bootstrap.Modal(document.getElementById('ewUpdateModal')).show();
+  });
+});
+
+document.getElementById('ewuSubmit').addEventListener('click', function(){
+  var saleId = document.getElementById('ewuSaleId').value;
+  var dateVal = document.getElementById('ewuDate').value;
+  var msg = document.getElementById('ewuMsg');
+  if(!dateVal){ msg.innerHTML = '<div class="alert alert-warning py-2 px-3 small mb-0 mt-2">Select the new Extended Warranty date.</div>'; return; }
+  var fd = new FormData();
+  fd.append('csrf_token', EW_CSRF);
+  fd.append('extended_warranty', dateVal);
+  fd.append('notes', document.getElementById('ewuNotes').value || '');
+  fetch('/extended-warranty/' + saleId + '/update', {method:'POST', body:fd})
+    .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, body:d}; }); })
+    .then(function(res){
+      if(res.ok && res.body.ok){
+        location.reload();
+      } else {
+        msg.innerHTML = '<div class="alert alert-danger py-2 px-3 small mb-0 mt-2">' + (res.body.detail || 'Failed to save.') + '</div>';
+      }
+    });
+});
+</script>
+{% endblock %}

@@ -99,7 +99,7 @@
       {% endif %}
 
       {# ── INVENTORY ───────────────────────────────────────────────────── #}
-      {% if any_perm(role,'stock','production_manager','part_estimation','transfers','inventory_requests','model_requested') %}
+      {% if any_perm(role,'stock','production_manager','extended_warranty','part_estimation','transfers','inventory_requests','model_requested') %}
       <li class="nav-section">INVENTORY</li>
       {% if has_perm(role,'stock','enable') and not module_hidden('stock') %}
       <li><a href="/stock" class="nav-link {% if request.url.path == '/stock' %}active{% endif %}">
@@ -127,6 +127,11 @@
       {% if has_perm(role,'production_manager','enable') and not module_hidden('production_manager') %}
       <li><a href="/trc-production" class="nav-link {% if '/trc-production' in request.url.path %}active{% endif %}">
         <i class="bi bi-cpu me-2"></i> {{ sidebar_label('production_manager', 'Production Manager') }}
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'extended_warranty','enable') and not module_hidden('extended_warranty') %}
+      <li><a href="/extended-warranty" class="nav-link {% if '/extended-warranty' in request.url.path %}active{% endif %}">
+        <i class="bi bi-shield-check me-2"></i> {{ sidebar_label('extended_warranty', 'Extended Warranty') }}
       </a></li>
       {% endif %}
       {% if has_perm(role,'part_estimation','enable') and not module_hidden('part_estimation') %}

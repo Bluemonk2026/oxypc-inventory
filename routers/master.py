@@ -121,6 +121,7 @@ PERM_MODULES = [
     # ── INVENTORY ──────────────────────────────────────────────────
     ("stock",                "Stock Inwards"),
     ("production_manager",   "Production Manager"),
+    ("extended_warranty",    "Extended Warranty"),
     ("part_estimation",      "Part Estimation"),
     ("scrap_products",       "Scrap Products"),
     ("transfers",            "Move Device"),

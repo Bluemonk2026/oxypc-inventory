@@ -91,12 +91,15 @@
         </thead>
         <tbody>
           {% for g in grns %}
-          {% set _lot = lots_by_id.get(g.lot_id) if lots_by_id is defined and g.lot_id else None %}
+          {% set _lots = lots_by_grn.get(g.grn_number, []) if lots_by_grn is defined else [] %}
           <tr id="grn-{{ g.grn_number }}">
             <td class="ps-3"><span class="font-monospace fw-bold">{{ g.grn_number }}</span></td>
             <td>
-              {% if _lot %}
-              <a href="/lots/{{ _lot.id }}" class="text-decoration-none fw-semibold">{{ _lot.lot_number }}</a>
+              {% if _lots %}
+              <button type="button" class="btn btn-sm btn-link p-0 fw-semibold text-decoration-none lot-count-btn"
+                      data-grn="{{ g.grn_number }}">
+                {{ _lots | length }} Lot{{ 's' if _lots | length != 1 else '' }}
+              </button>
               {% else %}
               <span class="text-muted">—</span>
               {% endif %}
@@ -121,7 +124,7 @@
               <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
                       data-bs-toggle="modal" data-bs-target="#editGrnModal"
                       data-id="{{ g.id }}" data-grn-number="{{ g.grn_number }}"
-                      data-lot-number="{{ _lot.lot_number if _lot else '' }}"
+                      data-lot-number="{{ _lots | map(attribute='lot_number') | join(', ') }}"
                       data-inv="{{ g.invoice_number or '' }}" data-date="{{ g.invoice_date or '' }}"
                       data-sender="{{ g.sender_name or '' }}" data-qty="{{ g.quantity if g.quantity is not none else '' }}"
                       data-amount="{{ g.amount if g.amount is not none else '' }}"
@@ -131,10 +134,15 @@
                       data-eway="{{ g.e_way_bill or '' }}" data-notes="{{ g.notes or '' }}">
                 <i class="bi bi-pencil"></i> Edit
               </button>
-              {% if _lot %}
-              <a href="/lots/{{ _lot.id }}/edit" class="btn btn-sm btn-outline-secondary py-0 px-2"><i class="bi bi-box-seam"></i> Edit Lot</a>
+              {% if _lots %}
+              <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 add-lot-btn"
+                      data-grn-id="{{ g.id }}" data-lot-numbers="{{ _lots | map(attribute='lot_number') | join(',') }}">
+                <i class="bi bi-box-seam"></i> Edit Lot
+              </button>
               {% else %}
-              <button type="button" class="btn btn-sm btn-outline-success py-0 px-2 add-lot-btn" data-grn-id="{{ g.id }}"><i class="bi bi-box-seam"></i> Add Lot</button>
+              <button type="button" class="btn btn-sm btn-outline-success py-0 px-2 add-lot-btn" data-grn-id="{{ g.id }}">
+                <i class="bi bi-box-seam"></i> Add Lot
+              </button>
               {% endif %}
               <button type="button" class="btn btn-sm btn-warning py-0 px-2 map-grn-btn"
                       data-id="{{ g.id }}" data-grn="{{ g.grn_number }}">
@@ -330,27 +338,39 @@
   </div>
 </div>
 
-<!-- Add Lot modal -->
-<div class="modal fade" id="addLotModal" tabindex="-1" aria-hidden="true">
+<!-- Mapped Lots modal — opened from the LOT column's "N Lots" count -->
+<div class="modal fade" id="lotListModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-box-seam me-2"></i>Mapped Lots</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <ul class="list-group" id="lotListItems"></ul>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Lot modal -->
+<div class="modal fade" id="addLotModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
     <form id="addLotForm" class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-box-seam me-2"></i>Add Lot</h5>
+        <h5 class="modal-title"><i class="bi bi-box-seam me-2"></i>Add/Edit Lot</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="al_grn_id">
-        <div class="mb-2">
-          <label class="form-label fw-semibold">Lot Number</label>
-          <input type="text" id="al_lot_number" class="form-control" required>
-        </div>
-        <div class="alert alert-warning d-none" id="al_existing_warning">
-          This Lot Number already exists.
-          <div class="form-check mt-1">
-            <input class="form-check-input" type="checkbox" id="al_confirm_merge">
-            <label class="form-check-label" for="al_confirm_merge">Are you sure want to add tags in this Lot</label>
-          </div>
-        </div>
+        <label class="form-label fw-semibold">Lot Number(s)</label>
+        <div id="al_rows"></div>
+        <button type="button" id="al_add_row" class="btn btn-sm btn-outline-primary mt-1">
+          <i class="bi bi-plus-lg"></i> Add another Lot
+        </button>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -508,35 +528,137 @@ if (em) { em.addEventListener('show.bs.modal', function(e){
   document.getElementById('e_notes').value = b.getAttribute('data-notes') || '';
 });}
 
-// Add Lot modal wiring
+// Mapped Lots popup — opened from the LOT column's "N Lots" count.
+// Keyed by grn_number rather than embedded per-button as a JSON attribute,
+// since tojson's escaping targets <script> contexts, not HTML attributes,
+// and a lot number could contain a double quote.
+var lotsByGrn = {{ (lots_json if lots_json is defined else {}) | tojson }};
+document.querySelectorAll('.lot-count-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var lots = lotsByGrn[this.getAttribute('data-grn')] || [];
+    var list = document.getElementById('lotListItems');
+    list.innerHTML = '';
+    lots.forEach(function(l){
+      var li = document.createElement('li');
+      li.className = 'list-group-item';
+      var a = document.createElement('a');
+      a.href = '/lots/' + l.id;
+      a.className = 'text-decoration-none fw-semibold';
+      a.textContent = l.lot_number;
+      li.appendChild(a);
+      list.appendChild(li);
+    });
+    new bootstrap.Modal(document.getElementById('lotListModal')).show();
+  });
+});
+
+// Add/Edit Lot modal wiring — one row per Lot Number, so a GRN can map to
+// several Lots in one submit, created/merged the same way each row always
+// was individually. Edit Lot pre-fills a row per Lot already mapped to this
+// GRN so it's visible and editable, not just re-addable from scratch.
+function alMakeRow(lotNumber, isPrefilled) {
+  var row = document.createElement('div');
+  row.className = 'row g-2 align-items-start mb-2 al-row';
+  row.innerHTML =
+    '<div class="col-10">' +
+      '<input type="text" class="form-control form-control-sm al-lot-number" placeholder="Lot Number" required>' +
+      '<div class="alert alert-warning d-none py-1 px-2 mt-1 small al-existing-warning mb-0">' +
+        'This Lot Number already exists.' +
+        '<div class="form-check">' +
+          '<input class="form-check-input al-confirm-merge" type="checkbox">' +
+          '<label class="form-check-label">Are you sure want to add tags in this Lot</label>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="col-2 pt-1"><button type="button" class="btn btn-sm btn-outline-danger al-remove-row"><i class="bi bi-x-lg"></i></button></div>';
+  var input = row.querySelector('.al-lot-number');
+  var warn = row.querySelector('.al-existing-warning');
+  var confirmBox = row.querySelector('.al-confirm-merge');
+  input.value = lotNumber || '';
+  if (isPrefilled) {
+    // Already mapped to this GRN — resubmitting it unchanged is a no-op
+    // merge, so skip the "already exists" friction and pre-confirm it.
+    confirmBox.checked = true;
+    row.dataset.prefilled = '1';
+  }
+  input.addEventListener('input', function(){
+    if (row.dataset.prefilled === '1' && input.value.trim() !== (lotNumber || '')) {
+      row.dataset.prefilled = '';
+      confirmBox.checked = false;
+    }
+  });
+  input.addEventListener('blur', function(){
+    var v = input.value.trim();
+    warn.classList.add('d-none');
+    if (!v || row.dataset.prefilled === '1') return;
+    fetch('/grn/lots/check?lot_number=' + encodeURIComponent(v)).then(function(r){ return r.json(); }).then(function(resp){
+      warn.classList.toggle('d-none', !resp.exists);
+      if (!resp.exists) confirmBox.checked = false;
+    });
+  });
+  row.querySelector('.al-remove-row').addEventListener('click', function(){
+    if (document.querySelectorAll('#al_rows .al-row').length > 1) row.remove();
+  });
+  return row;
+}
+document.getElementById('al_add_row').addEventListener('click', function(){
+  document.getElementById('al_rows').appendChild(alMakeRow('', false));
+});
 document.querySelectorAll('.add-lot-btn').forEach(function(btn){
   btn.addEventListener('click', function(){
     document.getElementById('al_grn_id').value = this.getAttribute('data-grn-id');
-    document.getElementById('al_lot_number').value = '';
-    document.getElementById('al_existing_warning').classList.add('d-none');
-    document.getElementById('al_confirm_merge').checked = false;
+    var rowsBox = document.getElementById('al_rows');
+    rowsBox.innerHTML = '';
+    var existingNumbers = (this.getAttribute('data-lot-numbers') || '')
+      .split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+    if (existingNumbers.length) {
+      existingNumbers.forEach(function(n){ rowsBox.appendChild(alMakeRow(n, true)); });
+    } else {
+      rowsBox.appendChild(alMakeRow('', false));
+    }
     new bootstrap.Modal(document.getElementById('addLotModal')).show();
-  });
-});
-document.getElementById('al_lot_number').addEventListener('blur', function(){
-  var v = this.value.trim();
-  if (!v) return;
-  fetch('/grn/lots/check?lot_number=' + encodeURIComponent(v)).then(function(r){ return r.json(); }).then(function(resp){
-    document.getElementById('al_existing_warning').classList.toggle('d-none', !resp.exists);
   });
 });
 document.getElementById('addLotForm').addEventListener('submit', function(e){
   e.preventDefault();
+  var rows = document.querySelectorAll('#al_rows .al-row');
+  var lotNumbers = [];
+  var confirms = [];
+  var missing = false;
+  rows.forEach(function(row){
+    var v = row.querySelector('.al-lot-number').value.trim();
+    if (!v) { missing = true; return; }
+    lotNumbers.push(v);
+    confirms.push(row.querySelector('.al-confirm-merge').checked ? '1' : '');
+  });
+  if (missing || !lotNumbers.length) { alert('Enter at least one Lot Number.'); return; }
   var fd = new FormData();
   fd.append('csrf_token', document.querySelector('#editGrnForm input[name="csrf_token"]').value);
-  fd.append('lot_number', document.getElementById('al_lot_number').value.trim());
-  fd.append('confirm_merge', document.getElementById('al_confirm_merge').checked ? '1' : '');
+  lotNumbers.forEach(function(n){ fd.append('lot_number', n); });
+  confirms.forEach(function(c){ fd.append('confirm_merge', c); });
   fetch('/grn/' + document.getElementById('al_grn_id').value + '/add-lot', {method:'POST', body:fd})
     .then(function(r){
       if (!r.ok) { return r.json().then(function(j){ throw new Error(j.detail || 'Failed'); }); }
       return r.json();
     })
-    .then(function(){ location.reload(); })
+    .then(function(resp){
+      if (!resp.ok) {
+        if (resp.conflicts && resp.conflicts.length) {
+          resp.conflicts.forEach(function(ln){
+            rows.forEach(function(row){
+              if (row.querySelector('.al-lot-number').value.trim() === ln) {
+                row.querySelector('.al-existing-warning').classList.remove('d-none');
+              }
+            });
+          });
+          alert('Some Lot Numbers already exist — tick the confirmation box for each and Save again.');
+          return;
+        }
+        alert(resp.detail || 'Failed');
+        return;
+      }
+      location.reload();
+    })
     .catch(function(err){ alert(err.message); });
 });
 

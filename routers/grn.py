@@ -202,12 +202,36 @@ async def grn_post_iqc(request: Request, db: AsyncSession = Depends(get_db),
         )
     )).scalar() or 0
 
-    # Lot Number column — mapped Lot per GRN, for the clickable display cell.
-    lot_ids = {g.lot_id for g in grns if g.lot_id}
-    lots_by_id = {}
-    if lot_ids:
-        lot_rows = (await db.execute(select(Lot).where(Lot.id.in_(lot_ids)))).scalars().all()
-        lots_by_id = {l.id: l for l in lot_rows}
+    # Lot Number column — every Lot mapped to a GRN (Add/Edit Lot can now map
+    # several Lots onto one GRN, not just one), keyed by grn_number since
+    # that's the field each mapped Lot's own grn_system_number points back to.
+    grn_numbers = [g.grn_number for g in grns if g.grn_number]
+    lots_by_grn: dict[str, list] = {}
+    seen_lot_ids = set()
+    if grn_numbers:
+        lot_rows = (await db.execute(
+            select(Lot).where(Lot.grn_system_number.in_(grn_numbers)).order_by(Lot.lot_number)
+        )).scalars().all()
+        for l in lot_rows:
+            lots_by_grn.setdefault(l.grn_system_number, []).append(l)
+            seen_lot_ids.add(l.id)
+    # Legacy fallback: older rows may have GRNImport.lot_id set without the
+    # matching Lot.grn_system_number backfilled (see backfill_lot_grn_system_number.py).
+    missing_fk_ids = {g.lot_id for g in grns if g.lot_id} - seen_lot_ids
+    if missing_fk_ids:
+        fk_lot_by_id = {l.id: l for l in (await db.execute(
+            select(Lot).where(Lot.id.in_(missing_fk_ids))
+        )).scalars().all()}
+        for g in grns:
+            if g.lot_id in fk_lot_by_id:
+                lots_by_grn.setdefault(g.grn_number, []).append(fk_lot_by_id[g.lot_id])
+
+    # JSON-serializable form for the "N Lots" popup (id + lot_number only —
+    # Lot itself isn't JSON-safe to dump straight into a data attribute).
+    lots_json = {
+        grn_number: [{"id": str(l.id), "lot_number": l.lot_number} for l in lots]
+        for grn_number, lots in lots_by_grn.items()
+    }
 
     return templates.TemplateResponse("grn/post_iqc.html", {
         "request": request, "grns": grns, "pending_count": pending_count,
@@ -215,7 +239,8 @@ async def grn_post_iqc(request: Request, db: AsyncSession = Depends(get_db),
         "current_user": current_user, "error": error, "success": success,
         "highlight_tag": highlight_tag,
         "device_type_options": ["Laptop", "Desktop", "AIO", "Workstation", "Mini PC", "Server", "Tablet"],
-        "lots_by_id": lots_by_id,
+        "lots_by_grn": lots_by_grn,
+        "lots_json": lots_json,
     })
 
 
@@ -804,27 +829,34 @@ async def grn_edit(
     g.e_way_bill = e_way_bill or None
     g.notes = notes or None
 
-    # Mirror the shared header fields onto the mapped Lot, if this GRN has one.
-    if g.lot_id:
-        lot = (await db.execute(select(Lot).where(Lot.id == g.lot_id))).scalar_one_or_none()
-        if lot:
-            lot.vendor_name = g.sender_name
-            lot.supplier_name = g.sender_name or lot.supplier_name
-            lot.invoice_no = g.invoice_number
-            try:
-                lot.invoice_date = datetime.fromisoformat(invoice_date) if invoice_date else lot.invoice_date
-            except ValueError:
-                pass
-            lot.invoice_value = g.amount
-            lot.qty = g.quantity or lot.qty
-            lot.purchase_date = (datetime.combine(g.purchase_date, datetime.min.time())
-                                  if g.purchase_date else lot.purchase_date)
-            lot.grn_date = (datetime.combine(g.grn_date, datetime.min.time())
-                             if g.grn_date else lot.grn_date)
-            lot.po_number = g.po_number
-            lot.vehicle_number = g.vehicle_number
-            lot.e_way_bill = g.e_way_bill
-            lot.notes = g.notes
+    # Mirror the shared header fields onto every Lot mapped to this GRN. A GRN
+    # can now carry several Lots via the Add/Edit Lot modal, so this can no
+    # longer assume a single g.lot_id — it mirrors onto the full set.
+    mapped_lots = (await db.execute(
+        select(Lot).where(Lot.grn_system_number == g.grn_number)
+    )).scalars().all()
+    if g.lot_id and not any(lot.id == g.lot_id for lot in mapped_lots):
+        legacy_lot = (await db.execute(select(Lot).where(Lot.id == g.lot_id))).scalar_one_or_none()
+        if legacy_lot:
+            mapped_lots.append(legacy_lot)
+    for lot in mapped_lots:
+        lot.vendor_name = g.sender_name
+        lot.supplier_name = g.sender_name or lot.supplier_name
+        lot.invoice_no = g.invoice_number
+        try:
+            lot.invoice_date = datetime.fromisoformat(invoice_date) if invoice_date else lot.invoice_date
+        except ValueError:
+            pass
+        lot.invoice_value = g.amount
+        lot.qty = g.quantity or lot.qty
+        lot.purchase_date = (datetime.combine(g.purchase_date, datetime.min.time())
+                              if g.purchase_date else lot.purchase_date)
+        lot.grn_date = (datetime.combine(g.grn_date, datetime.min.time())
+                         if g.grn_date else lot.grn_date)
+        lot.po_number = g.po_number
+        lot.vehicle_number = g.vehicle_number
+        lot.e_way_bill = g.e_way_bill
+        lot.notes = g.notes
 
     await db.commit()
     return RedirectResponse(url=f"/grn/post-iqc?success=GRN+{g.grn_number}+updated", status_code=302)
@@ -842,12 +874,17 @@ async def grn_lot_check(lot_number: str, db: AsyncSession = Depends(get_db),
 
 
 @router.post("/{grn_id}/add-lot")
-async def grn_add_lot(grn_id: str, lot_number: str = Form(...), confirm_merge: str = Form(""),
+async def grn_add_lot(grn_id: str, lot_number: list[str] = Form(...),
+                       confirm_merge: list[str] = Form(default=[]),
                        db: AsyncSession = Depends(get_db), current_user: User = Depends(allowed)):
-    """GRN in Plant 'Add Lot' action — maps this GRN to a Lot Number. If the
-    lot number already exists, requires the confirm_merge checkbox (else 409)
-    and pulls the existing Lot's header fields onto this GRN. Otherwise
-    creates a brand-new Lot seeded from this GRN's current fields."""
+    """GRN in Plant 'Add/Edit Lot' action — maps this GRN to one or more Lot
+    Numbers, entered as multiple rows in the same modal. Each row runs the
+    same per-lot create-or-merge logic the single-lot flow always used: if a
+    typed Lot Number already exists, its row's confirm_merge checkbox must be
+    ticked (checked with a first pass below, before anything is written) and
+    the existing Lot's header fields win onto this GRN; otherwise a brand-new
+    Lot is created, seeded from this GRN's current fields — just repeated
+    once per row so a GRN can now carry several Lots instead of only one."""
     try:
         import uuid as _u
         gid = _u.UUID(grn_id)
@@ -857,53 +894,70 @@ async def grn_add_lot(grn_id: str, lot_number: str = Form(...), confirm_merge: s
     if not g:
         raise HTTPException(404, "GRN not found")
 
-    existing = (await db.execute(select(Lot).where(Lot.lot_number == lot_number))).scalar_one_or_none()
-    if existing:
-        if not confirm_merge:
-            raise HTTPException(409, "Lot Number already exists — check the confirmation box to merge into it.")
-        g.lot_id = existing.id
-        # Existing Lot is authoritative — pull its header fields onto this GRN row.
-        g.sender_name = existing.vendor_name or existing.supplier_name or g.sender_name
-        g.invoice_number = existing.invoice_no or g.invoice_number
-        g.amount = existing.invoice_value if existing.invoice_value is not None else g.amount
-        g.quantity = existing.qty or g.quantity
-        g.purchase_date = existing.purchase_date.date() if existing.purchase_date else g.purchase_date
-        g.grn_date = existing.grn_date.date() if existing.grn_date else g.grn_date
-        g.po_number = existing.po_number or g.po_number
-        g.vehicle_number = existing.vehicle_number or g.vehicle_number
-        g.e_way_bill = existing.e_way_bill or g.e_way_bill
-        g.notes = existing.notes or g.notes
-        g.lot_number = existing.lot_number
-        # Fill the Lot's own GRN-number field from this GRN if the lot didn't
-        # already have one — read by the "GRN #" column on Product IQC's Lot
-        # Numbers tab and the "GRN System Number" field on Edit Lot, neither
-        # of which look at GRNImport directly.
-        if not existing.grn_system_number:
-            existing.grn_system_number = g.grn_number
-    else:
-        new_lot = Lot(
-            lot_number=lot_number,
-            supplier_name=g.sender_name or "",
-            vendor_name=g.sender_name,
-            invoice_no=g.invoice_number,
-            invoice_value=g.amount,
-            buying_price=g.amount or Decimal("0"),
-            qty=g.quantity or 1,
-            purchase_date=(datetime.combine(g.purchase_date, datetime.min.time())
-                           if g.purchase_date else app_now()),
-            grn_date=(datetime.combine(g.grn_date, datetime.min.time()) if g.grn_date else None),
-            po_number=g.po_number,
-            vehicle_number=g.vehicle_number,
-            e_way_bill=g.e_way_bill,
-            notes=g.notes,
-            # Same reasoning as the merge branch above — Product IQC's Lot
-            # Numbers tab and Edit Lot both read this field, not GRNImport.
-            grn_system_number=g.grn_number,
-        )
-        db.add(new_lot)
-        await db.flush()
-        g.lot_id = new_lot.id
-        g.lot_number = new_lot.lot_number
+    numbers = [n.strip() for n in lot_number if n and n.strip()]
+    if not numbers:
+        raise HTTPException(400, "Enter at least one Lot Number.")
+    confirms = list(confirm_merge) + [""] * (len(numbers) - len(confirm_merge))
+
+    # First pass: look up every typed Lot Number and block on any unconfirmed
+    # existing one before writing anything, so a batch never applies halfway.
+    existing_by_number = {}
+    conflicts = []
+    for number, confirmed in zip(numbers, confirms):
+        existing = (await db.execute(select(Lot).where(Lot.lot_number == number))).scalar_one_or_none()
+        existing_by_number[number] = existing
+        if existing and not confirmed:
+            conflicts.append(number)
+    if conflicts:
+        return JSONResponse({"ok": False, "conflicts": conflicts})
+
+    for number in numbers:
+        existing = existing_by_number[number]
+        if existing:
+            g.lot_id = existing.id
+            # Existing Lot is authoritative — pull its header fields onto this GRN row.
+            g.sender_name = existing.vendor_name or existing.supplier_name or g.sender_name
+            g.invoice_number = existing.invoice_no or g.invoice_number
+            g.amount = existing.invoice_value if existing.invoice_value is not None else g.amount
+            g.quantity = existing.qty or g.quantity
+            g.purchase_date = existing.purchase_date.date() if existing.purchase_date else g.purchase_date
+            g.grn_date = existing.grn_date.date() if existing.grn_date else g.grn_date
+            g.po_number = existing.po_number or g.po_number
+            g.vehicle_number = existing.vehicle_number or g.vehicle_number
+            g.e_way_bill = existing.e_way_bill or g.e_way_bill
+            g.notes = existing.notes or g.notes
+            g.lot_number = existing.lot_number
+            # Fill the Lot's own GRN-number field from this GRN if the lot didn't
+            # already have one — read by the "GRN #" column on Product IQC's Lot
+            # Numbers tab and the "GRN System Number" field on Edit Lot, neither
+            # of which look at GRNImport directly. Also how multiple Lots stay
+            # associated with one GRN — every mapped Lot shares this value.
+            if not existing.grn_system_number:
+                existing.grn_system_number = g.grn_number
+        else:
+            new_lot = Lot(
+                lot_number=number,
+                supplier_name=g.sender_name or "",
+                vendor_name=g.sender_name,
+                invoice_no=g.invoice_number,
+                invoice_value=g.amount,
+                buying_price=g.amount or Decimal("0"),
+                qty=g.quantity or 1,
+                purchase_date=(datetime.combine(g.purchase_date, datetime.min.time())
+                               if g.purchase_date else app_now()),
+                grn_date=(datetime.combine(g.grn_date, datetime.min.time()) if g.grn_date else None),
+                po_number=g.po_number,
+                vehicle_number=g.vehicle_number,
+                e_way_bill=g.e_way_bill,
+                notes=g.notes,
+                # Same reasoning as the merge branch above — Product IQC's Lot
+                # Numbers tab and Edit Lot both read this field, not GRNImport.
+                grn_system_number=g.grn_number,
+            )
+            db.add(new_lot)
+            await db.flush()
+            g.lot_id = new_lot.id
+            g.lot_number = new_lot.lot_number
 
     await db.commit()
     return JSONResponse({"ok": True})

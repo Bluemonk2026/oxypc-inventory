@@ -189,7 +189,6 @@
             </thead>
             <tbody>
               {% for bp in (bulk_parts or []) %}
-              {% set fully_requested = bp.qty == bp.requested %}
               <tr>
                 <td class="fw-semibold">{{ bp.label }}</td>
                 <td class="text-center"><span class="badge bg-warning text-dark">{{ bp.qty }}</span></td>
@@ -197,12 +196,10 @@
                 <td class="text-center"><span class="badge bg-{{ 'success' if bp.changed else 'light text-muted border' }}">{{ bp.changed }}</span></td>
                 <td>
                   <div class="d-flex gap-1 flex-wrap">
-                    <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2" {{ 'disabled' if fully_requested }}
-                            title="{{ 'Every needed tag already has an open request' if fully_requested else '' }}"
+                    <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
                             onclick="openBulkPartRequest('new', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }})">
                       <i class="bi bi-bag-plus"></i> New Request</button>
-                    <button type="button" class="btn btn-sm btn-outline-warning py-0 px-2" {{ 'disabled' if fully_requested }}
-                            title="{{ 'Every needed tag already has an open request' if fully_requested else '' }}"
+                    <button type="button" class="btn btn-sm btn-outline-warning py-0 px-2"
                             onclick="openBulkPartRequest('replace', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }})">
                       <i class="bi bi-arrow-repeat"></i> Replace Request</button>
                     {% if bp.can_downgrade %}
@@ -422,8 +419,6 @@ function rebuildBulkPartsTable(visibleIds) {
   tbody.innerHTML = labels.map(function(label) {
     var bp = counts[label];
     var args = "'" + esc(bp.label) + "', '" + esc(bp.category) + "', " + bp.qty;
-    var fullyRequested = bp.qty === bp.requested;
-    var disAttr = fullyRequested ? ' disabled title="Every needed tag already has an open request"' : '';
     var dgBtn = bp.can_downgrade
       ? '<button type="button" class="btn btn-sm btn-outline-dark py-0 px-2" onclick="openBulkPartRequest(\'downgrade\', ' + args + ')">' +
         '<i class="bi bi-arrow-down-circle"></i> Downgrade</button>'
@@ -434,9 +429,9 @@ function rebuildBulkPartsTable(visibleIds) {
       '<td class="text-center"><span class="badge bg-' + (bp.requested ? 'primary' : 'light text-muted border') + '">' + bp.requested + '</span></td>' +
       '<td class="text-center"><span class="badge bg-' + (bp.changed ? 'success' : 'light text-muted border') + '">' + bp.changed + '</span></td>' +
       '<td><div class="d-flex gap-1 flex-wrap">' +
-        '<button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"' + disAttr + ' onclick="openBulkPartRequest(\'new\', ' + args + ')">' +
+        '<button type="button" class="btn btn-sm btn-outline-primary py-0 px-2" onclick="openBulkPartRequest(\'new\', ' + args + ')">' +
         '<i class="bi bi-bag-plus"></i> New Request</button>' +
-        '<button type="button" class="btn btn-sm btn-outline-warning py-0 px-2"' + disAttr + ' onclick="openBulkPartRequest(\'replace\', ' + args + ')">' +
+        '<button type="button" class="btn btn-sm btn-outline-warning py-0 px-2" onclick="openBulkPartRequest(\'replace\', ' + args + ')">' +
         '<i class="bi bi-arrow-repeat"></i> Replace Request</button>' +
         dgBtn +
       '</div></td>' +

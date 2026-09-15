@@ -8,8 +8,10 @@
   to re-request the same tags through Device Detail instead, creating real
   duplicate PartRequest rows. Fixed by counting 'requested' OR 'handed_over'
   as "Total Requested" (any OPEN request, not yet confirmed received).
-- New/Replace Request buttons are now disabled once Total Requested reaches
-  Total Quantity for that part row — nothing left that still needs a request.
+- New/Replace Request buttons were briefly disabled once Total Requested
+  reached Total Quantity for that part row (2026-09-14), then reverted the
+  same day at the user's request — re-requesting a tag is a valid thing to
+  do deliberately, so the buttons stay enabled always.
 """
 import pathlib
 import subprocess
@@ -111,11 +113,8 @@ def test_repair_router_counts_requested_status_as_open():
     assert 'pstatus in ("requested", "handed_over")' in src
 
 
-def test_bulk_part_request_buttons_disable_when_fully_requested():
+def test_bulk_part_request_buttons_are_never_disabled():
     src = (pathlib.Path(ROOT) / "templates" / "repair" / "l1.html").read_text(encoding="utf-8")
-    # Server-rendered rows.
-    assert "fully_requested = bp.qty == bp.requested" in src
-    assert "{{ 'disabled' if fully_requested }}" in src
-    # Client-side rebuild (filtered Tag table re-renders this table in JS).
-    assert "var fullyRequested = bp.qty === bp.requested;" in src
-    assert "disAttr = fullyRequested ? ' disabled" in src
+    assert "fully_requested" not in src
+    assert "fullyRequested" not in src
+    assert "disAttr" not in src

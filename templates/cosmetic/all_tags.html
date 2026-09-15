@@ -28,6 +28,8 @@
          the header's right side stays empty. #}
       <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
         <span class="fw-semibold"><i class="bi bi-list-check me-2"></i>All Tags — Cosmetic Pipeline</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openSearchTagsModal()">
+          <i class="bi bi-clock-history me-1"></i>Search Tags</button>
       </div>
       <div class="card-body p-0">
         <table id="cosmeticAllTagsTable" class="table table-hover mb-0 small">
@@ -153,6 +155,7 @@
   </tr>
 </template>
 {% endif %}
+{% include "_search_tags_modal.html" %}
 {% endblock %}
 {% block scripts %}
 <script>

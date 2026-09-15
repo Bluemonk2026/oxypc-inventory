@@ -75,6 +75,11 @@
     </div>
   </div>
 </div>
+
+<div class="d-flex justify-content-end mb-2">
+  <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openSearchTagsModal()">
+    <i class="bi bi-clock-history me-1"></i>Search Tags</button>
+</div>
 <!-- Bucket Allocation / Tag Number Allocation tabs -->
 <ul class="nav nav-tabs" id="prodTabs" role="tablist">
   <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#bucketAllocTab" type="button">
@@ -386,6 +391,7 @@
   </div>
 </div>
 
+{% include "_search_tags_modal.html" %}
 {% endblock %}
 {% block scripts %}
 <script>

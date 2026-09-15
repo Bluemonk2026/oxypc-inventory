@@ -36,6 +36,8 @@
       <div class="card-header bg-transparent d-flex flex-wrap align-items-center justify-content-between gap-2">
         <span class="fw-semibold">Devices in L1/L2</span>
         <div class="d-flex flex-wrap align-items-center gap-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openSearchTagsModal()">
+            <i class="bi bi-clock-history me-1"></i>Search Tags</button>
           <input type="text" id="l1SearchBox" class="form-control form-control-sm"
                  style="width:180px" placeholder="Search Tag / GRN / Model">
           <input type="text" id="l1CpuFilter" class="form-control form-control-sm"
@@ -311,6 +313,7 @@
     </form>
   </div>
 </div>
+{% include "_search_tags_modal.html" %}
 {% endblock %}
 {% block scripts %}
 <script>

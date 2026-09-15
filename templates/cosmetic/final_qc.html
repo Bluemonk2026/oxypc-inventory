@@ -11,7 +11,9 @@
   {# Scan or type a Tag Number to filter the card list on the left; Enter
      jumps straight to the (first) matching card — same flow as scanning a
      barcode gun into a search box elsewhere in the app. #}
-  <div class="ms-auto">
+  <div class="ms-auto d-flex align-items-center gap-2">
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openSearchTagsModal()">
+      <i class="bi bi-clock-history me-1"></i>Search Tags</button>
     <input type="text" id="fqcScanSearch" class="form-control form-control-sm" style="width:240px"
            placeholder="Scan / search Tag Number…" autocomplete="off">
   </div>
@@ -372,6 +374,7 @@
   });
 })();
 </script>
+{% include "_search_tags_modal.html" %}
 {% endblock %}
 {% block scripts %}
 <script>

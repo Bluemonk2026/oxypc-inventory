@@ -154,6 +154,45 @@ async def search_tags(q: str = "", db: AsyncSession = Depends(get_db),
     return JSONResponse({"results": results})
 
 
+@router.get("/api/asset-history")
+async def device_asset_history(barcode: str, db: AsyncSession = Depends(get_db),
+                               current_user: User = Depends(view_allowed)):
+    """Search to View Asset History modal (shared across L1/L2, L3/L4, Stress,
+    All Tags, Final QC, Production Manager — templates/_search_tags_modal.html).
+    Current stage + the device's most recent stage movements — same
+    StageMovement query/shape Device Detail's own "Asset History" table
+    already uses (routers/devices.py device_detail(), templates/devices/
+    detail.html), just returned as JSON, newest first, capped to the most
+    recent 20 rows for a compact modal rather than the full lifetime list."""
+    bc = (barcode or "").strip()
+    if not bc:
+        return JSONResponse({"found": False})
+    device = (await db.execute(
+        select(Device).where(or_(Device.barcode.ilike(bc), Device.serial_no.ilike(bc)))
+    )).scalar_one_or_none()
+    if not device:
+        return JSONResponse({"found": False})
+    movements = (await db.execute(
+        select(StageMovement).where(StageMovement.device_id == device.id)
+        .order_by(StageMovement.moved_at.desc()).limit(20)
+    )).scalars().all()
+    return JSONResponse({
+        "found": True,
+        "barcode": device.barcode,
+        "current_stage": str(device.stage_label),
+        "movements": [
+            {
+                "from_stage": STAGE_LABELS.get(mv.from_stage, mv.from_stage.value if mv.from_stage else "—") if mv.from_stage else "—",
+                "to_stage": STAGE_LABELS.get(mv.to_stage, mv.to_stage.value) if mv.to_stage else "—",
+                "moved_by": mv.moved_by or "—",
+                "moved_at": mv.moved_at.strftime("%d-%m-%Y %H:%M") if mv.moved_at else "—",
+                "notes": mv.notes or "",
+            }
+            for mv in movements
+        ],
+    })
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 async def _build_location_map(db: AsyncSession, device_ids: list) -> dict:

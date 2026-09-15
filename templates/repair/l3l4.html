@@ -15,6 +15,8 @@
          since initGlobalTable's own scrollX owns horizontal scrolling. #}
       <div class="card-header bg-transparent d-flex align-items-center justify-content-between">
         <span class="fw-semibold">L3/L4 Work Orders</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openSearchTagsModal()">
+          <i class="bi bi-clock-history me-1"></i>Search Tags</button>
       </div>
       <div class="card-body p-0">
           <table id="l3l4Table" class="table table-hover mb-0 small">
@@ -141,6 +143,7 @@
     </form>
   </div>
 </div>
+{% include "_search_tags_modal.html" %}
 {% endblock %}
 {% block scripts %}
 <script>

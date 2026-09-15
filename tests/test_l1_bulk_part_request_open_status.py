@@ -12,6 +12,12 @@
   reached Total Quantity for that part row (2026-09-14), then reverted the
   same day at the user's request — re-requesting a tag is a valid thing to
   do deliberately, so the buttons stay enabled always.
+- The New/Replace/Downgrade Request modal's "Applies to N tags" message
+  used to show the raw Total Quantity (e.g. 24) even when most of those
+  already had an open request and would just be skipped server-side —
+  confusing, since staff couldn't tell whether the number meant "24 new
+  requests about to be raised" or not. Now shows Total Quantity minus
+  Total Requested (never below 0).
 """
 import pathlib
 import subprocess
@@ -111,6 +117,18 @@ def test_repair_router_counts_requested_status_as_open():
     src = (pathlib.Path(ROOT) / "routers" / "repair.py").read_text(encoding="utf-8")
     assert '.status.in_(["requested", "handed_over", "received"])' in src
     assert 'pstatus in ("requested", "handed_over")' in src
+
+
+def test_bulk_part_request_modal_deducts_already_requested_from_applies_count():
+    src = (pathlib.Path(ROOT) / "templates" / "repair" / "l1.html").read_text(encoding="utf-8")
+    # Server-rendered rows and the client-side rebuild both pass Total
+    # Requested through as a 5th arg to openBulkPartRequest(...) now.
+    assert "openBulkPartRequest('new', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }}, {{ bp.requested }})" in src
+    assert "openBulkPartRequest('replace', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }}, {{ bp.requested }})" in src
+    assert "openBulkPartRequest('downgrade', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }}, {{ bp.requested }})" in src
+    assert 'var args = "\'" + esc(bp.label) + "\', \'" + esc(bp.category) + "\', " + bp.qty + ", " + bp.requested;' in src
+    assert "var appliesCount = Math.max(0, qty - (requested || 0));" in src
+    assert "Applies to <strong>' + appliesCount + '</strong> tag'" in src
 
 
 def test_bulk_part_request_buttons_are_never_disabled():

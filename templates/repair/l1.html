@@ -197,14 +197,14 @@
                 <td>
                   <div class="d-flex gap-1 flex-wrap">
                     <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
-                            onclick="openBulkPartRequest('new', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }})">
+                            onclick="openBulkPartRequest('new', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }}, {{ bp.requested }})">
                       <i class="bi bi-bag-plus"></i> New Request</button>
                     <button type="button" class="btn btn-sm btn-outline-warning py-0 px-2"
-                            onclick="openBulkPartRequest('replace', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }})">
+                            onclick="openBulkPartRequest('replace', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }}, {{ bp.requested }})">
                       <i class="bi bi-arrow-repeat"></i> Replace Request</button>
                     {% if bp.can_downgrade %}
                     <button type="button" class="btn btn-sm btn-outline-dark py-0 px-2"
-                            onclick="openBulkPartRequest('downgrade', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }})">
+                            onclick="openBulkPartRequest('downgrade', '{{ bp.label | e }}', '{{ bp.category | e }}', {{ bp.qty }}, {{ bp.requested }})">
                       <i class="bi bi-arrow-down-circle"></i> Downgrade</button>
                     {% endif %}
                   </div>
@@ -418,7 +418,7 @@ function rebuildBulkPartsTable(visibleIds) {
   function esc(s) { return String(s == null ? '' : s).replace(/'/g, "\\'"); }
   tbody.innerHTML = labels.map(function(label) {
     var bp = counts[label];
-    var args = "'" + esc(bp.label) + "', '" + esc(bp.category) + "', " + bp.qty;
+    var args = "'" + esc(bp.label) + "', '" + esc(bp.category) + "', " + bp.qty + ", " + bp.requested;
     var dgBtn = bp.can_downgrade
       ? '<button type="button" class="btn btn-sm btn-outline-dark py-0 px-2" onclick="openBulkPartRequest(\'downgrade\', ' + args + ')">' +
         '<i class="bi bi-arrow-down-circle"></i> Downgrade</button>'
@@ -519,16 +519,16 @@ function $id(id) {
   return el;
 }
 
-function openBulkPartRequest(requestType, partLabel, category, qty) {
+function openBulkPartRequest(requestType, partLabel, category, qty, requested) {
   try {
-    _openBulkPartRequest(requestType, partLabel, category, qty);
+    _openBulkPartRequest(requestType, partLabel, category, qty, requested);
   } catch (e) {
     console.error('Bulk Part Request failed to open:', e);
     alert('Could not open the request form: ' + e.message);
   }
 }
 
-function _openBulkPartRequest(requestType, partLabel, category, qty) {
+function _openBulkPartRequest(requestType, partLabel, category, qty, requested) {
   $id('bp_request_type').value = requestType;
   $id('bp_part_label').value = partLabel;
   $id('bp_part_category').value = category || '';
@@ -537,9 +537,18 @@ function _openBulkPartRequest(requestType, partLabel, category, qty) {
     requestType === 'replace' ? '<i class="bi bi-arrow-repeat me-2"></i>Replace Request'
     : (requestType === 'downgrade' ? '<i class="bi bi-arrow-down-circle me-2"></i>Downgrade'
        : '<i class="bi bi-bag-plus me-2"></i>New Part Request');
+  // Total Quantity minus tags that already have an open request for this
+  // part — matches routers/repair.py bulk_part_request()'s own skip logic
+  // exactly (same device+part_name+status check), so this count is how many
+  // tags will actually get a NEW request, not how many need the part in
+  // total. Was showing the raw qty (e.g. 24) even when most of those already
+  // had an open request and would just be skipped server-side — confusing,
+  // since staff couldn't tell whether "24" meant 24 new requests were about
+  // to be raised or not.
+  var appliesCount = Math.max(0, qty - (requested || 0));
   $id('bp_scope').innerHTML =
-    '<i class="bi bi-info-circle me-1"></i>Applies to <strong>' + qty + '</strong> tag' +
-    (qty === 1 ? '' : 's') + ' needing <strong>' + partLabel +
+    '<i class="bi bi-info-circle me-1"></i>Applies to <strong>' + appliesCount + '</strong> tag' +
+    (appliesCount === 1 ? '' : 's') + ' needing <strong>' + partLabel +
     '</strong>. Tags with an open request are skipped.';
   bpFillNames(partLabel);
   new bootstrap.Modal($id('bulkPartModal')).show();

@@ -817,9 +817,19 @@ async def parse_invoice_pdf(
 # NOTE: /sales/data MUST stay above /sales/{sale_id}. FastAPI matches in
 # registration order, so the parameterised route would otherwise capture
 # "data" as a sale id and 404.
-def _sales_filters(q, sale_no, sold_by_filter, customer, grade, lot_id):
-    """Filter clauses shared by the Sales list page and its data endpoint, so the
-    two can never disagree about what the filters mean."""
+def _parse_simple_date(s: str):
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s.strip(), "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _sales_filters(q, sale_no, sold_by_filter, customer, grade, lot_id, date_from="", date_to=""):
+    """Filter clauses shared by the Sales list page, its data endpoint, and
+    its CSV export, so none of the three can ever disagree about what the
+    filters mean."""
     from sqlalchemy import or_ as _or
     w = []
     if q:
@@ -836,6 +846,12 @@ def _sales_filters(q, sale_no, sold_by_filter, customer, grade, lot_id):
         w.append(Device.grade == grade)
     if lot_id:
         w.append(Device.lot_id == lot_id)
+    d_from = _parse_simple_date(date_from)
+    if d_from:
+        w.append(Sale.sold_at >= d_from)
+    d_to = _parse_simple_date(date_to)
+    if d_to:
+        w.append(Sale.sold_at <= d_to.replace(hour=23, minute=59, second=59))
     return w
 
 
@@ -851,6 +867,8 @@ async def sales_list_data(
     customer: str = Query(default=""),
     grade: str = Query(default=""),
     lot_id: str = Query(default=""),
+    date_from: str = Query(default=""),
+    date_to: str = Query(default=""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
 ):
@@ -891,7 +909,7 @@ async def sales_list_data(
         .join(Lot, Device.lot_id == Lot.id)
     )
 
-    page_filters = _sales_filters(q, sale_no, sold_by_filter, customer, grade, lot_id)
+    page_filters = _sales_filters(q, sale_no, sold_by_filter, customer, grade, lot_id, date_from, date_to)
 
     # DataTables' own search box, on top of the page's filter bar.
     search = (request.query_params.get("search[value]") or "").strip()
@@ -993,6 +1011,62 @@ async def sales_list_data(
     })
 
 
+# NOTE: /sales/export MUST also stay above /sales/{sale_id} for the same
+# reason /sales/data does — FastAPI would otherwise match "export" as a
+# sale id and 404.
+@router.get("/sales/export")
+async def export_sales_filtered(
+    q: str = Query(default=""),
+    sale_no: str = Query(default=""),
+    sold_by_filter: str = Query(default=""),
+    customer: str = Query(default=""),
+    grade: str = Query(default=""),
+    lot_id: str = Query(default=""),
+    date_from: str = Query(default=""),
+    date_to: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """CSV export of exactly what the /sales table is currently showing —
+    same _sales_filters() the page and /sales/data use, so this can never
+    drift from the filtered view. Distinct from /reports/export/sales
+    ("Export All CSV", always unfiltered) and POST /sales/export-selected
+    (only the checked rows)."""
+    MAX_EXPORT_ROWS = 5000
+    rows = (await db.execute(
+        select(Sale, Device.barcode, Device.brand, Device.model, Device.grade, Lot.lot_number)
+        .join(Device, Sale.device_id == Device.id)
+        .join(Lot, Device.lot_id == Lot.id)
+        .where(*_sales_filters(q, sale_no, sold_by_filter, customer, grade, lot_id, date_from, date_to))
+        .order_by(Sale.sold_at.desc())
+        .limit(MAX_EXPORT_ROWS)
+    )).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Sale#", "Date", "Barcode", "Brand", "Model", "Lot", "Grade",
+                     "Price", "Customer", "Phone", "Payment", "Sold By"])
+    for row in rows:
+        s = row.Sale
+        writer.writerow([
+            s.sale_number, s.sold_at.strftime("%d-%m-%Y") if s.sold_at else "",
+            row.barcode, row.brand, row.model, row.lot_number,
+            row.grade.value if row.grade else "",
+            float(s.sale_price or 0),
+            s.customer_name or "", s.customer_phone or "",
+            s.payment_mode or "", s.sold_by or "",
+        ])
+    if len(rows) == MAX_EXPORT_ROWS:
+        writer.writerow(["# TRUNCATED", f"Export capped at {MAX_EXPORT_ROWS} rows",
+                         "", "", "", "", "", "", "", "", "", ""])
+    output.seek(0)
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode()),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=sales_filtered.csv"},
+    )
+
+
 @router.get("/sales/{sale_id}", response_class=HTMLResponse)
 async def sale_detail(
     sale_id: str,
@@ -1034,36 +1108,12 @@ async def sales_list(
     customer: str = Query(default=""),
     grade: str = Query(default=""),
     lot_id: str = Query(default=""),
+    date_from: str = Query(default=""),
+    date_to: str = Query(default=""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
 ):
     from sqlalchemy import case as sa_case
-
-    base_q = (
-        select(Sale, Device.barcode, Device.brand, Device.model, Device.grade,
-               Lot.lot_number, Lot.buying_price, Lot.qty)
-        .join(Device, Sale.device_id == Device.id)
-        .join(Lot, Device.lot_id == Lot.id)
-    )
-
-    # ── Apply filters ────────────────────────────────────────────────────────
-    if q:
-        like = f"%{q}%"
-        base_q = base_q.where(or_(
-            Device.barcode.ilike(like),
-            Device.brand.ilike(like),
-            Device.model.ilike(like),
-        ))
-    if sale_no:
-        base_q = base_q.where(Sale.sale_number.ilike(f"%{sale_no}%"))
-    if sold_by_filter:
-        base_q = base_q.where(Sale.sold_by == sold_by_filter)
-    if customer:
-        base_q = base_q.where(Sale.customer_name.ilike(f"%{customer}%"))
-    if grade:
-        base_q = base_q.where(Device.grade == grade)
-    if lot_id:
-        base_q = base_q.where(Device.lot_id == lot_id)
 
     # Rows are fetched by /sales/data (DataTables server-side), not here. This
     # page previously rendered all ~9,900 sales inline, producing a 17 MB
@@ -1074,7 +1124,7 @@ async def sales_list(
         .select_from(Sale)
         .join(Device, Sale.device_id == Device.id)
         .join(Lot, Device.lot_id == Lot.id)
-        .where(*_sales_filters(q, sale_no, sold_by_filter, customer, grade, lot_id))
+        .where(*_sales_filters(q, sale_no, sold_by_filter, customer, grade, lot_id, date_from, date_to))
     )).scalar() or 0
     sales = []
 
@@ -1113,6 +1163,8 @@ async def sales_list(
         "sold_by_filter": sold_by_filter,
         "customer": customer,
         "grade": grade,
+        "date_from": date_from,
+        "date_to": date_to,
         # Device stats
         "total_registered": total_registered,
         "total_devices_sold": total_devices_sold,

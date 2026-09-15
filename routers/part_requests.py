@@ -128,14 +128,15 @@ async def create_part_requests_batch(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(eng_allowed),
 ):
-    """Device Detail Parts Consumption's "Multi Request" button (2026-09-15):
-    check several rows, raise a "new" request for all of them in one click,
-    instead of opening the Name -> Make -> Model modal once per part. Each
-    row's label/category/part_id (the same data already on its per-row
-    New/Replace buttons) travels as one JSON array rather than indexed form
-    fields, since there's no existing PartRequest row per item to reference
-    by id the way bulk_request_action's `ids` list does — these are brand
-    new rows being created, not existing ones being actioned.
+    """Device Detail Parts Consumption's "Multi Request" button: check several
+    rows, then in the Assign & Move-to-Cleaning-style modal pick a Make/Model/
+    Quantity per row (Part Name comes pre-filled from the checked row) under
+    either the New Request or Replace Request tab, and raise every row as one
+    batch under that tab's type. Each row's label/category/part_id/make/
+    model/qty travels as one JSON array rather than indexed form fields,
+    since there's no existing PartRequest row per item to reference by id the
+    way bulk_request_action's `ids` list does — these are brand new rows
+    being created, not existing ones being actioned.
 
     Creates one PartRequest per selected part with the same field resolution
     create_part_request() uses (including the part_id -> SparePart fuzzy-
@@ -169,9 +170,17 @@ async def create_part_requests_batch(
         if not part_name:
             continue
         part_category = (item.get("category") or "").strip()
+        part_make = (item.get("make") or "").strip()
+        part_model = (item.get("model") or "").strip()
+        try:
+            qty = max(1, int(item.get("qty") or 1))
+        except (TypeError, ValueError):
+            qty = 1
 
         # Same part_id resolution as create_part_request (BUG 3) — prefer the
-        # id the row already matched, fall back to a fuzzy name/category match.
+        # id the row already matched (the modal's Name+Make+Model cascade
+        # resolves this client-side, same as the single-request modal), fall
+        # back to a fuzzy name/category match.
         resolved_part_id = _as_uuid(item.get("part_id") or "")
         if resolved_part_id:
             exists = (await db.execute(
@@ -195,9 +204,10 @@ async def create_part_requests_batch(
             device_id=device.id, barcode=device.barcode, stage=stage,
             part_id=resolved_part_id, part_name=part_name,
             part_category=part_category or None,
+            part_make=part_make or None, part_model=part_model or None,
             request_type=rtype,
             requested_by=current_user.username, engineer_name=current_user.full_name,
-            qty_requested=1, status="requested",
+            qty_requested=qty, status="requested",
         ))
         raised.append(part_name)
 

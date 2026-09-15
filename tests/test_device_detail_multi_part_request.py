@@ -1,12 +1,13 @@
-"""Device Detail — Parts Consumption "Multi Request" (2026-09-15):
-
-Checkboxes on every row that doesn't already carry a request, a "Multi
-Request" button in the section header, and one submit raises a "new"
-PartRequest for every checked part in a single server round-trip
-(routers/part_requests.py create_part_requests_batch) — instead of opening
-the Name -> Make -> Model modal once per part. Requests land on Parts
-Manager's Part Requests tab exactly the same way a single request does,
-since they're the same PartRequest rows.
+"""Device Detail — Parts Consumption "Multi Request" (2026-09-15, reworked
+same day): checkboxes on every row that doesn't already carry a request, a
+"Multi Request" button in the section header opens a modal with New Request
+/ Replace Request tabs, one row per checked part (Part Name pre-filled,
+Make/Model/Quantity picked in the modal), and submitting raises every row in
+the active tab as one batch (routers/part_requests.py
+create_part_requests_batch) tagged with that tab's request_type — instead of
+opening the Name -> Make -> Model modal once per part. Requests land on
+Parts Manager's Part Requests tab exactly the same way a single request
+does, since they're the same PartRequest rows.
 """
 import json
 import pathlib
@@ -82,10 +83,18 @@ def test_detail_page_has_checkboxes_and_multi_request_button(app_client, make_us
         html = app_client.get(f"/devices/{barcode}", follow_redirects=True).text
 
         assert 'id="pcMultiRequestBtn"' in html
+        assert 'onclick="openMultiRequestModal()"' in html
         assert 'id="pcSelectAll"' in html
         assert 'class="pc-select-cb"' in html
         assert 'id="multiPartRequestForm"' in html
         assert f'value="{barcode}"' in html
+        # New Request / Replace Request tabbed modal, one row container per tab.
+        assert 'id="multiRequestModal"' in html
+        assert 'id="mr-tab-new-btn"' in html
+        assert 'id="mr-tab-replace-btn"' in html
+        assert 'id="mr_rows_new"' in html
+        assert 'id="mr_rows_replace"' in html
+        assert "New Request" in html and "Replace Request" in html
     finally:
         _cleanup(barcode)
 
@@ -142,6 +151,112 @@ asyncio.run(main())
         # Shows up on Parts Manager's Part Requests tab too — same table.
         pm_html = app_client.get("/spare-parts", follow_redirects=True).text
         assert barcode in pm_html
+    finally:
+        _cleanup(barcode)
+
+
+def test_multi_create_captures_per_row_make_model_and_qty(app_client, make_user):  # noqa: F811
+    """The Multi Request modal's Make/Model/Quantity fields per row (2026-09-15
+    rework) — each item in parts_json now carries make/model/qty, and the
+    created PartRequest rows must reflect them (not just the label/category
+    the checkbox already carried)."""
+    suffix = uuid.uuid4().hex[:6].upper()
+    barcode = f"ITMPR5{suffix}"
+    _seed_device(barcode)
+    try:
+        username, password = make_user("admin")
+        _login(app_client, username, password)
+        csrf = app_client.cookies.get("csrf_token") or ""
+
+        parts = [
+            {"label": "Keyboard", "category": "Keyboard", "part_id": "",
+             "make": "HP", "model": "UK Layout", "qty": 3},
+        ]
+        r = app_client.post(
+            "/part-requests/multi-create",
+            data={
+                "csrf_token": csrf, "barcode": barcode,
+                "parts_json": json.dumps(parts), "request_type": "new",
+            },
+            follow_redirects=False,
+        )
+        assert r.status_code == 302, r.text[:400]
+
+        check = _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.device import Device
+from models.part_request import PartRequest
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        dev = (await db.execute(select(Device).where(Device.barcode == "{barcode}"))).scalar_one()
+        pr = (await db.execute(select(PartRequest).where(PartRequest.device_id == dev.id))).scalar_one()
+        print(pr.part_make)
+        print(pr.part_model)
+        print(pr.qty_requested)
+
+asyncio.run(main())
+""")
+        lines = check.splitlines()
+        assert lines[0] == "HP"
+        assert lines[1] == "UK Layout"
+        assert lines[2] == "3"
+    finally:
+        _cleanup(barcode)
+
+
+def test_multi_create_replace_tab_tags_every_row_as_replace(app_client, make_user):  # noqa: F811
+    """Submitting from the Replace Request tab sends request_type=replace for
+    the whole batch — must show as the "Replace" badge on Part Master's Part
+    Requests tab (templates/spare_parts/list.html), same as a single Replace
+    Request does."""
+    suffix = uuid.uuid4().hex[:6].upper()
+    barcode = f"ITMPR6{suffix}"
+    _seed_device(barcode)
+    try:
+        username, password = make_user("admin")
+        _login(app_client, username, password)
+        csrf = app_client.cookies.get("csrf_token") or ""
+
+        parts = [
+            {"label": "Keyboard", "category": "Keyboard", "part_id": "", "make": "", "model": "", "qty": 1},
+            {"label": "Screen", "category": "Screen", "part_id": "", "make": "", "model": "", "qty": 1},
+        ]
+        r = app_client.post(
+            "/part-requests/multi-create",
+            data={
+                "csrf_token": csrf, "barcode": barcode,
+                "parts_json": json.dumps(parts), "request_type": "replace",
+            },
+            follow_redirects=False,
+        )
+        assert r.status_code == 302, r.text[:400]
+
+        check = _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.device import Device
+from models.part_request import PartRequest
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        dev = (await db.execute(select(Device).where(Device.barcode == "{barcode}"))).scalar_one()
+        rows = (await db.execute(select(PartRequest).where(PartRequest.device_id == dev.id))).scalars().all()
+        print(len(rows))
+        for r in rows:
+            print(r.request_type)
+
+asyncio.run(main())
+""")
+        lines = check.splitlines()
+        assert lines[0] == "2", check
+        assert lines[1] == "replace"
+        assert lines[2] == "replace"
     finally:
         _cleanup(barcode)
 

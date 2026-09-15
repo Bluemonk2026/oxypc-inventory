@@ -28,8 +28,8 @@ class PartRequest(Base):
     request_type = Column(String(20), nullable=False, default="new")  # new | replace | downgrade
     # normal | replace — only set when request_type == "downgrade" (Device Detail Downgrade modal)
     downgrade_type = Column(String(20), nullable=True)
-    part_make = Column(String(100), nullable=True)   # Downgrade modal only
-    part_model = Column(String(100), nullable=True)  # Downgrade modal only
+    part_make = Column(String(100), nullable=True)   # Downgrade modal, Multi Request
+    part_model = Column(String(100), nullable=True)  # Downgrade modal, Multi Request
 
     requested_by = Column(String(50), nullable=True)       # engineer username
     engineer_name = Column(String(100), nullable=True)

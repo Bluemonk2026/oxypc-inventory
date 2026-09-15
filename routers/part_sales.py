@@ -11,12 +11,14 @@ Pages:
 Sell is gated on an APPROVED, not-yet-consumed PartSaleRequest, so one
 approval authorises exactly one sale.
 """
+import csv
+import io
 from collections import defaultdict
 from datetime import timedelta, datetime
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from sqlalchemy import select, func, text
 from sqlalchemy.exc import ProgrammingError, DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -463,15 +465,82 @@ async def create_part_sale(request: Request,
 
 
 # ── Spare Part Sales ──────────────────────────────────────────────────────────
+def _parse_simple_date(s: str):
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s.strip(), "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _part_sales_filters(date_from, date_to):
+    """Filter clauses shared by the /part-sales page and its CSV export, so
+    export can never drift from what the table is showing."""
+    w = []
+    d_from = _parse_simple_date(date_from)
+    if d_from:
+        w.append(PartSale.sold_at >= d_from)
+    d_to = _parse_simple_date(date_to)
+    if d_to:
+        w.append(PartSale.sold_at <= d_to.replace(hour=23, minute=59, second=59))
+    return w
+
+
 @router.get("/part-sales", response_class=HTMLResponse)
-async def part_sales_list(request: Request, db: AsyncSession = Depends(get_db),
+async def part_sales_list(request: Request,
+                          date_from: str = Query(default=""),
+                          date_to: str = Query(default=""),
+                          db: AsyncSession = Depends(get_db),
                           current_user: User = Depends(allowed)):
     sales = (await db.execute(
-        select(PartSale).order_by(PartSale.sold_at.desc())
+        select(PartSale).where(*_part_sales_filters(date_from, date_to))
+        .order_by(PartSale.sold_at.desc())
     )).scalars().all()
     return templates.TemplateResponse("parts/sales_list.html", {
         "request": request, "current_user": current_user, "sales": sales,
+        "date_from": date_from, "date_to": date_to,
     })
+
+
+@router.get("/part-sales/export")
+async def export_part_sales_filtered(
+    date_from: str = Query(default=""),
+    date_to: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """CSV export of exactly what the /part-sales table is currently
+    showing — same _part_sales_filters() the page uses, so this can never
+    drift from the filtered view."""
+    MAX_EXPORT_ROWS = 5000
+    sales = (await db.execute(
+        select(PartSale).where(*_part_sales_filters(date_from, date_to))
+        .order_by(PartSale.sold_at.desc()).limit(MAX_EXPORT_ROWS)
+    )).scalars().all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Sale ID", "Date", "Part Name", "Part Make", "Part Model", "Qty",
+                     "Stock Unit Price", "Sale Unit Price", "Margin", "Payment Mode", "Sales Person"])
+    for s in sales:
+        writer.writerow([
+            s.sale_number, s.sold_at.strftime("%d-%b-%Y %H:%M") if s.sold_at else "",
+            s.part_name or "", s.make or "", s.model or "", s.qty,
+            float(s.stock_unit_price) if s.stock_unit_price is not None else "",
+            float(s.sale_unit_price or 0),
+            float(s.margin) if s.margin is not None else "",
+            s.payment_mode or "", s.sold_by or "",
+        ])
+    if len(sales) == MAX_EXPORT_ROWS:
+        writer.writerow(["# TRUNCATED", f"Export capped at {MAX_EXPORT_ROWS} rows",
+                         "", "", "", "", "", "", "", "", ""])
+    output.seek(0)
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode()),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=part_sales_filtered.csv"},
+    )
 
 
 # ── Parts Dashboard ───────────────────────────────────────────────────────────

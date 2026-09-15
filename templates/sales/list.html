@@ -59,13 +59,21 @@
         <option value="{{ lot.id }}" {% if selected_lot == lot.id|string %}selected{% endif %}>{{ lot.lot_number }}</option>
         {% endfor %}
       </select>
+      <label class="small text-muted mb-0 ms-1">From</label>
+      <input type="date" name="date_from" value="{{ date_from }}" class="form-control form-control-sm" style="width:145px">
+      <label class="small text-muted mb-0">To</label>
+      <input type="date" name="date_to" value="{{ date_to }}" class="form-control form-control-sm" style="width:145px">
       <button type="submit" class="btn btn-sm btn-primary">Filter</button>
       <a href="/sales" class="btn btn-sm btn-outline-secondary">Clear</a>
       <div class="ms-auto d-flex gap-2">
         <button type="button" id="exportSelectedBtn" class="btn btn-sm btn-outline-warning" onclick="exportSelected()" disabled>
           <i class="bi bi-download me-1"></i>Export Selected
         </button>
-        <a href="/reports/export/sales" class="btn btn-sm btn-outline-success">
+        <a id="exportFilteredBtn" class="btn btn-sm btn-outline-success"
+           href="/sales/export?q={{ q | urlencode }}&sale_no={{ sale_no | urlencode }}&sold_by_filter={{ sold_by_filter | urlencode }}&customer={{ customer | urlencode }}&grade={{ grade | urlencode }}&lot_id={{ selected_lot | urlencode }}&date_from={{ date_from | urlencode }}&date_to={{ date_to | urlencode }}">
+          <i class="bi bi-download me-1"></i>Export
+        </a>
+        <a href="/reports/export/sales" class="btn btn-sm btn-outline-secondary">
           <i class="bi bi-download me-1"></i>Export All CSV
         </a>
       </div>
@@ -193,7 +201,7 @@ $(document).ready(function() {
         // Carry the page's own filter bar through to the server so the table
         // and the filter form always describe the same set of rows.
         var p = new URLSearchParams(window.location.search);
-        ['q', 'sale_no', 'sold_by_filter', 'customer', 'grade', 'lot_id']
+        ['q', 'sale_no', 'sold_by_filter', 'customer', 'grade', 'lot_id', 'date_from', 'date_to']
           .forEach(function (k) { d[k] = p.get(k) || ''; });
       },
       dataSrc: function (json) {

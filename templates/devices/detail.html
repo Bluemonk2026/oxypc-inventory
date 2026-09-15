@@ -194,7 +194,7 @@
       <div class="card-header bg-transparent fw-semibold small text-uppercase d-flex justify-content-between align-items-center">
         <span><i class="bi bi-clipboard-plus me-2"></i>Parts Consumption</span>
         <button type="button" id="pcMultiRequestBtn" class="btn btn-sm btn-primary py-0 px-2" disabled
-                style="text-transform:none" onclick="submitMultiPartRequest()">
+                style="text-transform:none" onclick="openMultiRequestModal()">
           <i class="bi bi-bag-plus me-1"></i>Multi Request
         </button>
       </div>
@@ -309,10 +309,50 @@
     <form method="post" action="/part-requests/multi-create" id="multiPartRequestForm" style="display:none">
       <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
       <input type="hidden" name="barcode" value="{{ device.barcode }}">
-      <input type="hidden" name="request_type" value="new">
+      <input type="hidden" name="request_type" id="mpr_request_type" value="new">
       <input type="hidden" name="from_page" value="{{ request.query_params.get('from', '') }}">
       <input type="hidden" name="parts_json" id="mpr_parts_json" value="">
     </form>
+
+    <!-- Multi Request modal — New Request / Replace Request tabs, one row per
+         checked Parts Consumption row (Part Name pre-filled from the checkbox,
+         Make/Model/Quantity picked here). Only the active tab's rows are
+         submitted, tagged with that tab's request_type. -->
+    <div class="modal fade" id="multiRequestModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h6 class="modal-title fw-semibold"><i class="bi bi-bag-plus me-2"></i>Multi Request</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <ul class="nav nav-tabs" id="mrTabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="mr-tab-new-btn" data-bs-toggle="tab"
+                        data-bs-target="#mr-tab-new" type="button" role="tab">New Request</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="mr-tab-replace-btn" data-bs-toggle="tab"
+                        data-bs-target="#mr-tab-replace" type="button" role="tab">Replace Request</button>
+              </li>
+            </ul>
+            <div class="tab-content border border-top-0 rounded-bottom p-3" id="mrTabContent">
+              <div class="tab-pane fade show active" id="mr-tab-new" role="tabpanel">
+                <div id="mr_rows_new"></div>
+              </div>
+              <div class="tab-pane fade" id="mr-tab-replace" role="tabpanel">
+                <div id="mr_rows_replace"></div>
+              </div>
+            </div>
+            <div class="form-text mt-2">Only the tab you submit from is raised — pick New Request or Replace Request, then Submit.</div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-sm btn-success" onclick="mrSubmit()"><i class="bi bi-check-lg me-1"></i>Submit Request</button>
+          </div>
+        </div>
+      </div>
+    </div>
     {% endif %}
 
     <!-- All Notes (#L1/L2, L3/L4, Stress, Final QC) — a single consolidated
@@ -555,8 +595,10 @@
         if (cell) cell.innerHTML = '<span class="badge bg-warning text-dark">Requested</span>';
       }
 
-      // Multi Request — check several Parts Consumption rows, raise a "new"
-      // request for all of them in one submit (routers/part_requests.py
+      // Multi Request — check several Parts Consumption rows, then pick
+      // Make/Model/Quantity per row (Part Name pre-filled from the checkbox)
+      // under a New Request or Replace Request tab, and raise every row in
+      // that tab as one batch (routers/part_requests.py
       // create_part_requests_batch). Rows already carrying a request never
       // get a checkbox (server-rendered, gated on p.request being unset
       // above), so nothing here can double-request an already-actioned part.
@@ -590,18 +632,165 @@
         updateMultiBtnState();
       })();
 
-      function submitMultiPartRequest() {
+      // Row-scoped Part Name -> Part Make -> Part Model cascade for the Multi
+      // Request modal — same data (ALL_SPARE_PARTS) and matching logic as
+      // prFillPartNames/prFillPartMakes/prFillPartModels above, just scoped
+      // to one row element instead of the single-request modal's fixed ids,
+      // since Multi Request renders one row per checked part per tab.
+      function mrFillNames(rowEl, presetName) {
+        var nameSel = rowEl.querySelector('.mr-name');
+        var seen = {};
+        var names = ALL_SPARE_PARTS.filter(function(sp) {
+          var n = sp.name || '';
+          if (!n || seen[n]) return false;
+          seen[n] = true;
+          return true;
+        });
+        nameSel.innerHTML = names.length
+          ? names.map(function(sp) {
+              var nm = (sp.name || '').replace(/"/g, '&quot;');
+              return '<option value="' + nm + '">' + sp.name + '</option>';
+            }).join('')
+          : '<option value="">No parts available</option>';
+        if (presetName && names.some(function(sp) { return sp.name === presetName; })) {
+          nameSel.value = presetName;
+        }
+        mrFillMakes(rowEl);
+      }
+
+      function mrFillMakes(rowEl, presetMake) {
+        var name = rowEl.querySelector('.mr-name').value;
+        var makeSel = rowEl.querySelector('.mr-make');
+        if (!name) {
+          makeSel.innerHTML = '<option value="">— Select a part name first —</option>';
+          mrFillModels(rowEl);
+          return;
+        }
+        var seen = {};
+        var makes = ALL_SPARE_PARTS.filter(function(sp) {
+          if ((sp.name || '') !== name) return false;
+          var mk = sp.make || '';
+          if (seen[mk]) return false;
+          seen[mk] = true;
+          return true;
+        });
+        makes.sort(function(a, b) {
+          var A = a.make || '', B = b.make || '';
+          if (!A && B) return 1;
+          if (A && !B) return -1;
+          return A.localeCompare(B);
+        });
+        makeSel.innerHTML = makes.map(function(sp) {
+          var mk = (sp.make || '').replace(/"/g, '&quot;');
+          return '<option value="' + mk + '">' + (sp.make || '— Not specified —') + '</option>';
+        }).join('');
+        if (presetMake !== undefined && makes.some(function(sp) { return (sp.make || '') === presetMake; })) {
+          makeSel.value = presetMake;
+        }
+        mrFillModels(rowEl);
+      }
+
+      function mrFillModels(rowEl) {
+        var name = rowEl.querySelector('.mr-name').value;
+        var make = rowEl.querySelector('.mr-make').value;
+        var modelSel = rowEl.querySelector('.mr-model');
+        if (!name) {
+          modelSel.innerHTML = '<option value="">— Select a part name first —</option>';
+          return;
+        }
+        var matches = ALL_SPARE_PARTS.filter(function(sp) {
+          return (sp.name || '') === name && (sp.make || '') === make;
+        });
+        var seen = {};
+        matches = matches.filter(function(sp) {
+          if (seen[sp.id]) return false;
+          seen[sp.id] = true;
+          return true;
+        });
+        modelSel.innerHTML = matches.length
+          ? matches.map(function(sp) {
+              var label = sp.model || '— Not specified —';
+              var val = (sp.model || '').replace(/"/g, '&quot;');
+              return '<option value="' + val + '" data-part-id="' + sp.id + '">' + label + '</option>';
+            }).join('')
+          : '<option value="">No parts</option>';
+        if (matches.length === 1) modelSel.selectedIndex = 0;
+      }
+
+      // Builds one Multi Request row, Part Name pre-filled from the checked
+      // Parts Consumption row (`part`), Make pre-filled too when that row
+      // already resolved to an exact SparePart — otherwise left for the user
+      // to pick, same as the single-request modal's cascade.
+      function mrMakeRow(part) {
+        var row = document.createElement('div');
+        row.className = 'row g-2 align-items-end mb-2 mr-row';
+        row.innerHTML =
+          '<div class="col-md-4"><label class="form-label form-label-sm mb-1">Part Name</label>' +
+            '<select class="form-select form-select-sm mr-name"></select></div>' +
+          '<div class="col-md-3"><label class="form-label form-label-sm mb-1">Part Make</label>' +
+            '<select class="form-select form-select-sm mr-make"></select></div>' +
+          '<div class="col-md-3"><label class="form-label form-label-sm mb-1">Part Model</label>' +
+            '<select class="form-select form-select-sm mr-model"></select></div>' +
+          '<div class="col-md-2"><label class="form-label form-label-sm mb-1">Quantity</label>' +
+            '<input type="number" class="form-control form-control-sm mr-qty" min="1" value="1"></div>';
+        row.dataset.category = part.category || '';
+        row.querySelector('.mr-name').addEventListener('change', function() { mrFillMakes(row); });
+        row.querySelector('.mr-make').addEventListener('change', function() { mrFillModels(row); });
+
+        var matched = part.part_id ? ALL_SPARE_PARTS.filter(function(sp) { return sp.id === part.part_id; })[0] : null;
+        mrFillNames(row, (matched && matched.name) || part.label);
+        if (matched) mrFillMakes(row, matched.make || '');
+        return row;
+      }
+
+      function openMultiRequestModal() {
         var checked = document.querySelectorAll('.pc-select-cb:checked');
         if (!checked.length) return;
-        var parts = Array.prototype.map.call(checked, function(cb){
+        var parts = Array.prototype.map.call(checked, function(cb) {
           return { label: cb.dataset.partName, category: cb.dataset.partCategory, part_id: cb.dataset.partId };
         });
+        ['new', 'replace'].forEach(function(type) {
+          var box = document.getElementById('mr_rows_' + type);
+          box.innerHTML = '';
+          parts.forEach(function(p) { box.appendChild(mrMakeRow(p)); });
+        });
+        var newTabBtn = document.getElementById('mr-tab-new-btn');
+        if (newTabBtn && !newTabBtn.classList.contains('active')) new bootstrap.Tab(newTabBtn).show();
+        new bootstrap.Modal(document.getElementById('multiRequestModal')).show();
+      }
+
+      // Only the tab the user is on when they click Submit gets raised —
+      // request_type follows whichever tab-pane is currently active.
+      function mrSubmit() {
+        var activePane = document.querySelector('#mrTabContent .tab-pane.active');
+        if (!activePane) return;
+        var type = activePane.id === 'mr-tab-replace' ? 'replace' : 'new';
+        var rows = activePane.querySelectorAll('.mr-row');
+        if (!rows.length) return;
+        var parts = [];
+        var missingName = false;
+        rows.forEach(function(row) {
+          var name = row.querySelector('.mr-name').value;
+          if (!name) { missingName = true; return; }
+          var make = row.querySelector('.mr-make').value;
+          var modelSel = row.querySelector('.mr-model');
+          var modelOpt = modelSel.options[modelSel.selectedIndex];
+          var partId = (modelOpt && modelOpt.getAttribute('data-part-id')) || '';
+          var qty = parseInt(row.querySelector('.mr-qty').value, 10) || 1;
+          parts.push({
+            label: name, category: row.dataset.category, part_id: partId,
+            make: make, model: modelSel.value, qty: qty,
+          });
+        });
+        if (missingName || !parts.length) { alert('Select a Part Name for every row.'); return; }
+
+        document.getElementById('mpr_request_type').value = type;
         document.getElementById('mpr_parts_json').value = JSON.stringify(parts);
         // Optimistic flip, same as the single-request form's onsubmit — the
         // redirect will reload with server-fresh data anyway, this just
         // avoids a blank/stale-looking Action column for the moment it takes.
-        checked.forEach(function(cb){
-          var cell = document.querySelector('[data-part-actions="' + cb.dataset.partId + '"]');
+        parts.forEach(function(p) {
+          var cell = document.querySelector('[data-part-actions="' + p.part_id + '"]');
           if (cell) cell.innerHTML = '<span class="badge bg-warning text-dark">Requested</span>';
         });
         document.getElementById('multiPartRequestForm').submit();

@@ -5,6 +5,7 @@ Parts request → handover → sourcing workflow.
  - Spare Parts Manager actions it on the Part Master page: Handover / Not In Stock / Procure.
  - Procure creates a sourcing request, closed by the Sales Manager in the CRM Dashboard.
 """
+import json
 import uuid
 from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Request, HTTPException
@@ -115,6 +116,102 @@ async def create_part_request(
     suffix = f"&from={from_page}" if from_page else ""
     return RedirectResponse(url=f"/devices/{barcode}?success=Part+request+raised+for+{part_name}{suffix}",
                             status_code=302)
+
+
+@router.post("/part-requests/multi-create")
+async def create_part_requests_batch(
+    request: Request,
+    barcode: str = Form(...),
+    parts_json: str = Form(...),
+    request_type: str = Form("new"),
+    from_page: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(eng_allowed),
+):
+    """Device Detail Parts Consumption's "Multi Request" button (2026-09-15):
+    check several rows, raise a "new" request for all of them in one click,
+    instead of opening the Name -> Make -> Model modal once per part. Each
+    row's label/category/part_id (the same data already on its per-row
+    New/Replace buttons) travels as one JSON array rather than indexed form
+    fields, since there's no existing PartRequest row per item to reference
+    by id the way bulk_request_action's `ids` list does — these are brand
+    new rows being created, not existing ones being actioned.
+
+    Creates one PartRequest per selected part with the same field resolution
+    create_part_request() uses (including the part_id -> SparePart fuzzy-
+    match fallback), so every request lands on Parts Manager's Part Requests
+    tab exactly the same way a single request does.
+    """
+    try:
+        parts = json.loads(parts_json)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Invalid parts payload")
+    if not isinstance(parts, list) or not parts:
+        raise HTTPException(400, "No parts selected")
+
+    device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    wo = (await db.execute(
+        select(WorkOrder).where(WorkOrder.device_id == device.id, WorkOrder.status != "completed")
+        .order_by(WorkOrder.assigned_at.desc())
+    )).scalars().first()
+    stage = device.current_stage.value if device.current_stage else None
+    if stage not in ("l1", "l2", "l3"):
+        stage = wo.stage if wo else None
+
+    rtype = (request_type or "new").strip() or "new"
+    raised = []
+    for item in parts:
+        if not isinstance(item, dict):
+            continue
+        part_name = (item.get("label") or "").strip()
+        if not part_name:
+            continue
+        part_category = (item.get("category") or "").strip()
+
+        # Same part_id resolution as create_part_request (BUG 3) — prefer the
+        # id the row already matched, fall back to a fuzzy name/category match.
+        resolved_part_id = _as_uuid(item.get("part_id") or "")
+        if resolved_part_id:
+            exists = (await db.execute(
+                select(SparePart.id).where(SparePart.id == resolved_part_id)
+            )).scalar_one_or_none()
+            if not exists:
+                resolved_part_id = None
+        if not resolved_part_id:
+            conds = [SparePart.name.ilike(f"%{part_name}%")]
+            if part_category:
+                conds.append(SparePart.category == part_category)
+            sp_match = (await db.execute(
+                select(SparePart).where(or_(*conds)).order_by(SparePart.qty_in_stock.desc())
+            )).scalars().first()
+            if sp_match:
+                resolved_part_id = sp_match.id
+
+        db.add(PartRequest(
+            work_order_id=wo.id if wo else None,
+            work_id=wo.work_id if wo else None,
+            device_id=device.id, barcode=device.barcode, stage=stage,
+            part_id=resolved_part_id, part_name=part_name,
+            part_category=part_category or None,
+            request_type=rtype,
+            requested_by=current_user.username, engineer_name=current_user.full_name,
+            qty_requested=1, status="requested",
+        ))
+        raised.append(part_name)
+
+    if not raised:
+        raise HTTPException(400, "No valid parts to request")
+
+    await audit(db, user=current_user, action="PART_REQUESTED_MULTI", table_name="part_requests",
+                record_id=None, new_value={"barcode": barcode, "parts": raised, "count": len(raised)},
+                request=request)
+    await db.commit()
+    suffix = f"&from={from_page}" if from_page else ""
+    return RedirectResponse(
+        url=f"/devices/{barcode}?success={len(raised)}+part+request(s)+raised{suffix}",
+        status_code=302)
 
 
 @router.post("/part-requests/{req_id}/handover")

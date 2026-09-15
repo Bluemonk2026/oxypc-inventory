@@ -191,13 +191,18 @@
     <!-- Parts Consumption (#10): required parts (from IQC) + live stock + request action -->
     {% if parts_consumption is defined %}
     <div class="card border-0 shadow-sm mb-3" id="parts">
-      <div class="card-header bg-transparent fw-semibold small text-uppercase">
-        <i class="bi bi-clipboard-plus me-2"></i>Parts Consumption
+      <div class="card-header bg-transparent fw-semibold small text-uppercase d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-clipboard-plus me-2"></i>Parts Consumption</span>
+        <button type="button" id="pcMultiRequestBtn" class="btn btn-sm btn-primary py-0 px-2" disabled
+                style="text-transform:none" onclick="submitMultiPartRequest()">
+          <i class="bi bi-bag-plus me-1"></i>Multi Request
+        </button>
       </div>
       <div class="card-body p-0">
         <table class="table table-sm mb-0 align-middle">
           <thead class="table-light">
-            <tr><th class="ps-3">Part Name</th><th>Required</th><th>Stock Status</th><th>Mark As</th><th>Action</th></tr>
+            <tr><th class="ps-3"><input type="checkbox" id="pcSelectAll" title="Select all"></th>
+              <th>Part Name</th><th>Required</th><th>Stock Status</th><th>Mark As</th><th>Action</th></tr>
           </thead>
           <tbody>
             {% set _eng = True %}{# Parts Consumption actions visible to all roles #}
@@ -210,11 +215,19 @@
             {% if p.section and p.section != _ns.section %}
             {% set _ns.section = p.section %}
             <tr class="table-light">
-              <td colspan="5" class="ps-3 small fw-bold text-uppercase text-muted">{{ p.section }}</td>
+              <td colspan="6" class="ps-3 small fw-bold text-uppercase text-muted">{{ p.section }}</td>
             </tr>
             {% endif %}
             <tr>
-              <td class="ps-3 small fw-semibold">{{ p.label }}</td>
+              <td class="ps-3">
+                {% if not p.request %}
+                <input type="checkbox" class="pc-select-cb"
+                       data-part-name="{{ p.label | e }}"
+                       data-part-category="{{ p.category | e }}"
+                       data-part-id="{{ p.part_id or '' }}">
+                {% endif %}
+              </td>
+              <td class="small fw-semibold">{{ p.label }}</td>
               <td>{% if p.required %}<span class="badge bg-warning text-dark">Yes</span>{% else %}<span class="badge bg-light text-muted border">No</span>{% endif %}</td>
               <td>
                 {# No Part Master row for this name: stock is unknown, not zero.
@@ -293,6 +306,13 @@
         </table>
       </div>
     </div>
+    <form method="post" action="/part-requests/multi-create" id="multiPartRequestForm" style="display:none">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="barcode" value="{{ device.barcode }}">
+      <input type="hidden" name="request_type" value="new">
+      <input type="hidden" name="from_page" value="{{ request.query_params.get('from', '') }}">
+      <input type="hidden" name="parts_json" id="mpr_parts_json" value="">
+    </form>
     {% endif %}
 
     <!-- All Notes (#L1/L2, L3/L4, Stress, Final QC) — a single consolidated
@@ -534,6 +554,59 @@
         var cell = document.querySelector('[data-part-actions="' + _prRowPartId + '"]');
         if (cell) cell.innerHTML = '<span class="badge bg-warning text-dark">Requested</span>';
       }
+
+      // Multi Request — check several Parts Consumption rows, raise a "new"
+      // request for all of them in one submit (routers/part_requests.py
+      // create_part_requests_batch). Rows already carrying a request never
+      // get a checkbox (server-rendered, gated on p.request being unset
+      // above), so nothing here can double-request an already-actioned part.
+      (function(){
+        var selectAll = document.getElementById('pcSelectAll');
+        var multiBtn = document.getElementById('pcMultiRequestBtn');
+        if (!multiBtn) return;
+
+        function boxes() { return document.querySelectorAll('.pc-select-cb'); }
+
+        function updateMultiBtnState() {
+          var all = boxes();
+          var checked = document.querySelectorAll('.pc-select-cb:checked').length;
+          multiBtn.disabled = checked === 0;
+          multiBtn.innerHTML = '<i class="bi bi-bag-plus me-1"></i>Multi Request' +
+            (checked > 0 ? ' (' + checked + ')' : '');
+          if (selectAll) selectAll.checked = all.length > 0 && checked === all.length;
+        }
+
+        if (selectAll) {
+          selectAll.addEventListener('change', function(){
+            boxes().forEach(function(cb){ cb.checked = selectAll.checked; });
+            updateMultiBtnState();
+          });
+        }
+        document.addEventListener('change', function(e){
+          if (e.target && e.target.classList && e.target.classList.contains('pc-select-cb')) {
+            updateMultiBtnState();
+          }
+        });
+        updateMultiBtnState();
+      })();
+
+      function submitMultiPartRequest() {
+        var checked = document.querySelectorAll('.pc-select-cb:checked');
+        if (!checked.length) return;
+        var parts = Array.prototype.map.call(checked, function(cb){
+          return { label: cb.dataset.partName, category: cb.dataset.partCategory, part_id: cb.dataset.partId };
+        });
+        document.getElementById('mpr_parts_json').value = JSON.stringify(parts);
+        // Optimistic flip, same as the single-request form's onsubmit — the
+        // redirect will reload with server-fresh data anyway, this just
+        // avoids a blank/stale-looking Action column for the moment it takes.
+        checked.forEach(function(cb){
+          var cell = document.querySelector('[data-part-actions="' + cb.dataset.partId + '"]');
+          if (cell) cell.innerHTML = '<span class="badge bg-warning text-dark">Requested</span>';
+        });
+        document.getElementById('multiPartRequestForm').submit();
+      }
+
       function openPartRequestModal(requestType, qty, prefillCategory, matchedPartId, partLabel) {
         _prRowPartId = matchedPartId || '';
         document.getElementById('pr_request_type').value = requestType;

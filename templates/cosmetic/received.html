@@ -168,19 +168,21 @@
 </div>
 {% if current_user.role.value in ('admin', 'cosmetic_manager') %}
 {# ── Bulk Assign (admin only): pick a batch of checked tags, assign them all
-     to one user — a pure reassignment at their CURRENT stage (no stage
-     change), each getting its own fresh WorkID. Same mechanism as the 6
-     mid-pipeline pages (templates/cosmetic/stage.html), posting to the same
-     /cosmetic/bulk-assign endpoint. #}
+     to one user AND move them all to Cleaning in one step (2026-09-15) — the
+     bulk equivalent of the per-row "Move to Cleaning" button, so a batch
+     behaves the same as doing that one tag at a time. Posts to the same
+     /cosmetic/bulk-assign endpoint the 6 mid-pipeline pages
+     (templates/cosmetic/stage.html) use, but only Cosmetic Received's tags
+     also advance stage there — see that endpoint's docstring. #}
 <div class="modal fade" id="cosmeticRecvAssignModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-person-check-fill text-primary me-2"></i>Assign Selected Tags</h5>
+        <h5 class="modal-title"><i class="bi bi-person-check-fill text-primary me-2"></i>Assign &amp; Move to Cleaning</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <p class="small text-muted mb-3"><span id="cosmeticRecvAssignCount">0</span> tag(s) selected</p>
+        <p class="small text-muted mb-3"><span id="cosmeticRecvAssignCount">0</span> tag(s) selected — will move to Cleaning</p>
         <div class="mb-3">
           <label class="form-label small fw-semibold">Assign to</label>
           <select id="cosmeticRecvAssignEngineerSelect" class="form-select form-select-sm">

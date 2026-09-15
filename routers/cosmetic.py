@@ -126,9 +126,11 @@ PERM_MODULE_BY_STAGE = {
 # endpoint is a separate, pre-existing flow this doesn't touch.
 ASSIGN_ON_MOVE_STAGES = set(PERM_MODULE_BY_STAGE.keys())
 
-# The 6 mid-pipeline pages with the admin-only bulk "Assign" button — Cosmetic
-# Received/Completed are excluded (not asked for; they already have their own
-# per-row Move/Fail assignment flows).
+# The 6 mid-pipeline pages plus Cosmetic Received have the admin/Cosmetic
+# Manager-only bulk "Assign" button — Cosmetic Completed is the one excluded
+# (not asked for; it already has its own per-row Move/Fail assignment flow).
+# Cosmetic Received's bulk-assign also advances to Cleaning (see bulk_assign
+# below); the other 6 stay a pure reassignment.
 BULK_ASSIGN_STAGES = {
     DeviceStage.cosmetic_received,
     DeviceStage.cleaning, DeviceStage.putty, DeviceStage.dry_sanding,
@@ -1448,6 +1450,15 @@ async def bulk_assign(
     so the new assignment shows up immediately without moving the tag
     anywhere. Unlike Move/Fail this never changes device.current_stage or
     writes a StageMovement — it is a pure reassignment.
+
+    Cosmetic Received is the one exception (2026-09-15): its per-row "Move to
+    Cleaning" button already combines assign + advance in one action, so
+    Assign staying a pure reassignment there just meant a selected batch
+    never actually left Cosmetic Received — read as "tags aren't moving to
+    Cleaning or getting assigned". A device found at DeviceStage.cosmetic_received
+    below also advances to Cleaning, exactly like advance_stage's own
+    ASSIGN_ON_MOVE_STAGES branch does for a single tag. Devices at the other
+    6 stages are untouched — pure reassignment, as before.
     """
     role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
     if role_val not in ("admin", "cosmetic_manager"):
@@ -1475,9 +1486,22 @@ async def bulk_assign(
         raise HTTPException(404, "No matching tags found")
 
     work_ids = []
+    moved_to_cleaning = 0
     for device in devices:
         if device.current_stage not in BULK_ASSIGN_STAGES:
             continue  # a tag that moved on since the checkbox was ticked — skip, don't fail the whole batch
+
+        advance_to_cleaning = device.current_stage == DeviceStage.cosmetic_received
+        if advance_to_cleaning:
+            db.add(StageMovement(
+                device_id=device.id, from_stage=device.current_stage, to_stage=DeviceStage.cleaning,
+                moved_by=current_user.username,
+                notes=notes or "Advanced from Cosmetic Received to Cleaning (bulk Assign)",
+            ))
+            device.current_stage = DeviceStage.cleaning
+            device.updated_at = app_now()
+            moved_to_cleaning += 1
+
         stage_code = MOVE_STAGE_CODE[device.current_stage]
         work_id = await _gen_work_id(db)
         db.add(WorkOrder(
@@ -1488,11 +1512,15 @@ async def bulk_assign(
             created_by=current_user.username,
         ))
         work_ids.append(work_id)
+        message = (f"{device.barcode} moved to {STAGE_LABELS.get(device.current_stage, device.current_stage.value)} "
+                   f"and has been assigned to you (WorkID: {work_id})."
+                   if advance_to_cleaning else
+                   f"{device.barcode} has been assigned to you at "
+                   f"{STAGE_LABELS.get(device.current_stage, device.current_stage.value)} "
+                   f"(WorkID: {work_id}).")
         await create_notification(
             db, user_id=engineer.id, title="Device Assigned to You",
-            message=(f"{device.barcode} has been assigned to you at "
-                     f"{STAGE_LABELS.get(device.current_stage, device.current_stage.value)} "
-                     f"(WorkID: {work_id})."),
+            message=message,
             notification_type="info",
             barcode=device.barcode, brand=device.brand, model=device.model,
             stage=device.current_stage.value,
@@ -1509,8 +1537,10 @@ async def bulk_assign(
                 table_name="devices", record_id=None,
                 new_value={"assigned_to": engineer.username, "work_ids": work_ids,
                            "device_ids": [str(d.id) for d in devices],
-                           "count": len(work_ids), "notes": notes},
+                           "count": len(work_ids), "moved_to_cleaning": moved_to_cleaning,
+                           "notes": notes},
                 request=None)
 
     await db.commit()
-    return JSONResponse({"ok": True, "assigned": len(work_ids), "work_ids": work_ids})
+    return JSONResponse({"ok": True, "assigned": len(work_ids), "work_ids": work_ids,
+                          "moved_to_cleaning": moved_to_cleaning})

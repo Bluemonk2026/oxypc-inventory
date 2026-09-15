@@ -177,7 +177,13 @@ asyncio.run(main())
         _cleanup_device(barcode)
 
 
-def test_bulk_assign_creates_workid_per_tag_without_moving_stage(app_client, make_user):  # noqa: F811
+def test_bulk_assign_from_cosmetic_received_also_moves_to_cleaning(app_client, make_user):  # noqa: F811
+    """2026-09-15: bulk Assign on Cosmetic Received now doubles as a bulk
+    "Move to Cleaning" — the same combined assign+advance the per-row button
+    already did for one tag at a time. Previously Assign was a pure
+    reassignment here (WorkOrder.stage == 'recv', current_stage unchanged),
+    which read as "selected tags aren't moving to Cleaning or getting
+    assigned" since nothing about the page changed after clicking Assign."""
     suffix = uuid.uuid4().hex[:6]
     barcode_a = f"ITRECVBAA{suffix}"
     barcode_b = f"ITRECVBAB{suffix}"
@@ -210,13 +216,14 @@ asyncio.run(main())
         body = r.json()
         assert body["ok"] is True
         assert body["assigned"] == 2
+        assert body["moved_to_cleaning"] == 2
 
         check = _run(f"""
 import asyncio, sys
 sys.path.insert(0, r"{ROOT}")
 from sqlalchemy import select
 from database import AsyncSessionLocal
-from models.device import Device
+from models.device import Device, StageMovement
 from models.work_order import WorkOrder
 
 async def main():
@@ -224,18 +231,23 @@ async def main():
         for bc in ["{barcode_a}", "{barcode_b}"]:
             dev = (await db.execute(select(Device).where(Device.barcode == bc))).scalar_one()
             wo = (await db.execute(select(WorkOrder).where(
-                WorkOrder.device_id == dev.id, WorkOrder.stage == "recv"))).scalar_one()
+                WorkOrder.device_id == dev.id, WorkOrder.stage == "clean"))).scalar_one()
+            mv = (await db.execute(select(StageMovement).where(
+                StageMovement.device_id == dev.id, StageMovement.to_stage == "cleaning"))).scalar_one()
             print(dev.current_stage.value)
             print(wo.assigned_username)
+            print(mv.from_stage.value)
 
 asyncio.run(main())
 """)
         lines = check.splitlines()
-        # Neither tag moved off Cosmetic Received; both got the assignment.
-        assert lines[0] == "cosmetic_received"
+        # Both tags moved to Cleaning, got the assignment, and left a StageMovement behind.
+        assert lines[0] == "cleaning"
         assert lines[1] == eng_username
         assert lines[2] == "cosmetic_received"
-        assert lines[3] == eng_username
+        assert lines[3] == "cleaning"
+        assert lines[4] == eng_username
+        assert lines[5] == "cosmetic_received"
     finally:
         _cleanup_device(barcode_a)
         _cleanup_device(barcode_b)

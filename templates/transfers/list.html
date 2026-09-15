@@ -7,11 +7,11 @@
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body py-2">
     <form method="get" action="/transfers" class="row g-2 align-items-end">
-      <div class="col-md-4">
+      <div class="col-md-3">
         <label class="form-label small text-muted mb-1">Search Tag Number / Device</label>
         <input type="text" name="q" class="form-control form-control-sm" placeholder="Tag Number..." value="{{ q }}">
       </div>
-      <div class="col-md-3">
+      <div class="col-md-2">
         <label class="form-label small text-muted mb-1">Transfer Type</label>
         {% set transfer_type_arrow_labels = {
           'trc_to_showroom': 'TRC → Showroom',
@@ -26,10 +26,33 @@
           {% endfor %}
         </select>
       </div>
+      <div class="col-md-2">
+        <label class="form-label small text-muted mb-1">Transfer by</label>
+        <select name="transferred_by" class="form-select form-select-sm">
+          <option value="">All</option>
+          {% for u in transferred_by_options %}
+          <option value="{{ u }}" {% if transferred_by == u %}selected{% endif %}>{{ u }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small text-muted mb-1">Location ID</label>
+        <select name="location_id" class="form-select form-select-sm">
+          <option value="">All Locations</option>
+          {% for loc in storage_locations %}
+          <option value="{{ loc.id }}" {% if location_id == loc.id | string %}selected{% endif %}>{{ loc.unit_id }} — {{ zone_labels[loc.zone] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% include "_date_range_fields.html" %}
       <div class="col-auto d-flex gap-2">
         <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-search me-1"></i>Search</button>
         <a href="/transfers" class="btn btn-sm btn-outline-secondary">Clear</a>
         <a href="/transfers/new" class="btn btn-sm btn-success"><i class="bi bi-plus-circle me-1"></i>New Transfer</a>
+        <a id="exportCsvLink" class="btn btn-sm btn-outline-success"
+           href="/transfers/export?q={{ q | urlencode }}&transfer_type={{ transfer_type | urlencode }}&transferred_by={{ transferred_by | urlencode }}&location_id={{ location_id | urlencode }}&date_from={{ date_from | urlencode }}&date_to={{ date_to | urlencode }}">
+          <i class="bi bi-download me-1"></i>Export
+        </a>
       </div>
     </form>
   </div>
@@ -38,19 +61,19 @@
 <!-- Table -->
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
-    <div class="table-responsive">
       <table id="transfersTable" class="table table-hover mb-0 small">
         <thead class="table-dark">
           <tr>
             <th>Date</th>
+            <th>Location ID</th>
             <th>Type</th>
             <th>Tag Number</th>
             <th>Make / Model</th>
-            <th>Quantity</th>
+            <th class="d-none">Quantity</th>
             <th>Lot</th>
-            <th>From</th>
-            <th>To</th>
-            <th>Dept.</th>
+            <th class="d-none">From</th>
+            <th class="d-none">To</th>
+            <th class="d-none">Dept.</th>
             <th>Transferred By</th>
             <th>Received By</th>
             <th>Stage</th>
@@ -60,6 +83,9 @@
           {% for t in transfers %}
           <tr>
             <td class="text-nowrap">{{ t.transfer_date.strftime('%d-%m-%Y %H:%M') }}</td>
+            <td class="font-monospace text-muted">
+              {{ location_by_id[t.to_location_id | string].unit_id if t.to_location_id and (t.to_location_id | string) in location_by_id else '—' }}
+            </td>
             <td>
               {% if t.transfer_type == 'trc_to_showroom' %}
                 <span class="badge bg-info">TRC → Showroom</span>
@@ -75,11 +101,11 @@
               {% else %}—{% endif %}
             </td>
             <td>{{ (t.make or '') ~ ' ' ~ (t.model or '') | trim or '—' }}</td>
-            <td>{{ t.quantity if t.quantity is not none else '—' }}</td>
-            <td class="font-monospace text-muted">{{ t.lot_number or '—' }}</td>
-            <td class="text-muted">{{ t.from_warehouse }}</td>
-            <td class="fw-semibold">{{ t.to_warehouse }}</td>
-            <td>{{ t.department or '—' }}</td>
+            <td class="d-none">{{ t.quantity if t.quantity is not none else '—' }}</td>
+            <td class="font-monospace text-muted">{{ t._display_lot_number }}</td>
+            <td class="d-none text-muted">{{ t.from_warehouse }}</td>
+            <td class="d-none fw-semibold">{{ t.to_warehouse }}</td>
+            <td class="d-none">{{ t.department or '—' }}</td>
             <td>{{ t.transferred_by or '—' }}</td>
             <td>{{ t.received_by or '—' }}</td>
             <td><span class="badge bg-secondary">{{ (t.product_stage or '—').replace('_',' ').title() }}</span></td>
@@ -87,17 +113,17 @@
           {% endfor %}
         </tbody>
       </table>
-    </div>
   </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
 $(document).ready(function(){
-  $('#transfersTable').DataTable({
-    pageLength: 12,
-    order: [[0, 'desc']],
-  });
+  // Global Table module (static/js/global-table.js) — skipped when the table
+  // is empty, same guard used on /workid-status.
+  if ($('#transfersTable tbody tr td').length > 1) {
+    initGlobalTable('#transfersTable', { pageLength: 12, order: [[0, 'desc']] });
+  }
 });
 </script>
 {% endblock %}

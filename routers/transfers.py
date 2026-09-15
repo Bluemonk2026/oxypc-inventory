@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Request, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
 
@@ -12,7 +12,7 @@ from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement, DeviceGrade
 from models.lot import Lot
 from models.bucket import Bucket
-from models.location import StorageLocation
+from models.location import StorageLocation, ZONE_LABELS
 from models.sales import Sale
 from models.stock_transfer import StockTransfer
 from models.work_order import WorkOrder
@@ -85,6 +85,16 @@ async def _resolve_assigned_user(db: AsyncSession, assigned_user_id: str):
     return (await db.execute(select(User).where(User.id == uid))).scalar_one_or_none()
 
 
+def _resolve_location_uuid(to_location_id: str):
+    """Parse the 'Location ID' dropdown selection into a UUID, or None."""
+    if not to_location_id:
+        return None
+    try:
+        return uuid.UUID(to_location_id)
+    except Exception:
+        return None
+
+
 async def _engineers_by_role(db: AsyncSession) -> dict:
     """{role_value: [{id, name, username}]} for active L1/L2/L3 engineers."""
     rows = (await db.execute(
@@ -101,25 +111,139 @@ async def _engineers_by_role(db: AsyncSession) -> dict:
     return out
 
 
+def _parse_simple_date(s: str):
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s.strip(), "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _transfers_list_filters(q, transfer_type, transferred_by, location_id, date_from, date_to):
+    """Filter clauses shared by the /transfers page and its CSV export, so
+    export can never drift from what the table is showing."""
+    w = []
+    if q:
+        w.append(StockTransfer.barcode.ilike(f"%{q}%"))
+    if transfer_type:
+        w.append(StockTransfer.transfer_type == transfer_type)
+    if transferred_by:
+        w.append(StockTransfer.transferred_by == transferred_by)
+    if location_id:
+        try:
+            w.append(StockTransfer.to_location_id == uuid.UUID(location_id))
+        except ValueError:
+            pass
+    d_from = _parse_simple_date(date_from)
+    if d_from:
+        w.append(StockTransfer.transfer_date >= d_from)
+    d_to = _parse_simple_date(date_to)
+    if d_to:
+        w.append(StockTransfer.transfer_date <= d_to.replace(hour=23, minute=59, second=59))
+    return w
+
+
+async def _transfers_list_rows(db, q, transfer_type, transferred_by, location_id, date_from, date_to):
+    """StockTransfer rows plus a LIVE-joined Lot Number — StockTransfer.lot_number
+    is a denormalized snapshot taken once at transfer-creation time, so a device
+    whose lot lookup missed at insert (or was assigned/changed afterward) shows
+    '—' forever even though the device now has a lot. Prefer the live join."""
+    stmt = (
+        select(StockTransfer, Lot.lot_number)
+        .outerjoin(Device, StockTransfer.device_id == Device.id)
+        .outerjoin(Lot, Device.lot_id == Lot.id)
+        .where(*_transfers_list_filters(q, transfer_type, transferred_by, location_id, date_from, date_to))
+        .order_by(desc(StockTransfer.transfer_date))
+    )
+    return (await db.execute(stmt)).all()
+
+
 @router.get("/transfers", response_class=HTMLResponse)
 async def list_transfers(
     request: Request,
     q: str = "",
     transfer_type: str = "",
+    transferred_by: str = "",
+    location_id: str = "",
+    date_from: str = "",
+    date_to: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    stmt = select(StockTransfer).order_by(desc(StockTransfer.transfer_date))
-    if q:
-        stmt = stmt.where(StockTransfer.barcode.ilike(f"%{q}%"))
-    if transfer_type:
-        stmt = stmt.where(StockTransfer.transfer_type == transfer_type)
-    result = await db.execute(stmt)
-    transfers = result.scalars().all()
+    rows = await _transfers_list_rows(db, q, transfer_type, transferred_by, location_id, date_from, date_to)
+    transfers = []
+    for t, live_lot_number in rows:
+        t._display_lot_number = live_lot_number or t.lot_number or "—"
+        transfers.append(t)
+
+    transferred_by_options = [r[0] for r in (await db.execute(
+        select(StockTransfer.transferred_by).where(StockTransfer.transferred_by.isnot(None))
+        .distinct().order_by(StockTransfer.transferred_by)
+    )).all() if r[0]]
+
+    storage_locations = (await db.execute(
+        select(StorageLocation).where(StorageLocation.is_active == True)  # noqa: E712
+        .order_by(StorageLocation.zone, StorageLocation.unit_id)
+    )).scalars().all()
+    location_by_id = {str(loc.id): loc for loc in storage_locations}
+
     return templates.TemplateResponse("transfers/list.html", {
         "request": request, "transfers": transfers, "q": q,
         "transfer_type": transfer_type, "current_user": current_user,
+        "transferred_by": transferred_by, "transferred_by_options": transferred_by_options,
+        "location_id": location_id, "storage_locations": storage_locations,
+        "location_by_id": location_by_id, "zone_labels": ZONE_LABELS,
+        "date_from": date_from, "date_to": date_to,
     })
+
+
+@router.get("/transfers/export")
+async def export_transfers(
+    q: str = "",
+    transfer_type: str = "",
+    transferred_by: str = "",
+    location_id: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """CSV of exactly the rows the /transfers table is showing — shares
+    _transfers_list_rows with the page so export can't drift from the table."""
+    import csv as _csv
+    import io as _io
+    from datetime import date as _date
+
+    rows = await _transfers_list_rows(db, q, transfer_type, transferred_by, location_id, date_from, date_to)
+    storage_locations = (await db.execute(select(StorageLocation))).scalars().all()
+    location_by_id = {str(loc.id): loc.unit_id for loc in storage_locations}
+
+    buf = _io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(["Date", "Location ID", "Type", "Tag Number", "Make / Model", "Quantity",
+                "Lot", "From", "To", "Dept.", "Transferred By", "Received By", "Stage"])
+    for t, live_lot_number in rows:
+        w.writerow([
+            t.transfer_date.strftime("%d-%m-%Y %H:%M") if t.transfer_date else "",
+            location_by_id.get(str(t.to_location_id), "") if t.to_location_id else "",
+            (t.transfer_type or "").replace("_", " ").title(),
+            t.barcode or "",
+            f"{t.make or ''} {t.model or ''}".strip(),
+            t.quantity if t.quantity is not None else "",
+            live_lot_number or t.lot_number or "",
+            t.from_warehouse or "",
+            t.to_warehouse or "",
+            t.department or "",
+            t.transferred_by or "",
+            t.received_by or "",
+            (t.product_stage or "").replace("_", " ").title(),
+        ])
+    data = buf.getvalue().encode("utf-8-sig")
+    fname = f"transfers_{_date.today().isoformat()}.csv"
+    return StreamingResponse(
+        _io.BytesIO(data), media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @router.get("/transfers/new", response_class=HTMLResponse)
@@ -150,10 +274,15 @@ async def new_transfer_form(
     all_users = (await db.execute(
         select(User).where(User.status == True).order_by(User.full_name)
     )).scalars().all()
+    storage_locations = (await db.execute(
+        select(StorageLocation).where(StorageLocation.is_active == True)  # noqa: E712
+        .order_by(StorageLocation.zone, StorageLocation.unit_id)
+    )).scalars().all()
     return templates.TemplateResponse("transfers/form.html", {
         "request": request, "device": device, "barcode": barcode,
         "warehouses": warehouses, "departments": DEPARTMENTS,
         "all_users": all_users,
+        "storage_locations": storage_locations, "zone_labels": ZONE_LABELS,
         "current_user": current_user, "error": None,
         "now": app_now(),
     })
@@ -322,6 +451,7 @@ async def create_transfer(
     if not assigned_user:
         return RedirectResponse(url="/transfers/new?error=Select+an+employee+to+assign", status_code=302)
 
+    loc_uuid = _resolve_location_uuid(to_location_id)
     moved, not_found, work_ids = [], [], []
     for bc in barcodes:
         result = await db.execute(
@@ -340,7 +470,7 @@ async def create_transfer(
         transfer = StockTransfer(
             device_id=device.id,
             move_kind="device",
-            to_location_id=None,
+            to_location_id=loc_uuid,
             transfer_type=transfer_type,
             from_warehouse=_from_wh,
             to_warehouse=_to_wh,
@@ -423,6 +553,7 @@ async def create_parts_transfer(
     assigned_user_id: str = Form(""),
     transfer_date: str = Form(""),
     notes: str = Form(""),
+    to_location_id: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("transfers", "add")),
@@ -454,6 +585,7 @@ async def create_parts_transfer(
     transfer = StockTransfer(
         device_id=None,
         move_kind="parts",
+        to_location_id=_resolve_location_uuid(to_location_id),
         transfer_type=transfer_type,
         from_warehouse="—",
         to_warehouse="—",
@@ -491,7 +623,7 @@ async def _move_devices_bulk(
     db: AsyncSession, request: Request, current_user: User,
     devices: list, move_kind: str, bucket_id, lot_id, group_label: str,
     transfer_type: str, assigned_user: User, transfer_date: str,
-    transferred_by: str, received_by: str, notes: str,
+    transferred_by: str, received_by: str, notes: str, loc_uuid=None,
 ):
     """Shared bulk-assign logic for Move Bucket / Move Lot tabs — creates one
     StockTransfer row per member device and a WorkOrder recording the device
@@ -514,7 +646,7 @@ async def _move_devices_bulk(
             move_kind=move_kind,
             bucket_id=bucket_id,
             lot_id=lot_id,
-            to_location_id=None,
+            to_location_id=loc_uuid,
             transfer_type=transfer_type,
             from_warehouse=_from_wh,
             to_warehouse=_from_wh,
@@ -597,6 +729,7 @@ async def create_bucket_transfer(
     if not assigned_user:
         return RedirectResponse(url="/transfers/new?error=Select+an+employee+to+assign", status_code=302)
 
+    loc_uuid = _resolve_location_uuid(to_location_id)
     total_moved, not_found = [], []
     for uid in unit_ids:
         loc = (await db.execute(
@@ -613,7 +746,7 @@ async def create_bucket_transfer(
         moved = await _move_devices_bulk(
             db, request, current_user, devices, "bucket", None, None, uid,
             transfer_type, assigned_user, transfer_date, transferred_by, received_by,
-            notes,
+            notes, loc_uuid,
         )
         total_moved.extend(moved)
 
@@ -653,6 +786,7 @@ async def create_lot_transfer(
     if not assigned_user:
         return RedirectResponse(url="/transfers/new?error=Select+an+employee+to+assign", status_code=302)
 
+    loc_uuid = _resolve_location_uuid(to_location_id)
     total_moved, not_found = [], []
     for ln in lot_numbers:
         lot = (await db.execute(
@@ -669,7 +803,7 @@ async def create_lot_transfer(
         moved = await _move_devices_bulk(
             db, request, current_user, devices, "lot", None, lot.id, ln,
             transfer_type, assigned_user, transfer_date, transferred_by, received_by,
-            notes,
+            notes, loc_uuid,
         )
         total_moved.extend(moved)
 

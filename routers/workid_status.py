@@ -74,6 +74,23 @@ def _parse_date(s):
     return None
 
 
+def _multi(value) -> list:
+    """Split a comma-separated multiselect filter value into a list — same
+    convention as routers/devices.py:_multi(), so the Stage filter here posts
+    one comma-joined value via templates/_multiselect_filter.html instead of
+    repeating the parameter."""
+    if not value:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw = list(value)
+    else:
+        raw = str(value).split(",")
+    return [v.strip() for v in raw if v and str(v).strip()]
+
+
+MAIN_ROW_CAP = 3000
+
+
 @router.get("/workid-status", response_class=HTMLResponse)
 async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
                         current_user: User = Depends(get_current_user),
@@ -116,6 +133,20 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         visible_usernames = set(team) | {current_user.username}
         stmt = stmt.where(WorkOrder.assigned_username.in_(visible_usernames))
 
+    # ── Row cap on the base WorkOrder query (2026-09-15 — "table taking too
+    # much time to load"): the unfiltered default view previously fetched
+    # EVERY WorkOrder ever created (no LIMIT at all), then did per-device
+    # Asset-History processing over all of them before Stage/Completed-Date
+    # even get applied (those are Python-side filters, see below) — the
+    # slowest page views were exactly the common "just open the page" case.
+    # Capped to the most recent MAIN_ROW_CAP, same truncation-notice pattern
+    # already used for the backfill query below, rather than a silent cut.
+    main_total = (await db.execute(
+        select(func.count()).select_from(stmt.subquery())
+    )).scalar() or 0
+    main_truncated = main_total > MAIN_ROW_CAP
+    stmt = stmt.limit(MAIN_ROW_CAP)
+
     rows = (await db.execute(stmt)).all()
     device_ids = [d.id for _, d in rows if d is not None]
 
@@ -154,6 +185,28 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             )).all()
             display_name_by_username = {uname: full for uname, full in u_rows}
 
+    # L3/L4 repair and the Stress-Test hand-off (routers/repair.py:
+    # request_l3l4 / l1l2_complete_to_stress) create an "L3L4-"/"STRS-"
+    # WorkOrder to make the assignment visible here, but neither of those
+    # flows — nor l3l4_start/l3l4_complete/l3l4_scrap — ever writes a
+    # StageMovement (the device's current_stage isn't touched either; L3/L4
+    # runs on the WorkOrder alone). _movement_for_work_order below therefore
+    # has no real movement to match and falls back to the device's overall
+    # latest movement, which can be from long before this WorkID even
+    # existed (2026-09-15 — reported as "L3/L4 WorkIDs not showing": a
+    # completed L3L4- WorkOrder was rendering Stage/Completed/Engineer from
+    # an unrelated stage the device passed through BEFORE reaching L1, so it
+    # never matched a Stage-filtered search for "L3 Repair"). These two
+    # prefixes carry their own accurate stage/completed_at/engineer directly
+    # on the WorkOrder row, so read from there instead of Asset History.
+    _HANDOFF_STAGE = {"L3L4-": DeviceStage.l3, "STRS-": DeviceStage.qc_check}
+
+    def _handoff_stage(wo):
+        for prefix, stage in _HANDOFF_STAGE.items():
+            if wo.work_id and wo.work_id.startswith(prefix):
+                return stage
+        return None
+
     def _movement_for_work_order(wo, dev_movements):
         """Pick the StageMovement that actually corresponds to this WorkID,
         not just the device's overall-latest one. A completed WorkOrder is
@@ -180,17 +233,25 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         finalqc_dt = finalqc_date_map.get(did)
         end = finalqc_dt or today
         days = max(0, (end.date() - start.date()).days) if start else 0
-        mv = _movement_for_work_order(wo, movements_by_device.get(did, []))
-        if mv:
-            used_movement_ids.add(mv.id)
-            stage_value = mv.from_stage.value if mv.from_stage else ""
-            stage_label = STAGE_LABELS.get(mv.from_stage, mv.from_stage.value if mv.from_stage else "—")
-            movement_completed_at = mv.moved_at
-            movement_engineer = (display_name_by_username.get(mv.moved_by) or mv.moved_by) if mv.moved_by else "—"
-            engineer_username = mv.moved_by
-        else:
-            stage_value, stage_label, movement_completed_at, movement_engineer = "", "—", None, "—"
+        handoff_stage = _handoff_stage(wo)
+        if handoff_stage:
+            stage_value = handoff_stage.value
+            stage_label = STAGE_LABELS.get(handoff_stage, handoff_stage.value)
+            movement_completed_at = wo.completed_at
+            movement_engineer = wo.assigned_name or wo.assigned_username or "—"
             engineer_username = wo.assigned_username
+        else:
+            mv = _movement_for_work_order(wo, movements_by_device.get(did, []))
+            if mv:
+                used_movement_ids.add(mv.id)
+                stage_value = mv.from_stage.value if mv.from_stage else ""
+                stage_label = STAGE_LABELS.get(mv.from_stage, mv.from_stage.value if mv.from_stage else "—")
+                movement_completed_at = mv.moved_at
+                movement_engineer = (display_name_by_username.get(mv.moved_by) or mv.moved_by) if mv.moved_by else "—"
+                engineer_username = mv.moved_by
+            else:
+                stage_value, stage_label, movement_completed_at, movement_engineer = "", "—", None, "—"
+                engineer_username = wo.assigned_username
         items.append({
             "row_key": f"wo-{wo.work_id}",
             "work_id": wo.work_id,
@@ -220,14 +281,15 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
     BACKFILL_ROW_CAP = 5000
     backfill_truncated = False
     backfill_total = 0
+    stage_vals = _multi(cosmetic_stage)
     bounded_by_tag = bool(tag.strip())
     bounded_by_date = bool(cf or ct)
     if bounded_by_tag or bounded_by_date:
         mv_filters = [StageMovement.from_stage.isnot(None)]
         if tag.strip():
             mv_filters.append(Device.barcode.ilike(f"%{tag.strip()}%"))
-        if cosmetic_stage:
-            mv_filters.append(StageMovement.from_stage == cosmetic_stage)
+        if stage_vals:
+            mv_filters.append(StageMovement.from_stage.in_(stage_vals))
         if engineer:
             mv_filters.append(StageMovement.moved_by == engineer)
         if cf:
@@ -326,8 +388,8 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
     # the SQL stmt above) so they narrow the SAME values the Completed Date
     # and Stage columns display (Asset History's When/From), not the
     # WorkOrder/Device columns those columns no longer read from. ─────────
-    if cosmetic_stage:
-        items = [it for it in items if it["stage_value"] == cosmetic_stage]
+    if stage_vals:
+        items = [it for it in items if it["stage_value"] in stage_vals]
     if cf:
         items = [it for it in items if it["completed_at"] and it["completed_at"] >= cf]
     if ct:
@@ -400,6 +462,8 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         "highlight": highlight,
         "backfill_truncated": backfill_truncated, "backfill_total": backfill_total,
         "backfill_cap": BACKFILL_ROW_CAP,
+        "main_truncated": main_truncated, "main_total": main_total,
+        "main_cap": MAIN_ROW_CAP,
     })
 
 

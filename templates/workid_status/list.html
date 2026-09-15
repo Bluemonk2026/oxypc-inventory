@@ -1,6 +1,10 @@
 {% extends "base.html" %}
+{% import "_multiselect_filter.html" as ms %}
 {% block title %}WorkID Status — OxyPC{% endblock %}
 {% block page_title %}WorkID Status{% endblock %}
+{% block head %}
+<style>.wid-stage-ms{width:180px}</style>
+{% endblock %}
 {% block content %}
 
 <!-- Filter bar -->
@@ -35,15 +39,7 @@
         </select>
       </div>
       {% endif %}
-      <div class="flex-shrink-0" style="width:150px">
-        <label class="form-label small fw-semibold mb-1">Stage</label>
-        <select name="cosmetic_stage" class="form-select form-select-sm">
-          <option value="">All Stages</option>
-          {% for value, label in cosmetic_stage_choices %}
-          <option value="{{ value }}" {% if f_cosmetic_stage == value %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
+      {{ ms.multiselect('cosmetic_stage', 'Stage', cosmetic_stage_choices, f_cosmetic_stage, 'flex-shrink-0 wid-stage-ms') }}
       <div class="flex-shrink-0" style="width:150px">
         <label class="form-label small fw-semibold mb-1">Completed From</label>
         <input type="date" name="completed_from" value="{{ f_completed_from }}" class="form-control form-control-sm">
@@ -77,6 +73,14 @@
     </div>
   </div>
 </form>
+
+{% if main_truncated %}
+<div class="alert alert-info py-2 small mb-3">
+  <i class="bi bi-info-circle me-1"></i>
+  {{ '{:,}'.format(main_total) }} WorkIDs match — showing the most recent {{ '{:,}'.format(main_cap) }}.
+  Narrow with Search WorkID/Tag, Engineer, or a Completed date range to see the rest.
+</div>
+{% endif %}
 
 {% if backfill_truncated %}
 <div class="alert alert-warning py-2 small mb-3">
@@ -198,6 +202,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="/static/js/multiselect-filter.js"></script>
 <script>
 $(document).ready(function(){
   // Global Table module (static/js/global-table.js) — skipped when the table

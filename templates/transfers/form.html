@@ -7,11 +7,20 @@
 
 {% macro transfer_fields(prefix) %}
   <div class="row g-3 mb-4">
-    <!-- Row 1: Transfer Date + Transfer Type -->
+    <!-- Row 1: Transfer Date + Location ID -->
     <div class="col-md-6">
       <label class="form-label fw-semibold">Transfer Date</label>
       <input type="date" name="transfer_date" class="form-control bg-light"
              value="{{ now.strftime('%Y-%m-%d') if now else '' }}" readonly>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">Location ID</label>
+      <select name="to_location_id" id="{{ prefix }}-location-id" class="form-select {{ prefix }}-location-id">
+        <option value="">— Select Location —</option>
+        {% for loc in storage_locations %}
+        <option value="{{ loc.id }}">{{ loc.unit_id }} — {{ zone_labels[loc.zone] }}</option>
+        {% endfor %}
+      </select>
     </div>
     <div class="col-md-6">
       <label class="form-label fw-semibold">Transfer Type <span class="text-danger">*</span></label>
@@ -83,7 +92,7 @@
               <i class="bi bi-laptop me-1"></i>Move Item
             </button>
           </li>
-          <li class="nav-item flex-fill text-center" role="presentation">
+          <li class="nav-item flex-fill text-center d-none" role="presentation">
             <button class="nav-link w-100" id="move-bucket-tab" data-bs-toggle="tab"
                     data-bs-target="#moveBucketTab" type="button" role="tab">
               <i class="bi bi-box-seam me-1"></i>Move Bucket
@@ -235,6 +244,17 @@
     if (el) new TomSelect(el, {
       maxOptions: 1000,
       placeholder: '— Search employee —',
+      allowEmptyOption: true,
+      plugins: ['clear_button'],
+    });
+  });
+
+  // ── Location ID: searchable dropdown (Tom Select) per tab ──────────────────
+  ['device','bucket','lot','parts'].forEach(function(prefix){
+    var el = document.getElementById(prefix + '-location-id');
+    if (el) new TomSelect(el, {
+      maxOptions: 1000,
+      placeholder: '— Search location —',
       allowEmptyOption: true,
       plugins: ['clear_button'],
     });

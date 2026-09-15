@@ -84,8 +84,11 @@ def test_checkboxes_and_assign_present_for_cosmetic_manager(app_client, make_use
     # Select-all now spans every row matching the current search across all
     # pages, not just the visible page.
     assert "scope: 'search'" in html
-    # Assign button label grows a live "(N)" count as rows are checked.
-    assert "checked > 0 ? ' (' + checked + ')' : ''" in html
+    # Assign button label grows a live "(N)" count as rows are checked — the
+    # count is now sourced from the cosmeticRecvSelected Set (2026-09-15),
+    # not a DOM :checked query, so selections survive a new search.
+    assert "count > 0 ? ' (' + count + ')' : ''" in html
+    assert "cosmeticRecvSelected" in html
 
 
 def test_checkboxes_and_assign_absent_for_unrelated_role(app_client, make_user):  # noqa: F811

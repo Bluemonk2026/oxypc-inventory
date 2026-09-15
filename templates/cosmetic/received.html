@@ -205,10 +205,26 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}
+{% if current_user.role.value in ('admin', 'cosmetic_manager') %}
+<script src="/static/js/tag-scan-autocheck.js?v={{ ASSET_VERSION }}"></script>
+{% endif %}
 <script>
 let _moveBarcode = null;
 let _cosmeticFailBarcode = null;
 const CSRF = (document.cookie.split(';').find(c => c.trim().startsWith('csrf_token=')) || '').split('=').slice(1).join('=').trim();
+
+// Selection lives in a Set outside the DOM (same pattern as Devices'
+// devicesSelected), not in checkbox .checked state directly — a plain
+// client-side DataTables table DETACHES every row that doesn't match the
+// current page/search from the live document (see global-table.js's own
+// doc comment, point 12), so a document-scoped `$('.cosmeticRecvRowCheck
+// :checked')` silently stops counting a row the moment a new search moves
+// it off-screen — read as "Assign button count only ever shows 1" and
+// "every search removes my previous selection" (2026-09-15), and the old
+// bulk-assign submit had the same bug: it would silently DROP any
+// previously-checked tag that a later search had scrolled out of the DOM.
+var cosmeticRecvSelected = new Set();
+var cosmeticRecvDt = null;
 
 function openMoveModal(barcode, targetLabel) {
   _moveBarcode = barcode;
@@ -335,7 +351,7 @@ $(document).ready(function(){
   // is gone — everything else (Assign button, Failed-from-Final-QC filter)
   // still prepends into .dataTables_filter, which the new dom layout still
   // produces via the 'f' token.
-  var dt = initGlobalTable('#cosmeticReceivedTable', {
+  cosmeticRecvDt = initGlobalTable('#cosmeticReceivedTable', {
     order: [[orderCol, 'asc']],
     columnDefs: [{ orderable: false, targets: CAN_BULK_ASSIGN ? [0, -1] : [-1] }],
     initComplete: function() {
@@ -349,8 +365,18 @@ $(document).ready(function(){
         '<input class="form-check-input" type="checkbox" id="cosmeticRecvFailedFqcFilter">' +
         '<label class="form-check-label small" for="cosmeticRecvFailedFqcFilter">Failed from Final QC</label></div>');
       $(this.api().table().container()).find('.dataTables_filter').prepend(failedFqcFilter);
-      $('#cosmeticRecvFailedFqcFilter').on('change', function() { dt.draw(); });
+      $('#cosmeticRecvFailedFqcFilter').on('change', function() { cosmeticRecvDt.draw(); });
     },
+    {% if current_user.role.value in ('admin', 'cosmetic_manager') %}
+    // Re-apply checked state from the Set on every redraw — a row that was
+    // ticked, filtered out by a later search, then brought back by clearing
+    // the search must come back checked, not reset to blank.
+    drawCallback: function() {
+      document.querySelectorAll('#cosmeticReceivedTable tbody .cosmeticRecvRowCheck').forEach(function(cb) {
+        cb.checked = cosmeticRecvSelected.has(cb.value);
+      });
+    },
+    {% endif %}
   }, {
     {% if current_user.role.value in ('admin', 'cosmetic_manager') %}
     // Select-all header checkbox + per-row checkboxes — see global-table.js
@@ -362,6 +388,11 @@ $(document).ready(function(){
     // search result unchecked, which read as "search box not selecting
     // rows".
     selectAll: { headerSelector: '#cosmeticRecvSelectAll', rowSelector: '.cosmeticRecvRowCheck', onChange: updateCosmeticRecvAssignButtonState, scope: 'search' },
+    // Scan-to-select: hijacks DataTables' own search box, so scanning or
+    // typing a tag number and hitting Enter auto-ticks that row and adds it
+    // to cosmeticRecvSelected — same mechanism as Devices' devicesScanInput.
+    // Previously this page had no scan wiring at all, only free-text search.
+    scan: { inputId: 'cosmeticRecvScanInput', selection: cosmeticRecvSelected, checkboxSelector: '.cosmeticRecvRowCheck', onChange: updateCosmeticRecvAssignButtonState },
     {% endif %}
   });
 
@@ -374,23 +405,34 @@ $(document).ready(function(){
 })
 
 function updateCosmeticRecvAssignButtonState() {
-  var checked = $('.cosmeticRecvRowCheck:checked').length;
+  // Reconcile cosmeticRecvSelected against every row matching the CURRENT
+  // search (on-page or off) — this is how a select-all-header click reaches
+  // the Set, since global-table.js's own handler only sets checkbox .prop()
+  // and has no idea this Set exists. Rows outside the current search are
+  // left untouched: they're just not visible right now, not deselected —
+  // that's the whole fix for "every search removes my previous selection".
+  if (cosmeticRecvDt) {
+    $(cosmeticRecvDt.rows({search: 'applied'}).nodes()).find('.cosmeticRecvRowCheck').each(function() {
+      if (this.checked) cosmeticRecvSelected.add(this.value);
+      else cosmeticRecvSelected.delete(this.value);
+    });
+  }
+  var count = cosmeticRecvSelected.size;
   var btn = $('#cosmeticRecvAssignBtn');
-  btn.prop('disabled', checked === 0);
-  btn.html('<i class="bi bi-person-check me-1"></i>Assign' + (checked > 0 ? ' (' + checked + ')' : ''));
+  btn.prop('disabled', count === 0);
+  btn.html('<i class="bi bi-person-check me-1"></i>Assign' + (count > 0 ? ' (' + count + ')' : ''));
 }
 
 function openCosmeticRecvBulkAssignModal() {
-  var checked = $('.cosmeticRecvRowCheck:checked');
-  if (!checked.length) return;
-  document.getElementById('cosmeticRecvAssignCount').textContent = checked.length;
+  if (!cosmeticRecvSelected.size) return;
+  document.getElementById('cosmeticRecvAssignCount').textContent = cosmeticRecvSelected.size;
   document.getElementById('cosmeticRecvAssignEngineerSelect').value = '';
   document.getElementById('cosmeticRecvAssignNotes').value = '';
   new bootstrap.Modal(document.getElementById('cosmeticRecvAssignModal')).show();
 }
 
 async function submitCosmeticRecvBulkAssign() {
-  var barcodes = $('.cosmeticRecvRowCheck:checked').map(function() { return this.value; }).get();
+  var barcodes = Array.from(cosmeticRecvSelected);
   if (!barcodes.length) return;
   var engineerId = document.getElementById('cosmeticRecvAssignEngineerSelect').value;
   if (!engineerId) { alert('Please select a user'); return; }

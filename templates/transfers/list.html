@@ -30,8 +30,8 @@
         <label class="form-label small text-muted mb-1">Transfer by</label>
         <select name="transferred_by" class="form-select form-select-sm">
           <option value="">All</option>
-          {% for u in transferred_by_options %}
-          <option value="{{ u }}" {% if transferred_by == u %}selected{% endif %}>{{ u }}</option>
+          {% for raw, label in transferred_by_options %}
+          <option value="{{ raw }}" {% if transferred_by == raw %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
       </div>
@@ -106,8 +106,8 @@
             <td class="d-none text-muted">{{ t.from_warehouse }}</td>
             <td class="d-none fw-semibold">{{ t.to_warehouse }}</td>
             <td class="d-none">{{ t.department or '—' }}</td>
-            <td>{{ t.transferred_by or '—' }}</td>
-            <td>{{ t.received_by or '—' }}</td>
+            <td>{{ t._display_transferred_by or '—' }}</td>
+            <td>{{ t._display_received_by or '—' }}</td>
             <td><span class="badge bg-secondary">{{ (t.product_stage or '—').replace('_',' ').title() }}</span></td>
           </tr>
           {% endfor %}

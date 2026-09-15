@@ -111,6 +111,24 @@ async def _engineers_by_role(db: AsyncSession) -> dict:
     return out
 
 
+async def _user_display_name_map(db: AsyncSession, raw_values) -> dict:
+    """{raw_value: display_name} for a set of transferred_by/received_by
+    values, which may be a username (the common case — create_transfer()
+    defaults transferred_by to current_user.username, and the form's hidden
+    field pre-fills the same) OR already a full name/free text (e.g.
+    create_parts_transfer() stores assigned_user.full_name for received_by).
+    Only usernames that match an actual User row get remapped; anything else
+    (already a name, or a since-deleted username) passes through unchanged
+    rather than showing blank."""
+    values = {v for v in raw_values if v}
+    if not values:
+        return {}
+    rows = (await db.execute(
+        select(User.username, User.full_name).where(User.username.in_(values))
+    )).all()
+    return {uname: (full_name or uname) for uname, full_name in rows}
+
+
 def _parse_simple_date(s: str):
     if not s:
         return None
@@ -173,14 +191,24 @@ async def list_transfers(
 ):
     rows = await _transfers_list_rows(db, q, transfer_type, transferred_by, location_id, date_from, date_to)
     transfers = []
+    name_map = await _user_display_name_map(
+        db, [v for t, _ in rows for v in (t.transferred_by, t.received_by)])
     for t, live_lot_number in rows:
         t._display_lot_number = live_lot_number or t.lot_number or "—"
+        t._display_transferred_by = name_map.get(t.transferred_by, t.transferred_by)
+        t._display_received_by = name_map.get(t.received_by, t.received_by)
         transfers.append(t)
 
-    transferred_by_options = [r[0] for r in (await db.execute(
+    transferred_by_raw = [r[0] for r in (await db.execute(
         select(StockTransfer.transferred_by).where(StockTransfer.transferred_by.isnot(None))
         .distinct().order_by(StockTransfer.transferred_by)
     )).all() if r[0]]
+    filter_name_map = await _user_display_name_map(db, transferred_by_raw)
+    # (raw value, display label) — filtering posts the raw stored value,
+    # the dropdown just shows it dressed up as a display name.
+    transferred_by_options = sorted(
+        ((u, filter_name_map.get(u, u)) for u in transferred_by_raw),
+        key=lambda pair: pair[1].lower())
 
     storage_locations = (await db.execute(
         select(StorageLocation).where(StorageLocation.is_active == True)  # noqa: E712
@@ -218,6 +246,8 @@ async def export_transfers(
     rows = await _transfers_list_rows(db, q, transfer_type, transferred_by, location_id, date_from, date_to)
     storage_locations = (await db.execute(select(StorageLocation))).scalars().all()
     location_by_id = {str(loc.id): loc.unit_id for loc in storage_locations}
+    name_map = await _user_display_name_map(
+        db, [v for t, _ in rows for v in (t.transferred_by, t.received_by)])
 
     buf = _io.StringIO()
     w = _csv.writer(buf)
@@ -235,8 +265,8 @@ async def export_transfers(
             t.from_warehouse or "",
             t.to_warehouse or "",
             t.department or "",
-            t.transferred_by or "",
-            t.received_by or "",
+            name_map.get(t.transferred_by, t.transferred_by) or "",
+            name_map.get(t.received_by, t.received_by) or "",
             (t.product_stage or "").replace("_", " ").title(),
         ])
     data = buf.getvalue().encode("utf-8-sig")

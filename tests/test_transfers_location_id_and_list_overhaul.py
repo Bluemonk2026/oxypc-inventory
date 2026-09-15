@@ -309,3 +309,112 @@ def test_export_endpoint_returns_csv_with_location_id_column(app_client, make_us
     assert r.headers["content-type"].startswith("text/csv")
     header = r.text.lstrip("﻿").splitlines()[0]
     assert "Location ID" in header
+
+
+def _seed_named_user(username, full_name):
+    """A dedicated user with a distinctive full_name — make_user() always
+    stamps "IQC Test User", which can't distinguish "display name shown" from
+    "username happened to look like a name"."""
+    _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from database import AsyncSessionLocal
+from models.user import User, UserRole
+from auth.dependencies import hash_password
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        db.add(User(username="{username}", full_name="{full_name}", role=UserRole.admin,
+                    status=True, password_hash=hash_password("TestPass123!")))
+        await db.commit()
+
+asyncio.run(main())
+""")
+
+
+def _cleanup_named_user(username):
+    _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.user import User
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        u = (await db.execute(select(User).where(User.username == "{username}"))).scalar_one_or_none()
+        if u:
+            await db.delete(u)
+        await db.commit()
+
+asyncio.run(main())
+""")
+
+
+def test_transferred_by_and_received_by_show_display_names(app_client, make_user):  # noqa: F811
+    """2026-09-15 follow-up: the "Transfer by" filter and the Transferred
+    By / Received By columns stored/matched on the raw username — showing
+    it verbatim instead of the person's actual name."""
+    suffix = uuid.uuid4().hex[:6].upper()
+    sender_username = f"itestsender{suffix}".lower()
+    sender_full_name = f"ITest Sender {suffix}"
+    receiver_username = f"itestreceiver{suffix}".lower()
+    receiver_full_name = f"ITest Receiver {suffix}"
+    barcode = f"ITTRNAME{suffix}"
+    unit_id = f"ITLOCNAME{suffix}"
+    _seed_named_user(sender_username, sender_full_name)
+    _seed_named_user(receiver_username, receiver_full_name)
+    loc_id = _seed_location(unit_id)
+    _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.lot import Lot
+from models.device import Device, DeviceStage
+from models.stock_transfer import StockTransfer
+from utils.timezone import app_now
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        lot = (await db.execute(select(Lot).limit(1))).scalars().first()
+        dev = Device(barcode="{barcode}", lot_id=lot.id, brand="ITestBrand", model="ITestModel",
+                     current_stage=DeviceStage.stock_in)
+        db.add(dev)
+        await db.flush()
+        db.add(StockTransfer(device_id=dev.id, move_kind="device", to_location_id="{loc_id}",
+                             transfer_type="internal", from_warehouse="TRC 1st Floor",
+                             to_warehouse="TRC 1st Floor",
+                             transferred_by="{sender_username}", received_by="{receiver_username}",
+                             barcode=dev.barcode, make=dev.brand, model=dev.model,
+                             transfer_date=app_now(), created_by="{sender_username}"))
+        await db.commit()
+
+asyncio.run(main())
+""")
+    try:
+        username, password = make_user("admin")
+        _login(app_client, username, password)
+
+        html = app_client.get(f"/transfers?q={barcode}", follow_redirects=True).text
+        assert sender_full_name in html
+        assert receiver_full_name in html
+        # Raw usernames must not leak as VISIBLE text (they legitimately
+        # still appear as the filter <option value="..."> attribute, which
+        # is what the backend filters on).
+        assert f'>{sender_username}<' not in html
+        assert f'>{receiver_username}<' not in html
+
+        # The filter dropdown option's VALUE must still be the raw username
+        # (what the backend filters on) even though its LABEL is the name.
+        assert f'value="{sender_username}"' in html
+        assert f'>{sender_full_name}<' in html
+
+        # Filtering by the raw username value must still narrow correctly.
+        filtered = app_client.get(f"/transfers?q={barcode}&transferred_by={sender_username}",
+                                  follow_redirects=True).text
+        assert f'href="/devices/{barcode}"' in filtered
+    finally:
+        _cleanup(barcode, unit_id)
+        _cleanup_named_user(sender_username)
+        _cleanup_named_user(receiver_username)

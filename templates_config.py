@@ -23,6 +23,11 @@ _VERSIONED_ASSETS = [
     # despite both hitting the same deployed HEAD — a stale-cache symptom,
     # not a real position:sticky engine gap between browsers.
     os.path.join(BASE_DIR, "static", "js", "global-table.js"),
+    # Same stale-cache gap as global-table.js above, found the same way: the
+    # dropdown-positioning fix landed in this file and deployed cleanly, but
+    # templates/workid_status/list.html's <script src> had no ?v= stamp, so
+    # browsers that had already loaded the old copy kept running it forever.
+    os.path.join(BASE_DIR, "static", "js", "multiselect-filter.js"),
 ]
 try:
     ASSET_VERSION = str(int(max(

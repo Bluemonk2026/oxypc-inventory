@@ -49,3 +49,18 @@ def test_global_table_js_specifically_feeds_the_version_number():
     versioned = {pathlib.Path(p).resolve() for p in templates_config._VERSIONED_ASSETS}
     expected = (ROOT / "static" / "js" / "global-table.js").resolve()
     assert expected in versioned
+
+
+def test_multiselect_filter_js_is_tagged_and_feeds_the_version_number():
+    # 2026-09-18: same stale-cache gap, same shape — the dropdown-positioning
+    # fix landed in this file, but its <script src> in
+    # templates/workid_status/list.html had no ?v= stamp (this script tag
+    # lives on a per-page template, not base.html, so the general scan above
+    # never covered it). A browser that had already loaded the old copy kept
+    # running it after the server-side deploy, so the Stage filter dropdown
+    # looked unfixed even though the code shipped correctly.
+    src = (ROOT / "templates" / "workid_status" / "list.html").read_text(encoding="utf-8")
+    assert '/static/js/multiselect-filter.js?v={{ ASSET_VERSION }}' in src
+    versioned = {pathlib.Path(p).resolve() for p in templates_config._VERSIONED_ASSETS}
+    expected = (ROOT / "static" / "js" / "multiselect-filter.js").resolve()
+    assert expected in versioned

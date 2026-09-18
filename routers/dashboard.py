@@ -95,15 +95,49 @@ async def dashboard(
     if not year:
         year = today.year
 
-    # ── Stage + category counts (cached 30 s) ────────────────────────────────
+    # ── Filter parsing (Entity / Device Type / Location) ─────────────────────
+    # Moved ahead of the stage/category aggregate so that block can decide
+    # whether to serve the shared 30 s cache (no filters active — the common
+    # case) or run a filtered query fresh (see _dash_filters_active below).
+    entity_vals = [e.strip() for e in (entity or "").split(",") if e.strip()]
+    _ent = [Device.entity.in_(entity_vals)] if entity_vals else []
+
+    device_type_vals = [d.strip() for d in (device_type or "").split(",") if d.strip()]
+    _dtype = [Device.device_type.in_(device_type_vals)] if device_type_vals else []
+
+    loc_uuid = None
+    if location_id:
+        try:
+            loc_uuid = uuid.UUID(location_id)
+        except ValueError:
+            loc_uuid = None
+    _loc = [Device.location_id == loc_uuid] if loc_uuid else []
+    _dash_filters_active = bool(_ent or _dtype or _loc)
+
+    # Tags in these 3 dead-end stages are excluded from every dashboard total
+    # (Total Devices, category cards, Stage Pipeline's own totals feed off
+    # per-stage matches that already can't include them) — they no longer
+    # move through the funnel, so counting them inflates "how much is
+    # actually in flight" figures. They keep their own individual line
+    # ("Returned: X · Scrapped: Y" under the pipeline) since that's a
+    # deliberate, separate callout, not a total.
+    EXCLUDED_STAGES = {DeviceStage.returned.value, DeviceStage.scrapped.value,
+                        DeviceStage.scrap_for_sale.value}
+
+    # ── Stage + category counts ───────────────────────────────────────────────
+    # Cached 30 s, but only when no Entity/Device Type/Location filter is
+    # active — that cache is keyed on nothing, so serving it under an active
+    # filter would hand back another viewer's (unfiltered) numbers.
     _now = _time.monotonic()
-    if _AGG_CACHE["ts"] and (_now - _AGG_CACHE["ts"]) < _AGG_TTL and _AGG_CACHE["stage"]:
+    if (not _dash_filters_active and _AGG_CACHE["ts"]
+            and (_now - _AGG_CACHE["ts"]) < _AGG_TTL and _AGG_CACHE["stage"]):
         stage_counts = _AGG_CACHE["stage"]
         category_counts = _AGG_CACHE["cat"]
     else:
         try:
             stage_result = await db.execute(
                 select(Device.current_stage, func.count(Device.id))
+                .where(*_ent, *_dtype, *_loc)
                 .group_by(Device.current_stage)
             )
             stage_counts = {
@@ -120,21 +154,24 @@ async def dashboard(
         try:
             cat_stage_result = await db.execute(
                 select(Device.sub_category, Device.current_stage, func.count(Device.id))
+                .where(*_ent, *_dtype, *_loc)
                 .group_by(Device.sub_category, Device.current_stage)
             )
             category_counts: dict = {cat: {"total": 0} for cat in CATEGORIES}
             for sub_cat, stage, cnt in cat_stage_result.fetchall():
                 if sub_cat in category_counts and stage is not None:
-                    category_counts[sub_cat]["total"] += cnt
+                    if stage.value not in EXCLUDED_STAGES:
+                        category_counts[sub_cat]["total"] += cnt
                     category_counts[sub_cat][stage.value] = cnt
         except Exception:
             _log.exception("category_counts failed")
             category_counts = {cat: {"total": 0} for cat in CATEGORIES}
 
-        _AGG_CACHE.update({"stage": stage_counts, "cat": category_counts, "ts": _now})
+        if not _dash_filters_active:
+            _AGG_CACHE.update({"stage": stage_counts, "cat": category_counts, "ts": _now})
 
     # ── Stage Pipeline ───────────────────────────────────────────────────────
-    # Built here rather than read off stage_counts, because three of the eight
+    # Built here rather than read off stage_counts, because three of the ten
     # steps are not "devices whose current_stage is X":
     #   GRN      - devices mapped to a GRN, which is what "Total Devices Added"
     #              on /grn/post-iqc counts. A device leaves the `grn` stage the
@@ -142,28 +179,20 @@ async def dashboard(
     #   L3/L4    - lives inside the L1 stage, told apart by l1l2_status, so it
     #              is a slice of L1 rather than a stage of its own.
     #   Cosmetic - the six paint-line stages plus putty, counted together.
-    # Deliberately not served from _AGG_CACHE: that cache is keyed on nothing,
-    # so with an entity filter applied it would hand back another entity's
-    # numbers to the next viewer.
-    entity_vals = [e.strip() for e in (entity or "").split(",") if e.strip()]
-    _ent = [Device.entity.in_(entity_vals)] if entity_vals else []
-
-    device_type_vals = [d.strip() for d in (device_type or "").split(",") if d.strip()]
-    _dtype = [Device.device_type.in_(device_type_vals)] if device_type_vals else []
-
-    loc_uuid = None
-    if location_id:
-        try:
-            loc_uuid = uuid.UUID(location_id)
-        except ValueError:
-            loc_uuid = None
-    _loc = [Device.location_id == loc_uuid] if loc_uuid else []
-
+    # Deliberately not served from _AGG_CACHE: see _dash_filters_active above.
     async def _pipe_count(*where):
         return (await db.execute(
             select(func.count(Device.id))
             .where(Device.is_trashed == False, *_ent, *_dtype, *_loc, *where)
         )).scalar() or 0
+
+    async def _pipe_count_by_entity(*where):
+        rows = (await db.execute(
+            select(Device.entity, func.count(Device.id))
+            .where(Device.is_trashed == False, *_ent, *_dtype, *_loc, *where)
+            .group_by(Device.entity)
+        )).all()
+        return {(e or "Unassigned"): c for e, c in rows if c}
 
     COSMETIC_STAGES = [
         DeviceStage.cosmetic_received,
@@ -175,25 +204,33 @@ async def dashboard(
         DeviceStage.final_qc, DeviceStage.final_qc_pass_hold,
         DeviceStage.final_qc_fail_hold,
     ]
+    # Order follows DeviceStage's own declaration order (grn, iqc, ..., l3,
+    # trc_production, qc_check, ...) — IQC and Production are new additions
+    # slotted into that same sequence rather than tacked on at the end.
+    PIPELINE_STEPS = [
+        ("grn", [Device.grn_number.isnot(None), Device.grn_number != "",
+                 Device.is_active == True]),
+        ("iqc", [Device.current_stage == DeviceStage.iqc]),
+        ("l1l2", [Device.current_stage.in_([DeviceStage.l1, DeviceStage.l2])]),
+        ("l3l4", [Device.current_stage == DeviceStage.l1,
+                  Device.l1l2_status == "Requested to L3/L4"]),
+        ("production", [Device.current_stage == DeviceStage.trc_production]),
+        ("qc_check", [Device.current_stage == DeviceStage.qc_check]),
+        ("cosmetic", [Device.current_stage.in_(COSMETIC_STAGES)]),
+        ("final_qc", [Device.current_stage.in_(FINAL_QC_STAGES)]),
+        ("ready_to_sale", [Device.current_stage == DeviceStage.ready_to_sale]),
+        ("sold", [Device.current_stage == DeviceStage.sold]),
+    ]
     try:
-        pipeline_counts = {
-            "grn": await _pipe_count(Device.grn_number.isnot(None),
-                                     Device.grn_number != "",
-                                     Device.is_active == True),
-            "l1l2": await _pipe_count(Device.current_stage.in_([DeviceStage.l1, DeviceStage.l2])),
-            "l3l4": await _pipe_count(Device.current_stage == DeviceStage.l1,
-                                      Device.l1l2_status == "Requested to L3/L4"),
-            "qc_check": await _pipe_count(Device.current_stage == DeviceStage.qc_check),
-            "cosmetic": await _pipe_count(Device.current_stage.in_(COSMETIC_STAGES)),
-            "final_qc": await _pipe_count(Device.current_stage.in_(FINAL_QC_STAGES)),
-            "ready_to_sale": await _pipe_count(Device.current_stage == DeviceStage.ready_to_sale),
-            "sold": await _pipe_count(Device.current_stage == DeviceStage.sold),
-        }
+        pipeline_counts = {}
+        pipeline_by_entity = {}
+        for key, where in PIPELINE_STEPS:
+            pipeline_counts[key] = await _pipe_count(*where)
+            pipeline_by_entity[key] = await _pipe_count_by_entity(*where)
     except Exception:
         _log.exception("pipeline_counts failed")
-        pipeline_counts = {k: 0 for k in ("grn", "l1l2", "l3l4", "qc_check",
-                                          "cosmetic", "final_qc",
-                                          "ready_to_sale", "sold")}
+        pipeline_counts = {k: 0 for k, _ in PIPELINE_STEPS}
+        pipeline_by_entity = {k: {} for k, _ in PIPELINE_STEPS}
 
     entity_choices = await entity_values(db)
     device_type_choices = await master_values(db, "device_type")
@@ -202,7 +239,7 @@ async def dashboard(
         .order_by(StorageLocation.zone, StorageLocation.unit_id)
     )).scalars().all()
 
-    total_devices = sum(stage_counts.values())
+    total_devices = sum(v for k, v in stage_counts.items() if k not in EXCLUDED_STAGES)
     laptops_available = category_counts.get("Laptop", {}).get("ready_to_sale", 0)
     desktops_available = category_counts.get("Desktop", {}).get("ready_to_sale", 0)
     tft_available = category_counts.get("TFT", {}).get("ready_to_sale", 0)
@@ -543,15 +580,21 @@ async def dashboard(
         # (Device.grn_number set) vs those that don't yet ("In Plan" = no GRN
         # assigned yet, "In TRC" = GRN assigned). Total badge = the "In TRC"
         # (has-GRN) count, since that's what "Total GRN count" means per spec.
+        # Respects Entity/Device Type/Location like the rest of this section,
+        # and excludes the 3 dead-end stages same as Total Devices above.
+        _not_dead_end = Device.current_stage.notin_(
+            [DeviceStage.returned, DeviceStage.scrapped, DeviceStage.scrap_for_sale])
         grn_with = (await db.execute(
             select(func.count(Device.id)).where(
-                Device.is_trashed == False, Device.grn_number.isnot(None), Device.grn_number != ""
+                Device.is_trashed == False, Device.grn_number.isnot(None), Device.grn_number != "",
+                _not_dead_end, *_ent, *_dtype, *_loc
             )
         )).scalar() or 0
         grn_without = (await db.execute(
             select(func.count(Device.id)).where(
                 Device.is_trashed == False,
-                or_(Device.grn_number.is_(None), Device.grn_number == "")
+                or_(Device.grn_number.is_(None), Device.grn_number == ""),
+                _not_dead_end, *_ent, *_dtype, *_loc
             )
         )).scalar() or 0
         admin_analytics["grn_in_plan"] = grn_without
@@ -798,6 +841,7 @@ async def dashboard(
         "work_queue_devices": work_queue_devices,
         "stage_counts": filtered_stage_counts,
         "pipeline_counts": pipeline_counts,
+        "pipeline_by_entity": pipeline_by_entity,
         "entity_choices": entity_choices,
         "f_entity": entity,
         "device_type_choices": device_type_choices,

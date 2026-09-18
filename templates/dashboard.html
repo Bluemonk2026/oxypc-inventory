@@ -207,17 +207,24 @@
   <div class="card-header bg-transparent d-flex align-items-center gap-2">
     <i class="bi bi-diagram-3 text-primary"></i>
     <span class="fw-semibold">Device Stage Pipeline</span>
+    <button type="button" id="splitEntityToggle" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-diagram-2 me-1"></i>Split Entity
+    </button>
     <span class="text-muted small ms-auto">Live counts — click to filter devices</span>
   </div>
   <div class="card-body py-3">
     {# Each step carries the link that reproduces its own count on All
        Inventory, which is why they are not all the same shape: GRN is not a
-       stage a device sits in, and L3/L4 is a status inside L1. #}
-    <div class="d-flex flex-wrap align-items-center gap-1">
+       stage a device sits in, and L3/L4 is a status inside L1. Order follows
+       DeviceStage's own declaration order (grn, iqc, ..., l3, trc_production,
+       qc_check, ...) — IQC and Production slot into that same sequence. #}
+    <div class="d-flex flex-wrap align-items-start gap-1">
       {% for key, label, color, link in [
           ('grn',           'GRN',           'secondary', '/grn/post-iqc'),
+          ('iqc',           'IQC',           'secondary', '/devices?stage=iqc'),
           ('l1l2',          'L1/L2',         'warning',   '/devices?stage=l1,l2'),
           ('l3l4',          'L3/L4',         'danger',    '/repair/l3l4'),
+          ('production',    'Production',    'info',      '/devices?stage=trc_production'),
           ('qc_check',      'Stress/QC',     'primary',   '/devices?stage=qc_check'),
           ('cosmetic',      'Cosmetic',      'info',      '/devices?stage=cosmetic_received,cleaning,putty,dry_sanding,masking,painting,water_sanding,cosmetic_completed'),
           ('final_qc',      'Final QC',      'primary',   '/devices?stage=final_qc,final_qc_pass_hold,final_qc_fail_hold'),
@@ -229,24 +236,51 @@
         <div class="border rounded-3 px-3 py-2 text-center" style="min-width:96px">
           <div class="small text-muted">{{ label }}</div>
           <div class="fs-5 fw-bold text-{{ color }}">{{ pipeline_counts.get(key, 0) }}</div>
+          {% set by_ent = pipeline_by_entity.get(key, {}) %}
+          {% if by_ent %}
+          <div class="split-entity-detail d-none small text-muted mt-1 text-start">
+            {% for ent, cnt in by_ent.items() %}
+            <div class="text-nowrap">{{ ent }}: <strong>{{ cnt }}</strong></div>
+            {% endfor %}
+          </div>
+          {% endif %}
         </div>
       </a>
       {% if not loop.last %}
-      <i class="bi bi-chevron-right text-muted"></i>
+      <i class="bi bi-chevron-right text-muted mt-2"></i>
       {% endif %}
       {% endfor %}
     </div>
     <div class="mt-2 small text-muted">
       {# L3/L4 is a slice of L1, so it is deliberately NOT added into a total
-         with L1/L2 — that would count those tags twice. #}
+         with L1/L2 — that would count those tags twice. Returned/Scrapped/
+         Scrap for Sale are excluded from every total on this page (Total
+         Devices, category cards) — this is their own callout, not a total. #}
       L3/L4 shown above is the subset of L1 awaiting L3/L4.
       &nbsp;·&nbsp;
       Returned: <strong>{{ stage_counts.get('returned', 0) }}</strong>
       &nbsp;·&nbsp;
       Scrapped: <strong>{{ stage_counts.get('scrapped', 0) }}</strong>
+      &nbsp;·&nbsp;
+      Scrap for Sale: <strong>{{ stage_counts.get('scrap_for_sale', 0) }}</strong>
     </div>
   </div>
 </div>
+<script>
+(function () {
+  var btn = document.getElementById('splitEntityToggle');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var on = btn.classList.toggle('active');
+    document.querySelectorAll('.split-entity-detail').forEach(function (el) {
+      el.classList.toggle('d-none', !on);
+    });
+    btn.innerHTML = on
+      ? '<i class="bi bi-diagram-2 me-1"></i>Split Entity: On'
+      : '<i class="bi bi-diagram-2 me-1"></i>Split Entity';
+  });
+})();
+</script>
 {% endmacro %}
 
 {# The "Pending for IQC — by Lot" card was removed on request. The same

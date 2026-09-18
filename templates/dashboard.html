@@ -1,13 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Dashboard — OxyPC{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
+{% block head %}
+{# Fixed, narrower-than-col-md widths so all 7 filters + Apply/Clear fit on
+   one row on a normal desktop viewport instead of the old col-md-* grid
+   wrapping onto a second line once Device Type + Location ID were added. #}
+<style>
+  .dash-filter-sm{width:130px}
+  .dash-filter-md{width:150px}
+</style>
+{% endblock %}
 {% block content %}
 
 {% import "_multiselect_filter.html" as ms %}
 <!-- Dashboard Filters -->
-<form method="get" action="/dashboard" class="row g-2 mb-3 align-items-end">
-  <div class="col-md-2">
-    <label class="form-label small fw-semibold">Filter by Stage</label>
+<form method="get" action="/dashboard" class="d-flex flex-wrap gap-2 align-items-end mb-3">
+  <div class="flex-shrink-0 dash-filter-md">
+    <label class="form-label small fw-semibold mb-1">Filter by Stage</label>
     <select name="stage_filter" class="form-select form-select-sm">
       <option value="">All Stages</option>
       {% for stage in all_stages %}
@@ -19,28 +28,44 @@
   </div>
   {# Entity is a checkbox multi-select like All Inventory's, and it narrows the
      stage counts below as well as the links under them. #}
-  {{ ms.multiselect('entity', 'Entity', entity_choices, f_entity, 'col-md-3') }}
-  <div class="col-md-2">
-    <label class="form-label small fw-semibold">P&amp;L From Date</label>
+  {{ ms.multiselect('entity', 'Entity', entity_choices, f_entity, 'flex-shrink-0 dash-filter-md') }}
+  {# Device Type — wired to Master Data's "device_type" category (labelled
+     "Device Form Factors" there; same source /devices' own Device Type
+     filter uses). Narrows the stage breakdown section below, same scope
+     Entity already narrows. #}
+  {{ ms.multiselect('device_type', 'Device Type', device_type_choices, f_device_type, 'flex-shrink-0 dash-filter-md') }}
+  {# Location ID — same StorageLocation source/pattern as the Change Floor
+     tabs and /transfers list's own Location ID filter. #}
+  <div class="flex-shrink-0 dash-filter-md">
+    <label class="form-label small fw-semibold mb-1">Location ID</label>
+    <select name="location_id" class="form-select form-select-sm">
+      <option value="">All Locations</option>
+      {% for loc in storage_locations %}
+      <option value="{{ loc.id }}" {% if f_location_id == loc.id | string %}selected{% endif %}>{{ loc.unit_id }} — {{ zone_labels[loc.zone] }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="flex-shrink-0 dash-filter-sm">
+    <label class="form-label small fw-semibold mb-1">P&amp;L From</label>
     <input type="date" name="pl_from" class="form-control form-control-sm" value="{{ pl_from }}">
   </div>
-  <div class="col-md-2">
-    <label class="form-label small fw-semibold">P&amp;L To Date</label>
+  <div class="flex-shrink-0 dash-filter-sm">
+    <label class="form-label small fw-semibold mb-1">P&amp;L To</label>
     <input type="date" name="pl_to" class="form-control form-control-sm" value="{{ pl_to }}">
   </div>
   {# Scopes the Financial Summary card's Parts Spent / Labour Spent (see
      services/business_pl.compute_year_parts_labour_cogs). Options come from
      Master Data (category "report_year") — the same list Business P&L's
      year tabs use, so the two pages always offer the same years. #}
-  <div class="col-md-2">
-    <label class="form-label small fw-semibold">Year</label>
+  <div class="flex-shrink-0 dash-filter-sm">
+    <label class="form-label small fw-semibold mb-1">Year</label>
     <select name="year" class="form-select form-select-sm">
       {% for y in year_choices %}
       <option value="{{ y }}" {% if year|string == y|string %}selected{% endif %}>{{ y }}</option>
       {% endfor %}
     </select>
   </div>
-  <div class="col-auto">
+  <div class="flex-shrink-0">
     <button type="submit" class="btn btn-sm btn-primary">
       <i class="bi bi-funnel me-1"></i>Apply
     </button>

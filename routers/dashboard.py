@@ -1,5 +1,6 @@
 import logging
 import time as _time
+import uuid
 from templates_config import templates
 from datetime import datetime, date
 from utils.timezone import app_now
@@ -8,7 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from database import get_db
-from utils.master_data import entity_values, report_year_values
+from utils.master_data import entity_values, report_year_values, master_values
 from services.business_pl import compute_year_parts_labour_cogs
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
@@ -18,6 +19,7 @@ from models.sales import Sale
 from models.spare_parts import SparePart, SparePartConsumption
 from models.dealers import Dealer, DealerOrder, DealerCreditNote, DealerCall
 from models.crm import CRMActivity, CRMContact, CRMPurchaseOrder, CRMSourcingDeal
+from models.location import StorageLocation, ZONE_LABELS
 from models.parts_grn import PartsGRN, PartsGRNLineItem
 from models.part_request import PartSourcingRequest
 from models.cost_config import CostConfig
@@ -79,6 +81,14 @@ async def dashboard(
     pl_to: str = Query(default=""),
     # Comma-separated, same convention as the All Inventory multi-selects.
     entity: str = Query(default=""),
+    # Device Type filter — wired to Master Data's "device_type" category
+    # (labelled "Device Form Factors" in Master Data's own UI; there is no
+    # separate Form Factor concept, see routers/devices.py's own device_type
+    # filter for the same source).
+    device_type: str = Query(default=""),
+    # Location ID filter — same StorageLocation source/pattern as the
+    # Change Floor tabs (templates/transfers/form.html) and /transfers list.
+    location_id: str = Query(default=""),
     year: int = Query(default=None),
 ):
     today = app_now().date()
@@ -138,10 +148,21 @@ async def dashboard(
     entity_vals = [e.strip() for e in (entity or "").split(",") if e.strip()]
     _ent = [Device.entity.in_(entity_vals)] if entity_vals else []
 
+    device_type_vals = [d.strip() for d in (device_type or "").split(",") if d.strip()]
+    _dtype = [Device.device_type.in_(device_type_vals)] if device_type_vals else []
+
+    loc_uuid = None
+    if location_id:
+        try:
+            loc_uuid = uuid.UUID(location_id)
+        except ValueError:
+            loc_uuid = None
+    _loc = [Device.location_id == loc_uuid] if loc_uuid else []
+
     async def _pipe_count(*where):
         return (await db.execute(
             select(func.count(Device.id))
-            .where(Device.is_trashed == False, *_ent, *where)
+            .where(Device.is_trashed == False, *_ent, *_dtype, *_loc, *where)
         )).scalar() or 0
 
     COSMETIC_STAGES = [
@@ -175,6 +196,11 @@ async def dashboard(
                                           "ready_to_sale", "sold")}
 
     entity_choices = await entity_values(db)
+    device_type_choices = await master_values(db, "device_type")
+    storage_locations = (await db.execute(
+        select(StorageLocation).where(StorageLocation.is_active == True)
+        .order_by(StorageLocation.zone, StorageLocation.unit_id)
+    )).scalars().all()
 
     total_devices = sum(stage_counts.values())
     laptops_available = category_counts.get("Laptop", {}).get("ready_to_sale", 0)
@@ -774,6 +800,11 @@ async def dashboard(
         "pipeline_counts": pipeline_counts,
         "entity_choices": entity_choices,
         "f_entity": entity,
+        "device_type_choices": device_type_choices,
+        "f_device_type": device_type,
+        "storage_locations": storage_locations,
+        "zone_labels": ZONE_LABELS,
+        "f_location_id": location_id,
         "stage_filter": stage_filter,
         "pl_from": pl_from,
         "pl_to": pl_to,

@@ -214,10 +214,163 @@ async def main():
         t = (await db.execute(select(StockTransfer).where(
                 StockTransfer.device_id == dev.id))).scalars().first()
         print(str(t.to_location_id))
+        # 2026-09-18 fix: the transfer log getting the Location ID wasn't the
+        # bug — the device's OWN current location never moved with it, so
+        # the tag kept showing its old Location ID everywhere else in the
+        # app (Device Detail, All Inventory) after a transfer that looked
+        # successful. Confirm the device itself moved too.
+        print(str(dev.location_id))
 
 asyncio.run(main())
 """)
-        assert check == loc_id, check
+        lines = check.splitlines()
+        assert lines[0] == loc_id, check
+        assert lines[1] == loc_id, check
+    finally:
+        _cleanup(barcode, unit_id)
+
+
+def test_move_bucket_transfer_also_updates_device_location_id(app_client, make_user):  # noqa: F811
+    """Same fix, the Move Bucket / Move Lot path (_move_devices_bulk, shared
+    by both tabs) — Move Bucket scans a FROM location's unit_id and bulk-
+    moves every active device sitting there (Device.location_id == loc.id)
+    to the chosen TO location; those devices must move location too, not
+    just the device tab's single-scan path."""
+    suffix = uuid.uuid4().hex[:6].upper()
+    barcode = f"ITTRBKLOC{suffix}"
+    from_unit_id = f"ITLOCFROM{suffix}"
+    to_unit_id = f"ITLOCTO{suffix}"
+    from_loc_id = _seed_location(from_unit_id)
+    to_loc_id = _seed_location(to_unit_id)
+    _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.lot import Lot
+from models.device import Device, DeviceStage
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        lot = (await db.execute(select(Lot).limit(1))).scalars().first()
+        dev = Device(barcode="{barcode}", lot_id=lot.id, brand="ITestBrand", model="ITestModel",
+                     current_stage=DeviceStage.stock_in, location_id="{from_loc_id}")
+        db.add(dev)
+        await db.commit()
+
+asyncio.run(main())
+""")
+    try:
+        username, password = make_user("admin")
+        _login(app_client, username, password)
+        csrf = app_client.cookies.get("csrf_token") or ""
+        user_row = _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.user import User
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        u = (await db.execute(select(User).where(User.username == "{username}"))).scalar_one()
+        print(u.id)
+
+asyncio.run(main())
+""")
+        r = app_client.post(
+            "/transfers/new/bucket",
+            data={
+                "csrf_token": csrf, "unit_id": [from_unit_id], "transfer_type": "internal",
+                "assigned_user_id": user_row, "to_location_id": to_loc_id,
+            },
+            follow_redirects=False,
+        )
+        assert r.status_code == 302, r.text[:400]
+
+        check = _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.device import Device
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        dev = (await db.execute(select(Device).where(Device.barcode == "{barcode}"))).scalar_one()
+        print(str(dev.location_id))
+
+asyncio.run(main())
+""")
+        assert check == to_loc_id, check
+    finally:
+        _cleanup(barcode, from_unit_id)
+        _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.location import StorageLocation
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        loc = (await db.execute(select(StorageLocation).where(
+                StorageLocation.unit_id == "{to_unit_id}"))).scalar_one_or_none()
+        if loc:
+            await db.delete(loc)
+        await db.commit()
+
+asyncio.run(main())
+""")
+
+
+def test_export_includes_device_spec_columns(app_client, make_user):  # noqa: F811
+    suffix = uuid.uuid4().hex[:6].upper()
+    barcode = f"ITTREXP{suffix}"
+    unit_id = f"ITLOCEXP{suffix}"
+    loc_id = _seed_location(unit_id)
+    _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.lot import Lot
+from models.device import Device, DeviceStage
+from models.stock_transfer import StockTransfer
+from utils.timezone import app_now
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        lot = (await db.execute(select(Lot).limit(1))).scalars().first()
+        dev = Device(barcode="{barcode}", lot_id=lot.id, brand="ITestBrand", model="ITestModel",
+                     current_stage=DeviceStage.stock_in, serial_no="ITESTSERIAL{suffix}",
+                     cpu="Intel i5", generation="10th Gen", ram_gb=8, storage_gb=256)
+        db.add(dev)
+        await db.flush()
+        t = StockTransfer(device_id=dev.id, move_kind="device", to_location_id="{loc_id}",
+                          transfer_type="internal", from_warehouse="TRC 1st Floor",
+                          to_warehouse="TRC 1st Floor", transferred_by="itest_sender",
+                          barcode=dev.barcode, make=dev.brand, model=dev.model,
+                          serial_no=dev.serial_no, cpu=dev.cpu, generation=dev.generation,
+                          ram="8 GB", hdd="256 GB",
+                          transfer_date=app_now(), created_by="itest_sender")
+        db.add(t)
+        await db.commit()
+
+asyncio.run(main())
+""")
+    try:
+        username, password = make_user("admin")
+        _login(app_client, username, password)
+        r = app_client.get("/transfers/export", follow_redirects=True)
+        assert r.status_code == 200
+        text = r.text.lstrip("﻿")
+        header = text.splitlines()[0]
+        for col in ("Serial Number", "CPU", "GEN", "RAM", "STORAGE"):
+            assert col in header, header
+        assert f"ITESTSERIAL{suffix}" in text
+        assert "Intel i5" in text
+        assert "10th Gen" in text
     finally:
         _cleanup(barcode, unit_id)
 

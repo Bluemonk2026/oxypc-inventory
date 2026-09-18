@@ -252,7 +252,8 @@ async def export_transfers(
     buf = _io.StringIO()
     w = _csv.writer(buf)
     w.writerow(["Date", "Location ID", "Type", "Tag Number", "Make / Model", "Quantity",
-                "Lot", "From", "To", "Dept.", "Transferred By", "Received By", "Stage"])
+                "Lot", "From", "To", "Dept.", "Transferred By", "Received By", "Stage",
+                "Serial Number", "CPU", "GEN", "RAM", "STORAGE"])
     for t, live_lot_number in rows:
         w.writerow([
             t.transfer_date.strftime("%d-%m-%Y %H:%M") if t.transfer_date else "",
@@ -268,6 +269,11 @@ async def export_transfers(
             name_map.get(t.transferred_by, t.transferred_by) or "",
             name_map.get(t.received_by, t.received_by) or "",
             (t.product_stage or "").replace("_", " ").title(),
+            t.serial_no or "",
+            t.cpu or "",
+            t.generation or "",
+            t.ram or "",
+            t.hdd or "",
         ])
     data = buf.getvalue().encode("utf-8-sig")
     fname = f"transfers_{_date.today().isoformat()}.csv"
@@ -482,6 +488,9 @@ async def create_transfer(
         return RedirectResponse(url="/transfers/new?error=Select+an+employee+to+assign", status_code=302)
 
     loc_uuid = _resolve_location_uuid(to_location_id)
+    loc = None
+    if loc_uuid:
+        loc = (await db.execute(select(StorageLocation).where(StorageLocation.id == loc_uuid))).scalar_one_or_none()
     moved, not_found, work_ids = [], [], []
     for bc in barcodes:
         result = await db.execute(
@@ -522,7 +531,15 @@ async def create_transfer(
             notes=notes or None,
             created_by=current_user.username,
         )
-        if hasattr(device, "warehouse") and to_warehouse:
+        # Move the device's own current location too, not just the transfer
+        # log — otherwise the tag keeps showing its old Location ID
+        # everywhere else in the app (Device Detail, All Inventory) even
+        # though this transfer recorded the new one (2026-09-18).
+        if loc:
+            device.location_id = loc.id
+            device.warehouse = loc.display_name
+            device.updated_at = app_now()
+        elif hasattr(device, "warehouse") and to_warehouse:
             device.warehouse = to_warehouse
             device.updated_at = app_now()
         db.add(transfer)
@@ -663,6 +680,10 @@ async def _move_devices_bulk(
     except Exception:
         t_date = app_now()
 
+    loc = None
+    if loc_uuid:
+        loc = (await db.execute(select(StorageLocation).where(StorageLocation.id == loc_uuid))).scalar_one_or_none()
+
     moved = []
     for device in devices:
         lot_number = None
@@ -698,6 +719,12 @@ async def _move_devices_bulk(
             notes=notes or None,
             created_by=current_user.username,
         )
+        # Same fix as the Move Item tab (2026-09-18): move the device's own
+        # current location, not just log it on the transfer row.
+        if loc:
+            device.location_id = loc.id
+            device.warehouse = loc.display_name
+            device.updated_at = app_now()
         db.add(transfer)
         await db.flush()
 

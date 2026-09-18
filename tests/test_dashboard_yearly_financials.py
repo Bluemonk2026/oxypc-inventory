@@ -156,7 +156,72 @@ def test_dashboard_has_year_dropdown_wired_to_master_data(app_client, make_user)
     _login(app_client, username, password)
     html = app_client.get("/dashboard", follow_redirects=True).text
     assert 'name="year"' in html
-    assert '<label class="form-label small fw-semibold">Year</label>' in html
+    assert '<label class="form-label small fw-semibold mb-1">Year</label>' in html
+
+
+def test_dashboard_has_device_type_and_location_id_filters(app_client, make_user):  # noqa: F811
+    """2026-09-18: Device Type (wired to Master Data's device_type category,
+    same source /devices' own filter uses) and Location ID (same
+    StorageLocation pattern as the Change Floor tabs / /transfers list) added
+    alongside the existing Stage/Entity/P&L/Year filters, all on one row."""
+    username, password = make_user("admin")
+    _login(app_client, username, password)
+    html = app_client.get("/dashboard", follow_redirects=True).text
+    assert 'name="device_type"' in html
+    assert "Device Type" in html
+    assert 'name="location_id"' in html
+    assert "Location ID" in html
+    # Single flex row, not the old Bootstrap grid that wrapped once Device
+    # Type + Location ID were added to it.
+    assert 'class="d-flex flex-wrap gap-2 align-items-end mb-3"' in html
+    assert 'class="row g-2 mb-3 align-items-end"' not in html
+
+
+def test_dashboard_device_type_and_location_id_filters_round_trip(app_client, make_user):  # noqa: F811
+    suffix = uuid.uuid4().hex[:6]
+    unit_id = f"ITDASHLOC{suffix}"
+    loc_id = _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from database import AsyncSessionLocal
+from models.location import StorageLocation, ZoneType, UnitType
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        loc = StorageLocation(zone=ZoneType.workshop, unit_type=UnitType.rack, unit_id="{unit_id}")
+        db.add(loc)
+        await db.commit()
+        print(loc.id)
+
+asyncio.run(main())
+""")
+    try:
+        username, password = make_user("admin")
+        _login(app_client, username, password)
+        html = app_client.get(f"/dashboard?device_type=Laptop&location_id={loc_id}",
+                              follow_redirects=True).text
+        # Device Type's multiselect hidden input carries the selection through.
+        assert 'id="ms_val_device_type" value="Laptop"' in html
+        # Location ID select has the matching <option> marked selected.
+        assert f'value="{loc_id}" selected' in html
+    finally:
+        _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.location import StorageLocation
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        loc = (await db.execute(select(StorageLocation).where(
+                StorageLocation.unit_id == "{unit_id}"))).scalar_one_or_none()
+        if loc:
+            await db.delete(loc)
+        await db.commit()
+
+asyncio.run(main())
+""")
 
 
 def test_business_pl_year_tabs_use_year_choices_not_hardcoded_range():

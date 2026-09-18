@@ -592,13 +592,15 @@
     </div>
   </div>
 
-  <!-- ── TAB: Parts Consumption — parts consumed per tag number. Source is
-       the same "Part Changed" (status == 'received') PartRequest rows the
-       Device Detail page's own Parts Consumed table uses, rolled up by
-       device so each tag shows one row here instead of one per part. ── -->
+  <!-- ── TAB: Parts Consumption — parts consumed per tag number, one row per
+       distinct part name used on that tag (2026-09-18). Source is the same
+       "Part Changed" (status == 'received') PartRequest rows the Device
+       Detail page's own Parts Consumed table uses, rolled up by
+       (device, part) instead of by device alone — a tag with Keyboard
+       changed once and RAM changed twice shows as two rows here. ── -->
   <div class="tab-pane fade p-0" id="partsConsumptionTab" role="tabpanel">
     <div class="d-flex justify-content-between align-items-center p-3 border-bottom flex-wrap gap-2">
-      <span class="text-muted small">{{ tag_consumption_rows|length }} tag(s) with parts consumed</span>
+      <span class="text-muted small">{{ tag_consumption_tag_count }} tag(s), {{ tag_consumption_rows|length }} part row(s)</span>
       <div class="d-flex gap-2 flex-wrap align-items-center">
         <input type="text" id="pcSearch" class="form-control form-control-sm" style="min-width:220px"
                placeholder="Search Tag Number / Lot Number" oninput="pcFilter()">
@@ -611,8 +613,8 @@
       <table id="partsConsumptionTable" class="table table-hover mb-0 small">
         <thead class="table-dark">
           <tr>
-            <th>Tag Number</th><th>Lot Number</th>
-            <th>Total Parts Changed</th><th>Total Parts Amount</th><th>Total</th>
+            <th>Tag Number</th><th>Lot Number</th><th>Part Name Used</th>
+            <th>Total Part Changed</th><th>Unit Price</th><th>Total Price</th>
           </tr>
         </thead>
         <tbody>
@@ -622,12 +624,13 @@
             <td>
               {% if row.lot_number %}<a href="/lots?q={{ row.lot_number | urlencode }}">{{ row.lot_number }}</a>{% else %}—{% endif %}
             </td>
-            <td><span class="badge bg-info text-dark">{{ row.parts_changed }}</span></td>
-            <td>{{ row.total_qty }}</td>
-            <td class="fw-semibold">&#8377;{{ "{:,.2f}".format(row.total_amount) }}</td>
+            <td class="fw-semibold">{{ row.part_name }}</td>
+            <td><span class="badge bg-info text-dark">{{ row.total_qty }}</span></td>
+            <td>&#8377;{{ "{:,.2f}".format(row.unit_price) }}</td>
+            <td class="fw-semibold">&#8377;{{ "{:,.2f}".format(row.total_price) }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="5" class="text-center text-muted py-4">No parts consumed yet.</td></tr>
+          <tr><td colspan="6" class="text-center text-muted py-4">No parts consumed yet.</td></tr>
           {% endfor %}
         </tbody>
       </table>

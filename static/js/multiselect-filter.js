@@ -17,6 +17,31 @@
       : label.getAttribute('data-all') || label.textContent;
   }
   document.querySelectorAll('.ms-filter').forEach(function (wrap) {
+    // Filter bars that scroll horizontally (overflow-auto/overflow-x:auto,
+    // e.g. WorkID Status's one-row filter bar) clip Bootstrap's dropdown-menu
+    // vertically because Popper's default 'absolute' strategy is measured
+    // against that scrollable ancestor. 'fixed' positions the menu relative
+    // to the viewport instead, so it escapes the clip and overlaps the card
+    // like every other dropdown. Harmless on non-scrolling filter bars too.
+    var toggle = wrap.querySelector('[data-bs-toggle="dropdown"]');
+    var menu = wrap.querySelector('.dropdown-menu');
+    if (toggle && window.bootstrap && window.bootstrap.Dropdown) {
+      window.bootstrap.Dropdown.getOrCreateInstance(toggle, {
+        popperConfig: function (defaultConfig) {
+          return Object.assign({}, defaultConfig, { strategy: 'fixed' });
+        }
+      });
+      // The menu's `min-width:100%` (see _multiselect_filter.html) resolves
+      // against the toggle's own width under the default 'absolute' strategy,
+      // but against the viewport once Popper switches to 'fixed' — blowing
+      // the menu out to full page width. Pin it to the toggle's actual
+      // rendered width on every open instead.
+      toggle.addEventListener('show.bs.dropdown', function () {
+        var w = toggle.getBoundingClientRect().width;
+        menu.style.width = w + 'px';
+        menu.style.minWidth = w + 'px';
+      });
+    }
     var label = wrap.querySelector('.ms-label');
     if (!label.getAttribute('data-all') && !wrap.querySelectorAll('.ms-opt:checked').length) {
       label.setAttribute('data-all', label.textContent.trim());

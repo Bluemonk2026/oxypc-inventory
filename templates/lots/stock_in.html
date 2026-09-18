@@ -119,6 +119,9 @@
   <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span class="fw-semibold"><i class="bi bi-archive me-2"></i>Inventory Stock</span>
     <div class="d-flex align-items-center gap-2 flex-wrap">
+      <button type="button" id="bulkMoveL1L2Btn" class="btn btn-outline-warning btn-sm d-none text-nowrap" disabled>
+        <i class="bi bi-tools me-1"></i>Bulk Move to L1/L2 (<span id="bulkMoveL1L2Count">0</span>)
+      </button>
       <button type="button" id="customiseBtn" class="btn btn-outline-primary btn-sm d-none text-nowrap"
               onclick="openCustomiseModal('stock')">
         <i class="bi bi-sliders me-1"></i>Customise (<span id="customiseCount">0</span>)
@@ -545,7 +548,28 @@ $(document).ready(function(){
   // box top right, inside the table wrapper.
   $('#entityBadgeArea').append($('#entityBadges').removeClass('d-none'));
   $('#stkBtnArea').append($('#assignBucketBtn').removeClass('d-none'));
+  $('#stkBtnArea').append($('#bulkMoveL1L2Btn').removeClass('d-none'));
   $('#stkScanArea').append($('#stockScanInput').removeClass('d-none'));
+
+  $('#bulkMoveL1L2Btn').on('click', function () {
+    var bcs = selectedStockBarcodes();
+    if (!bcs.length) return;
+    if (!confirm('Move ' + bcs.length + ' tag(s) to L1/L2 Repair?')) return;
+    var fd = new FormData();
+    fd.append('csrf_token', getCsrf());
+    fd.append('barcodes', bcs.join(','));
+    fetch('/stock/bulk-move-to-l1l2', { method: 'POST', body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.ok) {
+          stockSelected.clear();
+          updateStockSel();
+          dtStock.ajax.reload(null, false);
+        } else {
+          alert(d.detail || 'Failed to move tags.');
+        }
+      });
+  });
 
   // Single scan/search box: each scan narrows the table, ticks the match and
   // re-highlights the input so the gun's next value replaces this one. Ticks
@@ -596,6 +620,8 @@ function updateStockSel(){
   var n = stockSelected.size;
   $('#bktSelCount').text(n);
   $('#assignBucketBtn').prop('disabled', n === 0);
+  $('#bulkMoveL1L2Count').text(n);
+  $('#bulkMoveL1L2Btn').prop('disabled', n === 0);
   $('#customiseCount').text(n);
   $('#customiseBtn').toggleClass('d-none', n === 0);
 }

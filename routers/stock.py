@@ -916,11 +916,16 @@ async def stock_in_data(
             f'<span class="bkt-cell" data-barcode="{esc(d.barcode)}"><span class="text-muted">—</span></span>',
             (f'<span class="badge bg-secondary">{esc(dept)}</span>' if dept else '<span class="text-muted">—</span>'),
             # Every row here is already at Stock In (see _stock_filters), so
-            # Move to Production is always valid.
+            # both actions are always valid.
             (f'<form method="post" action="/stock/move-to-trc" class="d-inline">'
              f'<input type="hidden" name="csrf_token" value="{esc(request.cookies.get("csrf_token", ""))}">'
              f'<input type="hidden" name="barcode" value="{esc(d.barcode)}">'
-             f'<button type="submit" class="btn btn-sm btn-outline-info py-0 px-2"><i class="bi bi-cpu"></i> Move to Production</button>'
+             f'<button type="submit" class="btn btn-sm btn-outline-info py-0 px-2 mb-1"><i class="bi bi-cpu"></i> Move to Production</button>'
+             f'</form>'
+             f'<form method="post" action="/stock/move-to-l1l2" class="d-inline">'
+             f'<input type="hidden" name="csrf_token" value="{esc(request.cookies.get("csrf_token", ""))}">'
+             f'<input type="hidden" name="barcode" value="{esc(d.barcode)}">'
+             f'<button type="submit" class="btn btn-sm btn-outline-warning py-0 px-2"><i class="bi bi-tools"></i> Move to L1/L2</button>'
              f'</form>'),
             esc(d.grn_number or ""), esc(d.invoice_number or ""),
         ])
@@ -1414,6 +1419,73 @@ async def move_to_trc(
     ))
     await db.commit()
     return RedirectResponse(url="/stock?success=Moved+to+TRC+Production", status_code=302)
+
+
+async def _move_device_to_l1l2(db: AsyncSession, device: Device, current_user: User) -> bool:
+    """Shared by the single-row and bulk Move to L1/L2 actions. Moves a Stock
+    In device into the merged L1/L2 queue (unassigned — no WorkOrder, so it
+    lands in the unclaimed pool and shows the "Pick This" button on
+    /repair/l1, same as any other tag arriving there without an engineer
+    already picked). Returns False (no-op) for a device that isn't at Stock
+    In, same defense-in-depth as move_to_trc."""
+    if device.current_stage != DeviceStage.stock_in:
+        return False
+    prev_stage = device.current_stage
+    prev_mv = (await db.execute(
+        select(StageMovement).where(
+            StageMovement.device_id == device.id,
+            StageMovement.to_stage == prev_stage,
+            StageMovement.exited_at == None,
+        ).order_by(StageMovement.moved_at.desc())
+    )).scalars().first()
+    if prev_mv:
+        prev_mv.exited_at = app_now()
+    device.current_stage = DeviceStage.l1
+    device.updated_at = app_now()
+    db.add(StageMovement(
+        device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.l1,
+        moved_by=current_user.username, notes="Moved to L1/L2 Repair",
+    ))
+    return True
+
+
+@router.post("/stock/move-to-l1l2")
+async def move_to_l1l2(
+    barcode: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Move a single Stock Inward device into the L1/L2 queue."""
+    device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    if not await _move_device_to_l1l2(db, device, current_user):
+        return RedirectResponse(
+            url="/stock?error=Device+is+not+at+Stock+In+stage", status_code=302)
+    await db.commit()
+    return RedirectResponse(url="/stock?success=Moved+to+L1%2FL2", status_code=302)
+
+
+@router.post("/stock/bulk-move-to-l1l2")
+async def bulk_move_to_l1l2(
+    barcodes: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Move several Stock Inward devices into the L1/L2 queue at once —
+    the "Bulk Move to L1/L2" button in Inventory Stock's card header."""
+    bc_list = [b.strip() for b in barcodes.split(",") if b.strip()]
+    if not bc_list:
+        raise HTTPException(400, "No tags selected")
+    devices = (await db.execute(
+        select(Device).where(Device.barcode.in_(bc_list))
+    )).scalars().all()
+    moved = 0
+    for device in devices:
+        if await _move_device_to_l1l2(db, device, current_user):
+            moved += 1
+    await db.commit()
+    return JSONResponse({"ok": True, "moved": moved, "requested": len(bc_list)})
 
 
 @router.get("/trc-production", response_class=HTMLResponse)

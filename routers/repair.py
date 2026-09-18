@@ -174,10 +174,16 @@ async def l1_pick(
     plain L1/L2 WorkID (stage "l1", _gen_work_id's 12-digit numeric ID — see
     routers/buckets.py's bulk_assign_devices_l1l2, the closest precedent),
     so it shows up in this page's own work_map and on /workid-status
-    identically to an engineer-assigned pick. No StageMovement/StockTransfer:
-    the device doesn't change stage or location, only gets claimed. No
-    self-notification either — the user just clicked the button, they
-    already know."""
+    identically to an engineer-assigned pick. No StockTransfer: this isn't a
+    location move. A same-stage (l1 -> l1) StageMovement IS written though
+    (2026-09-18 fix), matching every other engineer-assignment flow's
+    close-prior/open-new pattern (routers/stock.py's Change Engineer,
+    bulk-assign, etc.) — without it, Pick This left no Tag Asset History
+    entry at all, and /workid-status's Assigned Engineer column (sourced
+    from the device's latest StageMovement, not WorkOrder.assigned_username)
+    kept showing whoever performed the device's last unrelated stage move
+    instead of the user who just picked it. No self-notification either —
+    the user just clicked the button, they already know."""
     if not has_perm(current_user.role.value, "repair_l1", "add"):
         raise HTTPException(403, "You do not have permission to pick L1/L2 repairs")
 
@@ -200,6 +206,16 @@ async def l1_pick(
         # got there first.
         return RedirectResponse(url="/repair/l1", status_code=302)
 
+    prev_mv = (await db.execute(
+        select(StageMovement).where(
+            StageMovement.device_id == device.id,
+            StageMovement.to_stage == DeviceStage.l1,
+            StageMovement.exited_at == None,
+        ).order_by(StageMovement.moved_at.desc())
+    )).scalars().first()
+    if prev_mv:
+        prev_mv.exited_at = app_now()
+
     work_id = await _gen_work_id(db)
     db.add(WorkOrder(
         work_id=work_id, device_id=device.id, barcode=device.barcode,
@@ -208,6 +224,12 @@ async def l1_pick(
         assigned_name=current_user.full_name, status="pending",
         created_by=current_user.username,
     ))
+    db.add(StageMovement(
+        device_id=device.id, from_stage=DeviceStage.l1, to_stage=DeviceStage.l1,
+        moved_by=current_user.username,
+        notes=f"Picked by {current_user.full_name or current_user.username} (WorkID: {work_id})",
+    ))
+
     await audit(db, user=current_user, action="L1L2_PICKED",
                 table_name="devices", record_id=str(device.id),
                 notes=f"{device.barcode} picked by {current_user.full_name or current_user.username} (WorkID: {work_id})",

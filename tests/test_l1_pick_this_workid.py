@@ -53,7 +53,7 @@ import asyncio, sys
 sys.path.insert(0, r"{ROOT}")
 from sqlalchemy import select
 from database import AsyncSessionLocal
-from models.device import Device
+from models.device import Device, StageMovement
 from models.work_order import WorkOrder
 
 async def main():
@@ -62,6 +62,11 @@ async def main():
         if dev:
             for wo in (await db.execute(select(WorkOrder).where(WorkOrder.device_id == dev.id))).scalars().all():
                 await db.delete(wo)
+            # Pick This now writes a StageMovement (2026-09-18) — purge those
+            # too, or deleting the device below nulls their NOT NULL
+            # device_id column instead of a clean cascade.
+            for mv in (await db.execute(select(StageMovement).where(StageMovement.device_id == dev.id))).scalars().all():
+                await db.delete(mv)
             await db.delete(dev)
         await db.commit()
 

@@ -403,8 +403,10 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
 
     # WorkOrder rows and backfilled movement-only rows come from two
     # separately-ordered queries — sort the merged list so it still reads
-    # newest-first regardless of source.
-    items.sort(key=lambda it: it["completed_at"] or it["start"] or datetime.min, reverse=True)
+    # newest-first regardless of source. Sorted by Assigned Date (2026-09-18
+    # — was completed_at-first, which put completed rows out of Assigned
+    # Date order whenever their completed_at diverged from assigned_date).
+    items.sort(key=lambda it: it["assigned_date"] or datetime.min, reverse=True)
 
     # ── Card Count tiles — computed from the SAME filtered `items` list, so
     # every filter above (including Completed From/To and Stage) narrows the

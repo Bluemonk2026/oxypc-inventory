@@ -18,7 +18,7 @@
       <select name="to_location_id" id="{{ prefix }}-location-id" class="form-select {{ prefix }}-location-id">
         <option value="">— Select Location —</option>
         {% for loc in storage_locations %}
-        <option value="{{ loc.id }}">{{ loc.unit_id }} — {{ zone_labels[loc.zone] }}</option>
+        <option value="{{ loc.id }}">{{ loc.unit_id }}</option>
         {% endfor %}
       </select>
     </div>

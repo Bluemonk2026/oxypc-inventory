@@ -622,6 +622,9 @@ function updateStockSel(){
   $('#assignBucketBtn').prop('disabled', n === 0);
   $('#bulkMoveL1L2Count').text(n);
   $('#bulkMoveL1L2Btn').prop('disabled', n === 0);
+  // Primary (filled) once something's selected and it's actually clickable;
+  // outline while disabled, so the enabled state reads as the prominent one.
+  $('#bulkMoveL1L2Btn').toggleClass('btn-primary', n > 0).toggleClass('btn-outline-warning', n === 0);
   $('#customiseCount').text(n);
   $('#customiseBtn').toggleClass('d-none', n === 0);
 }

@@ -244,6 +244,67 @@ asyncio.run(main())
         _cleanup(barcode)
 
 
+def test_stock_move_to_l1l2_closes_out_stale_uncompleted_l1_work_order(app_client, make_user):  # noqa: F811
+    """Real data has plenty of Stock In tags carrying an old "l1" WorkOrder
+    that was never marked completed (the device cycled through L1/L2 before,
+    then got sent back to Stock In some other way). /repair/l1's queue keys
+    off "does this device have a non-completed l1 WorkOrder" — so without
+    closing that stale one out, Move to L1/L2 would land the tag back in the
+    queue still showing the OLD WorkID/engineer instead of Pick This."""
+    suffix = uuid.uuid4().hex[:6]
+    barcode = f"ITMVSTALE{suffix}"
+    device_id = _seed_device(barcode, "stock_in", moved_by="itest_seed_mover")
+    stale_work_id = _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from database import AsyncSessionLocal
+from models.work_order import WorkOrder
+from routers.transfers import _gen_work_id
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        wid = await _gen_work_id(db)
+        db.add(WorkOrder(work_id=wid, device_id="{device_id}", barcode="{barcode}", stage="l1",
+                          assigned_username="itest_stale_engineer", assigned_name="Stale Engineer",
+                          status="pending", created_by="itest_stale_engineer"))
+        await db.commit()
+        print(wid)
+
+asyncio.run(main())
+""")
+    try:
+        username, password = make_user("admin")
+        _login(app_client, username, password)
+        csrf = app_client.cookies.get("csrf_token") or "dummy"
+        r = app_client.post("/stock/move-to-l1l2", data={"csrf_token": csrf, "barcode": barcode},
+                             follow_redirects=False)
+        assert r.status_code == 302
+
+        html = app_client.get("/repair/l1", follow_redirects=True).text
+        row = html.split(barcode, 1)[1][:1500]
+        assert "Pick This" in row
+        assert stale_work_id not in row
+        assert "itest_stale_engineer" not in row and "Stale Engineer" not in row
+
+        status = _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.work_order import WorkOrder
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        wo = (await db.execute(select(WorkOrder).where(WorkOrder.work_id == "{stale_work_id}"))).scalar_one()
+        print(wo.status)
+
+asyncio.run(main())
+""")
+        assert status == "completed"
+    finally:
+        _cleanup(barcode)
+
+
 def test_stock_bulk_move_to_l1l2_moves_multiple_devices(app_client, make_user):  # noqa: F811
     suffix = uuid.uuid4().hex[:6]
     bc1 = f"ITBULKMV1{suffix}"

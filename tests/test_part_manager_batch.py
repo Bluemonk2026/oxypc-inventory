@@ -33,12 +33,100 @@ def test_consumed_tile_is_not_scoped_to_this_month(app_client, make_user):  # no
     assert ">Consumed<" in html
 
 
+def _part_name_select_block(html):
+    m = re.search(r'name="part_name" class="form-select form-select-sm" style.*?</select>', html, re.S)
+    assert m, "global filter bar's Part Name select not found"
+    return m.group(0)
+
+
+def test_part_name_filter_not_clobbered_by_parts_consumption_rollup(app_client, make_user):  # noqa: F811
+    """2026-09-18 bug: the Parts Consumption rollup loop reused the local name
+    `part_name`, which IS this route's own Part Name filter query param — so
+    building that tab silently overwrote the filter value with whichever part
+    happened to be last in the rollup, regardless of what was actually
+    selected (or even on a filter-less page load). Needs at least one
+    'received' PartRequest to exercise the rollup loop at all."""
+    suffix = uuid.uuid4().hex[:6].upper()
+    barcode = f"ITPNFIX{suffix}"
+    part_code = f"ITPNFIXPART{suffix}"
+    _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.lot import Lot
+from models.device import Device, DeviceStage
+from models.spare_parts import SparePart
+from models.part_request import PartRequest
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        lot = (await db.execute(select(Lot).limit(1))).scalars().first()
+        dev = Device(barcode="{barcode}", lot_id=lot.id, brand="ITestBrand", model="ITestModel",
+                     current_stage=DeviceStage.l1)
+        db.add(dev)
+        sp = SparePart(part_code="{part_code}", name="ZZZ Rollup Bait", category="Keyboard",
+                       unit_price=100, qty_in_stock=10)
+        db.add(sp)
+        await db.flush()
+        db.add(PartRequest(device_id=dev.id, barcode="{barcode}", part_id=sp.id, part_name=sp.name,
+                           request_type="replace", status="received", qty_handed_over=1))
+        await db.commit()
+
+asyncio.run(main())
+""")
+    try:
+        # No part_name query param at all: nothing but "All" may be selected.
+        html = _get_spare_parts(app_client, make_user)
+        block = _part_name_select_block(html)
+        assert "selected" not in block, f"a Part Name option is wrongly pre-selected: {block[:300]}"
+
+        # Explicitly picking a real option must stick, not get overwritten by
+        # the rollup's own local (and now differently-named) variable.
+        username, password = make_user("spare_parts_manager")
+        _login(app_client, username, password)
+        html2 = app_client.get("/spare-parts?part_name=RAM", follow_redirects=True).text
+        block2 = _part_name_select_block(html2)
+        assert '<option value="RAM" selected>' in block2
+        assert block2.count("selected") == 1
+    finally:
+        _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.device import Device
+from models.spare_parts import SparePart
+from models.part_request import PartRequest
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        dev = (await db.execute(select(Device).where(Device.barcode == "{barcode}"))).scalar_one_or_none()
+        if dev:
+            for pr in (await db.execute(select(PartRequest).where(
+                    PartRequest.device_id == dev.id))).scalars().all():
+                await db.delete(pr)
+            await db.delete(dev)
+        sp = (await db.execute(select(SparePart).where(SparePart.part_code == "{part_code}"))).scalar_one_or_none()
+        if sp:
+            await db.delete(sp)
+        await db.commit()
+
+asyncio.run(main())
+""")
+
+
 def test_parts_consumption_tab_present_with_search_and_export(app_client, make_user):  # noqa: F811
     """2026-09-18: one row per (tag, part name) instead of one aggregate row
     per tag — "Total Parts Changed"/"Total Parts Amount" (the old device-wide
     aggregate columns, the latter mislabeled — it showed a quantity, not an
     amount) are gone; "Part Name Used"/"Total Part Changed"/"Unit Price"/
-    "Total Price" are the new per-part columns."""
+    "Total Price" are the new per-part columns.
+
+    Card-header bar removed same day — tag/part-row count and Export live in
+    the Global Table's own toolbar now (#pcCounts/#pcExportBtn relocated by
+    JS), and the old dedicated #pcSearch box is gone in favor of the Global
+    Table's own built-in search."""
     html = _get_spare_parts(app_client, make_user)
     assert 'id="partsConsumptionTab"' in html
     assert 'id="parts-consumption-tab"' in html
@@ -49,8 +137,11 @@ def test_parts_consumption_tab_present_with_search_and_export(app_client, make_u
     assert "Total Price" in html
     assert "Total Parts Changed" not in html
     assert "Total Parts Amount" not in html
-    assert 'id="pcSearch"' in html
-    assert "pcFilter()" in html
+    assert 'id="pcSearch"' not in html
+    assert "pcFilter()" not in html
+    assert 'id="pcCounts"' in html
+    assert 'id="pcExportBtn"' in html
+    assert "tag(s)" in html and "part row(s)" in html
     # Global Table conversion (2026-09-18).
     assert "initGlobalTable('#partsConsumptionTable'" in html
 

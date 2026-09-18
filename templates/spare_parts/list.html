@@ -600,16 +600,15 @@
        (device, part) instead of by device alone — a tag with Keyboard
        changed once and RAM changed twice shows as two rows here. ── -->
   <div class="tab-pane fade p-0" id="partsConsumptionTab" role="tabpanel">
-    <div class="d-flex justify-content-between align-items-center p-3 border-bottom flex-wrap gap-2">
-      <span class="text-muted small">{{ tag_consumption_tag_count }} tag(s), {{ tag_consumption_rows|length }} part row(s)</span>
-      <div class="d-flex gap-2 flex-wrap align-items-center">
-        <input type="text" id="pcSearch" class="form-control form-control-sm" style="min-width:220px"
-               placeholder="Search Tag Number / Lot Number" oninput="pcFilter()">
-        <button class="btn btn-outline-secondary btn-sm" onclick="spExport('partsConsumptionTable',false)">
-          <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
-        </button>
-      </div>
-    </div>
+    {# Card-header bar removed (2026-09-18) — its tag/part-row count and
+       Export button are relocated into the Global Table's own toolbar by JS
+       below (next to the yellow row-count badge, and beside pagination,
+       respectively). The old #pcSearch box is gone too — it duplicated the
+       search box initGlobalTable already provides. #}
+    <span id="pcCounts" class="d-none text-muted small">{{ tag_consumption_tag_count }} tag(s), {{ tag_consumption_rows|length }} part row(s)</span>
+    <button id="pcExportBtn" type="button" class="d-none btn btn-outline-secondary btn-sm" onclick="spExport('partsConsumptionTable',false)">
+      <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
+    </button>
     {# No .table-responsive wrapper — initGlobalTable's own scrollX owns
        horizontal scrolling (Global Table convention, see templates/devices/
        list.html). #}
@@ -1307,12 +1306,21 @@ document.querySelectorAll('[data-filterbar]').forEach(function(bar) {
 
 // ── Parts Consumption tab: Global Table (frozen columns, scrollX,
 // pagination) over the server-rendered rows — client-side, no ajax endpoint,
-// same as any initGlobalTable call with no `ajax` option. Search box below
-// drives it instead of the old show/hide-by-row-attribute approach. ──
-var dtPartsConsumption = initGlobalTable('#partsConsumptionTable', { order: [] });
-function pcFilter() {
-  var q = document.getElementById('pcSearch').value.trim();
-  dtPartsConsumption.search(q).draw();
-}
+// same as any initGlobalTable call with no `ajax` option. Own `dom` string
+// is the base initGlobalTable one (see static/js/global-table.js) with two
+// extra slots added — #pcCountArea right after the yellow row-count badge
+// ('i'), #pcExportArea just before the built-in search box ('f') — so the
+// relocated tag/part-row count and Export button land in the toolbar
+// instead of the removed card-header bar. No custom search box here
+// anymore; the table's own built-in one covers it. ──
+initGlobalTable('#partsConsumptionTable', {
+  order: [],
+  dom: '<"gtable-top d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"' +
+         '<"d-flex align-items-center flex-wrap gap-2"li<"#pcCountArea">>' +
+         '<"d-flex align-items-center flex-wrap gap-2"<"#pcExportArea">fp>' +
+       '>rt',
+});
+$('#pcCountArea').append($('#pcCounts').removeClass('d-none'));
+$('#pcExportArea').append($('#pcExportBtn').removeClass('d-none'));
 </script>
 {% endblock %}

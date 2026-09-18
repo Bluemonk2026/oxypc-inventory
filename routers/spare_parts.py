@@ -277,11 +277,17 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
             continue
         sp = changed_sp_by_id.get(r.part_id)
         unit_price = float(sp.unit_price) if sp else 0.0
-        part_name = (sp.name if sp else r.part_name) or "—"
+        # NOT `part_name` — that's this route's own Part Name FILTER query
+        # param (see the function signature), and reusing the name here
+        # silently clobbered it with whichever row happened to be last in
+        # `changed_rows`, which is what the Part Name dropdown was echoing
+        # back as "selected" regardless of what was actually picked (or on
+        # a totally filter-less page load).
+        consumed_part_name = (sp.name if sp else r.part_name) or "—"
         qty = r.qty_handed_over or 0
-        key = (barcode, r.part_id or part_name)
+        key = (barcode, r.part_id or consumed_part_name)
         row = tag_consumption.setdefault(key, {
-            "tag_number": barcode, "lot_number": lot_number, "part_name": part_name,
+            "tag_number": barcode, "lot_number": lot_number, "part_name": consumed_part_name,
             "unit_price": unit_price, "total_qty": 0, "total_price": 0.0, "date_added": None,
         })
         row["total_qty"] += qty

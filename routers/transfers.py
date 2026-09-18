@@ -12,7 +12,7 @@ from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement, DeviceGrade
 from models.lot import Lot
 from models.bucket import Bucket
-from models.location import StorageLocation, ZONE_LABELS
+from models.location import StorageLocation, ZONE_LABELS, DeviceLocationLog, LocationAction
 from models.sales import Sale
 from models.stock_transfer import StockTransfer
 from models.work_order import WorkOrder
@@ -535,10 +535,25 @@ async def create_transfer(
         # log — otherwise the tag keeps showing its old Location ID
         # everywhere else in the app (Device Detail, All Inventory) even
         # though this transfer recorded the new one (2026-09-18).
+        #
+        # Setting Device.location_id alone is NOT enough (2026-09-18 fix,
+        # part 2): every page that displays "Location ID" reads it from the
+        # device's LATEST DeviceLocationLog row (_build_location_map in
+        # routers/devices.py), falling back to Device.location_id only when
+        # no log exists at all. A device with prior location history — the
+        # normal case — kept showing its old logged location forever, since
+        # the log always outranks the raw column. A log row has to be
+        # written here too, same as the pickup-placeback flow in
+        # routers/inventory_location.py.
         if loc:
             device.location_id = loc.id
             device.warehouse = loc.display_name
             device.updated_at = app_now()
+            db.add(DeviceLocationLog(
+                device_id=device.id, location_id=loc.id, action=LocationAction.moved,
+                actor_id=current_user.id, actor_name=current_user.full_name,
+                notes=f"Moved via Transfer to TRC ({transfer_type})",
+            ))
         elif hasattr(device, "warehouse") and to_warehouse:
             device.warehouse = to_warehouse
             device.updated_at = app_now()
@@ -719,12 +734,21 @@ async def _move_devices_bulk(
             notes=notes or None,
             created_by=current_user.username,
         )
-        # Same fix as the Move Item tab (2026-09-18): move the device's own
-        # current location, not just log it on the transfer row.
+        # Same fix as the Move Item tab (2026-09-18, and part 2 same day):
+        # move the device's own current location AND write a
+        # DeviceLocationLog row — every "Location ID" display reads the
+        # device's latest log entry first, Device.location_id only as a
+        # fallback when no log exists (see create_device_transfer's fuller
+        # comment above).
         if loc:
             device.location_id = loc.id
             device.warehouse = loc.display_name
             device.updated_at = app_now()
+            db.add(DeviceLocationLog(
+                device_id=device.id, location_id=loc.id, action=LocationAction.moved,
+                actor_id=current_user.id, actor_name=current_user.full_name,
+                notes=f"Moved via Transfer to TRC ({move_kind}, {transfer_type})",
+            ))
         db.add(transfer)
         await db.flush()
 

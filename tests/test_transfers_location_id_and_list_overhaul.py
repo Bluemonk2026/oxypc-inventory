@@ -97,7 +97,7 @@ from models.device import Device
 from models.lot import Lot
 from models.stock_transfer import StockTransfer
 from models.work_order import WorkOrder
-from models.location import StorageLocation
+from models.location import StorageLocation, DeviceLocationLog
 
 async def main():
     async with AsyncSessionLocal() as db:
@@ -109,6 +109,12 @@ async def main():
             for t in (await db.execute(select(StockTransfer).where(
                     StockTransfer.device_id == dev.id))).scalars().all():
                 await db.delete(t)
+            # Move Item/Bucket/Lot transfers now also write a
+            # DeviceLocationLog row (2026-09-18) — purge those too, or
+            # deleting the device below hits its FK.
+            for log in (await db.execute(select(DeviceLocationLog).where(
+                    DeviceLocationLog.device_id == dev.id))).scalars().all():
+                await db.delete(log)
             # Only delete the Lot if THIS test created it (marked via
             # supplier_name) — devices seeded against select(Lot).limit(1)
             # share an existing, possibly-production lot with other rows;

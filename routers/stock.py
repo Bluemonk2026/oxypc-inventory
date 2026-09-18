@@ -916,8 +916,11 @@ async def stock_in_data(
             f'<span class="bkt-cell" data-barcode="{esc(d.barcode)}"><span class="text-muted">—</span></span>',
             (f'<span class="badge bg-secondary">{esc(dept)}</span>' if dept else '<span class="text-muted">—</span>'),
             # Every row here is already at Stock In (see _stock_filters), so
-            # both actions are always valid.
-            (f'<form method="post" action="/stock/move-to-trc" class="d-inline">'
+            # both actions are always valid. Move to Production is hidden
+            # (d-none, not removed — same form/endpoint still works if it's
+            # ever unhidden again) and Move to L1/L2 is the primary-styled
+            # action now (2026-09-18).
+            (f'<form method="post" action="/stock/move-to-trc" class="d-inline d-none">'
              f'<input type="hidden" name="csrf_token" value="{esc(request.cookies.get("csrf_token", ""))}">'
              f'<input type="hidden" name="barcode" value="{esc(d.barcode)}">'
              f'<button type="submit" class="btn btn-sm btn-outline-info py-0 px-2 mb-1"><i class="bi bi-cpu"></i> Move to Production</button>'
@@ -925,7 +928,7 @@ async def stock_in_data(
              f'<form method="post" action="/stock/move-to-l1l2" class="d-inline">'
              f'<input type="hidden" name="csrf_token" value="{esc(request.cookies.get("csrf_token", ""))}">'
              f'<input type="hidden" name="barcode" value="{esc(d.barcode)}">'
-             f'<button type="submit" class="btn btn-sm btn-outline-warning py-0 px-2"><i class="bi bi-tools"></i> Move to L1/L2</button>'
+             f'<button type="submit" class="btn btn-sm btn-primary py-0 px-2"><i class="bi bi-tools"></i> Move to L1/L2</button>'
              f'</form>'),
             esc(d.grn_number or ""), esc(d.invoice_number or ""),
         ])
@@ -1427,7 +1430,17 @@ async def _move_device_to_l1l2(db: AsyncSession, device: Device, current_user: U
     lands in the unclaimed pool and shows the "Pick This" button on
     /repair/l1, same as any other tag arriving there without an engineer
     already picked). Returns False (no-op) for a device that isn't at Stock
-    In, same defense-in-depth as move_to_trc."""
+    In, same defense-in-depth as move_to_trc.
+
+    A device that cycled through L1/L2 before and was later sent back to
+    Stock In without its WorkOrder ever completing (a known pattern in real
+    data — e.g. Return Stock / Change Entity moving it out mid-repair) still
+    carries that old pending/in_progress "l1" WorkOrder. /repair/l1's queue
+    keys off "does this device have a non-completed l1 WorkOrder", so
+    without closing that stale one out first, the tag would land back in
+    the queue still showing the OLD WorkID + engineer instead of Pick This
+    (2026-09-18 — reported as "Pick This not showing"). Same close-out
+    pattern as routers/cosmetic.py's own stale-pending cleanup."""
     if device.current_stage != DeviceStage.stock_in:
         return False
     prev_stage = device.current_stage
@@ -1440,6 +1453,12 @@ async def _move_device_to_l1l2(db: AsyncSession, device: Device, current_user: U
     )).scalars().first()
     if prev_mv:
         prev_mv.exited_at = app_now()
+    await db.execute(
+        update(WorkOrder)
+        .where(WorkOrder.device_id == device.id, WorkOrder.stage == "l1",
+               WorkOrder.status != "completed")
+        .values(status="completed", completed_at=app_now())
+    )
     device.current_stage = DeviceStage.l1
     device.updated_at = app_now()
     db.add(StageMovement(

@@ -342,7 +342,17 @@ def _device_search_filters(q, stage, lot, grade, category, device_type, date_fro
         w.append(Device.device_type.in_(device_type_vals))
     entity_vals = _multi(entity)
     if entity_vals:
-        w.append(Device.entity.in_(entity_vals))
+        # "Unassigned" isn't a real Device.entity value — it's the summary
+        # strip's label for a null one (see entity_counts below) — so the
+        # clickable badge for it needs to match NULL/empty, not the literal
+        # string, or it silently returns zero rows.
+        real_vals = [v for v in entity_vals if v != "Unassigned"]
+        clauses = []
+        if real_vals:
+            clauses.append(Device.entity.in_(real_vals))
+        if len(real_vals) != len(entity_vals):
+            clauses.append(or_(Device.entity.is_(None), Device.entity == ""))
+        w.append(or_(*clauses))
     # "Exclude Sold" filter — on by default so All Inventory shows live stock
     # rather than the full historical device list. Skipped when the user has
     # explicitly asked for the sold stage, which would otherwise return nothing.

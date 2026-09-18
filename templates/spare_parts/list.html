@@ -45,9 +45,10 @@
    instead of staying fixed global totals — matching every other filtered
    page in this app (Inventory Search, Stock In, GRN). Applies to Part
    Master, Part Requests and Faulty Request (the three tables whose rows
-   carry a single category/part-name/added-date); NOT Sourcing Requests, and
-   not Parts Consumption, whose rows are rolled up per tag across possibly
-   several different parts and dates and so have no single value to match. #}
+   carry a single category/part-name/added-date); NOT Sourcing Requests.
+   Added From/To ALSO applies to Parts Consumption (2026-09-18) against its
+   own "Date Added" column (PartRequest.actioned_at, the Verify timestamp)
+   — Category/Part Name don't, since a rolled-up row can span several parts. #}
 <form method="get" action="/spare-parts"
       class="d-flex flex-wrap align-items-end gap-2 px-3 py-2 border rounded bg-light mb-3" id="globalFilterBar">
   <div>
@@ -89,7 +90,7 @@
   <a href="/spare-parts" class="btn btn-outline-secondary btn-sm">
     <i class="bi bi-x-circle me-1"></i>Clear
   </a>
-  <span class="text-muted small">Category/Part Name/Added Date filter Part Master, Part Requests and Faulty Request (tiles included). Engineer filters Part Requests and Faulty Request only.</span>
+  <span class="text-muted small">Category/Part Name/Added Date filter Part Master, Part Requests and Faulty Request (tiles included). Added Date also filters Parts Consumption. Engineer filters Part Requests and Faulty Request only.</span>
 </form>
 
 {% if request.query_params.get('success') %}
@@ -609,32 +610,34 @@
         </button>
       </div>
     </div>
-    <div class="table-responsive">
-      <table id="partsConsumptionTable" class="table table-hover mb-0 small">
-        <thead class="table-dark">
-          <tr>
-            <th>Tag Number</th><th>Lot Number</th><th>Part Name Used</th>
-            <th>Total Part Changed</th><th>Unit Price</th><th>Total Price</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in tag_consumption_rows %}
-          <tr data-tag="{{ row.tag_number or '' }}" data-lot="{{ row.lot_number or '' }}">
-            <td><a href="/devices/{{ row.tag_number }}" class="font-monospace text-decoration-none">{{ row.tag_number }}</a></td>
-            <td>
-              {% if row.lot_number %}<a href="/lots?q={{ row.lot_number | urlencode }}">{{ row.lot_number }}</a>{% else %}—{% endif %}
-            </td>
-            <td class="fw-semibold">{{ row.part_name }}</td>
-            <td><span class="badge bg-info text-dark">{{ row.total_qty }}</span></td>
-            <td>&#8377;{{ "{:,.2f}".format(row.unit_price) }}</td>
-            <td class="fw-semibold">&#8377;{{ "{:,.2f}".format(row.total_price) }}</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="6" class="text-center text-muted py-4">No parts consumed yet.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    {# No .table-responsive wrapper — initGlobalTable's own scrollX owns
+       horizontal scrolling (Global Table convention, see templates/devices/
+       list.html). #}
+    <table id="partsConsumptionTable" class="table table-hover mb-0 small">
+      <thead class="table-dark">
+        <tr>
+          <th>Tag Number</th><th>Lot Number</th><th>Date Added</th><th>Part Name Used</th>
+          <th>Total Part Changed</th><th>Unit Price</th><th>Total Price</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in tag_consumption_rows %}
+        <tr data-tag="{{ row.tag_number or '' }}" data-lot="{{ row.lot_number or '' }}">
+          <td><a href="/devices/{{ row.tag_number }}" class="font-monospace text-decoration-none">{{ row.tag_number }}</a></td>
+          <td>
+            {% if row.lot_number %}<a href="/lots?q={{ row.lot_number | urlencode }}">{{ row.lot_number }}</a>{% else %}—{% endif %}
+          </td>
+          <td class="text-nowrap">{{ row.date_added.strftime('%d-%m-%Y') if row.date_added else '—' }}</td>
+          <td class="fw-semibold">{{ row.part_name }}</td>
+          <td><span class="badge bg-info text-dark">{{ row.total_qty }}</span></td>
+          <td>&#8377;{{ "{:,.2f}".format(row.unit_price) }}</td>
+          <td class="fw-semibold">&#8377;{{ "{:,.2f}".format(row.total_price) }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No parts consumed yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 
   <!-- ── TAB 5: Pending Requests For Part Sourcing (#15, synced read-only from CRM) ── -->
@@ -1035,6 +1038,13 @@ document.querySelectorAll('#sparePartsTabs button').forEach(btn => {
 function spExport(tableId, selectedOnly) {
   var table = document.getElementById(tableId);
   if (!table) return;
+  // A Global Table (e.g. Parts Consumption) only keeps its CURRENT page's
+  // rows in the DOM — show every filtered row before reading it below, then
+  // restore the page length the user had picked.
+  var isDt = window.jQuery && $.fn.dataTable && $.fn.dataTable.isDataTable('#' + tableId);
+  var dt = isDt ? $('#' + tableId).DataTable() : null;
+  var restorePageLen = dt ? dt.page.len() : null;
+  if (dt) dt.page.len(-1).draw(false);
   var ths = Array.from(table.querySelectorAll('thead th'));
   // Only skip the first column when it's the select-all checkbox column —
   // tables without row checkboxes (e.g. Parts Consumption) start their first
@@ -1059,6 +1069,7 @@ function spExport(tableId, selectedOnly) {
       return '"' + td.textContent.trim().replace(/\s+/g, ' ').replace(/"/g, '""') + '"';
     }).join(','));
   });
+  if (dt) dt.page.len(restorePageLen).draw(false);
   if (!rows.length) { alert('No rows to export.'); return; }
   var csv = [headers.join(',')].concat(rows).join('\r\n');
   var a = document.createElement('a');
@@ -1294,13 +1305,14 @@ document.querySelectorAll('[data-filterbar]').forEach(function(bar) {
   });
 });
 
-// ── Parts Consumption tab: search by Tag Number / Lot Number ──────────────
+// ── Parts Consumption tab: Global Table (frozen columns, scrollX,
+// pagination) over the server-rendered rows — client-side, no ajax endpoint,
+// same as any initGlobalTable call with no `ajax` option. Search box below
+// drives it instead of the old show/hide-by-row-attribute approach. ──
+var dtPartsConsumption = initGlobalTable('#partsConsumptionTable', { order: [] });
 function pcFilter() {
-  var q = document.getElementById('pcSearch').value.trim().toLowerCase();
-  document.querySelectorAll('#partsConsumptionTable tbody tr[data-tag]').forEach(function(tr) {
-    var hay = (tr.dataset.tag + ' ' + tr.dataset.lot).toLowerCase();
-    tr.style.display = (!q || hay.indexOf(q) !== -1) ? '' : 'none';
-  });
+  var q = document.getElementById('pcSearch').value.trim();
+  dtPartsConsumption.search(q).draw();
 }
 </script>
 {% endblock %}

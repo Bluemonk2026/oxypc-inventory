@@ -42,6 +42,7 @@ def test_parts_consumption_tab_present_with_search_and_export(app_client, make_u
     html = _get_spare_parts(app_client, make_user)
     assert 'id="partsConsumptionTab"' in html
     assert 'id="parts-consumption-tab"' in html
+    assert "Date Added" in html
     assert "Part Name Used" in html
     assert "Total Part Changed" in html
     assert "Unit Price" in html
@@ -50,6 +51,8 @@ def test_parts_consumption_tab_present_with_search_and_export(app_client, make_u
     assert "Total Parts Amount" not in html
     assert 'id="pcSearch"' in html
     assert "pcFilter()" in html
+    # Global Table conversion (2026-09-18).
+    assert "initGlobalTable('#partsConsumptionTable'" in html
 
 
 def test_parts_consumption_splits_into_one_row_per_part_name(app_client, make_user):  # noqa: F811
@@ -104,10 +107,11 @@ asyncio.run(main())
         by_part = {}
         for row in rows:
             cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.S)
-            part_name = re.sub(r"<[^>]+>", "", cells[2]).strip()
-            qty = re.sub(r"<[^>]+>", "", cells[3]).strip()
-            unit_price = re.sub(r"<[^>]+>", "", cells[4]).strip()
-            total_price = re.sub(r"<[^>]+>", "", cells[5]).strip()
+            # cells[2] is Date Added (2026-09-18) — Part Name Used shifted to 3.
+            part_name = re.sub(r"<[^>]+>", "", cells[3]).strip()
+            qty = re.sub(r"<[^>]+>", "", cells[4]).strip()
+            unit_price = re.sub(r"<[^>]+>", "", cells[5]).strip()
+            total_price = re.sub(r"<[^>]+>", "", cells[6]).strip()
             by_part[part_name] = (qty, unit_price, total_price)
 
         assert by_part["ITest Keyboard"] == ("1", "&#8377;500.00", "&#8377;500.00")

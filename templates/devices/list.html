@@ -61,10 +61,14 @@
 {# Entity badges — rendered here, hidden, then moved by JS into the
    DataTables toolbar, right after the row-count badge that sits next to the
    "Page view" dropdown (see the dom string + JS relocation on #devicesTable's
-   init below). #}
+   init below). Clickable: sets/clears the Entity filter (single-value) and
+   reloads, same as submitting the filter form with just that Entity picked —
+   "Unassigned" is handled server-side in _device_search_filters (matches
+   NULL/empty, not the literal string). #}
 <div id="entityBadges" class="d-none d-flex flex-wrap gap-2">
   {% for e, c in entity_counts.items() %}
-  <span class="badge bg-light text-dark border">{{ e }}: <strong>{{ c }}</strong></span>
+  <a href="#" class="badge text-decoration-none entity-filter-badge {% if entity == e %}bg-primary text-white{% else %}bg-light text-dark border{% endif %}"
+     data-entity="{{ e }}">{{ e }}: <strong>{{ c }}</strong></a>
   {% endfor %}
 </div>
 
@@ -485,6 +489,18 @@ $(document).ready(function() {
   // toolbar slot DataTables creates for them (see the dom string above) —
   // right after the row-count badge, next to the "Page view" dropdown.
   $('#entityBadgeArea').append($('#entityBadges').removeClass('d-none'));
+  $('#entityBadgeArea').on('click', '.entity-filter-badge', function (e) {
+    e.preventDefault();
+    var val = this.dataset.entity;
+    var p = new URLSearchParams(window.location.search);
+    if (p.get('entity') === val) {
+      p.delete('entity');  // click the active badge again to clear it
+    } else {
+      p.set('entity', val);
+    }
+    p.set('fs', '1');
+    window.location.search = p.toString();
+  });
 
   function updateSel(){
     var n = devicesSelected.size;

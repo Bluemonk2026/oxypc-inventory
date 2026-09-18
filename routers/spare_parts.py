@@ -232,6 +232,13 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     # one per part name, each with its own quantity and price (2026-09-18;
     # previously rolled up by device alone into one row with device-wide
     # totals, which couldn't show which part cost what).
+    #
+    # "Date Added" (2026-09-18) = PartRequest.actioned_at, the moment the
+    # engineer hit Verify on Device Detail's Parts Consumed table and status
+    # flipped to "received" (see routers/part_requests.py::validate_receiving)
+    # — the same global Added From/To filter now applies here too, against
+    # that per-row timestamp (the MAX one contributing to a rolled-up row,
+    # when several handovers of the same part landed on different dates).
     changed_rows = (await db.execute(
         select(PartRequest, Device.barcode, Lot.lot_number)
         .join(Device, PartRequest.device_id == Device.id)
@@ -246,8 +253,28 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
                 select(SparePart).where(SparePart.id.in_(changed_part_ids))
             )).scalars().all()
         }
+
+    def _pc_in_date_range(actioned_at):
+        if added_from:
+            try:
+                f = date.fromisoformat(added_from)
+                if not actioned_at or actioned_at.date() < f:
+                    return False
+            except ValueError:
+                pass
+        if added_to:
+            try:
+                t = date.fromisoformat(added_to)
+                if not actioned_at or actioned_at.date() > t:
+                    return False
+            except ValueError:
+                pass
+        return True
+
     tag_consumption = {}
     for r, barcode, lot_number in changed_rows:
+        if not _pc_in_date_range(r.actioned_at):
+            continue
         sp = changed_sp_by_id.get(r.part_id)
         unit_price = float(sp.unit_price) if sp else 0.0
         part_name = (sp.name if sp else r.part_name) or "—"
@@ -255,10 +282,12 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         key = (barcode, r.part_id or part_name)
         row = tag_consumption.setdefault(key, {
             "tag_number": barcode, "lot_number": lot_number, "part_name": part_name,
-            "unit_price": unit_price, "total_qty": 0, "total_price": 0.0,
+            "unit_price": unit_price, "total_qty": 0, "total_price": 0.0, "date_added": None,
         })
         row["total_qty"] += qty
         row["total_price"] += unit_price * qty
+        if r.actioned_at and (row["date_added"] is None or r.actioned_at > row["date_added"]):
+            row["date_added"] = r.actioned_at
     tag_consumption_rows = sorted(tag_consumption.values(),
                                   key=lambda r: (r["tag_number"] or "", r["part_name"] or ""))
     tag_consumption_tag_count = len({r["tag_number"] for r in tag_consumption_rows})

@@ -30,6 +30,23 @@ def _versioned_asset_paths_in_base_html():
     return [ROOT / "static" / rel for rel in hits]
 
 
+def _versioned_asset_paths_in_all_templates():
+    # 2026-09-18: base.html alone missed multiselect-filter.js (tagged only
+    # in templates/workid_status/list.html) and tag-scan-autocheck.js
+    # (tagged only in templates/cosmetic/received.html and
+    # templates/lots/trc_production.html) — this per-page-template scan
+    # closes that gap generally, instead of needing a new named test every
+    # time a future page tags a shared asset from its own template rather
+    # than base.html.
+    paths = set()
+    for tpl in (ROOT / "templates").rglob("*.html"):
+        src = tpl.read_text(encoding="utf-8")
+        for rel in re.findall(r'/static/([^"\']+)\?v=\{\{\s*ASSET_VERSION\s*\}\}', src):
+            paths.add(ROOT / "static" / rel)
+    assert paths, "expected at least one ?v={{ ASSET_VERSION }}-tagged asset across all templates"
+    return paths
+
+
 def test_every_asset_version_tagged_file_feeds_the_version_number():
     tagged = _versioned_asset_paths_in_base_html()
     versioned = {pathlib.Path(p).resolve() for p in templates_config._VERSIONED_ASSETS}
@@ -38,6 +55,18 @@ def test_every_asset_version_tagged_file_feeds_the_version_number():
         "these assets carry the ?v=ASSET_VERSION cache-bust stamp in base.html "
         "but are missing from templates_config._VERSIONED_ASSETS, so editing "
         "them alone never busts a browser's cache: "
+        + ", ".join(str(p) for p in missing)
+    )
+
+
+def test_every_asset_version_tagged_file_across_all_templates_feeds_the_version_number():
+    tagged = _versioned_asset_paths_in_all_templates()
+    versioned = {pathlib.Path(p).resolve() for p in templates_config._VERSIONED_ASSETS}
+    missing = [p for p in tagged if p.resolve() not in versioned]
+    assert not missing, (
+        "these assets carry the ?v=ASSET_VERSION cache-bust stamp somewhere in "
+        "templates/ but are missing from templates_config._VERSIONED_ASSETS, so "
+        "editing them alone never busts a browser's cache: "
         + ", ".join(str(p) for p in missing)
     )
 
@@ -63,4 +92,16 @@ def test_multiselect_filter_js_is_tagged_and_feeds_the_version_number():
     assert '/static/js/multiselect-filter.js?v={{ ASSET_VERSION }}' in src
     versioned = {pathlib.Path(p).resolve() for p in templates_config._VERSIONED_ASSETS}
     expected = (ROOT / "static" / "js" / "multiselect-filter.js").resolve()
+    assert expected in versioned
+
+
+def test_tag_scan_autocheck_js_is_tagged_and_feeds_the_version_number():
+    # 2026-09-18: found proactively while wiring Production Manager's Tag
+    # Number Allocation table onto scan-to-select — tag-scan-autocheck.js was
+    # already tagged with ?v= in templates/cosmetic/received.html (pre-dating
+    # this batch) but missing from _VERSIONED_ASSETS, the same gap as the two
+    # tests above. Fixed before trc_production.html's own new usage could
+    # hit it too.
+    versioned = {pathlib.Path(p).resolve() for p in templates_config._VERSIONED_ASSETS}
+    expected = (ROOT / "static" / "js" / "tag-scan-autocheck.js").resolve()
     assert expected in versioned

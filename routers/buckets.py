@@ -320,6 +320,34 @@ async def bucket_warehouses(
     return JSONResponse(list(wh) or FALLBACK_WAREHOUSES)
 
 
+@router.get("/api/buckets/lookup-by-name")
+async def lookup_bucket_by_name(name: str = "", db: AsyncSession = Depends(get_db),
+                                current_user: User = Depends(allowed)):
+    """Inventory Manager's 'Add to Bucket / Carton' modal — as the operator
+    types a Bucket Name, check whether it matches an EXISTING bucket (a
+    physical carton being reused), case-insensitive exact match. If it does,
+    the modal shows how many tags are still mapped to that bucket right now,
+    so the operator can decide whether to Clear it (POST
+    /buckets/{id}/release, already used elsewhere for exactly this) before
+    adding the newly selected tags — see create_bucket below, which reuses
+    this same bucket by name rather than creating a duplicate."""
+    name = (name or "").strip()
+    if not name:
+        return JSONResponse({"found": False})
+    bucket = (await db.execute(
+        select(Bucket).where(func.lower(Bucket.name) == name.lower())
+    )).scalars().first()
+    if not bucket:
+        return JSONResponse({"found": False})
+    tag_count = (await db.execute(
+        select(func.count(Device.id)).where(Device.bucket_id == bucket.id, Device.is_active == True)
+    )).scalar() or 0
+    return JSONResponse({
+        "found": True, "bucket_id": str(bucket.id), "bucket_number": bucket.bucket_number,
+        "name": bucket.name, "tag_count": tag_count,
+    })
+
+
 # ── Write endpoints (POST — CSRF verified) ───────────────────────────────────
 
 @router.post("/buckets/create")
@@ -357,17 +385,43 @@ async def create_bucket(
                 select(StorageLocation).where(StorageLocation.id == loc_uuid)
             )).scalar_one_or_none()
 
-    bucket = Bucket(
-        bucket_number=_new_bucket_number(),
-        name=name.strip() or None,
-        location=(loc.display_name if loc else (location.strip() or None)),
-        location_id=loc.id if loc else None,
-        category=category,
-        status="stock_in",
-        created_by=current_user.username,
-    )
-    db.add(bucket)
-    await db.flush()
+    # A physical carton gets reused — typing the same Bucket Name as an
+    # existing bucket (case-insensitive exact match) adds these tags to that
+    # SAME bucket instead of creating a confusingly-duplicate one with the
+    # same label. See /api/buckets/lookup-by-name above, which the modal
+    # calls as the operator types, offering a "Clear Bucket" action
+    # (POST /buckets/{id}/release) first if the old tags shouldn't carry
+    # over. Whether or not they cleared it, reusing by name here is what
+    # makes "Clear Bucket" meaningful — without this, clearing would just
+    # empty a bucket that a fresh /buckets/create call would abandon anyway.
+    name = name.strip()
+    bucket = None
+    reused = False
+    if name:
+        bucket = (await db.execute(
+            select(Bucket).where(func.lower(Bucket.name) == name.lower())
+        )).scalars().first()
+        reused = bucket is not None
+
+    if not bucket:
+        bucket = Bucket(
+            bucket_number=_new_bucket_number(),
+            name=name or None,
+            location=(loc.display_name if loc else (location.strip() or None)),
+            location_id=loc.id if loc else None,
+            category=category,
+            status="stock_in",
+            created_by=current_user.username,
+        )
+        db.add(bucket)
+        await db.flush()
+    elif loc:
+        # Reusing an existing bucket for a new batch — its location may have
+        # changed since it was last filled (a carton can move racks between
+        # uses), so the newly-picked location wins.
+        bucket.location = loc.display_name
+        bucket.location_id = loc.id
+        bucket.updated_at = app_now()
 
     for d in devices:
         d.bucket_id = bucket.id
@@ -378,7 +432,10 @@ async def create_bucket(
         d.updated_at = app_now()
 
     await db.commit()
-    return JSONResponse({"ok": True, "bucket_number": bucket.bucket_number, "bucket_id": str(bucket.id), "count": len(devices)})
+    return JSONResponse({
+        "ok": True, "bucket_number": bucket.bucket_number, "bucket_id": str(bucket.id),
+        "count": len(devices), "reused": reused,
+    })
 
 
 @router.post("/buckets/{bucket_id}/edit")

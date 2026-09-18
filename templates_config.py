@@ -28,6 +28,11 @@ _VERSIONED_ASSETS = [
     # templates/workid_status/list.html's <script src> had no ?v= stamp, so
     # browsers that had already loaded the old copy kept running it forever.
     os.path.join(BASE_DIR, "static", "js", "multiselect-filter.js"),
+    # Same gap, found proactively rather than reported: already tagged with
+    # ?v={{ ASSET_VERSION }} in templates/cosmetic/received.html but missing
+    # here since it was added — fixed before it could bite the same way, now
+    # that templates/lots/trc_production.html adopts it too.
+    os.path.join(BASE_DIR, "static", "js", "tag-scan-autocheck.js"),
 ]
 try:
     ASSET_VERSION = str(int(max(

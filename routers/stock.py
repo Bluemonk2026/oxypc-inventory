@@ -1,5 +1,6 @@
 from templates_config import templates
 import logging
+import uuid
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Form, Query, Request, HTTPException, BackgroundTasks
@@ -33,6 +34,8 @@ from models.location import StorageLocation, ZoneType, ZONE_LABELS, UnitType, UN
 from models.work_order import WorkOrder
 from models.bucket import Bucket, _new_bucket_number
 from models.pna_part import DevicePNAPart
+from routers.transfers import _gen_work_id
+from services.notifications import create_notification
 
 _log = logging.getLogger(__name__)
 
@@ -1448,6 +1451,24 @@ async def trc_production_list(
             if key not in assigned_dept_map and dept:
                 assigned_dept_map[key] = dept
 
+    # Tag Number Allocation's "Bucket Name" column — the bucket (carton) a
+    # device was originally grouped into at Stock Inward, not every device
+    # here has one (loose tags / older intake paths can have bucket_id=None).
+    # Keyed by DEVICE id (what the template looks up per row), not bucket id.
+    bucket_map = {}
+    if device_ids:
+        bucket_ids = {d.bucket_id for d, _ in devices if d.bucket_id}
+        if bucket_ids:
+            b_rows = (await db.execute(
+                select(Bucket.id, Bucket.name, Bucket.bucket_number)
+                .where(Bucket.id.in_(bucket_ids))
+            )).all()
+            bucket_name_by_id = {bid: (name or bnum) for bid, name, bnum in b_rows}
+            bucket_map = {
+                str(d.id): bucket_name_by_id[d.bucket_id]
+                for d, _ in devices if d.bucket_id in bucket_name_by_id
+            }
+
     # ── Cost & Parts table data (Batch D Task 1) ─────────────────────────────
     cost_parts_map = await build_cost_parts_map(db, device_ids)
     location_map = {}
@@ -1557,14 +1578,134 @@ async def trc_production_list(
 
     return templates.TemplateResponse("lots/trc_production.html", {
         "request": request, "devices": devices, "current_user": current_user,
-        "assigned_dept_map": assigned_dept_map, "departments": STOCK_DEPARTMENTS,
+        "assigned_dept_map": assigned_dept_map, "bucket_map": bucket_map, "departments": STOCK_DEPARTMENTS,
         "cost_parts_map": cost_parts_map, "location_map": location_map,
         "repair_line_devices": repair_line_devices, "assigned_name_map": assigned_name_map,
         "total": total, "scrap_devices": scrap_devices,
         "fqc_fail_buckets": fqc_fail_buckets,
         "tags_at_you": tags_at_you, "tags_l1l2": tags_l1l2, "tags_l3l4": tags_l3l4,
         "tags_pna": tags_pna, "tags_stress": tags_stress, "tags_final_qc": tags_final_qc,
+        "change_engineer_stages": [(s.value, label) for s, label in CHANGE_ENGINEER_STAGES],
     })
+
+
+# Production Manager's "Change Engineer" modal — target stages it can move a
+# tag into. Scoped to the repair pipeline this page is about (not every
+# DeviceStage — moving a tag straight to e.g. "sold" via a reassignment tool
+# would be nonsensical), default L1 per spec. WorkOrder.stage is VARCHAR(5)
+# (see models/work_order.py), so every code here is pre-truncated to fit —
+# same convention as routers/cosmetic.py's MOVE_STAGE_CODE.
+CHANGE_ENGINEER_STAGES = [
+    (DeviceStage.l1, "L1 Repair"),
+    (DeviceStage.l2, "L2 Repair"),
+    (DeviceStage.l3, "L3 Repair"),
+    (DeviceStage.trc_production, "TRC Production"),
+    (DeviceStage.qc_check, "Stress Test"),
+]
+CHANGE_ENGINEER_STAGE_CODE = {stage: stage.value[:5] for stage, _ in CHANGE_ENGINEER_STAGES}
+
+
+@router.get("/api/change-engineer-users")
+async def change_engineer_users(db: AsyncSession = Depends(get_db),
+                                current_user: User = Depends(allowed)):
+    """Production Manager's Change Engineer modal — "User Display Name"
+    dropdown. Every active user, not just a fixed engineer-role subset (the
+    feature is a general reassignment tool, not scoped to one role), sorted
+    by display name."""
+    rows = (await db.execute(
+        select(User).where(User.status == True).order_by(User.full_name)
+    )).scalars().all()
+    return JSONResponse([{"id": str(u.id), "name": u.full_name or u.username} for u in rows])
+
+
+@router.post("/devices/change-engineer")
+async def change_engineer(
+    barcode: str = Form(...),
+    assigned_user_id: str = Form(...),
+    target_stage: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Production Manager's Change Engineer modal — search a tag from ANY
+    stage (reuses /devices/api/search-tags, the same system-wide lookup the
+    Search Tags modal uses), pick a user + target stage (default L1), and on
+    submit: move the device to that stage, create a WorkOrder assigning it to
+    that user, and notify them. Same WorkOrder/StageMovement shape as
+    Cosmetic Received's bulk_assign (routers/cosmetic.py) and Production
+    Manager's own bulk-assign-l1l2 above — no StockTransfer is written here
+    since this isn't a location move, so WorkOrder.source_transfer_id is left
+    unset (it's nullable, same as cosmetic.py's bulk_assign)."""
+    device = (await db.execute(
+        select(Device).where(Device.barcode == barcode, Device.is_active == True)
+    )).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Tag not found")
+
+    try:
+        user_uid = uuid.UUID(assigned_user_id)
+    except Exception:
+        raise HTTPException(400, "Invalid user")
+    user = (await db.execute(
+        select(User).where(User.id == user_uid, User.status == True)
+    )).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    new_stage = None
+    for stage, _ in CHANGE_ENGINEER_STAGES:
+        if stage.value == target_stage:
+            new_stage = stage
+            break
+    if not new_stage:
+        raise HTTPException(400, "Invalid target stage")
+
+    prev_stage = device.current_stage
+    prev_mv = (await db.execute(
+        select(StageMovement).where(
+            StageMovement.device_id == device.id,
+            StageMovement.to_stage == prev_stage,
+            StageMovement.exited_at == None,
+        ).order_by(StageMovement.moved_at.desc())
+    )).scalars().first()
+    if prev_mv:
+        prev_mv.exited_at = app_now()
+
+    device.current_stage = new_stage
+    device.updated_at = app_now()
+    db.add(StageMovement(
+        device_id=device.id, from_stage=prev_stage, to_stage=new_stage,
+        moved_by=current_user.username,
+        notes=f"Changed engineer to {user.full_name or user.username} via Production Manager",
+    ))
+
+    work_id = await _gen_work_id(db)
+    db.add(WorkOrder(
+        work_id=work_id, device_id=device.id, barcode=device.barcode,
+        stage=CHANGE_ENGINEER_STAGE_CODE[new_stage],
+        assigned_role=user.role.value if hasattr(user.role, "value") else str(user.role),
+        assigned_user_id=user.id, assigned_username=user.username,
+        assigned_name=user.full_name, status="pending",
+        created_by=current_user.username,
+    ))
+
+    _label = f"{device.brand or ''} {device.model or ''}".strip()
+    await create_notification(
+        db, user_id=user.id,
+        title="Device Assigned to You",
+        message=(f"{device.barcode}" + (f" ({_label})" if _label else "")
+                 + f" assigned to you via Change Engineer (WorkID: {work_id})."),
+        notification_type="info",
+        barcode=device.barcode, brand=device.brand, model=device.model,
+        stage=new_stage.value,
+    )
+
+    await audit(db, action="change_engineer", user=current_user, table_name="devices",
+                record_id=str(device.id),
+                old_value={"stage": prev_stage.value if prev_stage else None},
+                new_value={"stage": new_stage.value, "assigned_to": user.username, "work_id": work_id})
+
+    await db.commit()
+    return JSONResponse({"ok": True, "work_id": work_id})
 
 
 @router.post("/scrap-products/{barcode}/move-to-inventory")

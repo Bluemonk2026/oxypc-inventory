@@ -387,7 +387,21 @@
         </div>
         <div class="mb-2">
           <label class="form-label fw-semibold">Bucket Name</label>
-          <input type="text" id="bktName" class="form-control" placeholder="e.g. Carton A1">
+          <input type="text" id="bktName" class="form-control" placeholder="e.g. Carton A1" autocomplete="off">
+        </div>
+        {# Shown only when the typed name matches an existing bucket (a
+           physical carton being reused) — surfaces what's still in it
+           before the operator adds a new batch on top, with an explicit,
+           reversible-in-spirit (nothing here deletes a device, only unmaps
+           it) way to empty it out first rather than silently merging. #}
+        <div id="bktExistingWarning" class="d-none alert alert-warning py-2 px-3 small mb-2">
+          <div class="d-flex align-items-center justify-content-between gap-2">
+            <span><i class="bi bi-info-circle me-1"></i>
+              This bucket already exists with <strong id="bktExistingCount">0</strong> tag(s) currently mapped to it.
+              New tags will be added alongside them unless cleared first.
+            </span>
+            <button type="button" id="bktClearBtn" class="btn btn-sm btn-outline-danger text-nowrap">Clear Bucket</button>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -740,6 +754,63 @@ document.getElementById('addToBucketModal').addEventListener('show.bs.modal', fu
   document.getElementById('bktQty').value = bcs.length;
   document.getElementById('bktTagList').innerHTML = bcs.map(function(bc){ return '<div>'+bc+'</div>'; }).join('');
   document.getElementById('bktName').value = '';
+  document.getElementById('bktExistingWarning').classList.add('d-none');
+  bktExistingBucketId = null;
+});
+
+// Bucket Name reuse lookup — a physical carton gets reused, so typing an
+// existing bucket's name shows how many tags are still mapped to it (and
+// lets the operator Clear it) before this modal's own submit reuses that
+// same bucket for the newly selected tags (see routers/buckets.py
+// create_bucket, which reuses by name on the server side regardless of
+// whether Clear was used here — this lookup is purely informational plus
+// the optional Clear action).
+var bktExistingBucketId = null;
+var bktNameLookupTimer = null;
+function bktLookupByName() {
+  var name = document.getElementById('bktName').value.trim();
+  var warn = document.getElementById('bktExistingWarning');
+  if (!name) { warn.classList.add('d-none'); bktExistingBucketId = null; return; }
+  fetch('/api/buckets/lookup-by-name?name=' + encodeURIComponent(name))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.found) {
+        bktExistingBucketId = d.bucket_id;
+        document.getElementById('bktExistingCount').textContent = d.tag_count;
+        warn.classList.remove('d-none');
+      } else {
+        bktExistingBucketId = null;
+        warn.classList.add('d-none');
+      }
+    })
+    .catch(function(){ warn.classList.add('d-none'); bktExistingBucketId = null; });
+}
+document.getElementById('bktName').addEventListener('input', function(){
+  clearTimeout(bktNameLookupTimer);
+  bktNameLookupTimer = setTimeout(bktLookupByName, 300);
+});
+
+// Clear Bucket — unmaps every tag currently in the matched bucket (same
+// generic action used elsewhere, POST /buckets/{id}/release: removes the
+// bucket_id link, devices themselves untouched). Modal stays open so the
+// operator can continue straight into Create Bucket with the same
+// selection — closing here would just make them reopen it.
+document.getElementById('bktClearBtn').addEventListener('click', function(){
+  if (!bktExistingBucketId) return;
+  var btn = this;
+  btn.disabled = true;
+  var fd = new FormData();
+  fd.append('csrf_token', getCsrf());
+  fetch('/buckets/' + bktExistingBucketId + '/release', {method:'POST', body:fd})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.ok) {
+        document.getElementById('bktExistingCount').textContent = '0';
+        loadBucketTable();
+      }
+      btn.disabled = false;
+    })
+    .catch(function(){ btn.disabled = false; });
 });
 
 // Submit create bucket

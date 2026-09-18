@@ -31,6 +31,7 @@ from models.pna_part import DevicePNAPart
 from models.iqc_inspection import IQCInspection
 from models.bucket import Bucket
 from services.parts_required import compute_required
+from routers.transfers import _gen_work_id
 
 router = APIRouter(prefix="/repair", tags=["repair"], dependencies=[Depends(verify_csrf)])
 
@@ -157,6 +158,62 @@ async def l1l2_start(
                 notes=f"L1/L2 repair started on {device.barcode}", request=request)
     await db.commit()
     return RedirectResponse(url="/repair/l1?success=Repair+started", status_code=302)
+
+
+@router.post("/l1/pick")
+async def l1_pick(
+    request: Request,
+    device_id: str = Form(...),
+    csrf_token: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """"Pick This" — a tag sitting in the merged L1/L2 queue with no WorkID
+    yet (unclaimed pool) gets a WorkOrder created for the CURRENT user with
+    one click, no engineer-picker modal. Same WorkOrder shape as every other
+    plain L1/L2 WorkID (stage "l1", _gen_work_id's 12-digit numeric ID — see
+    routers/buckets.py's bulk_assign_devices_l1l2, the closest precedent),
+    so it shows up in this page's own work_map and on /workid-status
+    identically to an engineer-assigned pick. No StageMovement/StockTransfer:
+    the device doesn't change stage or location, only gets claimed. No
+    self-notification either — the user just clicked the button, they
+    already know."""
+    if not has_perm(current_user.role.value, "repair_l1", "add"):
+        raise HTTPException(403, "You do not have permission to pick L1/L2 repairs")
+
+    device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    if device.current_stage != DeviceStage.l1:
+        raise HTTPException(400, "Tag is not in the L1/L2 queue")
+
+    existing = (await db.execute(
+        select(WorkOrder.id).where(
+            WorkOrder.device_id == device.id,
+            WorkOrder.stage == "l1",
+            WorkOrder.status != "completed",
+        )
+    )).scalar_one_or_none()
+    if existing:
+        # Already picked (double-click / two engineers racing the same row)
+        # — no-op rather than a confusing error, the page will show whoever
+        # got there first.
+        return RedirectResponse(url="/repair/l1", status_code=302)
+
+    work_id = await _gen_work_id(db)
+    db.add(WorkOrder(
+        work_id=work_id, device_id=device.id, barcode=device.barcode,
+        stage="l1", assigned_role=current_user.role.value,
+        assigned_user_id=current_user.id, assigned_username=current_user.username,
+        assigned_name=current_user.full_name, status="pending",
+        created_by=current_user.username,
+    ))
+    await audit(db, user=current_user, action="L1L2_PICKED",
+                table_name="devices", record_id=str(device.id),
+                notes=f"{device.barcode} picked by {current_user.full_name or current_user.username} (WorkID: {work_id})",
+                request=request)
+    await db.commit()
+    return RedirectResponse(url="/repair/l1?success=Tag+picked", status_code=302)
 
 
 @router.post("/bulk-part-request")

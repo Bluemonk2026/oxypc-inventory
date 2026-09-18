@@ -93,7 +93,11 @@
                      data-bs-toggle="tooltip" data-bs-placement="top"
                      title="{{ device.fqc_final_notes or 'No fail note recorded' }}"></i></span>{% endif %}
                 </td>
-                <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
+                <td>{% if wo %}<span class="font-monospace fw-bold">{{ wo.work_id }}</span><br><small class="text-muted">{{ wo.assigned_name }}</small>{% elif has_perm(current_user.role.value, 'repair_l1', 'add') %}<form method="post" action="/repair/l1/pick" class="d-inline">
+                  <input type="hidden" name="device_id" value="{{ device.id }}">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                  <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2 text-nowrap"><i class="bi bi-hand-index-thumb me-1"></i>Pick This</button>
+                </form>{% else %}<span class="text-muted">—</span>{% endif %}{% if parts_alert_map is defined and parts_alert_map.get(device.id|string) %}<br><span class="badge bg-danger mt-1" title="Requested part not in stock">⚠ Part N/A</span>{% endif %}</td>
                 {# data-order carries the sortable ISO value; DataTables reads it
                    natively, so the visible date can stay in the format the floor
                    reads without breaking the sort. #}

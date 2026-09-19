@@ -18,6 +18,13 @@
   .pipeline-tile .pipeline-label{font-size:.68rem; white-space:nowrap}
   .pipeline-tile .pipeline-count{font-size:1rem}
   .pipeline-chevron{flex-shrink:0; font-size:.7rem}
+  /* Split Entity: each entity line must fit on one line at a small size
+     (12px) rather than wrapping inside the tile — widen the tile itself
+     while split is on so "OxyPC Computers" has room, instead of shrinking
+     text further or letting it wrap to a second line. */
+  .split-entity-detail{font-size:12px; line-height:1.35}
+  .split-entity-detail div{white-space:nowrap}
+  .pipeline-row.split-active .pipeline-tile{min-width:118px}
 </style>
 {% endblock %}
 {% block content %}
@@ -285,6 +292,8 @@
     document.querySelectorAll('.split-entity-detail').forEach(function (el) {
       el.classList.toggle('d-none', !on);
     });
+    var row = document.querySelector('.pipeline-row');
+    if (row) row.classList.toggle('split-active', on);
     btn.innerHTML = on
       ? '<i class="bi bi-diagram-2 me-1"></i>Split Entity: On'
       : '<i class="bi bi-diagram-2 me-1"></i>Split Entity';

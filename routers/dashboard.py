@@ -215,13 +215,26 @@ async def dashboard(
             .where(Device.is_trashed == False, *_ent, *_dtype, *_loc, *where)
         )).scalar() or 0
 
+    # Fixed display order for the Stage Pipeline's "Split Entity" breakdown —
+    # GROUP BY has no defined row order, so without this the 3 entity lines
+    # under each of the 10 cards came back in whatever order Postgres felt
+    # like, differing card to card and request to request.
+    ENTITY_DISPLAY_ORDER = ["OxyPC Computers", "Renew Circuits", "Deshwal"]
+
     async def _pipe_count_by_entity(*where):
         rows = (await db.execute(
             select(Device.entity, func.count(Device.id))
             .where(Device.is_trashed == False, *_ent, *_dtype, *_loc, *where)
             .group_by(Device.entity)
         )).all()
-        return {(e or "Unassigned"): c for e, c in rows if c}
+        counts = {(e or "Unassigned"): c for e, c in rows if c}
+        ordered = {}
+        for name in ENTITY_DISPLAY_ORDER:
+            if name in counts:
+                ordered[name] = counts.pop(name)
+        for name in sorted(counts):
+            ordered[name] = counts[name]
+        return ordered
 
     FINAL_QC_STAGES = [
         DeviceStage.final_qc, DeviceStage.final_qc_pass_hold,

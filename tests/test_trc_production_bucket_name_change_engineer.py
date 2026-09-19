@@ -195,3 +195,28 @@ asyncio.run(main())
         assert barcode in wid_html
     finally:
         _cleanup(barcode, bucket_number)
+
+
+def test_summary_tiles_row_never_wraps(app_client, make_user):  # noqa: F811
+    """2026-09-19: 7 tiles (Cosmetic added the same day) must stay on one
+    row -- same flex-nowrap-and-shrink approach as Dashboard's Stage
+    Pipeline, not the old col-6 col-xl-2 grid that wrapped to two rows."""
+    username, password = make_user("admin")
+    _login(app_client, username, password)
+    html = app_client.get("/trc-production", follow_redirects=True).text
+    assert "prod-tiles-row" in html
+    assert "flex-wrap:nowrap" in html.replace(" ", "")
+
+
+def test_change_engineer_modal_has_asset_history_table(app_client, make_user):  # noqa: F811
+    """2026-09-19: picking a tag in the Change Engineer modal now also loads
+    its 2 most recent Asset History rows (same /devices/api/asset-history
+    endpoint _search_tags_modal.html already uses), not just Current Stage."""
+    username, password = make_user("admin")
+    _login(app_client, username, password)
+    html = app_client.get("/trc-production", follow_redirects=True).text
+    assert 'id="ceModal_history"' in html
+    assert "loadCeHistory" in html
+    assert "/devices/api/asset-history?barcode=" in html
+    # Capped to 2 rows client-side.
+    assert "slice(0, 2)" in html

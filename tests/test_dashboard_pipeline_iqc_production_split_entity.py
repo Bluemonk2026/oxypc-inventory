@@ -110,6 +110,42 @@ def test_split_entity_breakdown_reflects_seeded_entities(app_client, make_user):
         _cleanup(barcode_b)
 
 
+def test_split_entity_breakdown_uses_fixed_display_order(app_client, make_user):  # noqa: F811
+    """2026-09-19: GROUP BY has no defined row order, so without an explicit
+    sort the 3 real entities came back in whatever order Postgres felt like,
+    differing tile to tile. Now fixed: OxyPC Computers, Renew Circuits,
+    Deshwal, in that order, in every tile that has all three."""
+    suffix = uuid.uuid4().hex[:6]
+    barcode_oxy = f"ITORDOXY{suffix}"
+    barcode_rc = f"ITORDRC{suffix}"
+    barcode_dw = f"ITORDDW{suffix}"
+    # "sold" is a stable, rarely-noisy stage to seed into so all three
+    # entities are guaranteed a non-zero count in the SAME tile.
+    _seed_device(barcode_oxy, "sold", entity="OxyPC Computers")
+    _seed_device(barcode_rc, "sold", entity="Renew Circuits")
+    _seed_device(barcode_dw, "sold", entity="Deshwal")
+    try:
+        username, password = make_user("admin")
+        _login(app_client, username, password)
+        html = app_client.get("/dashboard", follow_redirects=True).text
+        # Scope to the "Sold" tile's own split-entity-detail block.
+        sold_idx = html.index(">Sold<")
+        block = html[sold_idx:sold_idx + 2000]
+        i_oxy = block.index("OxyPC Computers")
+        i_rc = block.index("Renew Circuits")
+        i_dw = block.index("Deshwal")
+        assert i_oxy < i_rc < i_dw, "entity breakdown not in OxyPC Computers, Renew Circuits, Deshwal order"
+    finally:
+        for b in (barcode_oxy, barcode_rc, barcode_dw):
+            _cleanup(b)
+
+
+def test_split_entity_detail_styled_for_single_line_small_font():
+    html = (pathlib.Path(ROOT) / "templates" / "dashboard.html").read_text(encoding="utf-8")
+    assert ".split-entity-detail{font-size:12px" in html.replace(" ", "")
+    assert ".split-entity-detaildiv{white-space:nowrap}" in html.replace(" ", "")
+
+
 def test_iqc_and_production_tiles_respect_entity_filter(app_client, make_user):  # noqa: F811
     suffix = uuid.uuid4().hex[:6]
     barcode_iqc = f"ITFILTIQC{suffix}"

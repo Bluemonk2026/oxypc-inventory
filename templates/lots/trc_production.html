@@ -1,6 +1,19 @@
 {% extends "base.html" %}
 {% block title %}Devices in Production — OxyPC{% endblock %}
 {% block page_title %}Devices in Production{% endblock %}
+{% block head %}
+{# Summary tiles: 7 cards forced onto one row instead of wrapping to two
+   once Cosmetic was added — same flex-nowrap-and-shrink approach as
+   Dashboard's Stage Pipeline row, scaled down for card content instead of
+   pipeline tiles. #}
+<style>
+  .prod-tiles-row{flex-wrap:nowrap; overflow-x:auto; padding-bottom:2px}
+  .prod-tiles-row > div{min-width:118px}
+  .prod-tile-icon{font-size:1.4rem !important}
+  .prod-tile-label{font-size:.72rem; white-space:nowrap}
+  .prod-tile-count{font-size:1.35rem}
+</style>
+{% endblock %}
 {% block content %}
 {# This page has no other server-side filters, so the date range gets its own
    filter row card — same shape as every other page's filter bar. #}
@@ -19,67 +32,67 @@
 <div class="alert alert-success alert-dismissible fade show"><i class="bi bi-check-circle me-2"></i>{{ request.query_params.get('success')|replace('+',' ') }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
 {% endif %}
 <!-- Summary card tiles -->
-<div class="row g-3 mb-4">
-  <div class="col-6 col-xl-2">
+<div class="d-flex prod-tiles-row gap-2 mb-4">
+  <div class="flex-fill">
     <div class="card border-0 shadow-sm h-100">
-      <div class="card-body text-center py-3">
-        <i class="bi bi-person-workspace fs-3 mb-2 d-block" style="color:#6f42c1"></i>
-        <div class="small text-muted mb-1">Total Tags at You</div>
-        <div class="fs-3 fw-bold" style="color:#6f42c1">{{ tags_at_you }}</div>
+      <div class="card-body text-center py-2">
+        <i class="bi bi-person-workspace prod-tile-icon mb-1 d-block" style="color:#6f42c1"></i>
+        <div class="prod-tile-label text-muted mb-1">Total Tags at You</div>
+        <div class="prod-tile-count fw-bold" style="color:#6f42c1">{{ tags_at_you }}</div>
       </div>
     </div>
   </div>
-  <div class="col-6 col-xl-2">
+  <div class="flex-fill">
     <div class="card border-0 shadow-sm h-100">
-      <div class="card-body text-center py-3">
-        <i class="bi bi-tools fs-3 mb-2 d-block" style="color:#0d6efd"></i>
-        <div class="small text-muted mb-1">Total Tags in L1/L2</div>
-        <div class="fs-3 fw-bold" style="color:#0d6efd">{{ tags_l1l2 }}</div>
+      <div class="card-body text-center py-2">
+        <i class="bi bi-tools prod-tile-icon mb-1 d-block" style="color:#0d6efd"></i>
+        <div class="prod-tile-label text-muted mb-1">Total Tags in L1/L2</div>
+        <div class="prod-tile-count fw-bold" style="color:#0d6efd">{{ tags_l1l2 }}</div>
       </div>
     </div>
   </div>
-  <div class="col-6 col-xl-2">
+  <div class="flex-fill">
     <div class="card border-0 shadow-sm h-100">
-      <div class="card-body text-center py-3">
-        <i class="bi bi-wrench-adjustable fs-3 mb-2 d-block" style="color:#fd7e14"></i>
-        <div class="small text-muted mb-1">Total Tags in L3/L4</div>
-        <div class="fs-3 fw-bold" style="color:#fd7e14">{{ tags_l3l4 }}</div>
+      <div class="card-body text-center py-2">
+        <i class="bi bi-wrench-adjustable prod-tile-icon mb-1 d-block" style="color:#fd7e14"></i>
+        <div class="prod-tile-label text-muted mb-1">Total Tags in L3/L4</div>
+        <div class="prod-tile-count fw-bold" style="color:#fd7e14">{{ tags_l3l4 }}</div>
       </div>
     </div>
   </div>
-  <div class="col-6 col-xl-2">
+  <div class="flex-fill">
     <div class="card border-0 shadow-sm h-100">
-      <div class="card-body text-center py-3">
-        <i class="bi bi-exclamation-triangle fs-3 mb-2 d-block" style="color:#dc3545"></i>
-        <div class="small text-muted mb-1">Total Tags in PNA</div>
-        <div class="fs-3 fw-bold" style="color:#dc3545">{{ tags_pna }}</div>
+      <div class="card-body text-center py-2">
+        <i class="bi bi-exclamation-triangle prod-tile-icon mb-1 d-block" style="color:#dc3545"></i>
+        <div class="prod-tile-label text-muted mb-1">Total Tags in PNA</div>
+        <div class="prod-tile-count fw-bold" style="color:#dc3545">{{ tags_pna }}</div>
       </div>
     </div>
   </div>
-  <div class="col-6 col-xl-2">
+  <div class="flex-fill">
     <div class="card border-0 shadow-sm h-100">
-      <div class="card-body text-center py-3">
-        <i class="bi bi-activity fs-3 mb-2 d-block" style="color:#20c997"></i>
-        <div class="small text-muted mb-1">Total Tags in Stress</div>
-        <div class="fs-3 fw-bold" style="color:#20c997">{{ tags_stress }}</div>
+      <div class="card-body text-center py-2">
+        <i class="bi bi-activity prod-tile-icon mb-1 d-block" style="color:#20c997"></i>
+        <div class="prod-tile-label text-muted mb-1">Total Tags in Stress</div>
+        <div class="prod-tile-count fw-bold" style="color:#20c997">{{ tags_stress }}</div>
       </div>
     </div>
   </div>
-  <div class="col-6 col-xl-2">
+  <div class="flex-fill">
     <div class="card border-0 shadow-sm h-100">
-      <div class="card-body text-center py-3">
-        <i class="bi bi-patch-check fs-3 mb-2 d-block" style="color:#198754"></i>
-        <div class="small text-muted mb-1">Total Tags in Final QC</div>
-        <div class="fs-3 fw-bold" style="color:#198754">{{ tags_final_qc }}</div>
+      <div class="card-body text-center py-2">
+        <i class="bi bi-patch-check prod-tile-icon mb-1 d-block" style="color:#198754"></i>
+        <div class="prod-tile-label text-muted mb-1">Total Tags in Final QC</div>
+        <div class="prod-tile-count fw-bold" style="color:#198754">{{ tags_final_qc }}</div>
       </div>
     </div>
   </div>
-  <div class="col-6 col-xl-2">
+  <div class="flex-fill">
     <div class="card border-0 shadow-sm h-100">
-      <div class="card-body text-center py-3">
-        <i class="bi bi-palette fs-3 mb-2 d-block" style="color:#e83e8c"></i>
-        <div class="small text-muted mb-1">Total Tags in Cosmetic</div>
-        <div class="fs-3 fw-bold" style="color:#e83e8c">{{ tags_cosmetic }}</div>
+      <div class="card-body text-center py-2">
+        <i class="bi bi-palette prod-tile-icon mb-1 d-block" style="color:#e83e8c"></i>
+        <div class="prod-tile-label text-muted mb-1">Total Tags in Cosmetic</div>
+        <div class="prod-tile-count fw-bold" style="color:#e83e8c">{{ tags_cosmetic }}</div>
       </div>
     </div>
   </div>
@@ -423,12 +436,19 @@
         <div id="ceModal_results" class="list-group mt-1" style="max-height:180px; overflow-y:auto;"></div>
 
         <div id="ceModal_selected" class="d-none mt-3">
-          <div class="d-flex align-items-center gap-2 mb-3">
+          <div class="d-flex align-items-center gap-2 mb-2">
             <span class="text-muted small">Selected Tag:</span>
             <span class="font-monospace fw-semibold" id="ceModal_barcode">—</span>
             <span class="text-muted small">Current Stage:</span>
             <span class="badge bg-secondary" id="ceModal_currentStage">—</span>
           </div>
+          <div class="small fw-semibold text-muted mb-1">Asset History <small class="text-muted">(2 most recent)</small></div>
+          <table class="table table-sm mb-3">
+            <thead class="table-light">
+              <tr><th>From</th><th>To</th><th>By</th><th>When</th></tr>
+            </thead>
+            <tbody id="ceModal_history"></tbody>
+          </table>
           <div class="row g-2">
             <div class="col-md-6">
               <label class="form-label fw-semibold">User Display Name</label>
@@ -768,6 +788,7 @@ function openChangeEngineerModal() {
   document.getElementById('ceModal_search').value = '';
   document.getElementById('ceModal_results').innerHTML = '';
   document.getElementById('ceModal_selected').classList.add('d-none');
+  document.getElementById('ceModal_history').innerHTML = '';
   document.getElementById('ceModal_user').value = '';
   document.getElementById('ceModal_msg').innerHTML = '';
   document.getElementById('ceModal_submit').disabled = true;
@@ -813,6 +834,40 @@ function openChangeEngineerModal() {
     document.getElementById('ceModal_currentStage').textContent = stage || '—';
     document.getElementById('ceModal_selected').classList.remove('d-none');
     updateCeSubmitState();
+    loadCeHistory(barcode);
+  }
+
+  // Current Stage + the 2 most recent Asset History rows for the selected
+  // tag — same /devices/api/asset-history endpoint _search_tags_modal.html
+  // uses, just capped to 2 rows instead of the full recent-20 list.
+  function loadCeHistory(barcode) {
+    var tbody = document.getElementById('ceModal_history');
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-2 small">Loading…</td></tr>';
+    fetch('/devices/api/asset-history?barcode=' + encodeURIComponent(barcode))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d.found) {
+          tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-2 small">No history found</td></tr>';
+          return;
+        }
+        if (d.current_stage) document.getElementById('ceModal_currentStage').textContent = d.current_stage;
+        var rows = (d.movements || []).slice(0, 2);
+        if (!rows.length) {
+          tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-2 small">No stage movements recorded</td></tr>';
+          return;
+        }
+        tbody.innerHTML = rows.map(function(mv){
+          return '<tr>' +
+            '<td class="small text-muted">' + esc(mv.from_stage) + '</td>' +
+            '<td class="small fw-semibold">' + esc(mv.to_stage) + '</td>' +
+            '<td class="small">' + esc(mv.moved_by) + '</td>' +
+            '<td class="small text-muted">' + esc(mv.moved_at) + '</td>' +
+          '</tr>';
+        }).join('');
+      })
+      .catch(function(){
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger py-2 small">Failed to load history</td></tr>';
+      });
   }
 
   resultsBox.addEventListener('click', function(e){

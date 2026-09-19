@@ -384,6 +384,18 @@ async def request_l3l4(
         device.repair_notes = repair_notes.strip()
     device.updated_at = app_now()
 
+    # Move the tag's actual stage to L3 so it drops out of /repair/l1's query
+    # (Device.current_stage == DeviceStage.l1) while it's genuinely away at
+    # L3/L4 — previously current_stage was never touched here, so a
+    # requested-out tag kept sitting in the L1/L2 table showing a stale
+    # Status badge and a "Start Repair" button it had no business offering.
+    prev_stage = device.current_stage
+    await _close_open_movement(db, device)
+    device.current_stage = DeviceStage.l3
+    db.add(StageMovement(device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.l3,
+                         moved_by=current_user.username,
+                         notes=f"Requested to L3/L4 — assigned to {eng.full_name or eng.username}"))
+
     work_id = await _gen_prefixed_work_id(db, "L3L4-")
     db.add(WorkOrder(
         work_id=work_id, device_id=device.id, barcode=device.barcode,
@@ -661,6 +673,15 @@ async def l3l4_complete(
     # back and awaiting further action there.
     device.l1l2_status = "Returned from L3/L4"
     device.updated_at = app_now()
+    # Move the tag's stage back to L1 — request_l3l4 moved it to L3 while it
+    # was away, so without this the row would stay hidden from /repair/l1
+    # forever even though L3/L4 work is done and it needs a next action there.
+    prev_stage = device.current_stage
+    await _close_open_movement(db, device)
+    device.current_stage = DeviceStage.l1
+    db.add(StageMovement(device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.l1,
+                         moved_by=current_user.username,
+                         notes="L3/L4 completed — returned to L1/L2"))
     await audit(db, user=current_user, action="L3L4_COMPLETE",
                 table_name="devices", record_id=str(device.id),
                 notes=f"L3/L4 completed on {device.barcode}", request=request)
@@ -691,6 +712,15 @@ async def l3l4_scrap(
     )
     device.l34_status = scrap_type
     device.updated_at = app_now()
+    # Same as l3l4_complete: move back to L1 so the row reappears on
+    # /repair/l1, where the "Back to Inventory" button for a scrap decision
+    # actually lives (repair/l1.html branches on l34_status there).
+    prev_stage = device.current_stage
+    await _close_open_movement(db, device)
+    device.current_stage = DeviceStage.l1
+    db.add(StageMovement(device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.l1,
+                         moved_by=current_user.username,
+                         notes=f"L3/L4 {scrap_type} — returned to L1/L2"))
     await audit(db, user=current_user, action="L3L4_SCRAP",
                 table_name="devices", record_id=str(device.id),
                 notes=f"{scrap_type} on {device.barcode}", request=request)

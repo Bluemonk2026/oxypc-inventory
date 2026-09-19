@@ -205,3 +205,53 @@ def test_request_l3l4_writes_stage_movement_visible_in_asset_history(app_client,
         assert any("Requested to L3/L4" in (mv.get("notes") or "") for mv in hist["movements"])
     finally:
         _cleanup(barcode)
+
+
+def test_manual_move_off_l3_closes_orphaned_l3l4_workorder(app_client, make_user):  # noqa: F811
+    """routers/repair.py's generic Manual Stage Movement tool (/repair/move,
+    admin-only) is the one other path that can take a device off L3 without
+    going through l3l4_complete/l3l4_scrap -- the only two places that used
+    to close an open "L3L4-" WorkOrder. Without this, the WorkOrder is
+    orphaned: still open, still showing on /repair/l3l4 and counted in
+    Production Manager's "Total Tags in L3/L4" tile's underlying query, even
+    though the device has moved to an unrelated stage. Found via 17 real
+    production tags in exactly this state (2026-09-19)."""
+    suffix = uuid.uuid4().hex[:6]
+    barcode = f"ITL3ORPH{suffix}"
+    device_id = _seed_device_in_repair(barcode)
+    try:
+        admin_user, admin_pass = make_user("admin")
+        l3_username, _ = make_user("l3_engineer")
+        _login(app_client, admin_user, admin_pass)
+        csrf = app_client.cookies.get("csrf_token") or "dummy"
+
+        app_client.post("/repair/request-l3l4", data={
+            "csrf_token": csrf, "device_id": device_id,
+            "assigned_l3l4_username": l3_username,
+        })
+        assert _device_stage(device_id) == "l3"
+
+        r = app_client.post("/repair/move", data={
+            "csrf_token": csrf, "barcode": barcode, "to_stage": "qc_check",
+        }, follow_redirects=False)
+        assert r.status_code == 302, r.text
+
+        wo_status = _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.work_order import WorkOrder
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        wo = (await db.execute(select(WorkOrder).where(
+            WorkOrder.device_id == "{device_id}", WorkOrder.work_id.like("L3L4-%")
+        ))).scalars().first()
+        print(wo.status if wo else "NONE")
+
+asyncio.run(main())
+""")
+        assert wo_status == "completed"
+    finally:
+        _cleanup(barcode)

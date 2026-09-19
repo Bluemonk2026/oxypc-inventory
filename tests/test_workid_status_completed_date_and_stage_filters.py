@@ -10,6 +10,12 @@ appear ("not applying properly"). Both Completed Date and the renamed
 "Stage" filter (was "Cosmetic Stage", now offers every DeviceStage, not just
 the cosmetic-line subset) now filter the SAME Asset-History-sourced values
 the Stage/Completed Date columns display.
+
+2026-09-19: Completed Date only shows a value once the WorkOrder is
+genuinely completed (status="completed") — a still-open/pending WorkOrder
+now shows blank Completed Date (see routers/workid_status.py's module
+docstring), so the date-filter test's fixture must mark its WorkOrder
+completed for the Completed Date column to have anything to filter on.
 """
 import pathlib
 import subprocess
@@ -29,7 +35,15 @@ def _run(src):
     return r.stdout.strip()
 
 
-def _seed(barcode, work_id, from_stage, to_stage, moved_at_iso):
+def _seed(barcode, work_id, from_stage, to_stage, moved_at_iso, completed=True):
+    # completed=True marks the WorkOrder itself done (status="completed",
+    # completed_at=moved_at) -- required for the Completed Date column to
+    # show anything at all under the 2026-09-19 per-WorkID behavior; pass
+    # False to test the "still open" (blank Completed Date) case instead.
+    completed_line = (
+        f'wo.status = "completed"\n        wo.completed_at = datetime.fromisoformat("{moved_at_iso}")'
+        if completed else ""
+    )
     _run(f"""
 import asyncio, sys
 sys.path.insert(0, r"{ROOT}")
@@ -47,10 +61,12 @@ async def main():
                      current_stage=DeviceStage.{to_stage})
         db.add(dev)
         await db.flush()
-        db.add(WorkOrder(work_id="{work_id}", device_id=dev.id, barcode="{barcode}",
+        wo = WorkOrder(work_id="{work_id}", device_id=dev.id, barcode="{barcode}",
                          stage="clean", assigned_role="cosmetic_manager",
                          assigned_username="itest_cdf", assigned_name="ITest CDF",
-                         status="pending", created_by="itest"))
+                         status="pending", created_by="itest")
+        {completed_line}
+        db.add(wo)
         db.add(StageMovement(device_id=dev.id, from_stage=DeviceStage.{from_stage},
                              to_stage=DeviceStage.{to_stage}, moved_by="itest_cdf",
                              moved_at=datetime.fromisoformat("{moved_at_iso}")))
@@ -131,6 +147,54 @@ def test_stage_filter_matches_asset_history_from_value(app_client, make_user):  
         html_cleaning = app_client.get(f"/workid-status?workid={work_id}&cosmetic_stage=cleaning",
                                        follow_redirects=True).text
         assert f'id="wo-{work_id}"' not in html_cleaning
+    finally:
+        _cleanup_device(barcode)
+
+
+def test_open_workorder_shows_blank_completed_date_but_running_aging(app_client, make_user):  # noqa: F811
+    import re
+    suffix = uuid.uuid4().hex[:6]
+    barcode = f"ITWIDOPEN{suffix}"
+    work_id = f"WIO{suffix}"  # work_orders.work_id is VARCHAR(12)
+    # Still open (completed=False) -- the tag is still with this engineer,
+    # not yet handed off to another stage/assignee. WorkOrder.assigned_at
+    # defaults to "now" (not seeded), so any "2020" text in the row can only
+    # have leaked in from the StageMovement's moved_at via Completed Date.
+    _seed(barcode, work_id, "iqc", "cleaning", "2020-01-15T10:00:00", completed=False)
+    try:
+        username, password = make_user("admin")
+        _login(app_client, username, password)
+        html = app_client.get(f"/workid-status?workid={work_id}", follow_redirects=True).text
+        row = html.split(f'id="wo-{work_id}"')[1].split("</tr>")[0]
+
+        # Aging: a running count, "ongoing" label, never blank.
+        assert "ongoing" in row
+        assert re.search(r'\d+ days?', row)
+
+        # Completed Date column itself stays blank -- the 2020 movement date
+        # must not leak into the row at all (it previously did, via the
+        # "device's latest movement as a best guess" fallback).
+        assert "2020" not in row
+    finally:
+        _cleanup_device(barcode)
+
+
+def test_completed_date_filter_excludes_still_open_workorder(app_client, make_user):  # noqa: F811
+    """The exact bug this batch fixes: before, a still-open WorkOrder's
+    Completed Date fell back to the device's latest StageMovement, so a
+    Completed Date range filter could wrongly match a tag that hasn't
+    actually been completed at all."""
+    suffix = uuid.uuid4().hex[:6]
+    barcode = f"ITWIDOPENF{suffix}"
+    work_id = f"WIOF{suffix}"  # work_orders.work_id is VARCHAR(12)
+    _seed(barcode, work_id, "iqc", "cleaning", "2020-01-15T10:00:00", completed=False)
+    try:
+        username, password = make_user("admin")
+        _login(app_client, username, password)
+        html = app_client.get(
+            f"/workid-status?workid={work_id}&completed_from=2020-01-01&completed_to=2020-01-31",
+            follow_redirects=True).text
+        assert f'id="wo-{work_id}"' not in html
     finally:
         _cleanup_device(barcode)
 

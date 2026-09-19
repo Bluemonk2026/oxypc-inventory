@@ -33,7 +33,18 @@ the full 131k-row table. Results are capped (BACKFILL_ROW_CAP) with a
 visible "narrow further" notice rather than a silent truncation — a full
 August is 64k+ matching rows, an order of magnitude past what a
 browser-rendered table can hold. These backfilled rows have no WorkID
-(work_id is None) and show "—" for Aging/Notes.
+(work_id is None) and show "—" for Notes.
+
+2026-09-19 — Aging/Completed Date redefined to be per-WorkID. Completed
+Date only shows once the WorkID is genuinely done (WorkOrder.completed_at
+set) -- a still-open WorkOrder (tag still with the same engineer, not yet
+handed off to another stage/assignee) shows blank rather than falling back
+to the device's latest, possibly-unrelated StageMovement as a "best guess".
+Aging is a running day-count from Assigned Date: it keeps counting up every
+day the WorkID stays open, then freezes at whatever it reached the moment
+the WorkID is genuinely completed -- it is never blank. A backfilled
+StageMovement (no WorkOrder) is always a completed transition by
+definition, so it always gets a real (frozen) Aging/Completed Date.
 
 "Exclude Admin" filter (2026-09-02) drops rows whose engineer (the
 underlying StageMovement.moved_by / WorkOrder.assigned_username, not the
@@ -231,8 +242,6 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         did = str(wo.device_id)
         start = wo.assigned_at or wo.created_at
         finalqc_dt = finalqc_date_map.get(did)
-        end = finalqc_dt or today
-        days = max(0, (end.date() - start.date()).days) if start else 0
         handoff_stage = _handoff_stage(wo)
         if handoff_stage:
             stage_value = handoff_stage.value
@@ -246,12 +255,25 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
                 used_movement_ids.add(mv.id)
                 stage_value = mv.from_stage.value if mv.from_stage else ""
                 stage_label = STAGE_LABELS.get(mv.from_stage, mv.from_stage.value if mv.from_stage else "—")
-                movement_completed_at = mv.moved_at
                 movement_engineer = (display_name_by_username.get(mv.moved_by) or mv.moved_by) if mv.moved_by else "—"
                 engineer_username = mv.moved_by
             else:
-                stage_value, stage_label, movement_completed_at, movement_engineer = "", "—", None, "—"
+                stage_value, stage_label, movement_engineer = "", "—", "—"
                 engineer_username = wo.assigned_username
+            # Completed Date only reflects a genuine hand-off: the WorkOrder
+            # itself must actually be completed (wo.completed_at set). A
+            # still-open WorkOrder means the tag is still with THIS engineer
+            # -- it hasn't moved to another stage or been reassigned yet --
+            # so it stays blank rather than falling back to the device's
+            # latest (possibly unrelated) StageMovement as a "best guess".
+            movement_completed_at = mv.moved_at if (mv and wo.completed_at) else None
+        # Aging = days from Assigned Date, counting up every day the WorkID
+        # stays open -- and freezing at whatever it reached the moment the
+        # WorkID is genuinely completed (2026-09-19 clarification: it's a
+        # running counter, not blank, while still with this engineer; only
+        # Completed Date itself stays blank until then).
+        aging_end = movement_completed_at or today
+        days = max(0, (aging_end.date() - start.date()).days) if start else None
         items.append({
             "row_key": f"wo-{wo.work_id}",
             "work_id": wo.work_id,
@@ -267,7 +289,7 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             "finalqc": finalqc_dt,
             "completed_at": movement_completed_at,
             "days": days,
-            "ongoing": finalqc_dt is None,
+            "ongoing": movement_completed_at is None,
             "notes": (dev.notes if dev else None),
             "engineer": movement_engineer,
             "engineer_username": engineer_username,
@@ -348,6 +370,11 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
                 continue  # already shown above via its matching WorkOrder
             used_movement_ids.add(mv.id)
             engineer_name = (display_name_by_username.get(mv.moved_by) or mv.moved_by) if mv.moved_by else "—"
+            bf_assigned = _entered_stage_at(mv.device_id, mv.from_stage, mv.moved_at)
+            # A bare StageMovement (no WorkOrder) is by definition a completed
+            # transition -- the tag already left that stage -- so it always
+            # gets a real Completed Date/Aging, unlike a still-open WorkOrder.
+            bf_days = (mv.moved_at.date() - bf_assigned.date()).days if (mv.moved_at and bf_assigned) else None
             items.append({
                 "row_key": f"mv-{mv.id}",
                 "work_id": None,
@@ -359,11 +386,11 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
                 "stage_value": mv.from_stage.value,
                 "wo_status": None,
                 "start": None,
-                "assigned_date": _entered_stage_at(mv.device_id, mv.from_stage, mv.moved_at),
+                "assigned_date": bf_assigned,
                 "finalqc": finalqc_date_map.get(str(mv.device_id)),
                 "completed_at": mv.moved_at,
-                "days": 0,
-                "ongoing": finalqc_date_map.get(str(mv.device_id)) is None,
+                "days": bf_days,
+                "ongoing": False,
                 "notes": (dev.notes if dev else None),
                 "engineer": engineer_name,
                 "engineer_username": mv.moved_by,

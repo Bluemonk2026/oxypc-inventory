@@ -79,6 +79,17 @@ STAGE_LABELS = {
 # device still sitting in it historically.
 DROPDOWN_STAGES = [s for s in DeviceStage if s != DeviceStage.l2]
 
+# The paint-line stages plus Putty, grouped as "Cosmetic" wherever the app
+# needs one count/filter for that whole phase (Dashboard's Stage Pipeline,
+# Production Manager's summary tiles) — shared here so the two never drift
+# into counting a different set of stages under the same "Cosmetic" label.
+COSMETIC_STAGES = [
+    DeviceStage.cosmetic_received,
+    DeviceStage.cleaning, DeviceStage.putty, DeviceStage.dry_sanding,
+    DeviceStage.masking, DeviceStage.painting, DeviceStage.water_sanding,
+    DeviceStage.cosmetic_completed,
+]
+
 STAGE_COLORS = {
     DeviceStage.grn: "warning",
     DeviceStage.iqc: "secondary",

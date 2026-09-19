@@ -4,6 +4,11 @@ Total Tags at You (stage=trc_production), Total Tags in L1/L2 (stage in
 l1/l2), Total Tags in L3/L4 (stage=l3), Total Tags in PNA (stage in l1/l2
 AND any active device_pna_parts row), Total Tags in Stress (stage=qc_check),
 Total Tags in Final QC (stage in final_qc/final_qc_pass_hold/final_qc_fail_hold).
+
+2026-09-19: added "Total Tags in Cosmetic" (stage in the paint-line stages
++ Putty, models.device.COSMETIC_STAGES -- the same grouping Dashboard's own
+Stage Pipeline "Cosmetic" step uses, so the two never disagree on what
+counts as Cosmetic).
 """
 import pathlib
 import subprocess
@@ -94,6 +99,7 @@ def test_summary_tiles_reflect_stage_counts(app_client, make_user):  # noqa: F81
         "pna": f"ITTILEPNA{suffix}",
         "stress": f"ITTILESTR{suffix}",
         "fqc": f"ITTILEFQC{suffix}",
+        "cosmetic": f"ITTILECOS{suffix}",
     }
     try:
         _seed(barcodes["you"], "trc_production")
@@ -102,6 +108,7 @@ def test_summary_tiles_reflect_stage_counts(app_client, make_user):  # noqa: F81
         _seed(barcodes["pna"], "l2", mark_pna=True)
         _seed(barcodes["stress"], "qc_check")
         _seed(barcodes["fqc"], "final_qc_pass_hold")
+        _seed(barcodes["cosmetic"], "painting")
 
         username, password = make_user("admin")
         _login(app_client, username, password)
@@ -113,6 +120,7 @@ def test_summary_tiles_reflect_stage_counts(app_client, make_user):  # noqa: F81
         assert "Total Tags in PNA" in html
         assert "Total Tags in Stress" in html
         assert "Total Tags in Final QC" in html
+        assert "Total Tags in Cosmetic" in html
 
         assert _get_count(html, "Total Tags at You") >= 1
         assert _get_count(html, "Total Tags in L1/L2") >= 2  # l1 + l2(pna) seed
@@ -120,6 +128,7 @@ def test_summary_tiles_reflect_stage_counts(app_client, make_user):  # noqa: F81
         assert _get_count(html, "Total Tags in PNA") >= 1
         assert _get_count(html, "Total Tags in Stress") >= 1
         assert _get_count(html, "Total Tags in Final QC") >= 1
+        assert _get_count(html, "Total Tags in Cosmetic") >= 1
     finally:
         for bc in barcodes.values():
             _cleanup(bc)

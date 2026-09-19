@@ -13,7 +13,7 @@ from utils.master_data import master_values, entity_values
 from utils.warranty import compute_warranty_expiry
 from database import get_db
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, DeviceGrade, StageMovement, STAGE_LABELS, DROPDOWN_STAGES
+from models.device import Device, DeviceStage, DeviceGrade, StageMovement, STAGE_LABELS, DROPDOWN_STAGES, COSMETIC_STAGES
 from models.lot import Lot, LotLineItem
 from models.crm import CRMSourcingDeal
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm, require_additional_perm
@@ -1666,6 +1666,9 @@ async def trc_production_list(
             Device.current_stage.in_([DeviceStage.final_qc, DeviceStage.final_qc_pass_hold, DeviceStage.final_qc_fail_hold]),
             tiles_active)
     )).scalar() or 0
+    tags_cosmetic = (await db.execute(
+        select(func.count(Device.id)).where(Device.current_stage.in_(COSMETIC_STAGES), tiles_active)
+    )).scalar() or 0
 
     return templates.TemplateResponse("lots/trc_production.html", {
         "request": request, "devices": devices, "current_user": current_user,
@@ -1676,6 +1679,7 @@ async def trc_production_list(
         "fqc_fail_buckets": fqc_fail_buckets,
         "tags_at_you": tags_at_you, "tags_l1l2": tags_l1l2, "tags_l3l4": tags_l3l4,
         "tags_pna": tags_pna, "tags_stress": tags_stress, "tags_final_qc": tags_final_qc,
+        "tags_cosmetic": tags_cosmetic,
         "change_engineer_stages": [(s.value, label) for s, label in CHANGE_ENGINEER_STAGES],
     })
 
@@ -1687,9 +1691,8 @@ async def trc_production_list(
 # (see models/work_order.py), so every code here is pre-truncated to fit —
 # same convention as routers/cosmetic.py's MOVE_STAGE_CODE.
 CHANGE_ENGINEER_STAGES = [
-    (DeviceStage.l1, "L1 Repair"),
-    (DeviceStage.l2, "L2 Repair"),
-    (DeviceStage.l3, "L3 Repair"),
+    (DeviceStage.l1, STAGE_LABELS[DeviceStage.l1]),
+    (DeviceStage.l3, STAGE_LABELS[DeviceStage.l3]),
     (DeviceStage.trc_production, "TRC Production"),
     (DeviceStage.qc_check, "Stress Test"),
 ]

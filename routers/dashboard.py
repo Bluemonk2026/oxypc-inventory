@@ -12,7 +12,7 @@ from database import get_db
 from utils.master_data import entity_values, report_year_values, master_values
 from services.business_pl import compute_year_parts_labour_cogs
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS, DROPDOWN_STAGES
+from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS, DROPDOWN_STAGES, COSMETIC_STAGES
 from models.engines import RepairAttempt
 from models.lot import Lot
 from models.sales import Sale
@@ -223,12 +223,6 @@ async def dashboard(
         )).all()
         return {(e or "Unassigned"): c for e, c in rows if c}
 
-    COSMETIC_STAGES = [
-        DeviceStage.cosmetic_received,
-        DeviceStage.cleaning, DeviceStage.putty, DeviceStage.dry_sanding,
-        DeviceStage.masking, DeviceStage.painting, DeviceStage.water_sanding,
-        DeviceStage.cosmetic_completed,
-    ]
     FINAL_QC_STAGES = [
         DeviceStage.final_qc, DeviceStage.final_qc_pass_hold,
         DeviceStage.final_qc_fail_hold,

@@ -165,13 +165,19 @@
             <td>{{ it.model or '—' }}</td>
             <td><span class="badge bg-secondary">{{ it.stage_label }}</span></td>
             <td class="text-nowrap">
-              {% if it.start %}
-              <span class="text-muted">{{ it.start.strftime('%d-%m-%Y') }}</span>
+              {# Per-WorkID Aging: a running day-count from Assigned Date,
+                 counting up every day the WorkID stays open with THIS
+                 engineer, then freezing at whatever it reached once the
+                 WorkID is genuinely completed (moved to another stage +
+                 handed to the next assignee) — see the 2026-09-19 note in
+                 routers/workid_status.py's module docstring. Never blank. #}
+              {% if it.assigned_date %}
+              <span class="text-muted">{{ it.assigned_date.strftime('%d-%m-%Y') }}</span>
               <i class="bi bi-arrow-right mx-1 text-muted"></i>
-              {% if it.finalqc %}<span class="text-muted">{{ it.finalqc.strftime('%d-%m-%Y') }}</span>
+              {% if it.completed_at %}<span class="text-muted">{{ it.completed_at.strftime('%d-%m-%Y') }}</span>
               {% else %}<span class="text-muted fst-italic">ongoing</span>{% endif %}
-              <span class="badge rounded-pill bg-{{ 'success' if it.finalqc else ('danger' if it.days >= 7 else 'warning text-dark') }} ms-1"
-                    title="{{ 'Days from creation to Final QC' if it.finalqc else 'Days since creation (not yet sent to Final QC)' }}">
+              <span class="badge rounded-pill bg-{{ 'success' if it.completed_at else ('danger' if it.days >= 7 else 'warning text-dark') }} ms-1"
+                    title="{{ 'Days from Assigned to Completed' if it.completed_at else 'Days since Assigned (still ongoing)' }}">
                 {{ it.days }} day{{ 's' if it.days != 1 else '' }}
               </span>
               {% else %}<span class="text-muted">—</span>

@@ -1565,6 +1565,19 @@ async def move_device(
     if prev_mv:
         prev_mv.exited_at = app_now()
     device.current_stage = new_stage; device.updated_at = app_now()
+    # A manual move off L3 bypasses l3l4_complete/l3l4_scrap, which are the
+    # only two places that ever close an open "L3L4-" WorkOrder — without
+    # this the WorkOrder is orphaned: it keeps showing on /repair/l3l4 and in
+    # Production Manager's "Total Tags in L3/L4" tile's underlying queue,
+    # disagreeing with the device's real (now different) stage forever.
+    if prev == DeviceStage.l3 and new_stage != DeviceStage.l3:
+        from sqlalchemy import update as sa_update
+        await db.execute(
+            sa_update(WorkOrder)
+            .where(WorkOrder.device_id == device.id, WorkOrder.work_id.like("L3L4-%"),
+                   WorkOrder.status != "completed")
+            .values(status="completed", completed_at=app_now())
+        )
     db.add(StageMovement(device_id=device.id, from_stage=prev, to_stage=new_stage,
                          moved_by=current_user.username, notes=notes or "Manual move"))
     await audit(db, user=current_user, action="STAGE_MOVED",

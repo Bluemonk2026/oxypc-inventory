@@ -14,7 +14,7 @@ from models.location import DeviceLocationLog, StorageLocation
 
 from database import get_db
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, DeviceGrade, StageMovement
+from models.device import Device, DeviceStage, DeviceGrade, StageMovement, STAGE_LABELS, DROPDOWN_STAGES
 from models.lot import Lot
 from models.repair import RepairJob, RepairStatus
 from models.engines import RepairAttempt, DeviceCosting
@@ -1533,7 +1533,7 @@ async def move_form(request: Request, barcode: str = None,
             allowed_stages = await get_allowed_next_stages(device, db)
     return templates.TemplateResponse("repair/move.html", {
         "request": request, "current_user": current_user,
-        "stages": [s for s in DeviceStage],
+        "stages": DROPDOWN_STAGES, "stage_labels": STAGE_LABELS,
         "device": device, "allowed_stages": allowed_stages,
     })
 

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, func, and_, update, case
 from database import get_db
 from models.user import User, UserRole
-from models.device import Device, DeviceGrade, DeviceStage, StageMovement, STAGE_LABELS
+from models.device import Device, DeviceGrade, DeviceStage, StageMovement, STAGE_LABELS, DROPDOWN_STAGES
 from models.lot import Lot
 from models.repair import RepairJob, RepairStatus
 from models.qc import QCCheck
@@ -714,14 +714,14 @@ async def device_search(
         "lots": lots,
         "stages": DeviceStage, "stage_labels": STAGE_LABELS,
         # (value, label) pairs for the multi-select filter dropdowns.
-        "stage_choices": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
+        "stage_choices": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DROPDOWN_STAGES],
         "lot_choices": [l.lot_number for l in lots if l.lot_number],
         "q": q, "stage": stage, "lot": lot, "grade": grade, "category": category,
         "device_type": device_type, "employee": employee, "entity": entity,
         "exclude_sold": _exclude_sold(exclude_sold, fs),
         "device_type_options": await master_values(db, "device_type"),
         "employee_options": employee_options, "entity_options": entity_options,
-        "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
+        "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DROPDOWN_STAGES],
         "storage_locations": storage_locations,
         "total": total,
         "model_summary": model_summary,

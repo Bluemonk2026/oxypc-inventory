@@ -48,9 +48,9 @@ STAGE_LABELS = {
     DeviceStage.grn: "GRN Receipt",
     DeviceStage.iqc: "IQC",
     DeviceStage.stock_in: "Stock In",
-    DeviceStage.l1: "L1 Repair",
+    DeviceStage.l1: "L1/L2 Repair",
     DeviceStage.l2: "L2 Repair",
-    DeviceStage.l3: "L3 Repair",
+    DeviceStage.l3: "L3/L4 Repair",
     DeviceStage.trc_production: "TRC Production",
     DeviceStage.qc_check: "Stress Test",
     DeviceStage.cosmetic_received: "Cosmetic Received",
@@ -70,6 +70,14 @@ STAGE_LABELS = {
     DeviceStage.scrapped: "Scrapped",
     DeviceStage.scrap_for_sale: "Scrap for Sale",
 }
+
+# Every Stage dropdown/filter across the app builds its option list from this,
+# not the raw DeviceStage enum — l2 is a legacy stage (the merged L1/L2 page
+# replaced the old l1->l2->l3 ladder; see routers/repair.py's STAGE_MAP/
+# NEXT_STAGE comments) that no device is ever newly moved into, so it stays
+# out of every stage-picking UI while remaining a valid enum member for any
+# device still sitting in it historically.
+DROPDOWN_STAGES = [s for s in DeviceStage if s != DeviceStage.l2]
 
 STAGE_COLORS = {
     DeviceStage.grn: "warning",

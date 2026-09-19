@@ -31,7 +31,7 @@
       <option value="">All Stages</option>
       {% for stage in all_stages %}
       <option value="{{ stage.value }}" {% if stage_filter == stage.value %}selected{% endif %}>
-        {{ stage.value.replace('_',' ').title() }}
+        {{ stage_labels.get(stage, stage.value.replace('_',' ').title()) }}
       </option>
       {% endfor %}
     </select>

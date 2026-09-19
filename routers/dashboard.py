@@ -7,19 +7,19 @@ from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, and_
 from database import get_db
 from utils.master_data import entity_values, report_year_values, master_values
 from services.business_pl import compute_year_parts_labour_cogs
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, StageMovement
+from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS, DROPDOWN_STAGES
 from models.engines import RepairAttempt
 from models.lot import Lot
 from models.sales import Sale
 from models.spare_parts import SparePart, SparePartConsumption
 from models.dealers import Dealer, DealerOrder, DealerCreditNote, DealerCall
 from models.crm import CRMActivity, CRMContact, CRMPurchaseOrder, CRMSourcingDeal
-from models.location import StorageLocation, ZONE_LABELS
+from models.location import StorageLocation, ZONE_LABELS, DeviceLocationLog
 from models.parts_grn import PartsGRN, PartsGRNLineItem
 from models.part_request import PartSourcingRequest
 from models.cost_config import CostConfig
@@ -111,7 +111,38 @@ async def dashboard(
             loc_uuid = uuid.UUID(location_id)
         except ValueError:
             loc_uuid = None
-    _loc = [Device.location_id == loc_uuid] if loc_uuid else []
+    # Device.location_id is essentially unpopulated for real devices (only a
+    # handful of records ever get it set directly) — every page that shows a
+    # device's actual current Location ID reads it from the LATEST
+    # DeviceLocationLog row instead, falling back to Device.location_id only
+    # when no log exists at all (see _build_location_map in routers/devices.py
+    # and the same fix applied to Transfers). Filtering on the raw column
+    # alone is why this filter looked like it did nothing — it matched almost
+    # no rows regardless of which location was picked.
+    _loc = []
+    if loc_uuid:
+        _latest_log_ts = (
+            select(DeviceLocationLog.device_id,
+                   func.max(DeviceLocationLog.logged_at).label("latest"))
+            .group_by(DeviceLocationLog.device_id)
+            .subquery()
+        )
+        _latest_log = (
+            select(DeviceLocationLog.device_id, DeviceLocationLog.location_id)
+            .join(_latest_log_ts, and_(
+                DeviceLocationLog.device_id == _latest_log_ts.c.device_id,
+                DeviceLocationLog.logged_at == _latest_log_ts.c.latest,
+            ))
+            .subquery()
+        )
+        _loc = [or_(
+            Device.id.in_(select(_latest_log.c.device_id)
+                          .where(_latest_log.c.location_id == loc_uuid)),
+            and_(
+                ~Device.id.in_(select(_latest_log.c.device_id)),
+                Device.location_id == loc_uuid,
+            ),
+        )]
     _dash_filters_active = bool(_ent or _dtype or _loc)
 
     # Tags in these 3 dead-end stages are excluded from every dashboard total
@@ -171,13 +202,11 @@ async def dashboard(
             _AGG_CACHE.update({"stage": stage_counts, "cat": category_counts, "ts": _now})
 
     # ── Stage Pipeline ───────────────────────────────────────────────────────
-    # Built here rather than read off stage_counts, because three of the ten
-    # steps are not "devices whose current_stage is X":
+    # Built here rather than read off stage_counts, because two of the ten
+    # steps are not a single "devices whose current_stage is X":
     #   GRN      - devices mapped to a GRN, which is what "Total Devices Added"
     #              on /grn/post-iqc counts. A device leaves the `grn` stage the
     #              moment it is stocked, so that stage count read near zero.
-    #   L3/L4    - lives inside the L1 stage, told apart by l1l2_status, so it
-    #              is a slice of L1 rather than a stage of its own.
     #   Cosmetic - the six paint-line stages plus putty, counted together.
     # Deliberately not served from _AGG_CACHE: see _dash_filters_active above.
     async def _pipe_count(*where):
@@ -212,8 +241,10 @@ async def dashboard(
                  Device.is_active == True]),
         ("iqc", [Device.current_stage == DeviceStage.iqc]),
         ("l1l2", [Device.current_stage.in_([DeviceStage.l1, DeviceStage.l2])]),
-        ("l3l4", [Device.current_stage == DeviceStage.l1,
-                  Device.l1l2_status == "Requested to L3/L4"]),
+        # 2026-09-19: request_l3l4() now moves the device to DeviceStage.l3
+        # for the duration of the L3/L4 repair (routers/repair.py), so this
+        # is a real stage match again, not an l1l2_status slice of L1.
+        ("l3l4", [Device.current_stage == DeviceStage.l3]),
         ("production", [Device.current_stage == DeviceStage.trc_production]),
         ("qc_check", [Device.current_stage == DeviceStage.qc_check]),
         ("cosmetic", [Device.current_stage.in_(COSMETIC_STAGES)]),
@@ -852,7 +883,8 @@ async def dashboard(
         "stage_filter": stage_filter,
         "pl_from": pl_from,
         "pl_to": pl_to,
-        "all_stages": list(DeviceStage),
+        "all_stages": DROPDOWN_STAGES,
+        "stage_labels": STAGE_LABELS,
         "category_counts": category_counts,
         "total_devices": total_devices,
         "laptops_available": laptops_available,

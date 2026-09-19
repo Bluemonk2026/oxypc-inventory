@@ -13,7 +13,7 @@ from utils.master_data import master_values, entity_values
 from utils.warranty import compute_warranty_expiry
 from database import get_db
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, DeviceGrade, StageMovement, STAGE_LABELS
+from models.device import Device, DeviceStage, DeviceGrade, StageMovement, STAGE_LABELS, DROPDOWN_STAGES
 from models.lot import Lot, LotLineItem
 from models.crm import CRMSourcingDeal
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm, require_additional_perm
@@ -1100,7 +1100,7 @@ async def stock_in_list(
         "device_type": device_type,
         "device_type_options": await master_values(db, "device_type"),
         # Consumed by the shared _customise_modal.html "Move to Stage" dropdown.
-        "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
+        "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DROPDOWN_STAGES],
         # Consumed by the shared _customise_modal.html "Location ID" dropdown.
         "storage_locations": storage_locations,
         "lot_number": lot_number,

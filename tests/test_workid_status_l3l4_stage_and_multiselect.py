@@ -111,12 +111,12 @@ def test_l3l4_workorder_shows_l3_repair_stage_not_stale_movement(app_client, mak
         username, password = make_user("admin")
         _login(app_client, username, password)
 
-        # Filtering Stage=l3 (L3 Repair) must find it — previously showed
+        # Filtering Stage=l3 (L3/L4 Repair) must find it — previously showed
         # "trc_production" (the stale unrelated movement) instead.
         html = app_client.get(f"/workid-status?workid={work_id}&cosmetic_stage=l3",
                               follow_redirects=True).text
         assert f'id="wo-{work_id}"' in html
-        assert "L3 Repair" in html
+        assert "L3/L4 Repair" in html
         assert "TRC Production" not in html.split(f'id="wo-{work_id}"')[1][:2000]
     finally:
         _cleanup_device(barcode)

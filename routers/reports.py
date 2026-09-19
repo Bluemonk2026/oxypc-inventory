@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import extract, select, func
 from database import get_db
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
+from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS, DROPDOWN_STAGES
 from models.engines import RepairAttempt
 from models.lot import Lot
 from models.sales import Sale
@@ -660,7 +660,8 @@ async def overdue_report(
         "rows": rows,
         "stage": stage,
         "min_days": min_days,
-        "all_stages": [s for s in DeviceStage if s not in (DeviceStage.sold, DeviceStage.scrapped)],
+        "all_stages": [s for s in DROPDOWN_STAGES if s not in (DeviceStage.sold, DeviceStage.scrapped)],
+        "stage_labels": STAGE_LABELS,
         "current_user": current_user,
     })
 

@@ -54,7 +54,7 @@ from templates_config import templates
 from database import get_db
 from utils.timezone import app_now
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
+from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS, DROPDOWN_STAGES
 from models.work_order import WorkOrder
 from models.lot import Lot
 from utils.attendance_groups import managed_usernames
@@ -452,7 +452,7 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
     # DeviceStage, not just the cosmetic-line subset — it filters against
     # Asset History's From value (stage_value above), which can be any stage
     # a tag has ever moved off of, not only a cosmetic one.
-    cosmetic_stage_choices = [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage]
+    cosmetic_stage_choices = [(s.value, STAGE_LABELS.get(s, s.value)) for s in DROPDOWN_STAGES]
 
     return templates.TemplateResponse("workid_status/list.html", {
         "request": request, "current_user": current_user,

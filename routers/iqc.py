@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
 from database import get_db
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
+from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS, DROPDOWN_STAGES
 from models.lot import Lot, LotLineItem
 from models.iqc_inspection import IQCInspection
 from models.location import StorageLocation, DeviceLocationLog, LocationAction
@@ -792,7 +792,7 @@ async def iqc_list(
         "total": total,
         "q": q, "stage": stage, "grade": grade, "lot": lot,
         "device_type": device_type, "device_type_options": await master_values(db, "device_type"),
-        "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DeviceStage],
+        "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DROPDOWN_STAGES],
         "stage_labels": STAGE_LABELS,
         "model_summary": model_summary,
         "lot_stats": lot_stats,

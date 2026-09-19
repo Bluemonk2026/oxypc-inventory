@@ -10,7 +10,7 @@
       <option value="">All Active Stages</option>
       {% for s in all_stages %}
       <option value="{{ s.value }}" {% if stage == s.value %}selected{% endif %}>
-        {{ s.value.replace('_',' ').title() }}
+        {{ stage_labels.get(s, s.value.replace('_',' ').title()) }}
       </option>
       {% endfor %}
     </select>

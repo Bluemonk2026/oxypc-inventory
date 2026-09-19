@@ -19,7 +19,7 @@
             <select name="to_stage" class="form-select" required>
               <option value="">-- Select target stage --</option>
               {% for stage in stages %}
-              <option value="{{ stage.value }}">{{ stage.value.replace('_',' ').title() }}</option>
+              <option value="{{ stage.value }}">{{ stage_labels.get(stage, stage.value.replace('_',' ').title()) }}</option>
               {% endfor %}
             </select>
           </div>

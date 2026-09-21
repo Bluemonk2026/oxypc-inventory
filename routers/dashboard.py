@@ -145,6 +145,54 @@ async def dashboard(
         )]
     _dash_filters_active = bool(_ent or _dtype or _loc)
 
+    # ── P&L From/To — scoped by each device's own "stage completed" date ────
+    # A device is "completed" once it reaches a terminal stage: Sold (its
+    # completed date is the Sale's own sold_at) or Scrapped/Scrap for Sale
+    # (completed date is the moved_at of the StageMovement into that stage).
+    # Devices still mid-pipeline have no completed date and are never counted
+    # once this filter is active. Only active when at least one of pl_from/
+    # pl_to is set — with neither set, every P&L figure below stays exactly
+    # the same all-time computation it always was.
+    _pl_from_dt = _pl_to_dt = None
+    try:
+        if pl_from:
+            _pl_from_dt = datetime.strptime(pl_from, "%Y-%m-%d")
+        if pl_to:
+            _pl_to_dt = datetime.strptime(pl_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+    except ValueError:
+        _pl_from_dt = _pl_to_dt = None
+    _pl_active = bool(_pl_from_dt or _pl_to_dt)
+
+    device_completed_at: dict = {}
+    completed_device_ids: set = set()
+    if _pl_active:
+        _sold_completed = dict((await db.execute(
+            select(Sale.device_id, func.max(Sale.sold_at)).group_by(Sale.device_id)
+        )).fetchall())
+        _scrap_completed = dict((await db.execute(
+            select(StageMovement.device_id, func.max(StageMovement.moved_at))
+            .where(StageMovement.to_stage.in_([DeviceStage.scrapped, DeviceStage.scrap_for_sale]))
+            .group_by(StageMovement.device_id)
+        )).fetchall())
+        _terminal_devices = (await db.execute(
+            select(Device.id, Device.current_stage)
+            .where(Device.current_stage.in_(
+                [DeviceStage.sold, DeviceStage.scrapped, DeviceStage.scrap_for_sale]))
+        )).all()
+        for _did, _stage in _terminal_devices:
+            _dt = _sold_completed.get(_did) if _stage == DeviceStage.sold else _scrap_completed.get(_did)
+            if _dt:
+                device_completed_at[_did] = _dt
+
+        def _in_pl_range(dt):
+            if _pl_from_dt and dt < _pl_from_dt:
+                return False
+            if _pl_to_dt and dt > _pl_to_dt:
+                return False
+            return True
+
+        completed_device_ids = {did for did, dt in device_completed_at.items() if _in_pl_range(dt)}
+
     # Tags in these 3 dead-end stages are excluded from every dashboard total
     # (Total Devices, category cards, Stage Pipeline's own totals feed off
     # per-stage matches that already can't include them) — they no longer
@@ -469,29 +517,42 @@ async def dashboard(
         repair_labour_rate = _cfg.get("repair_labour_rate", 150.0)
         cosmetic_rate      = _cfg.get("cosmetic_rate", 50.0)
 
-        # Batch 1: device count per lot
+        # Batch 1: device count per lot (always the lot's full, all-time
+        # device count — never date-scoped, it's descriptive of the lot
+        # itself, not of P&L activity within a period)
         lot_device_counts = dict((await db.execute(
             select(Device.lot_id, func.count(Device.id)).group_by(Device.lot_id)
         )).fetchall())
+
+        # When P&L From/To is active, every cost/revenue batch below is
+        # additionally restricted to devices that actually completed (Sold /
+        # Scrapped / Scrap for Sale) within the selected range — see
+        # completed_device_ids above. With no filter set, these are the exact
+        # same all-time queries this table always ran.
+        _completed_filter = ([Device.id.in_(completed_device_ids)] if _pl_active else [])
+        _completed_filter_spc = ([SparePartConsumption.device_id.in_(completed_device_ids)] if _pl_active else [])
 
         # Batch 2: revenue per lot (join through Device)
         lot_revenue = dict((await db.execute(
             select(Device.lot_id, func.coalesce(func.sum(Sale.sale_price), 0))
             .join(Sale, Sale.device_id == Device.id)
+            .where(*_completed_filter)
             .group_by(Device.lot_id)
         )).fetchall())
 
-        # Batch 3: parts cost per lot
+        # Batch 3: parts cost per lot — attributed to the DEVICE the part was
+        # consumed on, not the consumption's own date (device_id, not lot_id,
+        # so the completed-devices restriction can apply directly).
         lot_parts_cost = dict((await db.execute(
             select(SparePartConsumption.lot_id, func.coalesce(func.sum(SparePartConsumption.total_cost), 0))
-            .where(SparePartConsumption.lot_id.isnot(None))
+            .where(SparePartConsumption.lot_id.isnot(None), *_completed_filter_spc)
             .group_by(SparePartConsumption.lot_id)
         )).fetchall())
 
         # Batch 4: sold device count per lot
         lot_sold_counts = dict((await db.execute(
             select(Device.lot_id, func.count(Device.id))
-            .where(Device.current_stage == DeviceStage.sold)
+            .where(Device.current_stage == DeviceStage.sold, *_completed_filter)
             .group_by(Device.lot_id)
         )).fetchall())
 
@@ -499,6 +560,7 @@ async def dashboard(
         lot_labour_cost = dict((await db.execute(
             select(Device.lot_id, func.coalesce(func.sum(RepairAttempt.cost), 0))
             .join(RepairAttempt, RepairAttempt.device_id == Device.id)
+            .where(*_completed_filter)
             .group_by(Device.lot_id)
         )).fetchall())
 
@@ -506,6 +568,7 @@ async def dashboard(
         lot_attempt_count = dict((await db.execute(
             select(Device.lot_id, func.count(RepairAttempt.id))
             .join(RepairAttempt, RepairAttempt.device_id == Device.id)
+            .where(*_completed_filter)
             .group_by(Device.lot_id)
         )).fetchall())
 
@@ -513,14 +576,34 @@ async def dashboard(
         lot_cosmetic_count = dict((await db.execute(
             select(Device.lot_id, func.count(StageMovement.id))
             .join(StageMovement, StageMovement.device_id == Device.id)
-            .where(StageMovement.to_stage == DeviceStage.cleaning)
+            .where(StageMovement.to_stage == DeviceStage.cleaning, *_completed_filter)
             .group_by(Device.lot_id)
         )).fetchall())
+
+        # Batch 8: completed-device count per lot, for attributing each lot's
+        # buying_price per-unit (buying_price / qty) only to the devices that
+        # actually completed within the selected range — only run when the
+        # filter is active; otherwise the full lot buying_price is used as-is
+        # (all-time behavior, unchanged).
+        lot_completed_counts = {}
+        if _pl_active:
+            lot_completed_counts = dict((await db.execute(
+                select(Device.lot_id, func.count(Device.id))
+                .where(*_completed_filter)
+                .group_by(Device.lot_id)
+            )).fetchall())
 
         for lot in lots:
             revenue      = float(lot_revenue.get(lot.id, 0) or 0)
             parts_cost   = float(lot_parts_cost.get(lot.id, 0) or 0)
-            buying       = float(lot.buying_price or 0)
+            if _pl_active:
+                # Per-unit cost basis × only the devices that completed
+                # in-range — proper cost/revenue matching for a period,
+                # instead of the whole lot's purchase cost.
+                per_unit = (float(lot.buying_price or 0) / lot.qty) if lot.qty else 0.0
+                buying = per_unit * int(lot_completed_counts.get(lot.id, 0) or 0)
+            else:
+                buying = float(lot.buying_price or 0)
 
             # Labour: use actual costs if recorded; otherwise rate × attempt count
             labour_actual  = float(lot_labour_cost.get(lot.id, 0) or 0)
@@ -534,6 +617,13 @@ async def dashboard(
             total_cost = buying + parts_cost + labour_cost + cosmetic_cost
             profit     = revenue - total_cost
             margin     = (profit / revenue * 100) if revenue > 0 else 0
+
+            # When the filter is active, a lot with nothing that completed
+            # in-range contributes nothing to the period's P&L — skip it
+            # rather than list a noisy all-zero row.
+            if _pl_active and not (revenue or parts_cost or labour_cost or cosmetic_cost or buying):
+                continue
+
             lot_pl.append({
                 "lot_number": lot.lot_number,
                 "supplier": lot.supplier_name,
@@ -570,29 +660,56 @@ async def dashboard(
         )
         month_revenue = float(month_revenue_result.scalar() or 0)
 
-        total_revenue_result = await db.execute(select(func.coalesce(func.sum(Sale.sale_price), 0)))
-        total_revenue = float(total_revenue_result.scalar() or 0)
+        if _pl_active:
+            # Scoped to devices whose own stage-completed date falls in the
+            # selected P&L From/To range (see completed_device_ids above) —
+            # Total Investment/Revenue/Net Profit stop being all-time the
+            # moment either bound is set, matching what lot_pl now does.
+            _cd = list(completed_device_ids)
+            total_revenue_result = await db.execute(
+                select(func.coalesce(func.sum(Sale.sale_price), 0))
+                .where(Sale.device_id.in_(_cd))
+            )
+            total_revenue = float(total_revenue_result.scalar() or 0)
 
-        total_investment_result = await db.execute(select(func.coalesce(func.sum(Lot.buying_price), 0)))
-        total_investment = float(total_investment_result.scalar() or 0)
+            # Investment: each lot's buying_price attributed per-unit
+            # (buying_price / qty) to only the devices that completed
+            # in-range — same logic as the Lot P&L table's per-lot buying.
+            total_investment = sum(r["buying_price"] for r in lot_pl)
 
-        total_parts_cost_result = await db.execute(
-            select(func.coalesce(func.sum(SparePartConsumption.total_cost), 0))
-        )
-        total_parts_cost = float(total_parts_cost_result.scalar() or 0)
+            total_parts_cost_result = await db.execute(
+                select(func.coalesce(func.sum(SparePartConsumption.total_cost), 0))
+                .where(SparePartConsumption.device_id.in_(_cd))
+            )
+            total_parts_cost = float(total_parts_cost_result.scalar() or 0)
 
-        total_labour_cost_result = await db.execute(
-            select(func.coalesce(func.sum(RepairAttempt.cost), 0))
-        )
-        total_labour_cost = float(total_labour_cost_result.scalar() or 0)
+            total_labour_cost_result = await db.execute(
+                select(func.coalesce(func.sum(RepairAttempt.cost), 0))
+                .where(RepairAttempt.device_id.in_(_cd))
+            )
+            total_labour_cost = float(total_labour_cost_result.scalar() or 0)
+        else:
+            total_revenue_result = await db.execute(select(func.coalesce(func.sum(Sale.sale_price), 0)))
+            total_revenue = float(total_revenue_result.scalar() or 0)
+
+            total_investment_result = await db.execute(select(func.coalesce(func.sum(Lot.buying_price), 0)))
+            total_investment = float(total_investment_result.scalar() or 0)
+
+            total_parts_cost_result = await db.execute(
+                select(func.coalesce(func.sum(SparePartConsumption.total_cost), 0))
+            )
+            total_parts_cost = float(total_parts_cost_result.scalar() or 0)
+
+            total_labour_cost_result = await db.execute(
+                select(func.coalesce(func.sum(RepairAttempt.cost), 0))
+            )
+            total_labour_cost = float(total_labour_cost_result.scalar() or 0)
 
         total_cosmetic_cost = sum(r["cosmetic_cost"] for r in lot_pl)
-        # Deliberately kept separate from total_parts_cost/total_labour_cost
-        # above (all-time, unscoped — Net Profit's existing formula below
-        # still uses those, unchanged): the Financial Summary card's "Parts
-        # Spent"/"Labour Spent" line items instead show THIS year's figures,
-        # sourced from the exact same computation as Business P&L's Monthly
-        # Breakdown table (Parts Cost / Labour Cost columns), so the two
+        # Parts Spent / Labour Spent (Financial Summary card) stay scoped to
+        # the selected Year dropdown, not P&L From/To — deliberately kept in
+        # sync with Business P&L's Monthly Breakdown table (Parts Cost /
+        # Labour Cost columns) via the exact same computation, so the two
         # pages never disagree on the selected year's numbers.
         yearly_monthly_parts, yearly_monthly_labour = await compute_year_parts_labour_cogs(db, year)
         yearly_parts_cost = sum(yearly_monthly_parts)
@@ -840,18 +957,8 @@ async def dashboard(
     else:
         filtered_stage_counts = stage_counts
 
-    # ── Apply date-range filter to lot_pl ────────────────────────────────────
-    try:
-        if pl_from:
-            _pf = datetime.strptime(pl_from, "%Y-%m-%d")
-            lot_pl = [r for r in lot_pl
-                      if r.get("purchase_date") and r["purchase_date"] >= _pf]
-        if pl_to:
-            _pt = datetime.strptime(pl_to, "%Y-%m-%d")
-            lot_pl = [r for r in lot_pl
-                      if r.get("purchase_date") and r["purchase_date"] <= _pt]
-    except Exception:
-        pass
+    # (lot_pl is already scoped to P&L From/To above, by each device's own
+    # stage-completed date — see completed_device_ids near the top.)
 
     # ── Location gap count for dashboard badge ────────────────────────────────
     try:
@@ -948,6 +1055,7 @@ async def dashboard(
         "chart_stages": chart_stages,
         "chart_data": chart_data,
         "lot_pl": lot_pl,
+        "pl_active": _pl_active,
         "month_revenue": month_revenue,
         "total_revenue": total_revenue,
         "total_investment": total_investment,

@@ -33,7 +33,7 @@
           <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
           <input type="hidden" name="barcode" id="returnBarcode">
           <div class="mb-3">
-            <label class="form-label fw-semibold">Device Identity</label>
+            <label class="form-label fw-semibold">Customer Tag</label>
             <div class="input-group">
               <input type="text" id="returnIdentity" class="form-control barcode-field font-monospace" placeholder="Scan Tag Number or Serial Number" autofocus>
               <button type="button" class="btn btn-primary" id="checkBtn"><i class="bi bi-search me-1"></i>Check</button>

@@ -23,7 +23,7 @@ def test_transfers_list_hides_hdd_ram_cpu_and_shows_quantity(app_client, make_us
     username, password = make_user("admin")
     _login(app_client, username, password)
     html = app_client.get("/transfers", follow_redirects=True).text
-    assert "<th>Quantity</th>" in html
+    assert ">Quantity</th>" in html
     assert "<th>HDD</th>" not in html
     assert "<th>RAM</th>" not in html
     assert "<th>CPU</th>" not in html

@@ -108,7 +108,7 @@
             <td class="d-none">{{ t.department or '—' }}</td>
             <td>{{ t._display_transferred_by or '—' }}</td>
             <td>{{ t._display_received_by or '—' }}</td>
-            <td><span class="badge bg-secondary">{{ (t.product_stage or '—').replace('_',' ').title() }}</span></td>
+            <td><span class="badge bg-secondary">{{ t._display_stage }}</span></td>
           </tr>
           {% endfor %}
         </tbody>

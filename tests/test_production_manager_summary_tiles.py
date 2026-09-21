@@ -129,6 +129,9 @@ def test_summary_tiles_reflect_stage_counts(app_client, make_user):  # noqa: F81
         assert _get_count(html, "Total Tags in Stress") >= 1
         assert _get_count(html, "Total Tags in Final QC") >= 1
         assert _get_count(html, "Total Tags in Cosmetic") >= 1
+
+        # 2026-09-21: Cosmetic moved to appear before Final QC in the tile row.
+        assert html.index("Total Tags in Cosmetic") < html.index("Total Tags in Final QC")
     finally:
         for bc in barcodes.values():
             _cleanup(bc)

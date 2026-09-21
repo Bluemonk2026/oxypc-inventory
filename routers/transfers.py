@@ -9,7 +9,7 @@ from sqlalchemy import select, desc, func
 from templates_config import templates
 from database import get_db
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, StageMovement, DeviceGrade
+from models.device import Device, DeviceStage, StageMovement, DeviceGrade, STAGE_LABELS
 from models.lot import Lot
 from models.bucket import Bucket
 from models.location import StorageLocation, ZONE_LABELS, DeviceLocationLog, LocationAction
@@ -163,12 +163,14 @@ def _transfers_list_filters(q, transfer_type, transferred_by, location_id, date_
 
 
 async def _transfers_list_rows(db, q, transfer_type, transferred_by, location_id, date_from, date_to):
-    """StockTransfer rows plus a LIVE-joined Lot Number — StockTransfer.lot_number
-    is a denormalized snapshot taken once at transfer-creation time, so a device
-    whose lot lookup missed at insert (or was assigned/changed afterward) shows
-    '—' forever even though the device now has a lot. Prefer the live join."""
+    """StockTransfer rows plus a LIVE-joined Lot Number and current Stage —
+    StockTransfer.lot_number/product_stage are denormalized snapshots taken
+    once at transfer-creation time, so a device whose lot lookup missed at
+    insert (or that has moved stage since the transfer) shows stale/blank
+    values forever even though the device has since changed. Prefer the
+    live join for both."""
     stmt = (
-        select(StockTransfer, Lot.lot_number)
+        select(StockTransfer, Lot.lot_number, Device.current_stage)
         .outerjoin(Device, StockTransfer.device_id == Device.id)
         .outerjoin(Lot, Device.lot_id == Lot.id)
         .where(*_transfers_list_filters(q, transfer_type, transferred_by, location_id, date_from, date_to))
@@ -192,11 +194,12 @@ async def list_transfers(
     rows = await _transfers_list_rows(db, q, transfer_type, transferred_by, location_id, date_from, date_to)
     transfers = []
     name_map = await _user_display_name_map(
-        db, [v for t, _ in rows for v in (t.transferred_by, t.received_by)])
-    for t, live_lot_number in rows:
+        db, [v for t, _, _ in rows for v in (t.transferred_by, t.received_by)])
+    for t, live_lot_number, live_stage in rows:
         t._display_lot_number = live_lot_number or t.lot_number or "—"
         t._display_transferred_by = name_map.get(t.transferred_by, t.transferred_by)
         t._display_received_by = name_map.get(t.received_by, t.received_by)
+        t._display_stage = STAGE_LABELS.get(live_stage, live_stage.value) if live_stage else (t.product_stage or "—")
         transfers.append(t)
 
     transferred_by_raw = [r[0] for r in (await db.execute(
@@ -247,14 +250,15 @@ async def export_transfers(
     storage_locations = (await db.execute(select(StorageLocation))).scalars().all()
     location_by_id = {str(loc.id): loc.unit_id for loc in storage_locations}
     name_map = await _user_display_name_map(
-        db, [v for t, _ in rows for v in (t.transferred_by, t.received_by)])
+        db, [v for t, _, _ in rows for v in (t.transferred_by, t.received_by)])
 
     buf = _io.StringIO()
     w = _csv.writer(buf)
     w.writerow(["Date", "Location ID", "Type", "Tag Number", "Make / Model", "Quantity",
                 "Lot", "From", "To", "Dept.", "Transferred By", "Received By", "Stage",
                 "Serial Number", "CPU", "GEN", "RAM", "STORAGE"])
-    for t, live_lot_number in rows:
+    for t, live_lot_number, live_stage in rows:
+        stage_label = STAGE_LABELS.get(live_stage, live_stage.value) if live_stage else (t.product_stage or "")
         w.writerow([
             t.transfer_date.strftime("%d-%m-%Y %H:%M") if t.transfer_date else "",
             location_by_id.get(str(t.to_location_id), "") if t.to_location_id else "",
@@ -268,7 +272,7 @@ async def export_transfers(
             t.department or "",
             name_map.get(t.transferred_by, t.transferred_by) or "",
             name_map.get(t.received_by, t.received_by) or "",
-            (t.product_stage or "").replace("_", " ").title(),
+            stage_label,
             t.serial_no or "",
             t.cpu or "",
             t.generation or "",

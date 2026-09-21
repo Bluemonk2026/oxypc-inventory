@@ -22,7 +22,7 @@ from fastapi.responses import StreamingResponse
 from database import get_db
 from utils.csv_decode import decode_csv_bytes
 from models.user import User, UserRole
-from models.device import Device, DeviceStage, StageMovement
+from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.lot import Lot
 from models.sales import Sale, Return
 from models.company import Company
@@ -1269,8 +1269,15 @@ async def process_return(
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("returns", "add")),
 ):
-    dev_result = await db.execute(select(Device).where(Device.barcode == barcode))
-    device = dev_result.scalar_one_or_none()
+    # Matched case-insensitively — same fix as the CSV bulk tag upload and
+    # Replace Now searchbox below: tag numbers get scanned/typed in whatever
+    # case, while the stored barcode may differ, so an exact `==` here
+    # reported "not found" for tags the searchbox (which uses .ilike()) had
+    # just confirmed exist and are sitting in the right stage.
+    dev_result = await db.execute(
+        select(Device).where(func.upper(Device.barcode) == barcode.strip().upper())
+    )
+    device = dev_result.scalars().first()
     if not device:
         return templates.TemplateResponse("sales/return_form.html", {
             "request": request, "current_user": current_user,
@@ -1335,8 +1342,8 @@ async def process_return(
                 "sale": sale,
             })
         replacement_device = (await db.execute(
-            select(Device).where(Device.barcode == rtag)
-        )).scalar_one_or_none()
+            select(Device).where(func.upper(Device.barcode) == rtag.upper())
+        )).scalars().first()
         if not replacement_device:
             return templates.TemplateResponse("sales/return_form.html", {
                 "request": request, "current_user": current_user,
@@ -1345,7 +1352,8 @@ async def process_return(
         if replacement_device.current_stage != DeviceStage.ready_to_sale:
             return templates.TemplateResponse("sales/return_form.html", {
                 "request": request, "current_user": current_user,
-                "error": f"Replacement device {rtag} is not in Ready to Sale stage.",
+                "error": (f"Replacement device {rtag} is not in Ready to Sale stage "
+                          f"(currently {STAGE_LABELS.get(replacement_device.current_stage, replacement_device.current_stage)})."),
                 "sale": sale,
             })
 

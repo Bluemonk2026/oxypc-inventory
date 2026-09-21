@@ -51,9 +51,14 @@ async def device_brief(barcode: str, require_stage: str = "", db: AsyncSession =
     bc = (barcode or "").strip()
     if not bc:
         return JSONResponse({"found": False})
+    # .scalars().first(), not scalar_one_or_none(): this codebase's barcodes
+    # are inconsistently cased, and if a legacy duplicate-case row exists,
+    # scalar_one_or_none() raises MultipleResultsFound — an unhandled 500
+    # that the caller's fetch().then(r => r.ok ? ... : {found:false}) turns
+    # into a false "not found" for a tag that plainly exists.
     device = (await db.execute(
         select(Device).where(or_(Device.barcode.ilike(bc), Device.serial_no.ilike(bc)))
-    )).scalar_one_or_none()
+    )).scalars().first()
     if not device:
         return JSONResponse({"found": False})
     if require_stage and device.current_stage.value != require_stage:
@@ -167,9 +172,14 @@ async def device_asset_history(barcode: str, db: AsyncSession = Depends(get_db),
     bc = (barcode or "").strip()
     if not bc:
         return JSONResponse({"found": False})
+    # .scalars().first(), not scalar_one_or_none(): this codebase's barcodes
+    # are inconsistently cased, and if a legacy duplicate-case row exists,
+    # scalar_one_or_none() raises MultipleResultsFound — an unhandled 500
+    # that the caller's fetch().then(r => r.ok ? ... : {found:false}) turns
+    # into a false "not found" for a tag that plainly exists.
     device = (await db.execute(
         select(Device).where(or_(Device.barcode.ilike(bc), Device.serial_no.ilike(bc)))
-    )).scalar_one_or_none()
+    )).scalars().first()
     if not device:
         return JSONResponse({"found": False})
     movements = (await db.execute(

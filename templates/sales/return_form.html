@@ -49,6 +49,7 @@
                 <div class="col-6"><span class="text-muted">Storage:</span> <strong id="br_storage">—</strong></div>
                 <div class="col-6"><span class="text-muted">Sold Grade:</span> <strong id="br_sold_grade">—</strong></div>
                 <div class="col-6"><span class="text-muted">Sold On:</span> <strong id="br_sold_on">—</strong></div>
+                <div class="col-6"><span class="text-muted">Current Stage:</span> <strong id="br_stage">—</strong></div>
                 <div class="col-12"><span class="text-muted">Warranty Status:</span> <strong id="br_warranty_status">—</strong></div>
                 <div class="col-12"><span class="text-muted">RMA Warranty:</span> <strong id="br_rma_warranty_status">—</strong> <span id="br_rma_warranty_expiry" class="text-muted"></span></div>
               </div>
@@ -84,6 +85,7 @@
                   <div class="col-6"><span class="text-muted">CPU:</span> <strong id="rp_cpu">—</strong></div>
                   <div class="col-6"><span class="text-muted">RAM:</span> <strong id="rp_ram">—</strong></div>
                   <div class="col-6"><span class="text-muted">Storage:</span> <strong id="rp_storage">—</strong></div>
+                  <div class="col-6"><span class="text-muted">Current Stage:</span> <strong id="rp_stage">—</strong></div>
                 </div>
               </div>
             </div>
@@ -272,22 +274,25 @@
           var rmaLabels = {in_warranty: 'In Warranty', out_of_warranty: 'Out of Warranty', no_warranty: 'No Warranty'};
           document.getElementById('br_rma_warranty_status').textContent = rmaLabels[d.rma_warranty_status] || '—';
           document.getElementById('br_rma_warranty_expiry').textContent = d.rma_warranty_expires_at ? ('(expires ' + d.rma_warranty_expires_at + ')') : '';
+          document.getElementById('br_stage').textContent = d.status || '—';
           brief.classList.remove('d-none');
           var ws = d.warranty_status || '';
+          var stageNote = ' Current stage: <strong>' + (d.status || '—') + '</strong>.';
           var paidRepairRow = document.getElementById('paidRepairRow');
           if(ws === 'Within Warranty'){
-            msg.innerHTML = '<div class="alert alert-success py-2 px-3 small mb-0">Device is in warranty and will be repair without any extra cost</div>';
+            msg.innerHTML = '<div class="alert alert-success py-2 px-3 small mb-0">Device is in warranty and will be repair without any extra cost.' + stageNote + '</div>';
             paidRepairRow.classList.add('d-none');
           } else if(ws === 'Out of Warranty'){
-            msg.innerHTML = '<div class="alert alert-warning py-2 px-3 small mb-0">Device is out warranty and will cost basic Rs1500 as repair cost excluding spare parts cost</div>';
+            msg.innerHTML = '<div class="alert alert-warning py-2 px-3 small mb-0">Device is out warranty and will cost basic Rs1500 as repair cost excluding spare parts cost.' + stageNote + '</div>';
             paidRepairRow.classList.remove('d-none');
           } else {
-            msg.innerHTML = '';
+            msg.innerHTML = '<div class="alert alert-info py-2 px-3 small mb-0">Device found.' + stageNote + '</div>';
             paidRepairRow.classList.add('d-none');
           }
         } else {
           clearBrief();
-          msg.innerHTML = '<div class="alert alert-danger py-2 px-3 small mb-0">This Device is not listed in our database. Hence returning process denied to accept this device</div>';
+          msg.innerHTML = '<div class="alert alert-danger py-2 px-3 small mb-0">' +
+            (d.error || 'This Device is not listed in our database. Hence returning process denied to accept this device') + '</div>';
         }
       }).catch(function(){ clearBrief(); });
   }
@@ -344,8 +349,9 @@
           document.getElementById('rp_cpu').textContent = d.cpu;
           document.getElementById('rp_ram').textContent = d.ram;
           document.getElementById('rp_storage').textContent = d.storage;
+          document.getElementById('rp_stage').textContent = d.status || '—';
           brief.classList.remove('d-none');
-          msg.innerHTML = '';
+          msg.innerHTML = '<div class="alert alert-success py-2 px-3 small mb-0">Tag found. Current stage: <strong>' + (d.status || '—') + '</strong>.</div>';
         } else {
           clearReplace();
           msg.innerHTML = '<div class="alert alert-danger py-2 px-3 small mb-0">' +

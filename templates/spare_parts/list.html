@@ -615,7 +615,7 @@
     <table id="partsConsumptionTable" class="table table-hover mb-0 small">
       <thead class="table-dark">
         <tr>
-          <th>Tag Number</th><th>Lot Number</th><th>Date Added</th><th>Part Name Used</th>
+          <th>Tag Number</th><th>Tag Make</th><th>Tag Model</th><th>Lot Number</th><th>Date Added</th><th>Part Name Used</th>
           <th>Total Part Changed</th><th>Unit Price</th><th>Total Price</th>
         </tr>
       </thead>
@@ -623,6 +623,8 @@
         {% for row in tag_consumption_rows %}
         <tr data-tag="{{ row.tag_number or '' }}" data-lot="{{ row.lot_number or '' }}">
           <td><a href="/devices/{{ row.tag_number }}" class="font-monospace text-decoration-none">{{ row.tag_number }}</a></td>
+          <td>{{ row.tag_make }}</td>
+          <td>{{ row.tag_model }}</td>
           <td>
             {% if row.lot_number %}<a href="/lots?q={{ row.lot_number | urlencode }}">{{ row.lot_number }}</a>{% else %}—{% endif %}
           </td>
@@ -633,7 +635,7 @@
           <td class="fw-semibold">&#8377;{{ "{:,.2f}".format(row.total_price) }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="text-center text-muted py-4">No parts consumed yet.</td></tr>
+        <tr><td colspan="9" class="text-center text-muted py-4">No parts consumed yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>

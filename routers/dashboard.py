@@ -247,6 +247,7 @@ async def dashboard(
         ("grn", [Device.grn_number.isnot(None), Device.grn_number != "",
                  Device.is_active == True]),
         ("iqc", [Device.current_stage == DeviceStage.iqc]),
+        ("stock_in", [Device.current_stage == DeviceStage.stock_in]),
         ("l1l2", [Device.current_stage.in_([DeviceStage.l1, DeviceStage.l2])]),
         # 2026-09-19: request_l3l4() now moves the device to DeviceStage.l3
         # for the duration of the L3/L4 repair (routers/repair.py), so this

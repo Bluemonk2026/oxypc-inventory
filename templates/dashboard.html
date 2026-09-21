@@ -239,6 +239,7 @@
       {% for key, label, color, link in [
           ('grn',           'GRN',           'secondary', '/grn/post-iqc'),
           ('iqc',           'IQC',           'secondary', '/devices?stage=iqc'),
+          ('stock_in',      'Stock In',      'secondary', '/devices?stage=stock_in'),
           ('l1l2',          'L1/L2',         'warning',   '/devices?stage=l1,l2'),
           ('l3l4',          'L3/L4',         'danger',    '/repair/l3l4'),
           ('production',    'Production',    'info',      '/devices?stage=trc_production'),
@@ -269,12 +270,9 @@
       {% endfor %}
     </div>
     <div class="mt-2 small text-muted">
-      {# L3/L4 is a slice of L1, so it is deliberately NOT added into a total
-         with L1/L2 — that would count those tags twice. Returned/Scrapped/
-         Scrap for Sale are excluded from every total on this page (Total
-         Devices, category cards) — this is their own callout, not a total. #}
-      L3/L4 shown above is the subset of L1 awaiting L3/L4.
-      &nbsp;·&nbsp;
+      {# Returned/Scrapped/Scrap for Sale are excluded from every total on
+         this page (Total Devices, category cards) — this is their own
+         callout, not a total. #}
       Returned: <strong>{{ stage_counts.get('returned', 0) }}</strong>
       &nbsp;·&nbsp;
       Scrapped: <strong>{{ stage_counts.get('scrapped', 0) }}</strong>

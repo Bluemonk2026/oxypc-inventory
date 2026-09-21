@@ -240,12 +240,12 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
     # that per-row timestamp (the MAX one contributing to a rolled-up row,
     # when several handovers of the same part landed on different dates).
     changed_rows = (await db.execute(
-        select(PartRequest, Device.barcode, Lot.lot_number)
+        select(PartRequest, Device.barcode, Lot.lot_number, Device.brand, Device.model)
         .join(Device, PartRequest.device_id == Device.id)
         .outerjoin(Lot, Device.lot_id == Lot.id)
         .where(PartRequest.status == "received")
     )).all()
-    changed_part_ids = {r.part_id for r, _, _ in changed_rows if r.part_id}
+    changed_part_ids = {r.part_id for r, _, _, _, _ in changed_rows if r.part_id}
     changed_sp_by_id = {}
     if changed_part_ids:
         changed_sp_by_id = {
@@ -272,7 +272,7 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         return True
 
     tag_consumption = {}
-    for r, barcode, lot_number in changed_rows:
+    for r, barcode, lot_number, tag_make, tag_model in changed_rows:
         if not _pc_in_date_range(r.actioned_at):
             continue
         sp = changed_sp_by_id.get(r.part_id)
@@ -287,7 +287,9 @@ async def parts_list(request: Request, db: AsyncSession = Depends(get_db),
         qty = r.qty_handed_over or 0
         key = (barcode, r.part_id or consumed_part_name)
         row = tag_consumption.setdefault(key, {
-            "tag_number": barcode, "lot_number": lot_number, "part_name": consumed_part_name,
+            "tag_number": barcode, "lot_number": lot_number,
+            "tag_make": tag_make or "—", "tag_model": tag_model or "—",
+            "part_name": consumed_part_name,
             "unit_price": unit_price, "total_qty": 0, "total_price": 0.0, "date_added": None,
         })
         row["total_qty"] += qty

@@ -1289,11 +1289,41 @@ async def process_return(
         .order_by(Sale.sold_at.desc()).limit(1)
     )
     sale = sale_result.scalars().first()
-    if not sale:
+    if not sale and device.current_stage != DeviceStage.sold:
+        # Device was never marked Sold at all — there's genuinely nothing to
+        # return against, unlike the sold-with-no-sale-row case handled below.
         return templates.TemplateResponse("sales/return_form.html", {
             "request": request, "current_user": current_user,
             "error": "No sale found for this device", "sale": None,
         })
+    if not sale:
+        # Device shows current_stage == sold with zero Sale rows — it was
+        # moved to Sold through a generic stage-mover instead of an actual
+        # sale (DROPDOWN_STAGES used to allow this; fixed 2026-09-21, but
+        # devices already stuck that way from before the fix still hit this).
+        # Per explicit instruction: still process the return/replace rather
+        # than block it — attach it to a placeholder Sale with blank customer
+        # details (there is no real customer data to carry), so the return
+        # (and, if Replace Now is used, the replacement) can still go through.
+        sale_num = await _next_sale_number(db)
+        last_sold_move = (await db.execute(
+            select(StageMovement.moved_at)
+            .where(StageMovement.device_id == device.id, StageMovement.to_stage == DeviceStage.sold)
+            .order_by(StageMovement.moved_at.desc()).limit(1)
+        )).scalar()
+        sale = Sale(
+            sale_number=sale_num, device_id=device.id, sale_price=Decimal("0"),
+            sold_by=current_user.username, sold_at=last_sold_move or app_now(),
+            warranty_type="none",
+            notes=("Placeholder sale — device was marked Sold with no sale record on "
+                   "file; auto-created so this return could be processed."),
+        )
+        db.add(sale)
+        await db.flush()
+        await audit(db, user=current_user, action="RETURN_PLACEHOLDER_SALE_CREATED",
+                    table_name="sales", record_id=str(device.id),
+                    new_value={"sale_number": sale_num, "reason": "sold stage with no sale record"},
+                    request=request)
 
     # Guard: prevent duplicate return for the same sale
     existing_return = (await db.execute(

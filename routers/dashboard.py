@@ -236,6 +236,47 @@ async def dashboard(
             ordered[name] = counts[name]
         return ordered
 
+    # Same "latest DeviceLocationLog row, falling back to Device.location_id
+    # only when no log exists at all" resolution as the Location ID filter
+    # (_loc) above, but unconditional/unfiltered by any specific location —
+    # a separate subquery so this doesn't disturb that already-working filter.
+    # Used only for the Split Location per-stage breakdown below.
+    _loc_latest_ts = (
+        select(DeviceLocationLog.device_id,
+               func.max(DeviceLocationLog.logged_at).label("latest"))
+        .group_by(DeviceLocationLog.device_id)
+        .subquery()
+    )
+    _loc_latest = (
+        select(DeviceLocationLog.device_id, DeviceLocationLog.location_id)
+        .join(_loc_latest_ts, and_(
+            DeviceLocationLog.device_id == _loc_latest_ts.c.device_id,
+            DeviceLocationLog.logged_at == _loc_latest_ts.c.latest,
+        ))
+        .subquery()
+    )
+    _resolved_location_id = func.coalesce(_loc_latest.c.location_id, Device.location_id)
+    _loc_label_by_id = {
+        str(loc.id): f"{loc.unit_id} — {ZONE_LABELS.get(loc.zone, loc.zone.value)}"
+        for loc in (await db.execute(select(StorageLocation))).scalars().all()
+    }
+
+    async def _pipe_count_by_location(*where):
+        rows = (await db.execute(
+            select(_resolved_location_id, func.count(Device.id))
+            .select_from(Device)
+            .outerjoin(_loc_latest, _loc_latest.c.device_id == Device.id)
+            .where(Device.is_trashed == False, *_ent, *_dtype, *_loc, *where)
+            .group_by(_resolved_location_id)
+        )).all()
+        counts = {}
+        for loc_id, cnt in rows:
+            if not cnt:
+                continue
+            label = _loc_label_by_id.get(str(loc_id), "Unassigned") if loc_id else "Unassigned"
+            counts[label] = counts.get(label, 0) + cnt
+        return dict(sorted(counts.items()))
+
     FINAL_QC_STAGES = [
         DeviceStage.final_qc, DeviceStage.final_qc_pass_hold,
         DeviceStage.final_qc_fail_hold,
@@ -263,13 +304,16 @@ async def dashboard(
     try:
         pipeline_counts = {}
         pipeline_by_entity = {}
+        pipeline_by_location = {}
         for key, where in PIPELINE_STEPS:
             pipeline_counts[key] = await _pipe_count(*where)
             pipeline_by_entity[key] = await _pipe_count_by_entity(*where)
+            pipeline_by_location[key] = await _pipe_count_by_location(*where)
     except Exception:
         _log.exception("pipeline_counts failed")
         pipeline_counts = {k: 0 for k, _ in PIPELINE_STEPS}
         pipeline_by_entity = {k: {} for k, _ in PIPELINE_STEPS}
+        pipeline_by_location = {k: {} for k, _ in PIPELINE_STEPS}
 
     entity_choices = await entity_values(db)
     device_type_choices = await master_values(db, "device_type")
@@ -881,6 +925,7 @@ async def dashboard(
         "stage_counts": filtered_stage_counts,
         "pipeline_counts": pipeline_counts,
         "pipeline_by_entity": pipeline_by_entity,
+        "pipeline_by_location": pipeline_by_location,
         "entity_choices": entity_choices,
         "f_entity": entity,
         "device_type_choices": device_type_choices,

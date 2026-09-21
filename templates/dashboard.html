@@ -24,6 +24,8 @@
      text further or letting it wrap to a second line. */
   .split-entity-detail{font-size:12px; line-height:1.35}
   .split-entity-detail div{white-space:nowrap}
+  .split-location-detail{font-size:12px; line-height:1.35}
+  .split-location-detail div{white-space:nowrap}
   .pipeline-row.split-active .pipeline-tile{min-width:118px}
 </style>
 {% endblock %}
@@ -227,6 +229,9 @@
     <button type="button" id="splitEntityToggle" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-diagram-2 me-1"></i>Split Entity
     </button>
+    <button type="button" id="splitLocationToggle" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-geo-alt me-1"></i>Split Location
+    </button>
     <span class="text-muted small ms-auto">Live counts — click to filter devices</span>
   </div>
   <div class="card-body py-3">
@@ -262,6 +267,14 @@
             {% endfor %}
           </div>
           {% endif %}
+          {% set by_loc = pipeline_by_location.get(key, {}) %}
+          {% if by_loc %}
+          <div class="split-location-detail d-none small text-muted mt-1 text-start">
+            {% for loc, cnt in by_loc.items() %}
+            <div>{{ loc }}: <strong>{{ cnt }}</strong></div>
+            {% endfor %}
+          </div>
+          {% endif %}
         </div>
       </a>
       {% if not loop.last %}
@@ -283,19 +296,40 @@
 </div>
 <script>
 (function () {
-  var btn = document.getElementById('splitEntityToggle');
-  if (!btn) return;
-  btn.addEventListener('click', function () {
-    var on = btn.classList.toggle('active');
-    document.querySelectorAll('.split-entity-detail').forEach(function (el) {
-      el.classList.toggle('d-none', !on);
+  var row = document.querySelector('.pipeline-row');
+  function updateRowWidth() {
+    if (!row) return;
+    var anyOn = document.querySelectorAll('.split-entity-detail:not(.d-none), .split-location-detail:not(.d-none)').length > 0;
+    row.classList.toggle('split-active', anyOn);
+  }
+
+  var entBtn = document.getElementById('splitEntityToggle');
+  if (entBtn) {
+    entBtn.addEventListener('click', function () {
+      var on = entBtn.classList.toggle('active');
+      document.querySelectorAll('.split-entity-detail').forEach(function (el) {
+        el.classList.toggle('d-none', !on);
+      });
+      updateRowWidth();
+      entBtn.innerHTML = on
+        ? '<i class="bi bi-diagram-2 me-1"></i>Split Entity: On'
+        : '<i class="bi bi-diagram-2 me-1"></i>Split Entity';
     });
-    var row = document.querySelector('.pipeline-row');
-    if (row) row.classList.toggle('split-active', on);
-    btn.innerHTML = on
-      ? '<i class="bi bi-diagram-2 me-1"></i>Split Entity: On'
-      : '<i class="bi bi-diagram-2 me-1"></i>Split Entity';
-  });
+  }
+
+  var locBtn = document.getElementById('splitLocationToggle');
+  if (locBtn) {
+    locBtn.addEventListener('click', function () {
+      var on = locBtn.classList.toggle('active');
+      document.querySelectorAll('.split-location-detail').forEach(function (el) {
+        el.classList.toggle('d-none', !on);
+      });
+      updateRowWidth();
+      locBtn.innerHTML = on
+        ? '<i class="bi bi-geo-alt me-1"></i>Split Location: On'
+        : '<i class="bi bi-geo-alt me-1"></i>Split Location';
+    });
+  }
 })();
 </script>
 {% endmacro %}

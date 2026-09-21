@@ -76,8 +76,16 @@ STAGE_LABELS = {
 # replaced the old l1->l2->l3 ladder; see routers/repair.py's STAGE_MAP/
 # NEXT_STAGE comments) that no device is ever newly moved into, so it stays
 # out of every stage-picking UI while remaining a valid enum member for any
-# device still sitting in it historically.
-DROPDOWN_STAGES = [s for s in DeviceStage if s != DeviceStage.l2]
+# device still sitting in it historically. `sold` is excluded too (2026-09-21):
+# this list feeds every generic "move device to any stage" tool (Manual Stage
+# Movement, the IQC/Bulk Customise modal's bulk Move-to-Stage) — none of them
+# create the Sale row that "sold" actually requires, so picking it there
+# orphans the device at current_stage=sold with zero matching Sale records,
+# which then makes Process Return fail with "No sale found for this device"
+# for a tag that was never really sold. Selling only ever happens through the
+# real Sale-creation flow (routers/sales.py mark_sold), which sets this stage
+# itself alongside the Sale row — it doesn't need this dropdown at all.
+DROPDOWN_STAGES = [s for s in DeviceStage if s not in (DeviceStage.l2, DeviceStage.sold)]
 
 # The paint-line stages plus Putty, grouped as "Cosmetic" wherever the app
 # needs one count/filter for that whole phase (Dashboard's Stage Pipeline,

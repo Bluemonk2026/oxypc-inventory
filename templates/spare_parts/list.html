@@ -607,7 +607,10 @@
        search box initGlobalTable already provides. #}
     <span id="pcCounts" class="d-none text-muted small">{{ tag_consumption_tag_count }} tag(s), {{ tag_consumption_rows|length }} part row(s)</span>
     <button id="pcExportBtn" type="button" class="d-none btn btn-outline-secondary btn-sm" onclick="spExport('partsConsumptionTable',false)">
-      <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
+      <i class="bi bi-file-earmark-arrow-down me-1"></i>Tags Summary
+    </button>
+    <button id="pcExportPartsSummaryBtn" type="button" class="d-none btn btn-outline-secondary btn-sm" onclick="spExportPartsSummary()">
+      <i class="bi bi-file-earmark-arrow-down me-1"></i>Parts Summary
     </button>
     {# No .table-responsive wrapper — initGlobalTable's own scrollX owns
        horizontal scrolling (Global Table convention, see templates/devices/
@@ -1036,47 +1039,95 @@ document.querySelectorAll('#sparePartsTabs button').forEach(btn => {
 });
 
 // ── Export utility ─────────────────────────────────────────────────────────
-function spExport(tableId, selectedOnly) {
+function _csvCell(v) {
+  return '"' + String(v).trim().replace(/\s+/g, ' ').replace(/"/g, '""') + '"';
+}
+function _downloadCsv(filename, headerCells, rowsOfCells) {
+  if (!rowsOfCells.length) { alert('No rows to export.'); return; }
+  var headers = headerCells.map(_csvCell);
+  var rows = rowsOfCells.map(function(cells) { return cells.map(_csvCell).join(','); });
+  var csv = [headers.join(',')].concat(rows).join('\r\n');
+  var a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent('﻿' + csv);
+  a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+// Reads every row of a Global Table (DataTables-backed), temporarily showing
+// all pages so rows outside the current page aren't missed, then restores
+// the page length the user had picked. Returns raw <td> text, unquoted.
+function _readAllTableRows(tableId) {
   var table = document.getElementById(tableId);
-  if (!table) return;
-  // A Global Table (e.g. Parts Consumption) only keeps its CURRENT page's
-  // rows in the DOM — show every filtered row before reading it below, then
-  // restore the page length the user had picked.
+  if (!table) return {headers: [], rows: []};
   var isDt = window.jQuery && $.fn.dataTable && $.fn.dataTable.isDataTable('#' + tableId);
   var dt = isDt ? $('#' + tableId).DataTable() : null;
   var restorePageLen = dt ? dt.page.len() : null;
   if (dt) dt.page.len(-1).draw(false);
+  var ths = Array.from(table.querySelectorAll('thead th'));
+  var headers = ths.map(function(th) { return th.textContent.trim(); });
+  var rows = [];
+  table.querySelectorAll('tbody tr').forEach(function(tr) {
+    if (tr.cells.length <= 1) return;
+    rows.push(Array.from(tr.cells).map(function(td) { return td.textContent.trim().replace(/\s+/g, ' '); }));
+  });
+  if (dt) dt.page.len(restorePageLen).draw(false);
+  return {headers: headers, rows: rows};
+}
+function spExport(tableId, selectedOnly) {
+  var table = document.getElementById(tableId);
+  if (!table) return;
+  var all = _readAllTableRows(tableId);
   var ths = Array.from(table.querySelectorAll('thead th'));
   // Only skip the first column when it's the select-all checkbox column —
   // tables without row checkboxes (e.g. Parts Consumption) start their first
   // real header right there and must not lose it to a hardcoded skip.
   var skipFirst = !!ths[0].querySelector('input');
   var startIdx = skipFirst ? 1 : 0;
-  var lastTxt = ths[ths.length - 1].textContent.trim().toLowerCase();
+  var lastTxt = all.headers[all.headers.length - 1].toLowerCase();
   var skipLast = (lastTxt === 'action' || lastTxt === 'actions');
-  var endIdx = skipLast ? ths.length - 1 : ths.length;
-  var headers = ths.slice(startIdx, endIdx).map(function(th) {
-    return '"' + th.textContent.trim().replace(/"/g, '""') + '"';
-  });
+  var endIdx = skipLast ? all.headers.length - 1 : all.headers.length;
+  var headers = all.headers.slice(startIdx, endIdx);
+  // Filtered the same way _readAllTableRows built all.rows, so index i lines
+  // up between the two arrays (an empty-state colspan placeholder row would
+  // otherwise desync them).
+  var trs = Array.from(table.querySelectorAll('tbody tr')).filter(function(tr) { return tr.cells.length > 1; });
   var rows = [];
-  table.querySelectorAll('tbody tr').forEach(function(tr) {
-    if (tr.cells.length <= 1) return;
+  all.rows.forEach(function(cells, i) {
     if (selectedOnly) {
-      var cb = tr.querySelector('input.sp-cb');
+      var cb = trs[i] ? trs[i].querySelector('input.sp-cb') : null;
       if (!cb || !cb.checked) return;
     }
-    var cells = Array.from(tr.cells).slice(startIdx, endIdx);
-    rows.push(cells.map(function(td) {
-      return '"' + td.textContent.trim().replace(/\s+/g, ' ').replace(/"/g, '""') + '"';
-    }).join(','));
+    rows.push(cells.slice(startIdx, endIdx));
   });
-  if (dt) dt.page.len(restorePageLen).draw(false);
-  if (!rows.length) { alert('No rows to export.'); return; }
-  var csv = [headers.join(',')].concat(rows).join('\r\n');
-  var a = document.createElement('a');
-  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent('﻿' + csv);
-  a.download = tableId + '.csv';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  _downloadCsv(tableId + '.csv', headers, rows);
+}
+// Parts Summary — aggregates the Parts Consumption table (one row per
+// tag x part) into one row per distinct Part Name: total quantity consumed
+// across every tag it was used on, its unit price, and unit price x qty.
+function spExportPartsSummary() {
+  var all = _readAllTableRows('partsConsumptionTable');
+  var idx = {
+    part: all.headers.indexOf('Part Name Used'),
+    qty: all.headers.indexOf('Total Part Changed'),
+    unitPrice: all.headers.indexOf('Unit Price'),
+  };
+  if (idx.part < 0 || idx.qty < 0 || idx.unitPrice < 0) { alert('Parts Consumption table layout not recognized.'); return; }
+  function toNumber(s) { return parseFloat(String(s).replace(/[^0-9.\-]/g, '')) || 0; }
+  var byPart = {};
+  var order = [];
+  all.rows.forEach(function(cells) {
+    var name = cells[idx.part] || '—';
+    var qty = toNumber(cells[idx.qty]);
+    var unitPrice = toNumber(cells[idx.unitPrice]);
+    if (!byPart[name]) { byPart[name] = {qty: 0, unitPrice: unitPrice}; order.push(name); }
+    byPart[name].qty += qty;
+  });
+  var rows = order.map(function(name) {
+    var p = byPart[name];
+    var total = p.unitPrice * p.qty;
+    return [name, String(p.qty), '₹' + p.unitPrice.toFixed(2), '₹' + total.toFixed(2)];
+  });
+  _downloadCsv('parts_summary.csv',
+    ['Part Name', 'Part Count', 'Unit Price', 'Total Part Price'], rows);
 }
 
 // Sourcing Request Verify modal (#4)
@@ -1324,5 +1375,6 @@ initGlobalTable('#partsConsumptionTable', {
 });
 $('#pcCountArea').append($('#pcCounts').removeClass('d-none'));
 $('#pcExportArea').append($('#pcExportBtn').removeClass('d-none'));
+$('#pcExportArea').append($('#pcExportPartsSummaryBtn').removeClass('d-none'));
 </script>
 {% endblock %}

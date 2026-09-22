@@ -1262,6 +1262,44 @@ async def manage_lots(
 
     stocked = await _stocked_map(db, test_grns)
 
+    # Per-lot mapped-device count, for the Lot Number(s) popup — a breakdown
+    # of the aggregate Stocked figure above by which specific Lot each mapped
+    # device actually belongs to (Device.lot_id), not just "any lot under
+    # this GRN". "Mapped" = grn_number is set at all, same definition the
+    # Asset IQC tab's own Mapped/Unmapped badge uses.
+    all_lot_ids = [l.id for lots in lots_by_grn.values() for l in lots]
+    lot_mapped_counts: dict = {}
+    if all_lot_ids:
+        mapped_rows = (await db.execute(
+            select(Device.lot_id, func.count(Device.id))
+            .where(Device.lot_id.in_(all_lot_ids),
+                   Device.grn_number.isnot(None), Device.grn_number != "",
+                   Device.is_active == True, Device.is_trashed == False)
+            .group_by(Device.lot_id)
+        )).all()
+        lot_mapped_counts = {str(lid): c for lid, c in mapped_rows}
+
+    # JSON-serializable form for the "N Lots" popup — id + lot_number + mapped
+    # count only (Lot itself isn't JSON-safe to dump into a data attribute).
+    lots_json = {
+        grn_number: [
+            {"id": str(l.id), "lot_number": l.lot_number,
+             "mapped": lot_mapped_counts.get(str(l.id), 0)}
+            for l in lots
+        ]
+        for grn_number, lots in lots_by_grn.items()
+    }
+
+    # Reverse of lots_by_grn — which GRN (if any) a given Lot Number is
+    # mapped to, for the Asset IQC tab's GRN column. A Lot Number could in
+    # theory be listed under more than one GRN row; last-write-wins here is
+    # fine since Add/Edit Lot itself only ever lets one GRN claim a given
+    # Lot Number at a time (create-or-merge, not multi-assign).
+    lot_number_to_grn = {}
+    for grn_number, lots in lots_by_grn.items():
+        for l in lots:
+            lot_number_to_grn[l.lot_number] = grn_number
+
     # ── Tab 2: Asset IQC ─────────────────────────────────────────────────
     device_rows = (await db.execute(
         select(Device, Lot.lot_number)
@@ -1269,11 +1307,13 @@ async def manage_lots(
         .where(Device.entity == EXTERNAL_PARTNER_TEST_ENTITY)
         .order_by(Device.created_at.desc())
     )).all()
-    test_devices = [{"device": d, "lot_number": ln} for d, ln in device_rows]
+    test_devices = [{"device": d, "lot_number": ln,
+                     "matched_grn": lot_number_to_grn.get(ln)} for d, ln in device_rows]
 
     return templates.TemplateResponse("trade_partner/manage_lots.html", {
         "request": request, "current_user": current_user,
         "test_grns": test_grns, "lots_by_grn": lots_by_grn, "stocked": stocked,
+        "lots_json": lots_json,
         "test_devices": test_devices,
         "test_entity_name": EXTERNAL_PARTNER_TEST_ENTITY,
         "test_lot_prefix": EXTERNAL_PARTNER_TEST_LOT_PREFIX,
@@ -1282,6 +1322,38 @@ async def manage_lots(
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
     })
+
+
+@router.post("/manage-lots/map-grn")
+async def manage_lots_map_grn(
+    request: Request,
+    barcode: str = Form(...),
+    grn_number: str = Form(...),
+    _csrf=Depends(verify_csrf),
+    current_user: User = Depends(require_module_perm("trade_partner_manage_lots", "edit")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Asset IQC tab's per-row "Map" action — writes the GRN this device's
+    Lot Number is already mapped to (in the GRN & Lot tab) onto the device's
+    own grn_number field, so it counts under that GRN's Stocked figure
+    (routers/grn.py's _stocked_map — the same mechanism the live GRN
+    Post-IQC page uses; nothing test-specific about it beyond scoping the
+    device lookup to the test entity)."""
+    device = (await db.execute(
+        select(Device).where(func.upper(Device.barcode) == barcode.strip().upper(),
+                             Device.entity == EXTERNAL_PARTNER_TEST_ENTITY)
+    )).scalar_one_or_none()
+    if not device:
+        return RedirectResponse(url="/trade-partner/manage-lots?error=Test+device+not+found", status_code=302)
+    device.grn_number = grn_number.strip()
+    await audit(db, action="MANAGE_LOTS_GRN_MAPPED", user=current_user,
+                table_name="devices", record_id=str(device.id),
+                new_value={"barcode": device.barcode, "grn_number": grn_number.strip()},
+                request=request)
+    await db.commit()
+    return RedirectResponse(
+        url=f"/trade-partner/manage-lots?success={quote_plus(f'{device.barcode} mapped to GRN {grn_number.strip()}')}",
+        status_code=302)
 
 
 async def _grant_lot_visibility(db: AsyncSession, lot_ids: list[str],

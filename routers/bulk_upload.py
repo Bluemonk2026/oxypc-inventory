@@ -68,6 +68,21 @@ IQC_INSPECTION_FIELDS = [
 ]
 DEVICE_CSV_HEADERS = DEVICE_CORE_FIELDS + DEVICE_REST_FIELDS + IQC_INSPECTION_FIELDS
 
+# Manage Lots (External Partner test data) "Bulk Upload IQC" template — same
+# fields as the live devices template, minus "entity" (that page always
+# force-sets entity server-side, see upload_devices' force_entity param) and
+# reordered: lot_number first, then everything else in its usual order, with
+# qty/warehouse/grn_number/invoice_number/device_price pushed to the very
+# end. Parsing itself is header-name-based (_row_get), not positional, so
+# this reordering needs no parser changes — same DEVICE_CSV_HEADERS fields,
+# different column order.
+_TEST_PARTNER_TRAILING_FIELDS = ["qty", "warehouse", "grn_number", "invoice_number", "device_price"]
+DEVICE_CSV_HEADERS_TEST_PARTNER = (
+    ["lot_number"]
+    + [h for h in DEVICE_CSV_HEADERS if h not in (["entity", "lot_number"] + _TEST_PARTNER_TRAILING_FIELDS)]
+    + _TEST_PARTNER_TRAILING_FIELDS
+)
+
 # Header aliases accepted for the tag-number column on IQC upload — the
 # template ships "Tag No" but hand-built CSVs from other systems commonly
 # use one of these instead.
@@ -229,6 +244,14 @@ TEMPLATES = {
             for h in DEVICE_CSV_HEADERS
         ],
     },
+    "devices_test_partner": {
+        "filename": "devices_test_partner_template.csv",
+        "headers": DEVICE_CSV_HEADERS_TEST_PARTNER,
+        "example": [
+            _DEVICE_EXAMPLE_MAP.get(h, _IQC_EXAMPLE_MAP.get(h, ""))
+            for h in DEVICE_CSV_HEADERS_TEST_PARTNER
+        ],
+    },
     "spare_parts": {
         "filename": "spare_parts_template.csv",
         "headers": ["part_code", "name", "category", "unit_price", "min_stock_alert", "supplier", "notes"],
@@ -385,6 +408,7 @@ async def upload_lots(
 async def upload_devices(
     request: Request,
     file: UploadFile = File(...),
+    force_entity: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
 ):
@@ -447,6 +471,11 @@ async def upload_devices(
     # breakdown on All Inventory. Blank is allowed — unassigned is a valid
     # state, and entity can still be set later via Customise or Entity Movement.
     entity_lookup = {e.lower(): e for e in await entity_values(db)}
+    # Manage Lots' "Bulk Upload IQC" form (External Partner test data) posts
+    # this so every row lands on that entity regardless of whether the file
+    # even has an "entity" column — the test-partner template intentionally
+    # drops that column (see DEVICE_CSV_HEADERS_TEST_PARTNER).
+    forced_entity_val = entity_lookup.get(force_entity.strip().lower()) if force_entity.strip() else None
 
     for i, row in enumerate(reader, start=2):
         try:
@@ -478,14 +507,17 @@ async def upload_devices(
                     "row": {k: (v or "") for k, v in row.items()},
                 })
                 continue
-            entity_raw = _s(row, "entity")
-            if entity_raw and entity_raw.lower() not in entity_lookup:
-                errors.append(
-                    f"Row {i}: entity '{entity_raw}' not recognised — "
-                    f"expected one of: {', '.join(entity_lookup.values()) or '(none configured)'}"
-                )
-                continue
-            entity_val = entity_lookup.get(entity_raw.lower()) if entity_raw else None
+            if forced_entity_val:
+                entity_val = forced_entity_val
+            else:
+                entity_raw = _s(row, "entity")
+                if entity_raw and entity_raw.lower() not in entity_lookup:
+                    errors.append(
+                        f"Row {i}: entity '{entity_raw}' not recognised — "
+                        f"expected one of: {', '.join(entity_lookup.values()) or '(none configured)'}"
+                    )
+                    continue
+                entity_val = entity_lookup.get(entity_raw.lower()) if entity_raw else None
 
             lot_number = _s(row, "lot_number")
             lot_id = lot_map.get(lot_number)

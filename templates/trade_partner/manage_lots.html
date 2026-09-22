@@ -58,7 +58,10 @@
               <td class="ps-3"><span class="font-monospace fw-bold">{{ g.grn_number }}</span></td>
               <td>
                 {% if _lots %}
-                {% for l in _lots %}<a href="/lots/{{ l.id }}" class="font-monospace text-decoration-none d-block">{{ l.lot_number }}</a>{% endfor %}
+                <button type="button" class="btn btn-sm btn-link p-0 fw-semibold text-decoration-none lot-count-btn"
+                        data-grn="{{ g.grn_number }}">
+                  {{ _lots | length }} Lot{{ 's' if _lots | length != 1 else '' }}
+                </button>
                 {% else %}<span class="text-muted">—</span>{% endif %}
               </td>
               <td>{{ g.invoice_number or '—' }}</td>
@@ -111,56 +114,104 @@
     </div>
   </div>
 
-</div>
-<div class="tab-pane fade" id="assetIqcTab">
-
-  <div class="row g-3 mb-3">
-    <div class="col-md-5">
-      <div class="card border-0 shadow-sm h-100">
-        <div class="card-header bg-transparent fw-semibold">Upload Devices (IQC)</div>
-        <div class="card-body">
-          <p class="text-muted small mb-2">Same Bulk Upload used for live intake — uploads straight into IQC stage.</p>
-          <p class="small"><strong>Required columns:</strong> barcode, lot_number (must already exist — see GRN &amp; Lot tab), brand, model</p>
-          <p class="small">Set the <strong>Entity</strong> column to <code>{{ test_entity_name }}</code> on every row.</p>
-          <a href="/bulk-upload/template/devices" class="btn btn-sm btn-outline-secondary mb-3">
-            <i class="bi bi-download me-1"></i>Download Template
-          </a>
-          <form action="/bulk-upload/devices" method="post" enctype="multipart/form-data">
-            <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
-            <div class="mb-3">
-              <label class="form-label fw-semibold">CSV File</label>
-              <input type="file" name="file" class="form-control" accept=".csv" required>
-            </div>
-            <button type="submit" class="btn btn-primary w-100"><i class="bi bi-upload me-2"></i>Upload Devices</button>
-          </form>
+  <!-- Mapped Lots modal — opened from the Lot Number(s) column's "N Lots" count -->
+  <div class="modal fade" id="lotListModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-box-seam me-2"></i>Mapped Lots</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <ul class="list-group" id="lotListItems"></ul>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
         </div>
       </div>
     </div>
-    <div class="col-md-7">
-      <div class="card border-0 shadow-sm h-100">
-        <div class="card-header bg-transparent fw-semibold"><i class="bi bi-list-check me-2"></i>Test Assets ({{ test_entity_name }})</div>
-        <div class="card-body p-0">
-          <div class="table-responsive" style="max-height:420px; overflow-y:auto">
-            <table class="table table-hover mb-0 small align-middle">
-              <thead class="table-dark">
-                <tr><th class="ps-3">Barcode</th><th>Lot Number</th><th>Brand / Model</th><th>Stage</th><th>Uploaded</th></tr>
-              </thead>
-              <tbody>
-                {% for row in test_devices %}
-                <tr>
-                  <td class="ps-3"><a href="/devices/{{ row.device.barcode }}" class="font-monospace text-decoration-none">{{ row.device.barcode }}</a></td>
-                  <td class="font-monospace small">{{ row.lot_number or '—' }}</td>
-                  <td>{{ row.device.brand or '—' }} {{ row.device.model or '' }}</td>
-                  <td><span class="badge bg-secondary">{{ stage_labels.get(row.device.current_stage, row.device.current_stage.value) }}</span></td>
-                  <td class="text-muted small">{{ row.device.created_at.strftime('%d-%m-%Y') if row.device.created_at else '—' }}</td>
-                </tr>
-                {% else %}
-                <tr><td colspan="5" class="text-center text-muted py-4">No test assets uploaded yet.</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
+  </div>
+
+</div>
+<div class="tab-pane fade" id="assetIqcTab">
+
+  <div class="card border-0 shadow-sm mb-3">
+    <div class="card-header bg-transparent fw-semibold">Upload Devices (IQC)</div>
+    <div class="card-body">
+      <p class="small mb-3">Entity is set to <code>{{ test_entity_name }}</code> automatically; the template has no
+        Entity column. <strong>Required columns:</strong> lot_number (must already exist — see GRN &amp; Lot tab), barcode, brand, model</p>
+      <form action="/bulk-upload/devices" method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+        <input type="hidden" name="force_entity" value="{{ test_entity_name }}">
+        <div class="col-auto">
+          <a href="/bulk-upload/template/devices_test_partner" class="btn btn-outline-secondary">
+            <i class="bi bi-download me-1"></i>Download CSV Template
+          </a>
         </div>
+        <div class="col-md-5">
+          <input type="file" name="file" class="form-control" accept=".csv" required>
+        </div>
+        <div class="col-auto">
+          <button type="submit" class="btn btn-primary"><i class="bi bi-upload me-2"></i>Upload Devices</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card border-0 shadow-sm mb-3">
+    <div class="card-header bg-transparent fw-semibold"><i class="bi bi-list-check me-2"></i>Test Assets ({{ test_entity_name }})</div>
+    <div class="card-body p-0">
+      <div class="table-responsive" style="max-height:520px; overflow-y:auto">
+        <table class="table table-hover mb-0 small align-middle">
+          <thead class="table-dark">
+            <tr>
+              <th class="ps-3">Barcode</th><th>Lot Number</th><th>Brand / Model</th>
+              <th>CPU</th><th>Gen</th><th>RAM</th><th>Storage</th>
+              <th>Stage</th><th>Uploaded</th><th>GRN</th><th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in test_devices %}
+            {% set d = row.device %}
+            {% set _mapped = row.matched_grn and d.grn_number == row.matched_grn %}
+            <tr>
+              <td class="ps-3"><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
+              <td class="font-monospace small">{{ row.lot_number or '—' }}</td>
+              <td>{{ d.brand or '—' }} {{ d.model or '' }}</td>
+              <td>{{ d.cpu or '—' }}</td>
+              <td>{{ d.generation or '—' }}</td>
+              <td>{{ (d.ram_gb ~ ' GB') if d.ram_gb else '—' }}</td>
+              <td>{{ (d.storage_gb ~ ' GB' ~ (' ' ~ d.storage_type if d.storage_type else '')) if d.storage_gb else '—' }}</td>
+              <td><span class="badge bg-secondary">{{ stage_labels.get(d.current_stage, d.current_stage.value) }}</span></td>
+              <td class="text-muted small">{{ d.created_at.strftime('%d-%m-%Y') if d.created_at else '—' }}</td>
+              <td>
+                {% if row.matched_grn %}
+                <div class="font-monospace small">{{ row.matched_grn }}</div>
+                <span class="badge bg-{{ 'success' if _mapped else 'secondary' }}">{{ 'Mapped' if _mapped else 'Unmapped' }}</span>
+                {% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td class="text-nowrap">
+                {% if row.matched_grn and not _mapped %}
+                <form method="post" action="/trade-partner/manage-lots/map-grn" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                  <input type="hidden" name="barcode" value="{{ d.barcode }}">
+                  <input type="hidden" name="grn_number" value="{{ row.matched_grn }}">
+                  <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2">
+                    <i class="bi bi-link-45deg"></i> Map
+                  </button>
+                </form>
+                {% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="11" class="text-center text-muted py-4">No test assets uploaded yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -324,6 +375,34 @@ if (em) { em.addEventListener('show.bs.modal', function(e){
   document.getElementById('e_eway').value = b.getAttribute('data-eway') || '';
   document.getElementById('e_notes').value = b.getAttribute('data-notes') || '';
 });}
+
+// Mapped Lots popup — opened from the Lot Number(s) column's "N Lots" count.
+// Each lot shows its per-lot Mapped device count (a breakdown of the
+// aggregate Stocked figure by which specific Lot the mapped device is in),
+// same "Mapped" definition the Asset IQC tab's own badge uses (grn_number set).
+var lotsByGrn = {{ (lots_json if lots_json is defined else {}) | tojson }};
+document.querySelectorAll('.lot-count-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var lots = lotsByGrn[this.getAttribute('data-grn')] || [];
+    var list = document.getElementById('lotListItems');
+    list.innerHTML = '';
+    lots.forEach(function(l){
+      var li = document.createElement('li');
+      li.className = 'list-group-item d-flex justify-content-between align-items-center';
+      var a = document.createElement('a');
+      a.href = '/lots/' + l.id;
+      a.className = 'text-decoration-none fw-semibold font-monospace';
+      a.textContent = l.lot_number;
+      var badge = document.createElement('span');
+      badge.className = 'badge ' + (l.mapped > 0 ? 'bg-success' : 'bg-secondary');
+      badge.textContent = l.mapped + ' mapped';
+      li.appendChild(a);
+      li.appendChild(badge);
+      list.appendChild(li);
+    });
+    new bootstrap.Modal(document.getElementById('lotListModal')).show();
+  });
+});
 
 // Add/Edit Lot modal — one row per Lot Number, same logic as GRN & Lot
 // (Post-IQC) page: create-or-merge per row, confirm-merge for an existing

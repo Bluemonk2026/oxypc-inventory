@@ -187,6 +187,12 @@ class Device(Base):
     # Post-IQC's "Yes As-Is" modal — both bulk-write this across every Tag
     # Number they apply to, distinct from the device's actual Lot Number.
     sub_lot_number = Column(String(50), nullable=True)
+    # Ready to Sale "As-Is Lot" table's Edit modal (2026-09-22) — bulk-set
+    # together across every Tag Number sharing the same (lot_id, sub_lot_number)
+    # pair, same write pattern as sub_lot_number above. Blank until first set;
+    # no default/computed value.
+    min_selling_price = Column(Numeric(12, 2), nullable=True)
+    max_selling_price = Column(Numeric(12, 2), nullable=True)
     # ── L1/L2 → L3/L4 status-driven hand-off flow (additive; auto-provisioned by db_validator) ──
     l1l2_status = Column(String(30), nullable=True, default="New")   # New | Repair Started | Requested to L3/L4
     l34_status  = Column(String(30), nullable=True)                  # (blank) | Repair Started | Completed | Normal Scrap | Replacement Scrap

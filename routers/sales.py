@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import csv
 import io
-from sqlalchemy import select, func, text, or_
+from sqlalchemy import select, func, text, or_, update
 from fastapi.responses import StreamingResponse
 
 from database import get_db
@@ -309,12 +309,111 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
     from routers.dispatch import _build_lot_overview
     lot_overview = await _build_lot_overview(db)
 
+    # ── Ready to Sale As-Is Lot: one row per (Lot, Sub-Lot) pair that
+    # currently has ready-to-sale stock. Built from `devices` above (already
+    # stage-filtered) for Availability/Device Type/Min-Max Price, plus one
+    # extra query for Total Quantities — the same (lot_id, sub_lot_number)
+    # pair's device count across EVERY stage, not just ready-to-sale. ───────
+    as_is_groups: dict = {}
+    for device, lot_number, *_rest in devices:
+        if not device.sub_lot_number:
+            continue
+        key = (device.lot_id, device.sub_lot_number)
+        g = as_is_groups.setdefault(key, {
+            "lot_number": lot_number, "device_types": set(),
+            "models": set(), "cpus": set(), "rams": set(), "storages": set(),
+            "availability": 0, "barcodes": [], "min_prices": [], "max_prices": [],
+        })
+        g["device_types"].add(device.device_type or "—")
+        if device.model:
+            g["models"].add(device.model)
+        if device.cpu:
+            g["cpus"].add(device.cpu)
+        if device.ram_gb:
+            g["rams"].add(f"{device.ram_gb} GB")
+        if device.storage_gb:
+            g["storages"].add(f"{device.storage_gb} GB" + (f" {device.storage_type}" if device.storage_type else ""))
+        g["availability"] += 1
+        g["barcodes"].append(device.barcode)
+        if device.min_selling_price is not None:
+            g["min_prices"].append(float(device.min_selling_price))
+        if device.max_selling_price is not None:
+            g["max_prices"].append(float(device.max_selling_price))
+
+    as_is_lots = []
+    if as_is_groups:
+        lot_ids = list({lid for lid, _ in as_is_groups.keys()})
+        total_rows = (await db.execute(
+            select(Device.lot_id, Device.sub_lot_number, func.count(Device.id))
+            .where(Device.lot_id.in_(lot_ids), Device.sub_lot_number.isnot(None),
+                   Device.sub_lot_number != "", Device.is_active == True)  # noqa: E712
+            .group_by(Device.lot_id, Device.sub_lot_number)
+        )).all()
+        total_map = {(lid, sl): c for lid, sl, c in total_rows}
+        for (lot_id, sub_lot), g in as_is_groups.items():
+            as_is_lots.append({
+                "lot_id": str(lot_id), "lot_number": g["lot_number"],
+                "sub_lot_number": sub_lot,
+                "device_type": ", ".join(sorted(g["device_types"])),
+                "model": ", ".join(sorted(g["models"])),
+                "cpu": ", ".join(sorted(g["cpus"])),
+                "ram": ", ".join(sorted(g["rams"])),
+                "storage": ", ".join(sorted(g["storages"])),
+                "total_qty": total_map.get((lot_id, sub_lot), g["availability"]),
+                "availability": g["availability"],
+                "min_price": min(g["min_prices"]) if g["min_prices"] else None,
+                "max_price": max(g["max_prices"]) if g["max_prices"] else None,
+                "barcodes": g["barcodes"],
+            })
+        as_is_lots.sort(key=lambda r: (r["lot_number"] or "", r["sub_lot_number"] or ""))
+
     return templates.TemplateResponse("sales/ready_list.html", {
         "request": request, "devices": devices, "current_user": current_user,
         "interested_dealers": interested_dealers,
         "model_summary_ready": model_summary_ready,
         "lot_overview": lot_overview,
+        "as_is_lots": as_is_lots,
     })
+
+
+@router.post("/sales/ready/as-is-lot/price")
+async def set_as_is_lot_price(
+    request: Request,
+    lot_id: str = Form(...),
+    sub_lot_number: str = Form(...),
+    min_selling_price: str = Form(""),
+    max_selling_price: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Ready to Sale As-Is Lot table's Edit modal — bulk-writes Min/Max
+    Selling Price across every Tag Number sharing this (Lot, Sub-Lot) pair,
+    same bulk-write shape as the Sub-Lot Number features it builds on."""
+    try:
+        lid = _uuid.UUID(lot_id)
+    except ValueError:
+        return RedirectResponse(url="/sales/ready?error=Invalid+lot", status_code=302)
+    sub_lot = sub_lot_number.strip()
+    if not sub_lot:
+        return RedirectResponse(url="/sales/ready?error=Missing+Sub-Lot+Number", status_code=302)
+    try:
+        min_val = Decimal(min_selling_price) if min_selling_price.strip() else None
+        max_val = Decimal(max_selling_price) if max_selling_price.strip() else None
+    except Exception:
+        return RedirectResponse(url="/sales/ready?error=Invalid+price", status_code=302)
+
+    result = await db.execute(
+        update(Device).where(Device.lot_id == lid, Device.sub_lot_number == sub_lot)
+        .values(min_selling_price=min_val, max_selling_price=max_val)
+    )
+    await audit(db, user=current_user, action="AS_IS_LOT_PRICE_SET",
+                table_name="devices", record_id=f"{lot_id}:{sub_lot}",
+                new_value={"min_selling_price": str(min_val) if min_val is not None else None,
+                           "max_selling_price": str(max_val) if max_val is not None else None,
+                           "tags_updated": result.rowcount},
+                request=request)
+    await db.commit()
+    return RedirectResponse(url="/sales/ready?success=Selling+price+updated", status_code=302)
 
 
 @router.post("/sales/ready/upload-tags")

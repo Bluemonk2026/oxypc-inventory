@@ -14,6 +14,7 @@ from sqlalchemy import select, or_, func, and_, update, case
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceGrade, DeviceStage, StageMovement, STAGE_LABELS, DROPDOWN_STAGES
+from models.master import EXTERNAL_PARTNER_TEST_ENTITY
 from models.lot import Lot
 from models.repair import RepairJob, RepairStatus
 from models.qc import QCCheck
@@ -363,6 +364,15 @@ def _device_search_filters(q, stage, lot, grade, category, device_type, date_fro
         if len(real_vals) != len(entity_vals):
             clauses.append(or_(Device.entity.is_(None), Device.entity == ""))
         w.append(or_(*clauses))
+    else:
+        # No explicit Entity filter -> exclude the External Partner
+        # test-data entity by default (models/master.py
+        # EXTERNAL_PARTNER_TEST_ENTITY), same convention as
+        # routers/dashboard.py. An explicit filter that includes it (the
+        # `if entity_vals:` branch above) is respected as-is. NULL-safe:
+        # `entity != X` alone silently drops every entity-less ("Unassigned")
+        # device too, since SQL NULL != X evaluates to NULL, not TRUE.
+        w.append(or_(Device.entity.is_(None), Device.entity != EXTERNAL_PARTNER_TEST_ENTITY))
     # "Exclude Sold" filter — on by default so All Inventory shows live stock
     # rather than the full historical device list. Skipped when the user has
     # explicitly asked for the sold stage, which would otherwise return nothing.

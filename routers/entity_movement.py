@@ -15,6 +15,7 @@ from database import get_db
 from utils.timezone import app_now
 from models.user import User
 from models.device import Device, DeviceStage, StageMovement, TagNumberMovement, MovementDirection
+from models.master import EXTERNAL_PARTNER_TEST_ENTITY
 from utils.master_data import entity_values
 from auth.dependencies import get_current_user, require_module_perm, verify_csrf
 from services.audit_engine import audit
@@ -42,7 +43,11 @@ async def entity_movement_page(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
 ):
-    entity_list = await entity_values(db)
+    # External Partner test-data entity is excluded from this per-entity
+    # breakdown by default, same convention as dashboard/devices/stock — it
+    # stays active (Bulk Upload IQC validation depends on that) but is never
+    # shown mixed in with real entities here.
+    entity_list = [e for e in await entity_values(db) if e != EXTERNAL_PARTNER_TEST_ENTITY]
     counts = {}
     for e in entity_list:
         counts[e] = (await db.execute(

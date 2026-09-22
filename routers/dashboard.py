@@ -13,6 +13,7 @@ from utils.master_data import entity_values, report_year_values, master_values
 from services.business_pl import compute_year_parts_labour_cogs
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS, DROPDOWN_STAGES, COSMETIC_STAGES
+from models.master import EXTERNAL_PARTNER_TEST_ENTITY
 from models.engines import RepairAttempt
 from models.lot import Lot
 from models.sales import Sale
@@ -100,7 +101,17 @@ async def dashboard(
     # whether to serve the shared 30 s cache (no filters active — the common
     # case) or run a filtered query fresh (see _dash_filters_active below).
     entity_vals = [e.strip() for e in (entity or "").split(",") if e.strip()]
-    _ent = [Device.entity.in_(entity_vals)] if entity_vals else []
+    # No explicit Entity filter -> exclude the External Partner test-data
+    # entity by default (models/master.py EXTERNAL_PARTNER_TEST_ENTITY), so
+    # test GRN/Lot/Device records created via /trade-partner/manage-lots
+    # never inflate the default dashboard view. An admin who explicitly picks
+    # that entity still sees it (no exclusion added in that branch). Kept out
+    # of _dash_filters_active below (keyed off the raw parsed inputs, not
+    # _ent) so this baseline exclusion doesn't defeat the shared 30s cache.
+    # NULL-safe: `entity != X` alone silently drops every entity-less device
+    # too, since SQL NULL != X evaluates to NULL, not TRUE.
+    _ent = ([Device.entity.in_(entity_vals)] if entity_vals
+            else [or_(Device.entity.is_(None), Device.entity != EXTERNAL_PARTNER_TEST_ENTITY)])
 
     device_type_vals = [d.strip() for d in (device_type or "").split(",") if d.strip()]
     _dtype = [Device.device_type.in_(device_type_vals)] if device_type_vals else []
@@ -143,7 +154,10 @@ async def dashboard(
                 Device.location_id == loc_uuid,
             ),
         )]
-    _dash_filters_active = bool(_ent or _dtype or _loc)
+    # Keyed off the raw parsed inputs, not _ent (which is now never empty —
+    # see the EXTERNAL_PARTNER_TEST_ENTITY exclusion above), so the baseline
+    # test-entity exclusion doesn't itself defeat the shared 30s cache.
+    _dash_filters_active = bool(entity_vals or _dtype or _loc)
 
     # ── P&L From/To — scoped by each device's own "stage completed" date ────
     # A device is "completed" once it reaches a terminal stage: Sold (its

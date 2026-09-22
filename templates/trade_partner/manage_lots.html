@@ -1,9 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Manage Lots — External Partner{% endblock %}
 {% block page_title %}Manage Lots{% endblock %}
-{% block head %}
-<link rel="stylesheet" href="/static/vendor/tom-select/css/tom-select.bootstrap5.min.css">
-{% endblock %}
 {% block content %}
 
 {% if success %}
@@ -13,97 +10,118 @@
 <div class="alert alert-danger py-2"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
 {% endif %}
 
-<div class="card border-0 shadow-sm">
-  <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <span class="fw-semibold">
-      <i class="bi bi-box-seam me-2"></i>Lot Management — External Partner Visibility
-    </span>
-    <div class="d-flex align-items-center gap-2">
-      <span class="small text-muted" id="selCount">0 selected</span>
-      {# Restricted limits a lot to the dealers granted it; open lots are
-         visible to every partner account. #}
-      <form method="post" action="/trade-partner/manage-lots/set-restricted"
-            class="d-inline" id="restrictForm">
-        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-        <input type="hidden" name="restricted" id="restrictValue" value="1">
-        <div id="restrictLotInputs"></div>
-        <button type="submit" class="btn btn-sm btn-outline-warning bulk-sel-btn" disabled
-                onclick="document.getElementById('restrictValue').value='1'">
-          <i class="bi bi-lock me-1"></i>Mark Restricted
-        </button>
-        <button type="submit" class="btn btn-sm btn-outline-secondary bulk-sel-btn" disabled
-                onclick="document.getElementById('restrictValue').value='0'">
-          <i class="bi bi-unlock me-1"></i>Open to All
-        </button>
-      </form>
-      <button type="button" class="btn btn-sm btn-primary" id="bulkAssignBtn" disabled>
-        <i class="bi bi-eye me-1"></i>Assign Visibility to Selected
-      </button>
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-transparent fw-semibold">
+    <i class="bi bi-flask me-2"></i>Test Data Intake for External Partner Testing
+  </div>
+  <div class="card-body">
+    <p class="text-muted small mb-3">
+      Use the exact same production flow as live inventory — nothing here is a
+      separate process. Two things keep test records out of live dashboards,
+      reports, and the real dealer catalog automatically:
+    </p>
+    <ul class="small mb-4">
+      <li>Set <strong>Entity</strong> to <code>{{ test_entity_name }}</code> when you upload IQC.</li>
+      <li>Prefix every <strong>Lot Number</strong> with <code>{{ test_lot_prefix }}</code>
+        (e.g. <code>{{ test_lot_prefix }}0001</code>) when you add/map a Lot — it auto-restricts
+        itself from the dealer catalog the moment it's created.</li>
+    </ul>
+    <div class="row g-3">
+      <div class="col-md-4">
+        <div class="card h-100 border">
+          <div class="card-body">
+            <div class="fw-semibold mb-1"><span class="badge bg-primary me-2">1</span>Add GRN</div>
+            <p class="small text-muted mb-2">Same GRN form used for live intake.</p>
+            <a href="/grn/post-iqc" class="btn btn-sm btn-outline-primary w-100">
+              <i class="bi bi-box-arrow-up-right me-1"></i>Open GRN &amp; Post-IQC
+            </a>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card h-100 border">
+          <div class="card-body">
+            <div class="fw-semibold mb-1"><span class="badge bg-primary me-2">2</span>Add / Map Lots</div>
+            <p class="small text-muted mb-2">
+              On the same page, use "Add Lot" on your GRN row. Lot Number must start with
+              <code>{{ test_lot_prefix }}</code>.
+            </p>
+            <a href="/grn/post-iqc" class="btn btn-sm btn-outline-primary w-100">
+              <i class="bi bi-box-arrow-up-right me-1"></i>Open GRN &amp; Post-IQC
+            </a>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card h-100 border">
+          <div class="card-body">
+            <div class="fw-semibold mb-1"><span class="badge bg-primary me-2">3</span>Upload Asset IQC</div>
+            <p class="small text-muted mb-2">
+              Bulk-upload devices against the Lot(s) above. Set the Entity column to
+              <code>{{ test_entity_name }}</code>. Add Asset (manual single-device entry) isn't needed.
+            </p>
+            <a href="/bulk-upload?type=devices" class="btn btn-sm btn-outline-primary w-100">
+              <i class="bi bi-box-arrow-up-right me-1"></i>Open Bulk Upload
+            </a>
+          </div>
+        </div>
+      </div>
     </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold">
+    <i class="bi bi-list-check me-2"></i>Test Lots (read-only status)
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
       <table class="table table-hover mb-0 small align-middle">
         <thead class="table-dark">
           <tr>
-            <th style="width:38px" class="ps-3">
-              <input type="checkbox" class="form-check-input" id="selAll" title="Select all lots">
-            </th>
-            <th>Lot Number</th><th>Purchase Date</th><th>Available Quantity</th>
-            {% if can_view_pricing(current_user) %}<th>Base Price</th><th>Target Selling Price</th>{% endif %}
-            <th>Catalog Access</th><th>Visible to</th><th style="width:150px">Action</th>
+            <th>Lot Number</th><th>GRN Number</th><th>Purchase Date</th>
+            <th>Devices</th><th>Entity Confirmed</th><th>Catalog Access</th>
           </tr>
         </thead>
         <tbody>
-          {% for lot in lots %}
+          {% for lot in test_lots %}
           {% set lid = lot.id | string %}
           <tr>
-            <td class="ps-3">
-              <input type="checkbox" class="form-check-input lot-check"
-                     value="{{ lot.id }}" data-lot-number="{{ lot.lot_number }}">
-            </td>
             <td><a href="/lots/{{ lot.id }}" class="font-monospace text-decoration-none">{{ lot.lot_number }}</a></td>
+            <td class="text-muted small">{{ lot.grn_system_number or '—' }}</td>
             <td class="text-muted small">{{ lot.purchase_date.strftime('%d-%m-%Y') if lot.purchase_date else '—' }}</td>
-            <td><span class="badge bg-info text-dark">{{ avail_map.get(lid, 0) }}</span></td>
-            {% if can_view_pricing(current_user) %}
-            {# Base Price is what the partner catalog quotes and what bidding
-               starts from. Target is internal and stays out of the portal. #}
-            <td>&#8377;{{ '%.2f'|format(lot.buying_price or 0) }}</td>
+            <td><span class="badge bg-info text-dark">{{ device_count_map.get(lid, 0) }}</span></td>
             <td>
-              {% if lot.selling_price is not none %}
-                &#8377;{{ '%.2f'|format(lot.selling_price) }}
-              {% else %}<span class="text-muted fst-italic">Not set</span>{% endif %}
-            </td>
-            {% endif %}
-            <td>
-              {% if lot.is_restricted %}
-              <span class="badge bg-warning text-dark" title="Only dealers granted below can see this lot">
-                <i class="bi bi-lock me-1"></i>Restricted
+              {% if device_count_map.get(lid, 0) == 0 %}
+              <span class="badge bg-secondary-subtle text-secondary-emphasis border">No devices yet</span>
+              {% elif entity_ok_map.get(lid) %}
+              <span class="badge bg-success-subtle text-success-emphasis border">
+                <i class="bi bi-check-circle me-1"></i>Confirmed
               </span>
               {% else %}
-              <span class="badge bg-success-subtle text-success-emphasis border"
-                    title="Visible to every partner account">All Partners</span>
+              <span class="badge bg-danger-subtle text-danger-emphasis border"
+                    title="One or more devices on this lot are NOT on the {{ test_entity_name }} entity — check the IQC upload's Entity column.">
+                <i class="bi bi-exclamation-triangle me-1"></i>Check entity
+              </span>
               {% endif %}
             </td>
             <td>
-              {# Names in the tooltip: with bulk assign the operator needs to see
-                 what a lot already carries, not just a count to go and look up. #}
-              <span class="badge bg-{{ 'success' if vis_map.get(lid, 0) else 'secondary' }}"
-                    {% if vis_names.get(lid) %}data-bs-toggle="tooltip"
-                    title="{{ vis_names.get(lid) | join(', ') }}"{% endif %}>
-                {{ vis_map.get(lid, 0) }} dealer(s)
+              {% if lot.is_restricted %}
+              <span class="badge bg-warning text-dark" title="Never visible in the dealer catalog">
+                <i class="bi bi-lock me-1"></i>Restricted
               </span>
-            </td>
-            <td>
-              <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 assign-vis-btn"
-                      data-lot-id="{{ lot.id }}" data-lot-number="{{ lot.lot_number }}">
-                <i class="bi bi-eye me-1"></i>Assign Visibility
-              </button>
+              {% else %}
+              <span class="badge bg-danger" title="Not restricted — this would show in the live dealer catalog. Should not happen for an {{ test_lot_prefix }} lot; check routers/grn.py's auto-restrict logic.">
+                <i class="bi bi-unlock me-1"></i>Open (unexpected)
+              </span>
+              {% endif %}
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="{{ 9 if can_view_pricing(current_user) else 7 }}"
-                  class="text-center text-muted py-4">No lots found.</td></tr>
+          <tr><td colspan="6" class="text-center text-muted py-4">
+            No test lots yet — add a GRN and a Lot Number starting with
+            <code>{{ test_lot_prefix }}</code> to see it here.
+          </td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -111,153 +129,4 @@
   </div>
 </div>
 
-<!-- Assign Visibility modal — serves both the row button and the bulk button -->
-<div class="modal fade" id="assignVisModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
-    <form method="post" id="assignVisForm" action="/trade-partner/manage-lots/assign-visibility"
-          class="modal-content">
-      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-      <div class="modal-header py-2">
-        <h6 class="modal-title fw-semibold"><i class="bi bi-eye me-2"></i>Assign Visibility</h6>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="mb-2">
-          <label class="form-label small fw-semibold mb-1">Lots</label>
-          <div id="avLotList" class="border rounded p-2 bg-light small"
-               style="max-height:120px; overflow-y:auto"></div>
-          <div id="avLotInputs"></div>
-        </div>
-        <div>
-          <label class="form-label small fw-semibold mb-1">Dealers</label>
-          <select id="avDealers" name="dealer_ids" class="form-select form-select-sm"
-                  multiple required>
-            {% for d in dealers %}
-            <option value="{{ d.id }}">{{ d.business_name }}{% if d.city %} — {{ d.city }}{% endif %}</option>
-            {% endfor %}
-          </select>
-          <small class="text-muted">
-            Search and select one or more dealers. Every selected lot becomes
-            visible to every selected dealer; pairs that already exist are skipped.
-          </small>
-        </div>
-      </div>
-      <div class="modal-footer py-2">
-        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="submit" class="btn btn-sm btn-primary" id="avSubmit">Assign</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-{% endblock %}
-{% block scripts %}
-<script src="/static/vendor/tom-select/js/tom-select.complete.min.js"></script>
-<script>
-(function () {
-  var checks    = Array.prototype.slice.call(document.querySelectorAll('.lot-check'));
-  var selAll    = document.getElementById('selAll');
-  var selCount  = document.getElementById('selCount');
-  var bulkBtn   = document.getElementById('bulkAssignBtn');
-  var modalEl   = document.getElementById('assignVisModal');
-  var lotList   = document.getElementById('avLotList');
-  var lotInputs = document.getElementById('avLotInputs');
-  var dealerTs  = null;
-
-  function selected() {
-    return checks.filter(function (c) { return c.checked; });
-  }
-
-  function syncBar() {
-    var n = selected().length;
-    selCount.textContent = n + ' selected';
-    bulkBtn.disabled = n === 0;
-    // Restrict / Open act on the same selection, and carry it as hidden
-    // lot_ids so the form posts exactly what is ticked.
-    Array.prototype.forEach.call(document.querySelectorAll('.bulk-sel-btn'),
-      function (b) { b.disabled = n === 0; });
-    var holder = document.getElementById('restrictLotInputs');
-    if (holder) {
-      holder.innerHTML = selected().map(function (c) {
-        return '<input type="hidden" name="lot_ids" value="' + c.value + '">';
-      }).join('');
-    }
-    if (selAll) {
-      selAll.checked = n > 0 && n === checks.length;
-      // Distinct from both states so "some selected" cannot be mistaken for none.
-      selAll.indeterminate = n > 0 && n < checks.length;
-    }
-  }
-
-  checks.forEach(function (c) { c.addEventListener('change', syncBar); });
-  if (selAll) {
-    selAll.addEventListener('change', function () {
-      checks.forEach(function (c) { c.checked = selAll.checked; });
-      syncBar();
-    });
-  }
-
-  // Bootstrap tooltips on the "Visible to" badges are opt-in.
-  Array.prototype.forEach.call(
-    document.querySelectorAll('[data-bs-toggle="tooltip"]'),
-    function (el) { new bootstrap.Tooltip(el); });
-
-  function openModal(lots) {
-    // lots: [{id, number}]. Rendered as a read-only list plus hidden inputs, so
-    // the operator can see exactly what they are about to change and the form
-    // still posts a plain repeated field.
-    lotList.innerHTML = lots.map(function (l) {
-      return '<span class="badge bg-secondary me-1 mb-1">' + l.number + '</span>';
-    }).join('');
-    lotInputs.innerHTML = lots.map(function (l) {
-      return '<input type="hidden" name="lot_ids" value="' + l.id + '">';
-    }).join('');
-    new bootstrap.Modal(modalEl).show();
-  }
-
-  bulkBtn.addEventListener('click', function () {
-    openModal(selected().map(function (c) {
-      return { id: c.value, number: c.dataset.lotNumber };
-    }));
-  });
-
-  document.querySelectorAll('.assign-vis-btn').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      // Row button posts through the same bulk endpoint with a single lot, so
-      // there is one code path rather than two that can drift apart.
-      openModal([{ id: btn.dataset.lotId, number: btn.dataset.lotNumber }]);
-    });
-  });
-
-  // Built on first open: inside a hidden .modal every measurement reads zero and
-  // Tom Select renders collapsed.
-  modalEl.addEventListener('shown.bs.modal', function () {
-    if (!dealerTs) {
-      dealerTs = new TomSelect('#avDealers', {
-        maxOptions: null,
-        plugins: ['remove_button'],
-        placeholder: '— Search dealers —',
-      });
-    }
-  });
-
-  // Clear the dealer picker between opens; leaving the last selection in place
-  // makes it far too easy to grant a second lot to dealers you never re-chose.
-  modalEl.addEventListener('hidden.bs.modal', function () {
-    if (dealerTs) dealerTs.clear();
-  });
-
-  document.getElementById('assignVisForm').addEventListener('submit', function (e) {
-    if (!lotInputs.querySelector('input') ||
-        !(dealerTs ? dealerTs.items.length : 0)) {
-      e.preventDefault();
-      alert('Pick at least one lot and one dealer.');
-      return;
-    }
-    document.getElementById('avSubmit').disabled = true;  // no double-submit
-  });
-
-  syncBar();
-})();
-</script>
 {% endblock %}

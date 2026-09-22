@@ -16,6 +16,7 @@ from sqlalchemy import select, func, or_, update
 from database import get_db
 from models.user import User, UserRole
 from models.lot import Lot
+from models.master import EXTERNAL_PARTNER_TEST_LOT_PREFIX
 from models.device import Device, DeviceStage, StageMovement
 from models.engines import AuditLog
 from models.grn_import import GRNImport
@@ -934,6 +935,13 @@ async def grn_add_lot(grn_id: str, lot_number: list[str] = Form(...),
             # associated with one GRN — every mapped Lot shares this value.
             if not existing.grn_system_number:
                 existing.grn_system_number = g.grn_number
+            # External Partner test-lot convention (2026-09-22, see
+            # /trade-partner/manage-lots): auto-restrict on every add-lot
+            # call, not just creation, so an EPT- lot can never end up open
+            # to the live dealer catalog even if it existed before this
+            # convention or got un-restricted some other way.
+            if number.upper().startswith(EXTERNAL_PARTNER_TEST_LOT_PREFIX.upper()):
+                existing.is_restricted = True
         else:
             new_lot = Lot(
                 lot_number=number,
@@ -953,6 +961,12 @@ async def grn_add_lot(grn_id: str, lot_number: list[str] = Form(...),
                 # Same reasoning as the merge branch above — Product IQC's Lot
                 # Numbers tab and Edit Lot both read this field, not GRNImport.
                 grn_system_number=g.grn_number,
+                # External Partner test-lot convention: an EPT- lot number
+                # auto-restricts itself immediately on creation, so it's
+                # never open to the live dealer catalog by default (Lot.
+                # is_restricted otherwise defaults to False = visible to
+                # every dealer) — see /trade-partner/manage-lots.
+                is_restricted=number.upper().startswith(EXTERNAL_PARTNER_TEST_LOT_PREFIX.upper()),
             )
             db.add(new_lot)
             await db.flush()

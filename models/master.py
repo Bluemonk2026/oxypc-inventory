@@ -20,6 +20,18 @@ class MasterData(Base):
     __table_args__ = (UniqueConstraint("category", "value", name="uq_master_category_value"),)
 
 
+# Dedicated Entity value for External Partner (Trade Partner) test-data intake
+# (2026-09-22, see routers/partner_admin.py manage_lots): GRN/Lot/Device test
+# records created for portal testing are tagged with this entity + the
+# EXTERNAL_PARTNER_TEST_LOT_PREFIX lot-number prefix so they stay visually and
+# programmatically distinguishable from live inventory. Devices on this
+# entity are excluded by default (unless explicitly entity-filtered) from
+# routers/dashboard.py, devices.py, stock.py and entity_movement.py's default
+# views — see EXTERNAL_PARTNER_TEST_ENTITY usage in each.
+EXTERNAL_PARTNER_TEST_ENTITY = "External Partner Test"
+EXTERNAL_PARTNER_TEST_LOT_PREFIX = "EPT-"
+
+
 # Seed data for initial master data setup
 MASTER_SEED = {
     "entity": [

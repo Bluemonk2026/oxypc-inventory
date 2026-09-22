@@ -15,6 +15,7 @@ from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, DeviceGrade, StageMovement, STAGE_LABELS, DROPDOWN_STAGES, COSMETIC_STAGES
 from models.lot import Lot, LotLineItem
+from models.master import EXTERNAL_PARTNER_TEST_ENTITY
 from models.crm import CRMSourcingDeal
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm, require_additional_perm
 from services.audit_engine import audit
@@ -791,6 +792,13 @@ def _stock_filters(device_type, lot_number, date_from, date_to, entity=""):
         w.append(Lot.lot_number == lot_number)
     if entity:
         w.append(Device.entity == entity)
+    else:
+        # No explicit Entity filter -> exclude the External Partner
+        # test-data entity by default, same convention as
+        # routers/dashboard.py and routers/devices.py. NULL-safe: `entity !=
+        # X` alone silently drops every entity-less device too, since SQL
+        # NULL != X evaluates to NULL, not TRUE.
+        w.append(or_(Device.entity.is_(None), Device.entity != EXTERNAL_PARTNER_TEST_ENTITY))
     apply_date_range(w, Device.created_at, date_from, date_to)
     return w
 

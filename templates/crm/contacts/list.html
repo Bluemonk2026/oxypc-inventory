@@ -78,8 +78,10 @@
 
 <!-- Main contacts table -->
 <div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent fw-semibold">
+    <i class="bi bi-building me-2"></i>List of Accounts
+  </div>
   <div class="card-body p-0">
-    <div class="table-responsive">
       {% set oc_colors = {
         'interested':     'success',
         'order_placed':   'primary',
@@ -243,7 +245,6 @@
           {% endfor %}
         </tbody>
       </table>
-    </div>
   </div>
 </div>
 
@@ -369,15 +370,10 @@
 {% endblock %}
 {% block scripts %}
 <script>
-$(document).ready(function(){
-  if($('#contactsTable tbody tr').length > 5){
-    // col index: 0=Type,1=Category,2=Company,3=Contacts,4=Address,5=City,6=Recent Contact Date,7=Status,8=Notes,9=Actions
-    $('#contactsTable').DataTable({
-      pageLength: 12,
-      order: [[2, 'asc']],  // default sort by Company
-      columnDefs: [{ orderable: false, targets: [3, 10] }]  // Contacts + Actions not sortable
-    });
-  }
+// col index: 0=Type,1=Category,2=Company,3=Contacts,4=Address,5=City,6=Recent Contact Date,7=Status,8=Notes,9=Actions
+initGlobalTable('#contactsTable', {
+  order: [[2, 'asc']],  // default sort by Company
+  columnDefs: [{ orderable: false, targets: [3, 9] }]  // Contacts + Actions not sortable
 });
 
 // Contacts count → open modal listing saved Name / Email / Phone

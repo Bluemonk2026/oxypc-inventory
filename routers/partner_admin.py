@@ -28,6 +28,7 @@ from models.crm import CRMContact
 from models.user import User, UserRole
 from models.lot import Lot
 from models.device import Device, DeviceStage
+from models.master import EXTERNAL_PARTNER_TEST_ENTITY, EXTERNAL_PARTNER_TEST_LOT_PREFIX
 from models.partner import (
     PartnerLoginLog, PartnerListing, PartnerListingDevice, PartnerFloorConfig,
     PartnerBooking, PRICE_SEGMENTS, LISTING_TYPES,
@@ -156,6 +157,7 @@ async def _dealer_for_account(db: AsyncSession, contact: CRMContact,
 
 async def _render_partners(
     request, current_user, db, q="",
+    location="", segment="", sales_owner="",
     provisioned=None, failed=None, success=None, error=None,
 ):
     """Render the External Partner Accounts page.
@@ -173,18 +175,42 @@ async def _render_partners(
             | (Dealer.portal_phone.ilike(like))
             | (Dealer.dealer_code.ilike(like))
         )
+    if location:
+        query = query.where(Dealer.city == location)
+    if segment:
+        query = query.where(Dealer.price_segment == segment)
+    if sales_owner:
+        query = query.where(Dealer.sales_owner_username == sales_owner)
     result = await db.execute(query.order_by(Dealer.business_name))
     partners = result.scalars().all()
 
     from services.partner_service import compute_dealer_scores
     scores = await compute_dealer_scores(db, [p.id for p in partners])
 
+    # Location filter options — every city among portal-enabled dealers
+    # (not scoped to the current filtered result, so the dropdown doesn't
+    # shrink as other filters narrow the table).
+    location_options = (await db.execute(
+        select(Dealer.city).where(
+            Dealer.portal_enabled == True,  # noqa: E712
+            Dealer.city.isnot(None), Dealer.city != "",
+        ).distinct().order_by(Dealer.city)
+    )).scalars().all()
+
+    sales_users = await _sales_users(db)
+    # Sales Owner column shows the person's name, not the raw username stored
+    # in Dealer.sales_owner_username (see the Enable/Edit modals' own comment
+    # on why the FORM VALUE stays the username).
+    full_name_by_username = {u: (n or u) for u, n in sales_users}
+
     return templates.TemplateResponse("trade_partner/partners.html", {
         "request": request, "current_user": current_user,
         "partners": partners, "accounts": await _account_candidates(db),
         "q": q, "scores": scores,
-        "sales_users": await _sales_users(db),
+        "sales_users": sales_users, "full_name_by_username": full_name_by_username,
         "partner_types": PARTNER_TYPES, "price_segments": PRICE_SEGMENTS,
+        "location_options": location_options,
+        "f_location": location, "f_segment": segment, "f_sales_owner": sales_owner,
         "provisioned": provisioned, "failed": failed,
         "success": success, "error": error,
     })
@@ -194,11 +220,15 @@ async def _render_partners(
 async def partners_list(
     request: Request,
     q: str = "",
+    location: str = "",
+    segment: str = "",
+    sales_owner: str = "",
     current_user: User = Depends(require_module_perm("trade_partner_partners")),
     db: AsyncSession = Depends(get_db),
 ):
     return await _render_partners(
         request, current_user, db, q=q,
+        location=location, segment=segment, sales_owner=sales_owner,
         success=request.query_params.get("success"),
         error=request.query_params.get("error"),
     )
@@ -321,22 +351,13 @@ async def enable_partner(
         # those half-built dealers from being left behind with no portal login.
         await db.rollback()
 
-    query = select(Dealer).where(Dealer.portal_enabled == True)  # noqa: E712
-    partners = (await db.execute(query.order_by(Dealer.business_name))).scalars().all()
-    from services.partner_service import compute_dealer_scores
-    scores = await compute_dealer_scores(db, [p.id for p in partners])
-
-    return templates.TemplateResponse("trade_partner/partners.html", {
-        "request": request, "current_user": current_user,
-        "partners": partners, "accounts": await _account_candidates(db),
-        "q": "", "scores": scores,
-        "sales_users": await _sales_users(db),
-        "partner_types": PARTNER_TYPES, "price_segments": PRICE_SEGMENTS,
-        "provisioned": provisioned, "failed": failed,
-        "success": (f"Portal access enabled for {len(provisioned)} account(s)"
-                    if provisioned else None),
-        "error": (None if provisioned else "No portal access was enabled"),
-    })
+    return await _render_partners(
+        request, current_user, db,
+        provisioned=provisioned, failed=failed,
+        success=(f"Portal access enabled for {len(provisioned)} account(s)"
+                 if provisioned else None),
+        error=(None if provisioned else "No portal access was enabled"),
+    )
 
 
 @router.post("/partners/{dealer_id}/update")
@@ -1192,8 +1213,19 @@ async def settings_save(
     return RedirectResponse(url="/trade-partner/settings?success=Settings+saved", status_code=302)
 
 
-# ── Manage Lots (item 27) — direct Lot Management visibility, separate from
-# the curated PartnerListing pipeline above. ────────────────────────────────
+# ── Manage Lots (item 27) — test-data intake hub for the External Partner
+# portal (2026-09-22). Previously a generic "restrict any live Lot, grant
+# visibility to any real dealer" tool; replaced because that let admin-
+# created test Lots leak into the live dealer catalog by default (Lot.is_
+# restricted defaults to open-to-everyone). This page now only surfaces
+# Lots on the EXTERNAL_PARTNER_TEST_LOT_PREFIX convention, guides staff
+# through the EXISTING Add GRN -> Add/Map Lots -> Upload Asset IQC flow
+# (nothing duplicated — see templates/trade_partner/manage_lots.html for the
+# links out to /grn/post-iqc and /bulk-upload), and shows a read-only status
+# table. New EPT- lots auto-restrict on creation (routers/grn.py
+# grn_add_lot), so no visibility-grant UI is needed here at all — they stay
+# permanently invisible to every dealer, test or real.
+# ─────────────────────────────────────────────────────────────────────────
 
 @router.get("/manage-lots", response_class=HTMLResponse)
 async def manage_lots(
@@ -1201,42 +1233,37 @@ async def manage_lots(
     current_user: User = Depends(require_module_perm("trade_partner_manage_lots")),
     db: AsyncSession = Depends(get_db),
 ):
-    lots = (await db.execute(select(Lot).order_by(Lot.purchase_date.desc()))).scalars().all()
-    lot_ids = [l.id for l in lots]
-
-    avail_map = {}
-    if lot_ids:
-        avail_rows = (await db.execute(
-            select(Device.lot_id, func.count(Device.id))
-            .where(Device.lot_id.in_(lot_ids), Device.is_active == True)
-            .group_by(Device.lot_id)
-        )).all()
-        avail_map = {str(lid): cnt for lid, cnt in avail_rows}
-
-    # Who each lot is visible to, by name — not just how many. With bulk assign
-    # the operator needs to see what a lot already carries before adding to it,
-    # otherwise "3 dealer(s)" is a number they have to go and look up elsewhere.
-    vis_map: dict = {}
-    vis_names: dict = {}
-    if lot_ids:
-        vis_rows = (await db.execute(
-            select(LotDealerVisibility.lot_id, Dealer.business_name)
-            .join(Dealer, Dealer.id == LotDealerVisibility.dealer_id)
-            .where(LotDealerVisibility.lot_id.in_(lot_ids))
-            .order_by(Dealer.business_name)
-        )).all()
-        for lid, name in vis_rows:
-            vis_names.setdefault(str(lid), []).append(name)
-        vis_map = {k: len(v) for k, v in vis_names.items()}
-
-    dealers = (await db.execute(
-        select(Dealer).where(Dealer.portal_enabled == True).order_by(Dealer.business_name)  # noqa: E712
+    test_lots = (await db.execute(
+        select(Lot).where(Lot.lot_number.ilike(f"{EXTERNAL_PARTNER_TEST_LOT_PREFIX}%"))
+        .order_by(Lot.purchase_date.desc())
     )).scalars().all()
+    lot_ids = [l.id for l in test_lots]
+
+    # device_count_map: total devices per lot. entity_ok_map: True only when
+    # EVERY device on that lot carries the test entity — a mixed lot (e.g.
+    # someone typo'd the Entity column in their IQC CSV) shows False so it's
+    # visibly flagged rather than silently trusted.
+    device_count_map: dict = {}
+    entity_ok_map: dict = {}
+    if lot_ids:
+        rows = (await db.execute(
+            select(Device.lot_id, Device.entity, func.count(Device.id))
+            .where(Device.lot_id.in_(lot_ids))
+            .group_by(Device.lot_id, Device.entity)
+        )).all()
+        per_lot_entities: dict = {}
+        for lid, ent, cnt in rows:
+            per_lot_entities.setdefault(str(lid), {})[ent] = cnt
+        for key, ent_counts in per_lot_entities.items():
+            device_count_map[key] = sum(ent_counts.values())
+            entity_ok_map[key] = (set(ent_counts.keys()) == {EXTERNAL_PARTNER_TEST_ENTITY})
 
     return templates.TemplateResponse("trade_partner/manage_lots.html", {
         "request": request, "current_user": current_user,
-        "lots": lots, "avail_map": avail_map, "vis_map": vis_map,
-        "vis_names": vis_names, "dealers": dealers,
+        "test_lots": test_lots, "device_count_map": device_count_map,
+        "entity_ok_map": entity_ok_map,
+        "test_entity_name": EXTERNAL_PARTNER_TEST_ENTITY,
+        "test_lot_prefix": EXTERNAL_PARTNER_TEST_LOT_PREFIX,
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
     })

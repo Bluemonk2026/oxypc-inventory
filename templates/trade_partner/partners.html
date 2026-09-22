@@ -50,24 +50,49 @@
 {% endif %}
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <form method="get" class="d-flex gap-2">
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-center">
+    <select name="location" class="form-select form-select-sm" style="width:160px"
+            onchange="this.form.submit()">
+      <option value="">All Locations</option>
+      {% for loc in location_options %}
+      <option value="{{ loc }}" {% if loc == f_location %}selected{% endif %}>{{ loc }}</option>
+      {% endfor %}
+    </select>
+    <select name="segment" class="form-select form-select-sm" style="width:150px"
+            onchange="this.form.submit()">
+      <option value="">All Segments</option>
+      {% for s in price_segments %}
+      <option value="{{ s }}" {% if s == f_segment %}selected{% endif %}>{{ s | replace('_',' ') | title }}</option>
+      {% endfor %}
+    </select>
+    <select name="sales_owner" class="form-select form-select-sm" style="width:170px"
+            onchange="this.form.submit()">
+      <option value="">All Sales Owners</option>
+      {% for u in sales_users %}
+      <option value="{{ u.username }}" {% if u.username == f_sales_owner %}selected{% endif %}>{{ u.full_name or u.username }}</option>
+      {% endfor %}
+    </select>
     <input type="text" name="q" value="{{ q }}" placeholder="Search partners…" class="form-control form-control-sm" style="width:220px">
     <button class="btn btn-sm btn-outline-primary">Search</button>
+    {% if q or f_location or f_segment or f_sales_owner %}
+    <a href="/trade-partner/partners" class="btn btn-sm btn-outline-secondary">Clear</a>
+    {% endif %}
   </form>
   <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#enableModal">
-    <i class="bi bi-person-plus me-1"></i>Enable Portal Access
+    <i class="bi bi-person-plus me-1"></i>Generate Access
   </button>
 </div>
 
 <div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold">
+    <i class="bi bi-shop me-2"></i>Accounts as External Partner
+  </div>
   <div class="card-body p-0">
-    <div class="table-responsive">
-      <table class="table table-hover mb-0">
+      <table id="externalPartnerAccountsTable" class="table table-hover mb-0">
         <thead class="table-light">
           <tr>
             <th>Business</th>
             <th>Login Mobile</th>
-            <th>Type</th>
             <th>Segment</th>
             <th>Sales Owner</th>
             <th>Score</th>
@@ -84,9 +109,8 @@
               <small class="text-muted">{{ p.dealer_code }}{% if p.city %} · {{ p.city }}{% endif %}</small>
             </td>
             <td><code>{{ p.portal_phone or '—' }}</code></td>
-            <td><span class="badge bg-light text-dark border">{{ (p.partner_type or 'dealer') | replace('_',' ') | title }}</span></td>
             <td><span class="badge bg-info-subtle text-info-emphasis border">{{ (p.price_segment or 'new_dealer') | replace('_',' ') | title }}</span></td>
-            <td class="small">{{ p.sales_owner_username or '—' }}</td>
+            <td class="small">{{ full_name_by_username.get(p.sales_owner_username, p.sales_owner_username) if p.sales_owner_username else '—' }}</td>
             <td>
               {% set sc = scores.get(p.id|string) %}
               {% if sc %}<span class="badge bg-{{ sc.color }}">{{ sc.score }}</span>{% else %}—{% endif %}
@@ -184,13 +208,12 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="9" class="text-center text-muted py-4">
-            No portal partners yet. Click <strong>Enable Portal Access</strong> to provision the first dealer.
+          <tr><td colspan="8" class="text-center text-muted py-4">
+            No portal partners yet. Click <strong>Generate Access</strong> to provision the first dealer.
           </td></tr>
           {% endfor %}
         </tbody>
       </table>
-    </div>
   </div>
 </div>
 
@@ -242,14 +265,14 @@
   </div>
 </div>
 
-<!-- Enable Portal Access modal -->
+<!-- Generate Access modal (Enable Portal Access) -->
 <div class="modal fade" id="enableModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
       <form method="post" action="/trade-partner/partners/enable">
         <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
         <div class="modal-header py-2">
-          <h6 class="modal-title">Enable Portal Access</h6>
+          <h6 class="modal-title">Generate Access</h6>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
@@ -274,14 +297,11 @@
               single Account is selected.
             </small>
           </div>
-          <div class="mb-2">
-            <label class="form-label small fw-semibold mb-1">Partner Type</label>
-            <select name="partner_type" class="form-select form-select-sm">
-              {% for t in partner_types %}
-              <option value="{{ t }}">{{ t | replace('_',' ') | title }}</option>
-              {% endfor %}
-            </select>
-          </div>
+          {# Partner Type field hidden here (2026-09-22) — it's optional
+             server-side (routers/partner_admin.py enable_partner defaults it
+             to "dealer" when not submitted, never required), so leaving it
+             out of this modal is safe; still editable per-partner afterward
+             via the row Edit modal. #}
           <div class="mb-2">
             <label class="form-label small fw-semibold mb-1">Price Segment</label>
             <select name="price_segment" class="form-select form-select-sm">
@@ -317,6 +337,7 @@
 {% block scripts %}
 <script src="/static/vendor/tom-select/js/tom-select.complete.min.js"></script>
 <script>
+initGlobalTable('#externalPartnerAccountsTable', { order: [] });
 // Reset-password modal: copy the clicked row's action URL and partner name
 // onto the shared modal's form. The csrf_token hidden input is already
 // injected by base.html's CSRF auto-inject on page load and is preserved here.

@@ -59,7 +59,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Request, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 
 from templates_config import templates
 from database import get_db
@@ -97,6 +97,17 @@ def _multi(value) -> list:
     else:
         raw = str(value).split(",")
     return [v.strip() for v in raw if v and str(v).strip()]
+
+
+def _is_l3l4_request_movement(mv) -> bool:
+    """True for the synthetic StageMovement repair.py:request_l3l4 writes on
+    the L1/L2 engineer's side purely to move current_stage to L3 (so the tag
+    drops off /repair/l1) — not a genuine stage completion. It must never
+    surface on this page: the L3L4- WorkOrder already shows the request under
+    the assigned L3/L4 engineer via the handoff-stage branch above, and this
+    movement being unmatched to any WorkOrder let it resurface a second time
+    as a phantom backfilled row attributed to the L1/L2 requester instead."""
+    return bool(mv.notes) and mv.notes.startswith("Requested to L3/L4")
 
 
 MAIN_ROW_CAP = 3000
@@ -187,6 +198,8 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             .order_by(StageMovement.moved_at.asc())
         )).scalars().all()
         for mv in move_rows:
+            if _is_l3l4_request_movement(mv):
+                continue
             movements_by_device.setdefault(str(mv.device_id), []).append(mv)
 
         usernames = {mv.moved_by for mv in move_rows if mv.moved_by}
@@ -198,11 +211,16 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
 
     # L3/L4 repair and the Stress-Test hand-off (routers/repair.py:
     # request_l3l4 / l1l2_complete_to_stress) create an "L3L4-"/"STRS-"
-    # WorkOrder to make the assignment visible here, but neither of those
-    # flows — nor l3l4_start/l3l4_complete/l3l4_scrap — ever writes a
-    # StageMovement (the device's current_stage isn't touched either; L3/L4
-    # runs on the WorkOrder alone). _movement_for_work_order below therefore
-    # has no real movement to match and falls back to the device's overall
+    # WorkOrder to make the assignment visible here. request_l3l4 does now
+    # also write a StageMovement (added after this comment, to move
+    # current_stage to L3 so the tag drops off /repair/l1) but it's filtered
+    # out of movements_by_device above by _is_l3l4_request_movement — it's
+    # L1/L2-side bookkeeping, not the L3/L4 engineer's own activity, and must
+    # not be matched here as if it were one (2026-09-22: it was leaking
+    # through as a phantom backfilled row attributed to the L1/L2 requester,
+    # duplicate to the L3L4- WorkOrder row already showing the request under
+    # the assigned L3/L4 engineer below). _movement_for_work_order below
+    # therefore has no real movement to match and falls back to the device's overall
     # latest movement, which can be from long before this WorkID even
     # existed (2026-09-15 — reported as "L3/L4 WorkIDs not showing": a
     # completed L3L4- WorkOrder was rendering Stage/Completed/Engineer from
@@ -307,7 +325,14 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
     bounded_by_tag = bool(tag.strip())
     bounded_by_date = bool(cf or ct)
     if bounded_by_tag or bounded_by_date:
-        mv_filters = [StageMovement.from_stage.isnot(None)]
+        mv_filters = [
+            StageMovement.from_stage.isnot(None),
+            # Exclude the synthetic L1/L2-side "Requested to L3/L4" bookkeeping
+            # movement — see _is_l3l4_request_movement. `notlike` is NULL-unsafe
+            # in SQL, so this explicitly keeps NULL-notes rows too.
+            or_(StageMovement.notes.is_(None),
+                StageMovement.notes.notlike("Requested to L3/L4%")),
+        ]
         if tag.strip():
             mv_filters.append(Device.barcode.ilike(f"%{tag.strip()}%"))
         if stage_vals:

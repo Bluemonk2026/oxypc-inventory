@@ -371,7 +371,12 @@ fieldset:disabled .btn {
 }
 .gtable-scroll-wrap thead th:first-child {
   z-index: 3;
-  background-color: #212529; /* matches table-dark header */
+  /* Match whatever header theme this table actually uses (table-dark sets
+     --bs-table-bg:#212529, table-light sets #f8f9fa, ...) instead of
+     hardcoding dark — a table-light header (e.g. Trade Partner Accounts)
+     got a dark sticky cell with its own dark text color still applied on
+     top, rendering as an unreadable black-on-black first header cell. */
+  background-color: var(--bs-table-bg, #212529);
 }
 .gtable-scroll-wrap tbody tr:hover td:first-child {
   background-color: #f1f3f5; /* keep the frozen cell in step with .table-hover */

@@ -18,6 +18,33 @@
   <code>{{ test_entity_name }}</code> to stay isolated from live dashboards and reports.
 </div>
 
+<div class="d-flex flex-wrap gap-2 mb-3">
+  <div class="flex-fill" style="min-width:160px">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-2">
+        <div class="small text-muted mb-1">Total GRNs</div>
+        <div class="fs-4 fw-bold text-primary">{{ total_grns }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="flex-fill" style="min-width:160px">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-2">
+        <div class="small text-muted mb-1">Total LOTs</div>
+        <div class="fs-4 fw-bold text-info">{{ total_lots }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="flex-fill" style="min-width:160px">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-2">
+        <div class="small text-muted mb-1">Total TAGs</div>
+        <div class="fs-4 fw-bold text-success">{{ total_tags }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <ul class="nav nav-tabs mb-3" id="manageLotsTabs">
   <li class="nav-item">
     <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#grnLotTab" type="button">
@@ -34,7 +61,11 @@
 <div class="tab-content">
 <div class="tab-pane fade show active" id="grnLotTab">
 
-  <div class="d-flex justify-content-end mb-3">
+  <div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
+    <div style="max-width:320px" class="flex-fill">
+      <input type="text" id="grnLotSearchInput" class="form-control form-control-sm"
+             placeholder="Search GRN or Lot Number...">
+    </div>
     <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addGrnModal">
       <i class="bi bi-plus-circle me-1"></i>Add GRN
     </button>
@@ -54,7 +85,8 @@
           <tbody>
             {% for g in test_grns %}
             {% set _lots = lots_by_grn.get(g.grn_number, []) %}
-            <tr id="grn-{{ g.grn_number }}">
+            <tr id="grn-{{ g.grn_number }}"
+                data-search="{{ (g.grn_number ~ ' ' ~ (_lots | map(attribute='lot_number') | join(' '))) | lower }}">
               <td class="ps-3"><span class="font-monospace fw-bold">{{ g.grn_number }}</span></td>
               <td>
                 {% if _lots %}
@@ -158,6 +190,20 @@
     </div>
   </div>
 
+  <div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
+    <div style="max-width:320px" class="flex-fill">
+      <input type="text" id="assetSearchInput" class="form-control form-control-sm"
+             placeholder="Search Tag Number or Lot Number...">
+    </div>
+    <button type="button" id="moveReadyForSaleBtn" class="btn btn-sm btn-outline-success" disabled>
+      <i class="bi bi-box-arrow-in-right me-1"></i>Move to Ready for Sale
+    </button>
+  </div>
+
+  <form id="bulkReadyForm" method="post" action="/trade-partner/manage-lots/move-ready-for-sale" style="display:none">
+    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+  </form>
+
   <div class="card border-0 shadow-sm mb-3">
     <div class="card-header bg-transparent fw-semibold"><i class="bi bi-list-check me-2"></i>Test Assets ({{ test_entity_name }})</div>
     <div class="card-body p-0">
@@ -165,7 +211,8 @@
         <table class="table table-hover mb-0 small align-middle">
           <thead class="table-dark">
             <tr>
-              <th class="ps-3">Tag Number</th><th>Lot Number</th><th>Brand / Model</th>
+              <th class="ps-3" style="width:32px"><input type="checkbox" id="assetSelectAllChk" class="form-check-input" title="Select all"></th>
+              <th>Tag Number</th><th>Lot Number</th><th>Brand / Model</th>
               <th>CPU</th><th>Gen</th><th>RAM</th><th>Storage</th>
               <th>Stage</th><th>Uploaded</th><th>GRN</th><th>Action</th>
             </tr>
@@ -174,8 +221,9 @@
             {% for row in test_devices %}
             {% set d = row.device %}
             {% set _mapped = row.matched_grn and d.grn_number == row.matched_grn %}
-            <tr>
-              <td class="ps-3">
+            <tr data-search="{{ (d.barcode ~ ' ' ~ (row.lot_number or '')) | lower }}">
+              <td class="ps-3"><input type="checkbox" class="form-check-input asset-row-chk" value="{{ d.barcode }}"></td>
+              <td>
                 <button type="button" class="btn btn-link p-0 font-monospace text-decoration-none device-details-btn"
                         data-barcode="{{ d.barcode }}" data-lot="{{ row.lot_number or '' }}"
                         data-stage="{{ stage_labels.get(d.current_stage, d.current_stage.value) }}"
@@ -226,7 +274,7 @@
               </td>
             </tr>
             {% else %}
-            <tr><td colspan="11" class="text-center text-muted py-4">No test assets uploaded yet.</td></tr>
+            <tr><td colspan="12" class="text-center text-muted py-4">No test assets uploaded yet.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -625,5 +673,60 @@ document.getElementById('addLotForm').addEventListener('submit', function(e){
     })
     .catch(function(err){ alert(err.message); });
 });
+
+// GRN & Lot tab — client-side search over GRN / Lot Number (row's data-search).
+var grnLotSearch = document.getElementById('grnLotSearchInput');
+if (grnLotSearch) {
+  grnLotSearch.addEventListener('input', function(){
+    var q = this.value.trim().toLowerCase();
+    document.querySelectorAll('#grnLotTable tbody tr[data-search]').forEach(function(tr){
+      tr.style.display = (!q || tr.getAttribute('data-search').indexOf(q) !== -1) ? '' : 'none';
+    });
+  });
+}
+
+// Asset IQC tab — client-side search over Tag Number / Lot Number.
+var assetSearch = document.getElementById('assetSearchInput');
+if (assetSearch) {
+  assetSearch.addEventListener('input', function(){
+    var q = this.value.trim().toLowerCase();
+    document.querySelectorAll('#assetIqcTab tbody tr[data-search]').forEach(function(tr){
+      tr.style.display = (!q || tr.getAttribute('data-search').indexOf(q) !== -1) ? '' : 'none';
+    });
+  });
+}
+
+// Asset IQC tab — multi-select checkboxes + bulk "Move to Ready for Sale".
+var assetSelectAll = document.getElementById('assetSelectAllChk');
+var moveReadyBtn = document.getElementById('moveReadyForSaleBtn');
+function assetUpdateSelState() {
+  var checked = document.querySelectorAll('#assetIqcTab .asset-row-chk:checked');
+  moveReadyBtn.disabled = checked.length === 0;
+}
+document.querySelectorAll('#assetIqcTab .asset-row-chk').forEach(function(chk){
+  chk.addEventListener('change', assetUpdateSelState);
+});
+if (assetSelectAll) {
+  assetSelectAll.addEventListener('change', function(){
+    var visible = document.querySelectorAll('#assetIqcTab tbody tr:not([style*="display: none"]) .asset-row-chk');
+    visible.forEach(function(chk){ chk.checked = assetSelectAll.checked; });
+    assetUpdateSelState();
+  });
+}
+if (moveReadyBtn) {
+  moveReadyBtn.addEventListener('click', function(){
+    var checked = document.querySelectorAll('#assetIqcTab .asset-row-chk:checked');
+    if (!checked.length) return;
+    if (!confirm('Move ' + checked.length + ' selected tag(s) to Ready for Sale?')) return;
+    var form = document.getElementById('bulkReadyForm');
+    form.querySelectorAll('input[name="barcode"]').forEach(function(i){ i.remove(); });
+    checked.forEach(function(chk){
+      var inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = 'barcode'; inp.value = chk.value;
+      form.appendChild(inp);
+    });
+    form.submit();
+  });
+}
 </script>
 {% endblock %}

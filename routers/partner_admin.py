@@ -27,7 +27,7 @@ from models.dealers import Dealer
 from models.crm import CRMContact
 from models.user import User, UserRole
 from models.lot import Lot
-from models.device import Device, DeviceStage, DeviceGrade, STAGE_LABELS
+from models.device import Device, DeviceStage, DeviceGrade, STAGE_LABELS, StageMovement
 from models.grn_import import GRNImport
 from models.master import (
     EXTERNAL_PARTNER_TEST_ENTITY, EXTERNAL_PARTNER_TEST_LOT_PREFIX,
@@ -1310,11 +1310,14 @@ async def manage_lots(
     test_devices = [{"device": d, "lot_number": ln,
                      "matched_grn": lot_number_to_grn.get(ln)} for d, ln in device_rows]
 
+    total_lots = sum(len(lots) for lots in lots_by_grn.values())
+
     return templates.TemplateResponse("trade_partner/manage_lots.html", {
         "request": request, "current_user": current_user,
         "test_grns": test_grns, "lots_by_grn": lots_by_grn, "stocked": stocked,
         "lots_json": lots_json,
         "test_devices": test_devices,
+        "total_grns": len(test_grns), "total_lots": total_lots, "total_tags": len(test_devices),
         "test_entity_name": EXTERNAL_PARTNER_TEST_ENTITY,
         "test_lot_prefix": EXTERNAL_PARTNER_TEST_LOT_PREFIX,
         "test_grn_source": EXTERNAL_PARTNER_TEST_GRN_SOURCE,
@@ -1353,6 +1356,45 @@ async def manage_lots_map_grn(
     await db.commit()
     return RedirectResponse(
         url=f"/trade-partner/manage-lots?tab=asset&success={quote_plus(f'{device.barcode} mapped to GRN {grn_number.strip()}')}",
+        status_code=302)
+
+
+@router.post("/manage-lots/move-ready-for-sale")
+async def manage_lots_move_ready_for_sale(
+    request: Request,
+    barcode: list[str] = Form(...),
+    _csrf=Depends(verify_csrf),
+    current_user: User = Depends(require_module_perm("trade_partner_manage_lots", "edit")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Asset IQC tab's bulk checkbox action — moves the selected test devices'
+    stage straight to Ready to Sale."""
+    codes = [b.strip().upper() for b in barcode if b.strip()]
+    if not codes:
+        return RedirectResponse(url="/trade-partner/manage-lots?tab=asset&error=Select+at+least+one+tag", status_code=302)
+
+    devices = (await db.execute(
+        select(Device).where(func.upper(Device.barcode).in_(codes),
+                             Device.entity == EXTERNAL_PARTNER_TEST_ENTITY)
+    )).scalars().all()
+    if not devices:
+        return RedirectResponse(url="/trade-partner/manage-lots?tab=asset&error=No+matching+test+devices+found", status_code=302)
+
+    for device in devices:
+        from_stage = device.current_stage
+        device.current_stage = DeviceStage.ready_to_sale
+        device.updated_at = app_now()
+        db.add(StageMovement(
+            device_id=device.id, from_stage=from_stage, to_stage=DeviceStage.ready_to_sale,
+            moved_by=current_user.username, notes="Manage Lots — bulk moved to Ready for Sale",
+        ))
+    await audit(db, action="MANAGE_LOTS_BULK_READY_FOR_SALE", user=current_user,
+                table_name="devices", record_id=",".join(str(d.id) for d in devices),
+                new_value={"barcodes": [d.barcode for d in devices]},
+                request=request)
+    await db.commit()
+    return RedirectResponse(
+        url=f"/trade-partner/manage-lots?tab=asset&success={quote_plus(f'{len(devices)} tag(s) moved to Ready for Sale')}",
         status_code=302)
 
 

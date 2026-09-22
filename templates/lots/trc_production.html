@@ -96,6 +96,15 @@
       </div>
     </div>
   </div>
+  <div class="flex-fill">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-2">
+        <i class="bi bi-arrow-return-left prod-tile-icon mb-1 d-block" style="color:#6c757d"></i>
+        <div class="prod-tile-label text-muted mb-1">Tags Returned</div>
+        <div class="prod-tile-count fw-bold" style="color:#6c757d">{{ tags_returned }}</div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="d-flex justify-content-end gap-2 mb-2">
@@ -170,14 +179,27 @@
   </div>
 </div>
 
-<h5 class="mt-4 mb-2">Repair Line</h5>
+<div class="card border-0 shadow-sm mb-3 mt-4">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-receipt-cutoff me-2"></i>Credit Note</div>
+  {% include "_credit_note_table.html" %}
+</div>
+
+<div class="accordion mb-3" id="repairLineAccordion">
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#repairLineCollapse">
+        Repair Line
+      </button>
+    </h2>
+    <div id="repairLineCollapse" class="accordion-collapse collapse" data-bs-parent="#repairLineAccordion">
+      <div class="accordion-body p-0">
 <ul class="nav nav-tabs" id="repairLineTabs" role="tablist">
   <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#rlFqcFailTab" type="button">Final QC Fail (Bucket)</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#rlTagNumTab" type="button">Tag Number in Repair Line</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#rlBucketsTab" type="button">Buckets in Repair Line</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#rlScrapTab" type="button">Scrap from Repair Line</button></li>
 </ul>
-<div class="tab-content border border-top-0 rounded-bottom bg-white mb-3">
+<div class="tab-content border border-top-0 rounded-bottom bg-white">
 
   <!-- Final QC Fail (Bucket) — buckets whose devices came here via Final QC's "Move to Production" -->
   <div class="tab-pane fade show active p-0" id="rlFqcFailTab">
@@ -278,6 +300,10 @@
     </div>
   </div>
 
+</div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Bucket Tags modal (TRC) -->

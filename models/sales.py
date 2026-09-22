@@ -114,5 +114,16 @@ class Return(Base):
     # touch the whole New Tag Sale flow; scoped here since it's only ever
     # used for the return receipt.
     customer_email      = Column(String(100), nullable=True)
+    # ── Credit Note tab (Return New page, 2026-09-22) ─────────────────────
+    # action_taken == "credit" rows only. Sale Date shown on the CN form is
+    # NOT duplicated here — it's read live from the linked Sale.sold_at.
+    # Sale already carries customer_name/phone/state/address, but a CN can be
+    # raised against a walk-in-recorded sale with different contact details
+    # than what's on file, so captured independently here rather than reused.
+    cn_number            = Column(String(50), nullable=True)
+    customer_name        = Column(String(100), nullable=True)
+    customer_phone       = Column(String(20), nullable=True)
+    customer_state       = Column(String(100), nullable=True)
+    customer_address     = Column(Text, nullable=True)
 
     sale = relationship("Sale", back_populates="returns")

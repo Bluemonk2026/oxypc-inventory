@@ -1416,6 +1416,10 @@ async def process_return(
 
     # Item 6: mark the device as returned (Device Profile "Return Status" → Yes)
     device.return_status = True
+    # Tag Return Status (2026-09-22): set immediately at submission, same as
+    # return_status above — not gated on manager approval. Replace Now wins
+    # over the generic "sent for repair" status when both could apply.
+    device.tag_return_status = f"Replaced by {replace_tag.strip()}" if do_replace else "Return for Repair"
 
     await audit(db, user=current_user, action="RETURN_SUBMITTED",
                 table_name="returns", record_id=str(device.id),
@@ -1576,6 +1580,111 @@ async def process_external_return(
     await db.commit()
     return RedirectResponse(url="/returns?success=External+return+submitted+for+manager+approval",
                             status_code=302)
+
+
+@router.get("/returns/new/credit-note/lookup")
+async def credit_note_lookup(barcode: str, db: AsyncSession = Depends(get_db),
+                             current_user: User = Depends(allowed)):
+    """Credit Note tab's "Search Tag Number" autofill — Sale Date/Customer
+    Name/Phone/State/Address come from the device's latest Sale; Customer
+    Email has no home on Sale (see Return.customer_email's own comment), so
+    it's best-effort carried over from the device's latest existing Return
+    if one was ever captured, otherwise left blank for manual entry."""
+    from fastapi.responses import JSONResponse
+    bc = (barcode or "").strip()
+    if not bc:
+        return JSONResponse({"found": False})
+    device = (await db.execute(
+        select(Device).where(func.upper(Device.barcode) == bc.upper())
+    )).scalars().first()
+    if not device:
+        return JSONResponse({"found": False, "error": f"Device {bc} not found"})
+    sale = (await db.execute(
+        select(Sale).where(Sale.device_id == device.id).order_by(Sale.sold_at.desc()).limit(1)
+    )).scalars().first()
+    if not sale:
+        return JSONResponse({"found": False, "error": f"No sale found for {bc}"})
+    last_email = (await db.execute(
+        select(Return.customer_email).where(Return.device_id == device.id, Return.customer_email.isnot(None))
+        .order_by(Return.return_date.desc()).limit(1)
+    )).scalar()
+    return JSONResponse({
+        "found": True, "barcode": device.barcode,
+        "sale_date": sale.sold_at.strftime("%Y-%m-%d") if sale.sold_at else "",
+        "customer_name": sale.customer_name or "",
+        "customer_phone": sale.customer_phone or "",
+        "customer_email": last_email or "",
+        "customer_state": sale.customer_state or "",
+        "customer_address": sale.customer_address or "",
+    })
+
+
+@router.post("/returns/new/credit-note")
+async def process_credit_note(
+    request: Request,
+    barcode: str = Form(...),
+    cn_number: str = Form(...),
+    customer_name: str = Form(""),
+    customer_phone: str = Form(""),
+    customer_email: str = Form(""),
+    customer_state: str = Form(""),
+    customer_address: str = Form(""),
+    notes: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+    _perm: User = Depends(require_module_perm("returns", "add")),
+):
+    """Return New page's "Credit Note" tab — records a CN against a
+    previously-sold tag. Unlike the Internal Tags / External Tag flows,
+    there's no physical device movement to gate behind manager approval (the
+    tag isn't re-entering the repair pipeline), so this is recorded approved
+    immediately; what it always does is stamp Device.tag_return_status so
+    the tag shows up on the Inventory Manager / Production Manager Credit
+    Note tables."""
+    bc = barcode.strip()
+    cn = cn_number.strip()
+    if not bc or not cn:
+        return templates.TemplateResponse("sales/return_form.html", {
+            "request": request, "current_user": current_user, "sale": None,
+            "active_tab": "credit", "error": "Tag Number and CN Number are required.",
+        })
+    device = (await db.execute(
+        select(Device).where(func.upper(Device.barcode) == bc.upper())
+    )).scalars().first()
+    if not device:
+        return templates.TemplateResponse("sales/return_form.html", {
+            "request": request, "current_user": current_user, "sale": None,
+            "active_tab": "credit", "error": f"Device {bc} not found",
+        })
+    sale = (await db.execute(
+        select(Sale).where(Sale.device_id == device.id).order_by(Sale.sold_at.desc()).limit(1)
+    )).scalars().first()
+    if not sale:
+        return templates.TemplateResponse("sales/return_form.html", {
+            "request": request, "current_user": current_user, "sale": None,
+            "active_tab": "credit", "error": "No sale found for this device",
+        })
+
+    ret = Return(
+        sale_id=sale.id, device_id=device.id,
+        action_taken="credit", processed_by=current_user.username,
+        approval_status="approved", approved_by=current_user.username, approved_at=app_now(),
+        cn_number=cn,
+        customer_name=customer_name.strip() or None,
+        customer_phone=customer_phone.strip() or None,
+        customer_email=customer_email.strip() or None,
+        customer_state=customer_state.strip() or None,
+        customer_address=customer_address.strip() or None,
+        notes=notes.strip() or None,
+    )
+    db.add(ret)
+    device.tag_return_status = f"CN {cn}"
+
+    await audit(db, user=current_user, action="CREDIT_NOTE_SUBMITTED",
+                table_name="returns", record_id=str(device.id),
+                new_value={"barcode": bc, "cn_number": cn}, request=request)
+    await db.commit()
+    return RedirectResponse(url="/returns?success=Credit+Note+recorded", status_code=302)
 
 
 # ── Manager: pending returns list ─────────────────────────────────────────────

@@ -75,6 +75,25 @@ async def _stocked_map(db: AsyncSession, grns) -> dict:
     return {n: c for n, c in rows}
 
 
+async def _as_is_lot_map(db: AsyncSession, grns) -> dict:
+    """{grn_number: sub_lot_number} for GRNs whose mapped Tag Numbers already
+    carry a Sub-Lot Number from the "Yes As-Is" modal — every Tag Number
+    mapped to a GRN gets the same value in one write (grn_as_is_lot below),
+    so the first non-null one found is representative."""
+    numbers = [g.grn_number for g in grns if g.grn_number]
+    if not numbers:
+        return {}
+    rows = (await db.execute(
+        select(Device.grn_number, Device.sub_lot_number)
+        .where(Device.grn_number.in_(numbers), Device.sub_lot_number.isnot(None),
+               Device.is_active == True, Device.is_trashed == False)
+    )).all()
+    result = {}
+    for grn_number, sub_lot in rows:
+        result.setdefault(grn_number, sub_lot)
+    return result
+
+
 # ── GRN invoice import (the GRN nav page) ──────────────────────────────────────
 
 @router.get("", response_class=HTMLResponse)
@@ -242,6 +261,7 @@ async def grn_post_iqc(request: Request, db: AsyncSession = Depends(get_db),
     return templates.TemplateResponse("grn/post_iqc.html", {
         "request": request, "grns": grns, "pending_count": pending_count,
         "stocked": await _stocked_map(db, grns),
+        "as_is_lot": await _as_is_lot_map(db, grns),
         "current_user": current_user, "error": error, "success": success,
         "highlight_tag": highlight_tag,
         "device_type_options": ["Laptop", "Desktop", "AIO", "Workstation", "Mini PC", "Server", "Tablet"],
@@ -992,6 +1012,39 @@ async def grn_add_lot(grn_id: str, lot_number: list[str] = Form(...),
 
     await db.commit()
     return JSONResponse({"ok": True})
+
+
+@router.post("/{grn_id}/as-is-lot")
+async def grn_as_is_lot(request: Request, grn_id: str, sub_lot_number: str = Form(...),
+                        db: AsyncSession = Depends(get_db), current_user: User = Depends(allowed)):
+    """GRN Post-IQC's "Yes As-Is" modal — bulk-writes one Sub-Lot Number
+    across every Tag Number currently mapped to this GRN (Device.grn_number),
+    same "stocked" scope _stocked_map counts."""
+    try:
+        import uuid as _u
+        gid = _u.UUID(grn_id)
+    except ValueError:
+        raise HTTPException(404)
+    g = (await db.execute(select(GRNImport).where(GRNImport.id == gid))).scalar_one_or_none()
+    if not g:
+        raise HTTPException(404, "GRN not found")
+    value = sub_lot_number.strip()
+    if not value:
+        raise HTTPException(400, "Enter a Sub-Lot Number.")
+    if not g.grn_number:
+        raise HTTPException(400, "This GRN has no GRN Number to match Tag Numbers against.")
+
+    result = await db.execute(
+        update(Device).where(Device.grn_number == g.grn_number, Device.is_active == True)
+        .values(sub_lot_number=value)
+    )
+    await audit(db, user=current_user, action="GRN_AS_IS_LOT_SET",
+                table_name="grn_imports", record_id=str(g.id),
+                new_value={"grn_number": g.grn_number, "sub_lot_number": value,
+                           "tags_updated": result.rowcount},
+                request=request)
+    await db.commit()
+    return JSONResponse({"ok": True, "sub_lot_number": value, "tags_updated": result.rowcount})
 
 
 # ── Legacy per-lot GRN status view (kept; not in nav) ─────────────────────────

@@ -151,6 +151,74 @@
 
 {% set customise_return_to = '/stock' %}
 {% include "_customise_modal.html" %}
+
+<!-- Return Stock / Credit Note tabs -->
+<ul class="nav nav-tabs mt-4" id="stockExtraTabs" role="tablist">
+  <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#returnStockTabPane" type="button">
+    <i class="bi bi-arrow-return-left me-1"></i>Return Stock
+  </button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#creditNoteTabPane" type="button">
+    <i class="bi bi-receipt-cutoff me-1"></i>Credit Note
+  </button></li>
+</ul>
+<div class="tab-content border border-top-0 rounded-bottom bg-white mb-3">
+  <div class="tab-pane fade show active p-0" id="returnStockTabPane">
+    <div class="card-header bg-white d-flex flex-wrap align-items-center gap-2 border-0">
+      <input type="text" id="rsSearchBox" class="form-control form-control-sm" style="max-width:260px;"
+             placeholder="Search Tag / Model">
+      <button type="button" id="rsAssignBucketBtn" class="btn btn-sm btn-outline-primary" disabled>
+        <i class="bi bi-box me-1"></i>Assign Bucket
+      </button>
+      <span class="text-muted small ms-auto"><span id="rsSelectedCount">0</span> selected</span>
+    </div>
+    <div class="table-responsive">
+      <table id="returnStockTable" class="table table-hover mb-0 small">
+        <thead class="table-secondary">
+          <tr>
+            <th><input type="checkbox" id="rsSelectAll"></th>
+            <th>Tag Number</th><th>Model</th><th>CPU</th><th>RAM</th><th>Storage</th>
+            <th>Current Stage</th><th>Reason</th><th>Condition</th><th>Complaint</th>
+            <th>Repair Cost</th><th>Labour Cost</th><th>Part Cost</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in return_stock_rows %}
+          {% set d = row.device %}{% set ret = row.ret %}
+          <tr data-rs-search="{{ (d.barcode or '') ~ ' ' ~ (d.model or '') }}">
+            <td><input type="checkbox" class="rs-row-check" value="{{ d.barcode }}"></td>
+            <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none"><code>{{ d.barcode }}</code></a></td>
+            <td>{{ d.model or '—' }}</td>
+            <td>{{ d.cpu or '—' }}</td>
+            <td>{{ (d.ram_gb ~ ' GB') if d.ram_gb else '—' }}</td>
+            <td>{{ d.hdd_summary or '—' }}</td>
+            <td><span class="badge bg-secondary">{{ row.stage_label }}</span></td>
+            <td>{{ ret.reason or '—' }}</td>
+            <td>{{ ret.condition_on_return or '—' }}</td>
+            <td>{{ ret.complaint_text or '—' }}</td>
+            <td class="rs-repair-cost">{{ '%.2f'|format(ret.repair_cost) if ret.repair_cost is not none else '—' }}</td>
+            <td class="rs-labour-cost">{{ '%.2f'|format(row.labour_cost) if row.labour_cost is not none else '—' }}</td>
+            <td>{{ '%.2f'|format(row.part_cost) if row.part_cost is not none else '—' }}</td>
+            <td class="text-nowrap">
+              <button type="button" class="btn btn-xs btn-outline-primary btn-sm py-0 px-2 me-1 rs-verify-btn"
+                      data-barcode="{{ d.barcode }}"
+                      data-repair-cost="{{ ret.repair_cost if ret.repair_cost is not none else '' }}"
+                      data-labour-cost="{{ row.labour_cost if row.labour_cost is not none else '' }}">Verify</button>
+              <button type="button" class="btn btn-xs btn-outline-success btn-sm py-0 px-2 rs-complete-btn"
+                      data-barcode="{{ d.barcode }}">Complete</button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="14" class="text-center text-muted py-3">No return stock pending.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="tab-pane fade p-0" id="creditNoteTabPane">
+    {% include "_credit_note_table.html" %}
+  </div>
+</div>
+
 <!-- Bucket / Carton table -->
 <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
   <h6 class="fw-bold mb-0"><i class="bi bi-box me-2"></i>Buckets / Cartons</h6>
@@ -191,65 +259,6 @@
           </tr>
           {% else %}
           <tr><td colspan="4" class="text-center text-muted py-3">No buckets pending release.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- Return Stock: customer-return tags back in the pipeline for repair/re-sale -->
-<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
-  <h6 class="fw-bold mb-0"><i class="bi bi-arrow-return-left me-2"></i>Return Stock</h6>
-</div>
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-header bg-white d-flex flex-wrap align-items-center gap-2">
-    <input type="text" id="rsSearchBox" class="form-control form-control-sm" style="max-width:260px;"
-           placeholder="Search Tag / Model">
-    <button type="button" id="rsAssignBucketBtn" class="btn btn-sm btn-outline-primary" disabled>
-      <i class="bi bi-box me-1"></i>Assign Bucket
-    </button>
-    <span class="text-muted small ms-auto"><span id="rsSelectedCount">0</span> selected</span>
-  </div>
-  <div class="card-body p-0">
-    <div class="table-responsive">
-      <table id="returnStockTable" class="table table-hover mb-0 small">
-        <thead class="table-secondary">
-          <tr>
-            <th><input type="checkbox" id="rsSelectAll"></th>
-            <th>Tag Number</th><th>Model</th><th>CPU</th><th>RAM</th><th>Storage</th>
-            <th>Current Stage</th><th>Reason</th><th>Condition</th><th>Complaint</th>
-            <th>Repair Cost</th><th>Labour Cost</th><th>Part Cost</th><th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in return_stock_rows %}
-          {% set d = row.device %}{% set ret = row.ret %}
-          <tr data-rs-search="{{ (d.barcode or '') ~ ' ' ~ (d.model or '') }}">
-            <td><input type="checkbox" class="rs-row-check" value="{{ d.barcode }}"></td>
-            <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none"><code>{{ d.barcode }}</code></a></td>
-            <td>{{ d.model or '—' }}</td>
-            <td>{{ d.cpu or '—' }}</td>
-            <td>{{ (d.ram_gb ~ ' GB') if d.ram_gb else '—' }}</td>
-            <td>{{ d.hdd_summary or '—' }}</td>
-            <td><span class="badge bg-secondary">{{ row.stage_label }}</span></td>
-            <td>{{ ret.reason or '—' }}</td>
-            <td>{{ ret.condition_on_return or '—' }}</td>
-            <td>{{ ret.complaint_text or '—' }}</td>
-            <td class="rs-repair-cost">{{ '%.2f'|format(ret.repair_cost) if ret.repair_cost is not none else '—' }}</td>
-            <td class="rs-labour-cost">{{ '%.2f'|format(ret.labour_cost) if ret.labour_cost is not none else '—' }}</td>
-            <td>{{ '%.2f'|format(row.part_cost) if row.part_cost is not none else '—' }}</td>
-            <td class="text-nowrap">
-              <button type="button" class="btn btn-xs btn-outline-primary btn-sm py-0 px-2 me-1 rs-verify-btn"
-                      data-barcode="{{ d.barcode }}"
-                      data-repair-cost="{{ ret.repair_cost if ret.repair_cost is not none else '' }}"
-                      data-labour-cost="{{ ret.labour_cost if ret.labour_cost is not none else '' }}">Verify</button>
-              <button type="button" class="btn btn-xs btn-outline-success btn-sm py-0 px-2 rs-complete-btn"
-                      data-barcode="{{ d.barcode }}">Complete</button>
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="14" class="text-center text-muted py-3">No return stock pending.</td></tr>
           {% endfor %}
         </tbody>
       </table>

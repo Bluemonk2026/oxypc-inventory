@@ -176,6 +176,17 @@ class Device(Base):
     return_status = Column(Boolean, nullable=False, default=False, server_default=text("false"))  # True once returned via Process Return
     replaced = Column(String(120), nullable=True)      # "Replaced by <tag>" / "Replaced from <tag>" (L3 device swap)
     replace_with_barcode = Column(String(100), nullable=True)  # Scrap Products "Replace" modal — selected replacement tag (Replacement Scrap flow)
+    # ── Return New page / Change Floor / GRN Post-IQC "As-Is Lot" (2026-09-22) ──
+    # Free text: "Replaced by <tag>" / "CN <cn number>" / "Return for Repair" —
+    # set by the Internal Tag tab (process_return) and the Credit Note tab
+    # (process_credit_note) of /returns/new. Drives the Inventory Manager /
+    # Production Manager "Credit Note" table and the Production Manager
+    # "Tags Returned" tile.
+    tag_return_status = Column(String(120), nullable=True)
+    # Set by Change Floor's "As-Is Lot" transfer (New Sub-Lot radio) or GRN
+    # Post-IQC's "Yes As-Is" modal — both bulk-write this across every Tag
+    # Number they apply to, distinct from the device's actual Lot Number.
+    sub_lot_number = Column(String(50), nullable=True)
     # ── L1/L2 → L3/L4 status-driven hand-off flow (additive; auto-provisioned by db_validator) ──
     l1l2_status = Column(String(30), nullable=True, default="New")   # New | Repair Started | Requested to L3/L4
     l34_status  = Column(String(30), nullable=True)                  # (blank) | Repair Started | Completed | Normal Scrap | Replacement Scrap

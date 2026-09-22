@@ -1101,8 +1101,16 @@ async def stock_in_list(
         # in this tag)" — under-warranty returns don't bill the part back onto
         # this cost line.
         part_cost = part_cost_map.get(dev.id, 0) if ret.warranty_status == "out_of_warranty" else 0
+        # Labour Cost defaults to the Paid Repair amount captured on the
+        # Internal Tag tab (Return.refund_amount, only ever set when that
+        # form's "Paid Repair" row is shown — i.e. out-of-warranty) until
+        # someone Verifies it with an actual figure.
+        labour_cost = ret.labour_cost if ret.labour_cost is not None else (
+            ret.refund_amount if ret.warranty_status == "out_of_warranty" else None
+        )
         return_stock_rows.append({
             "device": dev, "lot_number": lot_num, "ret": ret, "part_cost": part_cost,
+            "labour_cost": labour_cost,
             "stage_label": STAGE_LABELS.get(dev.current_stage, dev.current_stage.value if dev.current_stage else "—"),
         })
     return_stock_rows.sort(key=lambda r: r["ret"].return_date or app_now(), reverse=True)
@@ -1131,6 +1139,7 @@ async def stock_in_list(
         "unit_type_options": [(u.value, UNIT_TYPE_LABELS.get(u, u.value)) for u in UnitType],
         "fqc_pass_buckets": fqc_pass_buckets,
         "return_stock_rows": return_stock_rows,
+        "credit_note_rows": await _credit_note_rows(db),
     })
 
 
@@ -1142,6 +1151,30 @@ async def _latest_return_for_device(db: AsyncSession, device_id) -> "Return | No
         select(Return).where(Return.device_id == device_id)
         .order_by(Return.return_date.desc()).limit(1)
     )).scalars().first()
+
+
+async def _credit_note_rows(db: AsyncSession) -> list[dict]:
+    """Devices with an active Credit Note — Device.tag_return_status starts
+    "CN " (set by the Return New page's Credit Note tab). Shared by the
+    Inventory Manager and Production Manager pages, which both show the same
+    table. Sale Date is the device's latest Sale.sold_at, not duplicated
+    onto Return (see models/sales.py Return's Credit Note comment)."""
+    rows = (await db.execute(
+        select(Device, Lot.lot_number)
+        .join(Lot, Device.lot_id == Lot.id, isouter=True)
+        .where(Device.tag_return_status.ilike("CN %"), Device.is_active == True)  # noqa: E712
+        .order_by(Device.updated_at.desc())
+    )).all()
+    device_ids = [d.id for d, _ in rows]
+    sale_map = {}
+    if device_ids:
+        sale_rows = (await db.execute(
+            select(Sale.device_id, func.max(Sale.sold_at))
+            .where(Sale.device_id.in_(device_ids))
+            .group_by(Sale.device_id)
+        )).all()
+        sale_map = {did: sold_at for did, sold_at in sale_rows}
+    return [{"device": d, "lot_number": lot_num, "sale_date": sale_map.get(d.id)} for d, lot_num in rows]
 
 
 @router.post("/stock/return-stock/assign-bucket")
@@ -1684,6 +1717,19 @@ async def trc_production_list(
     tags_cosmetic = (await db.execute(
         select(func.count(Device.id)).where(Device.current_stage.in_(COSMETIC_STAGES), tiles_active)
     )).scalar() or 0
+    # "Tags Returned" — Internal Tag tab devices sent for repair
+    # (tag_return_status == "Return for Repair"), anywhere across the
+    # pipeline these other tiles cover (At You through Final QC).
+    returned_pipeline_stages = (
+        [DeviceStage.trc_production, DeviceStage.l1, DeviceStage.l2, DeviceStage.l3, DeviceStage.qc_check]
+        + list(COSMETIC_STAGES)
+        + [DeviceStage.final_qc, DeviceStage.final_qc_pass_hold, DeviceStage.final_qc_fail_hold]
+    )
+    tags_returned = (await db.execute(
+        select(func.count(Device.id)).where(
+            Device.tag_return_status == "Return for Repair",
+            Device.current_stage.in_(returned_pipeline_stages), tiles_active)
+    )).scalar() or 0
 
     return templates.TemplateResponse("lots/trc_production.html", {
         "request": request, "devices": devices, "current_user": current_user,
@@ -1694,7 +1740,8 @@ async def trc_production_list(
         "fqc_fail_buckets": fqc_fail_buckets,
         "tags_at_you": tags_at_you, "tags_l1l2": tags_l1l2, "tags_l3l4": tags_l3l4,
         "tags_pna": tags_pna, "tags_stress": tags_stress, "tags_final_qc": tags_final_qc,
-        "tags_cosmetic": tags_cosmetic,
+        "tags_cosmetic": tags_cosmetic, "tags_returned": tags_returned,
+        "credit_note_rows": await _credit_note_rows(db),
         "change_engineer_stages": [(s.value, label) for s, label in CHANGE_ENGINEER_STAGES],
     })
 

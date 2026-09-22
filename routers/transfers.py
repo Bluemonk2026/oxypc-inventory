@@ -462,13 +462,22 @@ async def create_transfer(
     assigned_user_id: str = Form(""),
     notes: str = Form(""),
     to_location_id: str = Form(""),
+    as_is_lot_choice: str = Form(""),
+    sub_lot_value: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("transfers", "add")),
 ):
     """Move Item tab — scanned barcodes are accumulated client-side into a
     list (see stockScan-style multi-scan JS); one StockTransfer row is
-    created per barcode with the same transfer options applied to all."""
+    created per barcode with the same transfer options applied to all.
+
+    as_is_lot_choice/sub_lot_value: only meaningful when transfer_type ==
+    "as_is_lot" and as_is_lot_choice == "new_sub_lot" — bulk-writes
+    Device.sub_lot_number across every scanned Tag Number below. "Current
+    Lot" (the default radio) intentionally does nothing, per spec."""
+    apply_sub_lot = (transfer_type == "as_is_lot" and as_is_lot_choice == "new_sub_lot"
+                     and sub_lot_value.strip())
     barcodes = [b.strip() for b in barcode if b and b.strip()]
     if not barcodes:
         return RedirectResponse(url="/transfers/new?error=No+tag+numbers+scanned", status_code=302)
@@ -507,6 +516,8 @@ async def create_transfer(
             not_found.append(bc)
             continue
         device, lot_number = row
+        if apply_sub_lot:
+            device.sub_lot_number = sub_lot_value.strip()
 
         _from_wh = from_warehouse or getattr(device, "warehouse", None) or "—"
         _to_wh = to_warehouse or _from_wh

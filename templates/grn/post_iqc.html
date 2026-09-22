@@ -86,7 +86,7 @@
         <thead class="table-dark">
           <tr>
             <th class="ps-3">GRN</th><th>LOT</th><th>Invoice Number</th><th>Date of Invoice</th>
-            <th>Vendor Name</th><th>Quantity</th><th>Stocked</th><th>Amount</th><th>Download</th><th>Action</th>
+            <th>Vendor Name</th><th>Quantity</th><th>Stocked</th><th>Amount</th><th>As-Is Lot</th><th>Download</th><th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -115,6 +115,17 @@
               <span class="badge bg-{{ 'success' if g.quantity and _st >= g.quantity else ('warning text-dark' if _st else 'secondary') }}">{{ _st }}</span>
             </td>
             <td>{% if g.amount is not none %}₹{{ "{:,.2f}".format(g.amount) }}{% else %}—{% endif %}</td>
+            <td>
+              {% set _asIs = as_is_lot.get(g.grn_number) if as_is_lot is defined else None %}
+              {% if _asIs %}
+              <span class="font-monospace">{{ _asIs }}</span>
+              {% elif _st > 0 %}
+              <button type="button" class="btn btn-sm btn-outline-success py-0 px-2 as-is-lot-btn"
+                      data-grn-id="{{ g.id }}" data-grn="{{ g.grn_number }}">Yes As-Is</button>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
             <td>
               {% if g.file_path %}
               <a href="/grn/download/{{ g.id }}" class="btn btn-sm btn-outline-secondary py-0 px-2"><i class="bi bi-download"></i></a>
@@ -157,7 +168,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="10" class="text-center text-muted py-4">No GRN imports yet. Upload an invoice to begin.</td></tr>
+          <tr><td colspan="11" class="text-center text-muted py-4">No GRN imports yet. Upload an invoice to begin.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -371,6 +382,28 @@
         <button type="button" id="al_add_row" class="btn btn-sm btn-outline-primary mt-1">
           <i class="bi bi-plus-lg"></i> Add another Lot
         </button>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Yes As-Is modal — bulk-sets Sub-Lot Number across every Tag Number mapped to this GRN -->
+<div class="modal fade" id="asIsLotModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form id="asIsLotForm" class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-box-seam me-2"></i>Yes As-Is <span id="ail_grn_label" class="font-monospace fw-normal small text-muted ms-2"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="ail_grn_id">
+        <label class="form-label fw-semibold">Sub-Lot Number</label>
+        <input type="text" id="ail_sub_lot_number" class="form-control" required>
+        <div class="form-text">Applied to every Tag Number currently mapped to this GRN.</div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -659,6 +692,31 @@ document.getElementById('addLotForm').addEventListener('submit', function(e){
       }
       location.reload();
     })
+    .catch(function(err){ alert(err.message); });
+});
+
+// ── Yes As-Is — bulk Sub-Lot Number modal ──────────────────────────────────
+document.querySelectorAll('.as-is-lot-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.getElementById('ail_grn_id').value = this.getAttribute('data-grn-id');
+    document.getElementById('ail_grn_label').textContent = this.getAttribute('data-grn') || '';
+    document.getElementById('ail_sub_lot_number').value = '';
+    new bootstrap.Modal(document.getElementById('asIsLotModal')).show();
+  });
+});
+document.getElementById('asIsLotForm').addEventListener('submit', function(e){
+  e.preventDefault();
+  var value = document.getElementById('ail_sub_lot_number').value.trim();
+  if (!value) { alert('Enter a Sub-Lot Number.'); return; }
+  var fd = new FormData();
+  fd.append('csrf_token', document.querySelector('#editGrnForm input[name="csrf_token"]').value);
+  fd.append('sub_lot_number', value);
+  fetch('/grn/' + document.getElementById('ail_grn_id').value + '/as-is-lot', {method:'POST', body:fd})
+    .then(function(r){
+      if (!r.ok) { return r.json().then(function(j){ throw new Error(j.detail || 'Failed'); }); }
+      return r.json();
+    })
+    .then(function(){ location.reload(); })
     .catch(function(err){ alert(err.message); });
 });
 

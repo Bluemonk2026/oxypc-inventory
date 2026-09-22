@@ -30,13 +30,32 @@
         'showroom_lot': 'Showroom Lot',
         'internal': 'Internal',
       } %}
-      <select name="transfer_type" class="form-select" required>
+      {% set _ = transfer_type_labels.update({'as_is_lot': 'As-Is Lot'}) %}
+      <select name="transfer_type" class="form-select {{ prefix }}-transfer-type" required>
         <option value="">— Select Transfer Type —</option>
         {% for t in master_options('transfer_type') if t != 'internal' %}
         <option value="{{ t }}">{{ transfer_type_labels.get(t, t) }}</option>
         {% endfor %}
       </select>
     </div>
+
+    {% if prefix == 'device' %}
+    <!-- As-Is Lot — only shown/relevant on Move Item, since it applies per scanned Tag Number's own current Lot -->
+    <div class="col-12 d-none" id="asIsLotBox">
+      <label class="form-label fw-semibold d-block">As-Is Lot</label>
+      <div class="form-check form-check-inline">
+        <input class="form-check-input" type="radio" name="as_is_lot_choice" id="asIsLotCurrent" value="current_lot" checked>
+        <label class="form-check-label" for="asIsLotCurrent">Current Lot <span id="asIsLotCurrentLotNumber" class="font-monospace">—</span></label>
+      </div>
+      <div class="form-check form-check-inline">
+        <input class="form-check-input" type="radio" name="as_is_lot_choice" id="asIsLotNewSub" value="new_sub_lot">
+        <label class="form-check-label" for="asIsLotNewSub">New Sub-Lot</label>
+      </div>
+      <div class="mt-2 d-none" id="asIsLotSubLotBox">
+        <input type="text" name="sub_lot_value" class="form-control" placeholder="Sub-Lot for this movement">
+      </div>
+    </div>
+    {% endif %}
 
     <!-- Row 2: Assign To Employee -->
     <div class="col-md-6">
@@ -298,13 +317,22 @@
   }
 
   // ── Move Item: scan tag numbers, validate via device-brief, accumulate ─────
+  var deviceLots = {}; // barcode -> lot_number, for the As-Is Lot "Current Lot" label
   var deviceList = makeScanList({
     listEl: document.getElementById('deviceScanList'),
     hiddenEl: document.getElementById('deviceBarcodeHiddenInputs'),
     fieldName: 'barcode',
     form: document.getElementById('deviceMoveForm'),
     emptyEl: document.getElementById('deviceMoveEmpty'),
+    onChange: updateAsIsLotCurrentLabel,
   });
+  function updateAsIsLotCurrentLabel(){
+    var lots = Object.keys(deviceLots).map(function(bc){ return deviceLots[bc]; }).filter(Boolean);
+    var uniq = lots.filter(function(v, i){ return lots.indexOf(v) === i; });
+    var lbl = document.getElementById('asIsLotCurrentLotNumber');
+    if (!lbl) return;
+    lbl.textContent = uniq.length === 1 ? uniq[0] : (uniq.length > 1 ? '(varies per tag)' : '—');
+  }
   function addDeviceScan(){
     var input = document.getElementById('deviceScanInput');
     var bc = input.value.trim();
@@ -314,7 +342,9 @@
       .then(function(data){
         if (!data.found) { alert('Tag number "' + bc + '" not found.'); return; }
         var added = deviceList.add(data.barcode, data.barcode + ' — ' + data.make + ' ' + data.model + ' (' + data.status + ')');
-        if (!added) alert('"' + data.barcode + '" already added.');
+        if (!added) { alert('"' + data.barcode + '" already added.'); return; }
+        deviceLots[data.barcode] = data.lot_number || '';
+        updateAsIsLotCurrentLabel();
         input.value = '';
         input.focus();
       })
@@ -326,6 +356,29 @@
   if (deviceScanInput) deviceScanInput.addEventListener('keydown', function(e){
     if (e.key === 'Enter') { e.preventDefault(); addDeviceScan(); }
   });
+
+  // ── As-Is Lot — Move Item tab only: show the 2 radios when Transfer Type
+  //    is "As-Is Lot", and the Sub-Lot textbox when "New Sub-Lot" is picked ──
+  (function(){
+    var typeSelect = document.querySelector('.device-transfer-type');
+    var box = document.getElementById('asIsLotBox');
+    var subLotBox = document.getElementById('asIsLotSubLotBox');
+    var subLotInput = subLotBox ? subLotBox.querySelector('input[name="sub_lot_value"]') : null;
+    var currentRadio = document.getElementById('asIsLotCurrent');
+    var newSubRadio = document.getElementById('asIsLotNewSub');
+    if (!typeSelect || !box) return;
+    function toggleBox(){
+      box.classList.toggle('d-none', typeSelect.value !== 'as_is_lot');
+    }
+    function toggleSubLot(){
+      var show = newSubRadio.checked;
+      subLotBox.classList.toggle('d-none', !show);
+      if (!show && subLotInput) subLotInput.value = '';
+    }
+    typeSelect.addEventListener('change', toggleBox);
+    currentRadio.addEventListener('change', toggleSubLot);
+    newSubRadio.addEventListener('change', toggleSubLot);
+  })();
 
   // ── Move Bucket: scan bucket/location unit IDs, validate, accumulate ──────
   var bucketList = makeScanList({

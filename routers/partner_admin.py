@@ -27,8 +27,12 @@ from models.dealers import Dealer
 from models.crm import CRMContact
 from models.user import User, UserRole
 from models.lot import Lot
-from models.device import Device, DeviceStage
-from models.master import EXTERNAL_PARTNER_TEST_ENTITY, EXTERNAL_PARTNER_TEST_LOT_PREFIX
+from models.device import Device, DeviceStage, STAGE_LABELS
+from models.grn_import import GRNImport
+from models.master import (
+    EXTERNAL_PARTNER_TEST_ENTITY, EXTERNAL_PARTNER_TEST_LOT_PREFIX,
+    EXTERNAL_PARTNER_TEST_GRN_SOURCE,
+)
 from models.partner import (
     PartnerLoginLog, PartnerListing, PartnerListingDevice, PartnerFloorConfig,
     PartnerBooking, PRICE_SEGMENTS, LISTING_TYPES,
@@ -1217,14 +1221,19 @@ async def settings_save(
 # portal (2026-09-22). Previously a generic "restrict any live Lot, grant
 # visibility to any real dealer" tool; replaced because that let admin-
 # created test Lots leak into the live dealer catalog by default (Lot.is_
-# restricted defaults to open-to-everyone). This page now only surfaces
-# Lots on the EXTERNAL_PARTNER_TEST_LOT_PREFIX convention, guides staff
-# through the EXISTING Add GRN -> Add/Map Lots -> Upload Asset IQC flow
-# (nothing duplicated — see templates/trade_partner/manage_lots.html for the
-# links out to /grn/post-iqc and /bulk-upload), and shows a read-only status
-# table. New EPT- lots auto-restrict on creation (routers/grn.py
-# grn_add_lot), so no visibility-grant UI is needed here at all — they stay
-# permanently invisible to every dealer, test or real.
+# restricted defaults to open-to-everyone). Rebuilt again same day: an
+# earlier version of this page only LINKED OUT to the real GRN/Bulk-Upload
+# pages — the actual asks was to EMBED the real GRN & Lot CRUD and the real
+# Bulk Upload IQC form directly here, as two tabs, so the flow never leaves
+# this page. Test GRNs are tagged via GRNImport.source =
+# EXTERNAL_PARTNER_TEST_GRN_SOURCE (reusing the existing column the live GRN
+# pages already filter on — see models/master.py's comment on that constant)
+# so they're automatically excluded from /grn and /grn/post-iqc with no
+# separate exclusion query needed on those pages beyond the one added to
+# grn_import_list. Test Lots stay on the EXTERNAL_PARTNER_TEST_LOT_PREFIX
+# convention and auto-restrict on creation (routers/grn.py grn_add_lot), so
+# they're never open to the live dealer catalog and no visibility-grant UI
+# is needed here.
 # ─────────────────────────────────────────────────────────────────────────
 
 @router.get("/manage-lots", response_class=HTMLResponse)
@@ -1233,37 +1242,43 @@ async def manage_lots(
     current_user: User = Depends(require_module_perm("trade_partner_manage_lots")),
     db: AsyncSession = Depends(get_db),
 ):
-    test_lots = (await db.execute(
-        select(Lot).where(Lot.lot_number.ilike(f"{EXTERNAL_PARTNER_TEST_LOT_PREFIX}%"))
-        .order_by(Lot.purchase_date.desc())
-    )).scalars().all()
-    lot_ids = [l.id for l in test_lots]
+    from routers.grn import _stocked_map
 
-    # device_count_map: total devices per lot. entity_ok_map: True only when
-    # EVERY device on that lot carries the test entity — a mixed lot (e.g.
-    # someone typo'd the Entity column in their IQC CSV) shows False so it's
-    # visibly flagged rather than silently trusted.
-    device_count_map: dict = {}
-    entity_ok_map: dict = {}
-    if lot_ids:
-        rows = (await db.execute(
-            select(Device.lot_id, Device.entity, func.count(Device.id))
-            .where(Device.lot_id.in_(lot_ids))
-            .group_by(Device.lot_id, Device.entity)
-        )).all()
-        per_lot_entities: dict = {}
-        for lid, ent, cnt in rows:
-            per_lot_entities.setdefault(str(lid), {})[ent] = cnt
-        for key, ent_counts in per_lot_entities.items():
-            device_count_map[key] = sum(ent_counts.values())
-            entity_ok_map[key] = (set(ent_counts.keys()) == {EXTERNAL_PARTNER_TEST_ENTITY})
+    # ── Tab 1: GRN & Lot ──────────────────────────────────────────────────
+    test_grns = (await db.execute(
+        select(GRNImport).where(GRNImport.source == EXTERNAL_PARTNER_TEST_GRN_SOURCE,
+                                GRNImport.is_deleted == False)
+        .order_by(GRNImport.created_at.desc())
+    )).scalars().all()
+
+    grn_numbers = [g.grn_number for g in test_grns if g.grn_number]
+    lots_by_grn: dict = {}
+    if grn_numbers:
+        lot_rows = (await db.execute(
+            select(Lot).where(Lot.grn_system_number.in_(grn_numbers)).order_by(Lot.lot_number)
+        )).scalars().all()
+        for l in lot_rows:
+            lots_by_grn.setdefault(l.grn_system_number, []).append(l)
+
+    stocked = await _stocked_map(db, test_grns)
+
+    # ── Tab 2: Asset IQC ─────────────────────────────────────────────────
+    device_rows = (await db.execute(
+        select(Device, Lot.lot_number)
+        .join(Lot, Device.lot_id == Lot.id, isouter=True)
+        .where(Device.entity == EXTERNAL_PARTNER_TEST_ENTITY)
+        .order_by(Device.created_at.desc())
+    )).all()
+    test_devices = [{"device": d, "lot_number": ln} for d, ln in device_rows]
 
     return templates.TemplateResponse("trade_partner/manage_lots.html", {
         "request": request, "current_user": current_user,
-        "test_lots": test_lots, "device_count_map": device_count_map,
-        "entity_ok_map": entity_ok_map,
+        "test_grns": test_grns, "lots_by_grn": lots_by_grn, "stocked": stocked,
+        "test_devices": test_devices,
         "test_entity_name": EXTERNAL_PARTNER_TEST_ENTITY,
         "test_lot_prefix": EXTERNAL_PARTNER_TEST_LOT_PREFIX,
+        "test_grn_source": EXTERNAL_PARTNER_TEST_GRN_SOURCE,
+        "stage_labels": STAGE_LABELS,
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
     })

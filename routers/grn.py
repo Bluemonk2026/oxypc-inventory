@@ -16,7 +16,7 @@ from sqlalchemy import select, func, or_, update
 from database import get_db
 from models.user import User, UserRole
 from models.lot import Lot
-from models.master import EXTERNAL_PARTNER_TEST_LOT_PREFIX
+from models.master import EXTERNAL_PARTNER_TEST_LOT_PREFIX, EXTERNAL_PARTNER_TEST_GRN_SOURCE
 from models.device import Device, DeviceStage, StageMovement
 from models.engines import AuditLog
 from models.grn_import import GRNImport
@@ -81,10 +81,15 @@ async def _stocked_map(db: AsyncSession, grns) -> dict:
 async def grn_import_list(request: Request, db: AsyncSession = Depends(get_db),
                           current_user: User = Depends(allowed),
                           error: str = "", success: str = ""):
-    # GRN with Invoice page → invoice-source GRNs only (legacy NULL treated as invoice)
+    # GRN with Invoice page → invoice-source GRNs only (legacy NULL treated as
+    # invoice). NULL-safe throughout: `source != X` alone evaluates to SQL
+    # NULL (not TRUE) for a NULL source, which would silently drop those
+    # legacy rows — each exclusion is paired with `.is_(None)` so a NULL
+    # source is always treated as "not that value" rather than "unknown".
     rows = (await db.execute(
         select(GRNImport)
         .where(or_(GRNImport.source != "post_iqc", GRNImport.source.is_(None)),
+               or_(GRNImport.source != EXTERNAL_PARTNER_TEST_GRN_SOURCE, GRNImport.source.is_(None)),
                GRNImport.is_deleted == False)
         .order_by(GRNImport.created_at.desc())
     )).scalars().all()
@@ -661,7 +666,6 @@ async def grn_delete(
     db: AsyncSession = Depends(get_db), current_user: User = Depends(allowed),
 ):
     """Soft-delete a GRN (hidden from tables, file + row kept for audit/compliance)."""
-    base = "/grn/post-iqc" if source == "post_iqc" else "/grn"
     try:
         import uuid as _u
         gid = _u.UUID(grn_id)
@@ -670,6 +674,13 @@ async def grn_delete(
     g = (await db.execute(select(GRNImport).where(GRNImport.id == gid))).scalar_one_or_none()
     if not g:
         raise HTTPException(404, "GRN not found")
+    # Redirect target comes from the GRN's OWN stored source, not the form's
+    # hidden field — robust regardless of what the calling template passes,
+    # and correctly routes a test GRN back to Manage Lots even though its
+    # delete form (like every other page's) just carries a generic hidden
+    # source input.
+    base = ("/trade-partner/manage-lots" if g.source == EXTERNAL_PARTNER_TEST_GRN_SOURCE
+            else "/grn/post-iqc" if source == "post_iqc" else "/grn")
     g.is_deleted = True
     g.deleted_at = app_now()
     await audit(db, user=current_user, action="GRN_DELETED",
@@ -711,7 +722,8 @@ async def grn_create_manual(
     from datetime import date as _date
     from urllib.parse import quote
 
-    base = "/grn/post-iqc" if source == "post_iqc" else "/grn"
+    base = ("/trade-partner/manage-lots" if source == EXTERNAL_PARTNER_TEST_GRN_SOURCE
+            else "/grn/post-iqc" if source == "post_iqc" else "/grn")
 
     # Same duplicate rule as the upload path: the invoice number is the real
     # business key, so refuse a second GRN for one that already exists rather
@@ -774,7 +786,7 @@ async def grn_create_manual(
         vehicle_number=vehicle_number or None,
         e_way_bill=e_way_bill or None,
         notes=notes or None,
-        source=("post_iqc" if source == "post_iqc" else "invoice"),
+        source=(source if source in ("post_iqc", EXTERNAL_PARTNER_TEST_GRN_SOURCE) else "invoice"),
         created_by=current_user.username,
     ))
     await audit(db, user=current_user, action="GRN_CREATED_MANUAL",
@@ -860,7 +872,12 @@ async def grn_edit(
         lot.notes = g.notes
 
     await db.commit()
-    return RedirectResponse(url=f"/grn/post-iqc?success=GRN+{g.grn_number}+updated", status_code=302)
+    # Test GRNs redirect back to Manage Lots — the Edit GRN modal there posts
+    # to this same endpoint, so it must not land the operator on the live
+    # GRN Records page.
+    base = ("/trade-partner/manage-lots" if g.source == EXTERNAL_PARTNER_TEST_GRN_SOURCE
+            else "/grn/post-iqc")
+    return RedirectResponse(url=f"{base}?success=GRN+{g.grn_number}+updated", status_code=302)
 
 
 @router.get("/lots/check")

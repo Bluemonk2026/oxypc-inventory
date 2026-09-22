@@ -15,7 +15,7 @@ from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, DeviceGrade, StageMovement, STAGE_LABELS, DROPDOWN_STAGES, COSMETIC_STAGES
 from models.lot import Lot, LotLineItem
-from models.master import EXTERNAL_PARTNER_TEST_ENTITY
+from models.master import EXTERNAL_PARTNER_TEST_ENTITY, EXTERNAL_PARTNER_TEST_LOT_PREFIX
 from models.crm import CRMSourcingDeal
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm, require_additional_perm
 from services.audit_engine import audit
@@ -154,6 +154,13 @@ async def list_lots(
             Lot.lot_number.ilike(_like),
             Lot.vendor_name.ilike(_like),
         ))
+    else:
+        # No explicit search -> exclude External Partner test Lots from the
+        # default view, same convention as the Device.entity exclusion
+        # elsewhere in this file. An explicit search for "EPT-..." still
+        # finds them (Lot.lot_number is a required, unique column, so this
+        # is NULL-safe with no extra handling needed).
+        base_stmt = base_stmt.where(~Lot.lot_number.ilike(f"{EXTERNAL_PARTNER_TEST_LOT_PREFIX}%"))
     if date_from:
         try:
             base_stmt = base_stmt.where(Lot.purchase_date >= _dt.strptime(date_from, "%Y-%m-%d"))

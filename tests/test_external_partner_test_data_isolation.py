@@ -1,19 +1,27 @@
 """2026-09-22: test-data intake for External Partner (Trade Partner) testing.
 
-/trade-partner/manage-lots was rebuilt from a generic "restrict any live Lot,
-grant visibility to any real dealer" tool into a hub guiding staff through the
-EXISTING Add GRN -> Add/Map Lots -> Upload Asset IQC flow, scoped by the
-EXTERNAL_PARTNER_TEST_LOT_PREFIX ("EPT-") lot-number convention and the
-EXTERNAL_PARTNER_TEST_ENTITY ("External Partner Test") entity value
-(models/master.py). Two safety nets this exercises end-to-end:
+/trade-partner/manage-lots is a 2-tab page ("GRN & Lot", "Asset IQC") that
+EMBEDS the real GRN CRUD (Add/Edit/Delete GRN, Add/Edit Lot) and the real
+Bulk Upload IQC form -- not a hub linking out to the live pages. Records
+created here must remain fully separate from live GRN/Lot/Device data:
 
-1. An EPT- lot auto-restricts itself the moment routers/grn.py's REAL
+1. A GRN created via this page's Add GRN modal is tagged
+   GRNImport.source = EXTERNAL_PARTNER_TEST_GRN_SOURCE ("ext_partner_test")
+   -- reusing the existing `source` column the live GRN pages already
+   filter on, rather than inferring test-ness from lot-number prefix (which
+   would leave a freshly-created, not-yet-lot-mapped GRN unflagged). It must
+   never appear on /grn ("GRN with Invoice") or /grn/post-iqc ("GRN post
+   IQC"), and Edit/Delete on it must redirect back to Manage Lots, not those
+   live pages.
+2. An EPT- lot auto-restricts itself the moment routers/grn.py's REAL
    grn_add_lot endpoint creates it -- never open to the live dealer catalog
    by default (Lot.is_restricted otherwise defaults to False = visible to
-   every dealer).
-2. Devices on the test entity are excluded from routers/devices.py's default
-   (unfiltered) All Inventory view, but still show up when explicitly
-   entity-filtered -- proving the exclusion is a default, not a hard block.
+   every dealer) -- and is excluded from the live /lots (Lot Overview)
+   default view, though an explicit search for it still finds it.
+3. Devices on the External Partner Test entity are excluded from
+   routers/devices.py's default (unfiltered) All Inventory view, but still
+   show up when explicitly entity-filtered -- proving the exclusion is a
+   default, not a hard block.
 """
 import pathlib
 import subprocess
@@ -108,7 +116,7 @@ asyncio.run(main())
 """)
 
 
-def _lot_is_restricted(lot_id):
+def _lot_field(lot_number, field):
     return _run(f"""
 import asyncio, sys
 sys.path.insert(0, r"{ROOT}")
@@ -118,14 +126,14 @@ from models.lot import Lot
 
 async def main():
     async with AsyncSessionLocal() as db:
-        lot = (await db.execute(select(Lot).where(Lot.id == "{lot_id}"))).scalar_one()
-        print(lot.is_restricted)
+        lot = (await db.execute(select(Lot).where(Lot.lot_number == "{lot_number}"))).scalar_one()
+        print(getattr(lot, "{field}"))
 
 asyncio.run(main())
-""") == "True"
+""")
 
 
-def _cleanup(barcode, lot_number, grn_id):
+def _cleanup(barcode, lot_number, grn_number):
     _run(f"""
 import asyncio, sys
 sys.path.insert(0, r"{ROOT}")
@@ -145,8 +153,8 @@ async def main():
         lot = (await db.execute(select(Lot).where(Lot.lot_number == "{lot_number}"))).scalar_one_or_none()
         if lot:
             await db.delete(lot)
-        if "{grn_id}":
-            g = (await db.execute(select(GRNImport).where(GRNImport.id == "{grn_id}"))).scalar_one_or_none()
+        if "{grn_number}":
+            g = (await db.execute(select(GRNImport).where(GRNImport.grn_number == "{grn_number}"))).scalar_one_or_none()
             if g:
                 await db.delete(g)
         await db.commit()
@@ -155,27 +163,41 @@ asyncio.run(main())
 """)
 
 
-def test_ept_lot_auto_restricts_on_creation_via_real_add_lot_endpoint(app_client, make_user):  # noqa: F811
+def test_grn_lot_iqc_stay_off_live_pages_and_show_on_manage_lots(app_client, make_user):  # noqa: F811
     suffix = uuid.uuid4().hex[:6].upper()
     lot_number = f"EPT-{suffix}"
     barcode = f"ITEPT{suffix}"
+    inv_no = f"ITEPTINV{suffix}"
     username, password = make_user("admin")
     _login(app_client, username, password)
     csrf = app_client.cookies.get("csrf_token") or "dummy"
-    grn_id = ""
+    grn_number = ""
     try:
+        # 1. Add GRN through the Manage Lots page's own modal (source =
+        # ext_partner_test) — must redirect back to Manage Lots, not the
+        # live GRN post-IQC page.
         r = app_client.post("/grn/create-manual", data={
             "csrf_token": csrf, "sender_name": "ITest External Partner Supplier",
-            "invoice_number": f"ITEPTINV{suffix}", "quantity": "1", "amount": "0",
-            "source": "post_iqc",
+            "invoice_number": inv_no, "quantity": "1", "amount": "0",
+            "source": "ext_partner_test",
         }, follow_redirects=False)
         assert r.status_code == 302, r.text[:300]
-        location = r.headers.get("location", "")
-        # grn_create_manual redirects to /grn/post-iqc with no id in the URL —
-        # look the GRN up by the invoice number we just posted.
-        lookup = app_client.get("/grn/post-iqc").text
-        assert f"ITEPTINV{suffix}" in lookup, "GRN not found on post-iqc page after create"
+        assert r.headers.get("location", "").startswith("/trade-partner/manage-lots"), r.headers.get("location")
 
+        grn_number = _run(f"""
+import asyncio, sys
+sys.path.insert(0, r"{ROOT}")
+from sqlalchemy import select
+from database import AsyncSessionLocal
+from models.grn_import import GRNImport
+
+async def main():
+    async with AsyncSessionLocal() as db:
+        g = (await db.execute(select(GRNImport).where(GRNImport.invoice_number == "{inv_no}"))).scalar_one()
+        print(g.grn_number)
+
+asyncio.run(main())
+""")
         grn_id = _run(f"""
 import asyncio, sys
 sys.path.insert(0, r"{ROOT}")
@@ -185,58 +207,61 @@ from models.grn_import import GRNImport
 
 async def main():
     async with AsyncSessionLocal() as db:
-        g = (await db.execute(select(GRNImport).where(GRNImport.invoice_number == "ITEPTINV{suffix}"))).scalar_one()
+        g = (await db.execute(select(GRNImport).where(GRNImport.invoice_number == "{inv_no}"))).scalar_one()
         print(g.id)
 
 asyncio.run(main())
 """)
 
+        # 2. Never on the live GRN pages.
+        assert inv_no not in app_client.get("/grn/post-iqc").text
+        assert inv_no not in app_client.get("/grn").text
+
+        # 3. Shows on Manage Lots (GRN & Lot tab).
+        ml_html = app_client.get("/trade-partner/manage-lots").text
+        assert inv_no in ml_html
+        assert grn_number in ml_html
+
+        # 4. Add Lot via the same real endpoint used elsewhere — must
+        # auto-restrict immediately.
         r2 = app_client.post(f"/grn/{grn_id}/add-lot", data={
             "csrf_token": csrf, "lot_number": [lot_number],
         }, follow_redirects=False)
         assert r2.status_code == 200, r2.text[:300]
         assert r2.json().get("ok") is True, r2.text[:300]
+        assert _lot_field(lot_number, "is_restricted") == "True"
 
-        lot_id = _run(f"""
-import asyncio, sys
-sys.path.insert(0, r"{ROOT}")
-from sqlalchemy import select
-from database import AsyncSessionLocal
-from models.lot import Lot
+        # 5. Excluded from the live Lot Overview default view...
+        default_lots_html = app_client.get("/lots", follow_redirects=True).text
+        assert lot_number not in default_lots_html
+        # ...but an explicit search still finds it.
+        searched_lots_html = app_client.get(f"/lots?q={lot_number}", follow_redirects=True).text
+        assert lot_number in searched_lots_html
 
-async def main():
-    async with AsyncSessionLocal() as db:
-        lot = (await db.execute(select(Lot).where(Lot.lot_number == "{lot_number}"))).scalar_one()
-        print(lot.id)
+        # 6. Editing the GRN also redirects back to Manage Lots, not the
+        # live GRN post-IQC page.
+        r3 = app_client.post(f"/grn/{grn_id}/edit", data={
+            "csrf_token": csrf, "sender_name": "ITest External Partner Supplier Updated",
+            "invoice_number": inv_no,
+        }, follow_redirects=False)
+        assert r3.status_code == 302, r3.text[:300]
+        assert r3.headers.get("location", "").startswith("/trade-partner/manage-lots"), r3.headers.get("location")
 
-asyncio.run(main())
-""")
-
-        # 1. Auto-restrict: never open to the live dealer catalog by default.
-        assert _lot_is_restricted(lot_id) is True
-
-        # 2. Manage Lots page picks it up (scoped to EPT- lots only) and shows
-        # "No devices yet" before any IQC upload.
-        ml_html = app_client.get("/trade-partner/manage-lots").text
-        assert lot_number in ml_html
-        assert "No devices yet" in ml_html
-
-        # 3. Seed a device on the test entity against this lot (stands in for
-        # the real Bulk Upload IQC step, which is unrelated pre-existing
-        # logic) and confirm both the exclusion and the entity-confirmed
-        # badge.
+        # 7. Seed a device on the test entity against this lot (stands in
+        # for the real Bulk Upload IQC step, which is unrelated pre-existing
+        # logic) and confirm it shows on the Asset IQC tab and is excluded
+        # from All Inventory's default view but visible when explicitly
+        # entity-filtered.
+        lot_id = _lot_field(lot_number, "id")
         _seed_test_device(barcode, lot_id)
 
         ml_html2 = app_client.get("/trade-partner/manage-lots").text
-        assert "Confirmed" in ml_html2
+        assert barcode in ml_html2
 
-        # 4. All Inventory default (unfiltered) view excludes it...
         default_html = app_client.get("/devices", follow_redirects=True).text
         assert barcode not in default_html
-
-        # ...but an explicit Entity filter for the test entity still shows it.
         filtered_html = app_client.get(
             "/devices?entity=External+Partner+Test", follow_redirects=True).text
         assert barcode in filtered_html
     finally:
-        _cleanup(barcode, lot_number, grn_id)
+        _cleanup(barcode, lot_number, grn_number)

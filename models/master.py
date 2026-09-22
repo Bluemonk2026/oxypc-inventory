@@ -31,6 +31,18 @@ class MasterData(Base):
 EXTERNAL_PARTNER_TEST_ENTITY = "External Partner Test"
 EXTERNAL_PARTNER_TEST_LOT_PREFIX = "EPT-"
 
+# GRNImport.source value (models/grn_import.py, plain String(20) — "invoice"
+# and "post_iqc" are the two existing values, this is a genuine third) for
+# GRNs created from the Manage Lots page's embedded "GRN & Lot" tab. Reusing
+# this existing column — rather than a lot-number-prefix inference, which
+# would leave a freshly-created, not-yet-lot-mapped test GRN un-flagged —
+# means the live GRN pages (routers/grn.py grn_import_list's `source !=
+# "post_iqc"` and grn_post_iqc's `source == "post_iqc"`) exclude these test
+# GRNs automatically, with no change needed to either query beyond the
+# explicit `!= EXTERNAL_PARTNER_TEST_GRN_SOURCE` exclusion added to
+# grn_import_list (grn_post_iqc's strict `== "post_iqc"` already excludes it).
+EXTERNAL_PARTNER_TEST_GRN_SOURCE = "ext_partner_test"
+
 
 # Seed data for initial master data setup
 MASTER_SEED = {

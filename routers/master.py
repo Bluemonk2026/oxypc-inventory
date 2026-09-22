@@ -170,8 +170,19 @@ PERM_MODULES = [
     ("crm_purchase_orders",  "Purchase Orders"),
     ("crm_analytics",        "CRM Analytics"),
     ("crm_assign_leads",     "Assign Social Leads"),
-    # ── TRADE PARTNER ──────────────────────────────────────────────
-    ("trade_partner",        "Trade Partner"),
+    # ── EXTERNAL PARTNER ──────────────────────────────────────────────
+    # Split from a single "trade_partner" key into one per portal-admin page
+    # (2026-09-22), same convention as the earlier cosmetic-pipeline split,
+    # so each can be enabled per role independently. All 8 default disabled
+    # for every role — see migrate_seed_trade_partner_split_perms.py.
+    ("trade_partner_partners",    "External Partner - Partner Accounts"),
+    ("trade_partner_listings",    "External Partner - Listings Manager"),
+    ("trade_partner_bookings",    "External Partner - Bookings Queue"),
+    ("trade_partner_my_desk",     "External Partner - My Desk"),
+    ("trade_partner_floors",      "External Partner - Margin Floors"),
+    ("trade_partner_settings",    "External Partner - Portal Settings"),
+    ("trade_partner_manage_lots", "External Partner - Manage Lots"),
+    ("trade_partner_bids",        "External Partner - Bids Created"),
     # ── CUSTOMER CARE AGENT ──────────────────────────────────────────
     ("care_support",         "Customer Care"),
     # ── SALES & CRM ────────────────────────────────────────────────

@@ -335,34 +335,59 @@
       {% endif %}
       {% endif %}
 
-      {# ── TRADE PARTNER (dealer-facing B2B portal admin) ────────────────── #}
-      {% if has_perm(role,'trade_partner','enable') and not module_hidden('trade_partner') %}
-      <li class="nav-section">TRADE PARTNER</li>
+      {# ── EXTERNAL PARTNER (dealer-facing B2B portal admin) ────────────────── #}
+      {# Split (2026-09-22) into one has_perm()/module_hidden() check per page
+         — was one wrapper on 'trade_partner' gating the whole section, now
+         each link gates on its own page-specific module key so they can be
+         enabled independently. #}
+      {% if (has_perm(role,'trade_partner_partners','enable') and not module_hidden('trade_partner_partners'))
+            or (has_perm(role,'trade_partner_listings','enable') and not module_hidden('trade_partner_listings'))
+            or (has_perm(role,'trade_partner_bookings','enable') and not module_hidden('trade_partner_bookings'))
+            or (has_perm(role,'trade_partner_my_desk','enable') and not module_hidden('trade_partner_my_desk'))
+            or (has_perm(role,'trade_partner_floors','enable') and not module_hidden('trade_partner_floors'))
+            or (has_perm(role,'trade_partner_settings','enable') and not module_hidden('trade_partner_settings'))
+            or (has_perm(role,'trade_partner_manage_lots','enable') and not module_hidden('trade_partner_manage_lots'))
+            or (has_perm(role,'trade_partner_bids','enable') and not module_hidden('trade_partner_bids')) %}
+      <li class="nav-section">EXTERNAL PARTNER</li>
+      {% endif %}
+      {% if has_perm(role,'trade_partner_partners','enable') and not module_hidden('trade_partner_partners') %}
       <li><a href="/trade-partner/partners" class="nav-link {% if request.url.path.startswith('/trade-partner/partners') %}active{% endif %}">
-        <i class="bi bi-shop me-2"></i> {{ sidebar_label('trade_partner', 'Partner Accounts') }}
-      </a></li>
-      <li><a href="/trade-partner/listings" class="nav-link {% if request.url.path.startswith('/trade-partner/listings') %}active{% endif %}">
-        <i class="bi bi-megaphone me-2"></i> Listings Manager
-      </a></li>
-      <li><a href="/trade-partner/bids" class="nav-link {% if request.url.path.startswith('/trade-partner/bids') %}active{% endif %}">
-        <i class="bi bi-hammer me-2"></i> Bids Created
-      </a></li>
-      <li><a href="/trade-partner/manage-lots" class="nav-link {% if request.url.path.startswith('/trade-partner/manage-lots') %}active{% endif %}">
-        <i class="bi bi-box-seam me-2"></i> Manage Lots
-      </a></li>
-      <li><a href="/trade-partner/bookings" class="nav-link {% if request.url.path.startswith('/trade-partner/bookings') %}active{% endif %}">
-        <i class="bi bi-bookmark-check me-2"></i> Bookings Queue
-      </a></li>
-      <li><a href="/trade-partner/my-desk" class="nav-link {% if request.url.path.startswith('/trade-partner/my-desk') %}active{% endif %}">
-        <i class="bi bi-person-workspace me-2"></i> My Desk
-      </a></li>
-      {% if role_allowed(role, 'admin') %}
-      <li><a href="/trade-partner/floors" class="nav-link {% if request.url.path.startswith('/trade-partner/floors') %}active{% endif %}">
-        <i class="bi bi-shield-lock me-2"></i> Margin Floors
+        <i class="bi bi-shop me-2"></i> {{ sidebar_label('trade_partner_partners', 'Partner Accounts') }}
       </a></li>
       {% endif %}
+      {% if has_perm(role,'trade_partner_listings','enable') and not module_hidden('trade_partner_listings') %}
+      <li><a href="/trade-partner/listings" class="nav-link {% if request.url.path.startswith('/trade-partner/listings') %}active{% endif %}">
+        <i class="bi bi-megaphone me-2"></i> {{ sidebar_label('trade_partner_listings', 'Listings Manager') }}
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'trade_partner_bids','enable') and not module_hidden('trade_partner_bids') %}
+      <li><a href="/trade-partner/bids" class="nav-link {% if request.url.path.startswith('/trade-partner/bids') %}active{% endif %}">
+        <i class="bi bi-hammer me-2"></i> {{ sidebar_label('trade_partner_bids', 'Bids Created') }}
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'trade_partner_manage_lots','enable') and not module_hidden('trade_partner_manage_lots') %}
+      <li><a href="/trade-partner/manage-lots" class="nav-link {% if request.url.path.startswith('/trade-partner/manage-lots') %}active{% endif %}">
+        <i class="bi bi-box-seam me-2"></i> {{ sidebar_label('trade_partner_manage_lots', 'Manage Lots') }}
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'trade_partner_bookings','enable') and not module_hidden('trade_partner_bookings') %}
+      <li><a href="/trade-partner/bookings" class="nav-link {% if request.url.path.startswith('/trade-partner/bookings') %}active{% endif %}">
+        <i class="bi bi-bookmark-check me-2"></i> {{ sidebar_label('trade_partner_bookings', 'Bookings Queue') }}
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'trade_partner_my_desk','enable') and not module_hidden('trade_partner_my_desk') %}
+      <li><a href="/trade-partner/my-desk" class="nav-link {% if request.url.path.startswith('/trade-partner/my-desk') %}active{% endif %}">
+        <i class="bi bi-person-workspace me-2"></i> {{ sidebar_label('trade_partner_my_desk', 'My Desk') }}
+      </a></li>
+      {% endif %}
+      {% if role_allowed(role, 'admin') and has_perm(role,'trade_partner_floors','enable') and not module_hidden('trade_partner_floors') %}
+      <li><a href="/trade-partner/floors" class="nav-link {% if request.url.path.startswith('/trade-partner/floors') %}active{% endif %}">
+        <i class="bi bi-shield-lock me-2"></i> {{ sidebar_label('trade_partner_floors', 'Margin Floors') }}
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'trade_partner_settings','enable') and not module_hidden('trade_partner_settings') %}
       <li><a href="/trade-partner/settings" class="nav-link {% if request.url.path.startswith('/trade-partner/settings') %}active{% endif %}">
-        <i class="bi bi-gear me-2"></i> Portal Settings
+        <i class="bi bi-gear me-2"></i> {{ sidebar_label('trade_partner_settings', 'Portal Settings') }}
       </a></li>
       {% endif %}
 

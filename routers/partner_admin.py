@@ -1,8 +1,11 @@
-"""Trade Partner — internal admin screens (/trade-partner).
+"""External Partner — internal admin screens (/trade-partner).
 
 Staff-facing: partner account provisioning, listings manager, bookings queue,
-settings, floors, My Desk. Guarded by staff JWT + the trade_partner module
-permission. Payment verification stays finance/admin-gated.
+settings, floors, My Desk. Guarded by staff JWT + a page-specific
+trade_partner_* module permission (split 2026-09-22 from one shared
+"trade_partner" key so each page can be enabled per role independently — all
+default disabled for every role, see migrate_seed_trade_partner_split_perms.py).
+Payment verification stays finance/admin-gated.
 """
 import json
 import os
@@ -144,7 +147,7 @@ async def _dealer_for_account(db: AsyncSession, contact: CRMContact,
         assigned_to=contact.assigned_to,
         created_by=username,
         added_by=username,
-        source="Trade Partner: provisioned from CRM Account",
+        source="External Partner: provisioned from CRM Account",
     )
     db.add(dealer)
     await db.flush()   # need dealer.id before the caller writes portal fields
@@ -155,7 +158,7 @@ async def _render_partners(
     request, current_user, db, q="",
     provisioned=None, failed=None, success=None, error=None,
 ):
-    """Render the Trade Partner Accounts page.
+    """Render the External Partner Accounts page.
 
     Shared by the GET list view and by POST handlers that must show a
     one-time temp-password banner (enable / reset). Rendering directly —
@@ -191,7 +194,7 @@ async def _render_partners(
 async def partners_list(
     request: Request,
     q: str = "",
-    current_user: User = Depends(require_module_perm("trade_partner")),
+    current_user: User = Depends(require_module_perm("trade_partner_partners")),
     db: AsyncSession = Depends(get_db),
 ):
     return await _render_partners(
@@ -210,7 +213,7 @@ async def enable_partner(
     price_segment: str = Form("new_dealer"),
     sales_owner_username: str = Form(""),
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "add")),
+    current_user: User = Depends(require_module_perm("trade_partner_partners", "add")),
     db: AsyncSession = Depends(get_db),
 ):
     """Enable portal access for one or more CRM Accounts — one login each.
@@ -345,7 +348,7 @@ async def update_partner(
     sales_owner_username: str = Form(""),
     portal_phone: str = Form(""),
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    current_user: User = Depends(require_module_perm("trade_partner_partners", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     dealer = (await db.execute(select(Dealer).where(Dealer.id == dealer_id))).scalar_one_or_none()
@@ -391,7 +394,7 @@ async def toggle_partner(
     request: Request,
     dealer_id: str,
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    current_user: User = Depends(require_module_perm("trade_partner_partners", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     """Disable/re-enable portal access (does NOT touch the dealer master record)."""
@@ -414,7 +417,7 @@ async def reset_partner_password(
     request: Request,
     dealer_id: str,
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    current_user: User = Depends(require_module_perm("trade_partner_partners", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     dealer = (await db.execute(select(Dealer).where(Dealer.id == dealer_id))).scalar_one_or_none()
@@ -489,7 +492,7 @@ async def listings_manager(
     request: Request,
     status: str = "",
     listing_type: str = "",
-    current_user: User = Depends(require_module_perm("trade_partner")),
+    current_user: User = Depends(require_module_perm("trade_partner_listings")),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(PartnerListing).where(PartnerListing.is_active == True)  # noqa: E712
@@ -554,7 +557,7 @@ async def create_listing(
     visible_to_segment: str = Form("all"),
     photos: list[UploadFile] = File(default=[]),
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "add")),
+    current_user: User = Depends(require_module_perm("trade_partner_listings", "add")),
     db: AsyncSession = Depends(get_db),
 ):
     if listing_type not in LISTING_TYPES:
@@ -666,7 +669,7 @@ async def publish_listing(
     listing_id: str,
     floor_override_reason: str = Form(""),
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    current_user: User = Depends(require_module_perm("trade_partner_listings", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     listing = (await db.execute(select(PartnerListing).where(PartnerListing.id == listing_id))).scalar_one_or_none()
@@ -711,7 +714,7 @@ async def pause_listing(
     request: Request,
     listing_id: str,
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    current_user: User = Depends(require_module_perm("trade_partner_listings", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     listing = (await db.execute(select(PartnerListing).where(PartnerListing.id == listing_id))).scalar_one_or_none()
@@ -735,7 +738,7 @@ async def reprice_listing(
     hold_hours: int = Form(0),
     confirm_only: str = Form(""),
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    current_user: User = Depends(require_module_perm("trade_partner_listings", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     """Reprice/edit a listing, or just re-confirm the price (48h review rule).
@@ -787,7 +790,7 @@ async def bookings_queue(
     request: Request,
     status: str = "",
     q: str = "",
-    current_user: User = Depends(require_module_perm("trade_partner")),
+    current_user: User = Depends(require_module_perm("trade_partner_bookings")),
     db: AsyncSession = Depends(get_db),
 ):
     from sqlalchemy.orm import selectinload
@@ -880,11 +883,11 @@ async def verify_token_proof(
     request: Request,
     booking_id: str,
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "upload")),
+    current_user: User = Depends(require_module_perm("trade_partner_bookings", "upload")),
     db: AsyncSession = Depends(get_db),
 ):
     """Verify the token proof → booking confirmed_token. Finance-separated via
-    the 'upload' action bit on the trade_partner module (sales get add/edit only)."""
+    the 'upload' action bit on the trade_partner_bookings module (sales get add/edit only)."""
     booking = await _get_booking(db, booking_id)
     if booking.status != "proof_uploaded":
         return RedirectResponse(url="/trade-partner/bookings?error=Booking+is+not+awaiting+token+verification", status_code=302)
@@ -910,7 +913,7 @@ async def reject_booking(
     booking_id: str,
     rejection_reason: str = Form(...),
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "upload")),
+    current_user: User = Depends(require_module_perm("trade_partner_bookings", "upload")),
     db: AsyncSession = Depends(get_db),
 ):
     from services.partner_service import restore_booking_qty
@@ -941,7 +944,7 @@ async def verify_balance(
     request: Request,
     booking_id: str,
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "upload")),
+    current_user: User = Depends(require_module_perm("trade_partner_bookings", "upload")),
     db: AsyncSession = Depends(get_db),
 ):
     """balance_pending (proof) or confirmed_token (offline payment, audited) → ready_for_dispatch."""
@@ -969,7 +972,7 @@ async def mark_dispatched(
     request: Request,
     booking_id: str,
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    current_user: User = Depends(require_module_perm("trade_partner_bookings", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     booking = await _get_booking(db, booking_id)
@@ -990,7 +993,7 @@ async def extend_booking(
     booking_id: str,
     extra_hours: int = Form(24),
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    current_user: User = Depends(require_module_perm("trade_partner_bookings", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     booking = await _get_booking(db, booking_id)
@@ -1010,7 +1013,7 @@ async def extend_booking(
 @router.get("/proof-file/{proof_id}")
 async def staff_proof_file(
     proof_id: str,
-    current_user: User = Depends(require_module_perm("trade_partner")),
+    current_user: User = Depends(require_module_perm("trade_partner_bookings")),
     db: AsyncSession = Depends(get_db),
 ):
     from fastapi.responses import FileResponse
@@ -1034,7 +1037,7 @@ async def staff_proof_file(
 @router.get("/my-desk", response_class=HTMLResponse)
 async def my_desk(
     request: Request,
-    current_user: User = Depends(require_module_perm("trade_partner")),
+    current_user: User = Depends(require_module_perm("trade_partner_my_desk")),
     db: AsyncSession = Depends(get_db),
 ):
     """Everything the logged-in sales owner needs to run dealer activation:
@@ -1102,7 +1105,7 @@ async def my_desk(
 @router.get("/floors", response_class=HTMLResponse)
 async def floors_page(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_module_perm("trade_partner_floors")),
     db: AsyncSession = Depends(get_db),
 ):
     if not _is_floor_approver(current_user):
@@ -1127,7 +1130,7 @@ async def create_floor(
     floor_pct: str = Form(""),
     floor_value: str = Form(""),
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_module_perm("trade_partner_floors")),
     db: AsyncSession = Depends(get_db),
 ):
     if not _is_floor_approver(current_user):
@@ -1160,7 +1163,7 @@ async def create_floor(
 @router.get("/settings", response_class=HTMLResponse)
 async def settings_page(
     request: Request,
-    current_user: User = Depends(require_module_perm("trade_partner")),
+    current_user: User = Depends(require_module_perm("trade_partner_settings")),
     db: AsyncSession = Depends(get_db),
 ):
     settings = await get_settings(db)
@@ -1174,7 +1177,7 @@ async def settings_page(
 async def settings_save(
     request: Request,
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    current_user: User = Depends(require_module_perm("trade_partner_settings", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     form = await request.form()
@@ -1195,7 +1198,7 @@ async def settings_save(
 @router.get("/manage-lots", response_class=HTMLResponse)
 async def manage_lots(
     request: Request,
-    current_user: User = Depends(require_module_perm("trade_partner")),
+    current_user: User = Depends(require_module_perm("trade_partner_manage_lots")),
     db: AsyncSession = Depends(get_db),
 ):
     lots = (await db.execute(select(Lot).order_by(Lot.purchase_date.desc()))).scalars().all()
@@ -1309,7 +1312,7 @@ async def assign_lot_visibility_bulk(
     lot_ids: list[str] = Form(default=[]),
     dealer_ids: list[str] = Form(default=[]),
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    current_user: User = Depends(require_module_perm("trade_partner_manage_lots", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     """Assign any number of lots to any number of dealers in one submit."""
@@ -1322,7 +1325,7 @@ async def set_lots_restricted(
     lot_ids: list[str] = Form(default=[]),
     restricted: str = Form("1"),
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    current_user: User = Depends(require_module_perm("trade_partner_manage_lots", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     """Flag any number of lots Restricted (or open them back up).
@@ -1364,7 +1367,7 @@ async def assign_lot_visibility(
     dealer_id: str = Form(default=""),
     dealer_ids: list[str] = Form(default=[]),
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    current_user: User = Depends(require_module_perm("trade_partner_manage_lots", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     """Single-lot assign. Still accepts the original single `dealer_id` field so
@@ -1529,7 +1532,7 @@ def _summarise_by_lot(rows):
 @router.get("/bids", response_class=HTMLResponse)
 async def bids_created(
     request: Request,
-    current_user: User = Depends(require_module_perm("trade_partner")),
+    current_user: User = Depends(require_module_perm("trade_partner_bids")),
     db: AsyncSession = Depends(get_db),
 ):
     """Three tables: bids still in play, those Marked Won, and those lost.
@@ -1588,7 +1591,7 @@ async def bids_created(
 @router.get("/bids/lot-captured")
 async def lot_captured_bids(
     lot_number: str,
-    current_user: User = Depends(require_module_perm("trade_partner")),
+    current_user: User = Depends(require_module_perm("trade_partner_bids")),
     db: AsyncSession = Depends(get_db),
 ):
     """Live bids for one lot — feeds the modal opened from a Lot Number."""
@@ -1656,7 +1659,7 @@ async def _lot_model_summary(db: AsyncSession, lot_id) -> list[dict]:
 @router.get("/bids/{bid_id}/po-preview")
 async def po_preview(
     bid_id: str,
-    current_user: User = Depends(require_module_perm("trade_partner")),
+    current_user: User = Depends(require_module_perm("trade_partner_bids")),
     db: AsyncSession = Depends(get_db),
 ):
     """Account details + line items for the PO Preview modal."""
@@ -1709,7 +1712,7 @@ async def generate_bid_po(
     company_id: str = Form(""),
     payment_term_id: str = Form(""),
     delivery_term_id: str = Form(""),
-    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    current_user: User = Depends(require_module_perm("trade_partner_bids", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     """Generate the PO PDF and ATTACH it to the bid (doc_type 'po').
@@ -1805,7 +1808,7 @@ async def generate_bid_po(
 @router.get("/bids/{bid_id}/payment")
 async def bid_payment_details(
     bid_id: str,
-    current_user: User = Depends(require_module_perm("trade_partner")),
+    current_user: User = Depends(require_module_perm("trade_partner_bids")),
     db: AsyncSession = Depends(get_db),
 ):
     """Payment details behind a clickable BID ID."""
@@ -1846,7 +1849,7 @@ async def mark_bid_won(
     request: Request,
     bid_id: str,
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    current_user: User = Depends(require_module_perm("trade_partner_bids", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     """Award the lot to this bid and open a Buyer Deal for it.
@@ -1902,7 +1905,7 @@ async def mark_bid_won(
         stage="won",
         estimated_value=bid.bid_amount,
         assigned_to=dealer.sales_owner_username if dealer else None,
-        notes=(f"Created from Trade Partner bid {bid.bid_number} "
+        notes=(f"Created from External Partner bid {bid.bid_number} "
                f"({bid.bid_type} price) on "
                f"{'listing' if listing else 'lot'} {source_ref}."),
         created_by=current_user.username,
@@ -1948,7 +1951,7 @@ async def upload_bid_document(
     doc_type: str = Form(...),
     file: UploadFile = File(...),
     _csrf=Depends(verify_csrf),
-    current_user: User = Depends(require_module_perm("trade_partner", "edit")),
+    current_user: User = Depends(require_module_perm("trade_partner_bids", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     """Attach a Quote / PO / Invoice to a bid for the download column."""
@@ -1986,7 +1989,7 @@ async def upload_bid_document(
 @router.get("/bids/document/{doc_id}")
 async def download_bid_document(
     doc_id: str,
-    current_user: User = Depends(require_module_perm("trade_partner")),
+    current_user: User = Depends(require_module_perm("trade_partner_bids")),
     db: AsyncSession = Depends(get_db),
 ):
     from fastapi.responses import FileResponse

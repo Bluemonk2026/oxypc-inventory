@@ -432,10 +432,9 @@
     {% else %}
     <span class="text-muted small">All-time — set P&amp;L From/To above to scope by completed date</span>
     {% endif %}
-    <span class="text-muted small ms-auto">{{ lot_pl|length }} lot(s)</span>
   </div>
   <div class="table-responsive">
-    <table class="table table-hover table-sm mb-0 small">
+    <table id="lotPlTable" class="table table-hover table-sm mb-0 small">
       <thead class="table-dark">
         <tr>
           <th>Lot Number</th><th>Supplier</th><th>Qty</th><th>Devices</th><th>Sold</th>
@@ -713,6 +712,12 @@
 {% endblock %}
 {% block scripts %}
 <script>
+// Lot P&L table (Global Table module) — plain client-side table, all rows
+// already rendered server-side.
+if (document.getElementById('lotPlTable')) {
+  initGlobalTable('#lotPlTable', { order: [] });
+}
+
 // Multi-select filter dropdowns — same contract as All Inventory: each writes
 // a comma-separated value into its hidden input so the GET form still submits
 // one parameter per field.

@@ -27,7 +27,7 @@ from models.dealers import Dealer
 from models.crm import CRMContact
 from models.user import User, UserRole
 from models.lot import Lot
-from models.device import Device, DeviceStage, STAGE_LABELS
+from models.device import Device, DeviceStage, DeviceGrade, STAGE_LABELS
 from models.grn_import import GRNImport
 from models.master import (
     EXTERNAL_PARTNER_TEST_ENTITY, EXTERNAL_PARTNER_TEST_LOT_PREFIX,
@@ -1352,7 +1352,65 @@ async def manage_lots_map_grn(
                 request=request)
     await db.commit()
     return RedirectResponse(
-        url=f"/trade-partner/manage-lots?success={quote_plus(f'{device.barcode} mapped to GRN {grn_number.strip()}')}",
+        url=f"/trade-partner/manage-lots?tab=asset&success={quote_plus(f'{device.barcode} mapped to GRN {grn_number.strip()}')}",
+        status_code=302)
+
+
+@router.post("/manage-lots/edit-device")
+async def manage_lots_edit_device(
+    request: Request,
+    barcode: str = Form(...),
+    serial_no: str = Form(""), brand: str = Form(""), model: str = Form(""),
+    device_type: str = Form(""), cpu: str = Form(""), cpu_make: str = Form(""),
+    generation: str = Form(""), ram_gb: str = Form(""), storage_gb: str = Form(""),
+    storage_type: str = Form(""), grade: str = Form(""), notes: str = Form(""),
+    _csrf=Depends(verify_csrf),
+    current_user: User = Depends(require_module_perm("trade_partner_manage_lots", "edit")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Asset IQC tab's Test Assets table — Edit button on a device already
+    uploaded here. Scoped to the test entity, same as map-grn above; never
+    touches Lot/GRN/stage fields, only the device-spec columns shown in the
+    modal."""
+    device = (await db.execute(
+        select(Device).where(func.upper(Device.barcode) == barcode.strip().upper(),
+                             Device.entity == EXTERNAL_PARTNER_TEST_ENTITY)
+    )).scalar_one_or_none()
+    if not device:
+        return RedirectResponse(url="/trade-partner/manage-lots?error=Test+device+not+found", status_code=302)
+
+    device.serial_no = serial_no.strip() or None
+    device.brand = brand.strip() or None
+    device.model = model.strip() or None
+    device.device_type = device_type.strip() or None
+    device.cpu = cpu.strip() or None
+    device.cpu_make = cpu_make.strip() or None
+    device.generation = generation.strip() or None
+    try:
+        device.ram_gb = int(ram_gb) if ram_gb.strip() else None
+    except ValueError:
+        pass
+    try:
+        device.storage_gb = int(storage_gb) if storage_gb.strip() else None
+    except ValueError:
+        pass
+    device.storage_type = storage_type.strip() or None
+    if grade.strip():
+        try:
+            device.grade = DeviceGrade(grade.strip())
+        except ValueError:
+            pass
+    else:
+        device.grade = None
+    device.notes = notes.strip() or None
+
+    await audit(db, action="MANAGE_LOTS_DEVICE_EDITED", user=current_user,
+                table_name="devices", record_id=str(device.id),
+                new_value={"barcode": device.barcode, "brand": device.brand, "model": device.model},
+                request=request)
+    await db.commit()
+    return RedirectResponse(
+        url=f"/trade-partner/manage-lots?success={quote_plus(f'{device.barcode} updated')}&tab=asset",
         status_code=302)
 
 

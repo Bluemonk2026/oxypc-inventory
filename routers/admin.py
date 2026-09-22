@@ -15,7 +15,7 @@ from database import get_db
 from models.user import User, UserRole, LoginLog, UserPermission, ROLE_LABELS
 from models.engines import AuditLog
 from models.cost_config import CostConfig
-from auth.dependencies import get_current_user, require_roles, hash_password_async, verify_csrf
+from auth.dependencies import get_current_user, require_roles, hash_password_async, verify_csrf, require_module_perm
 from services.audit_engine import audit
 
 PERMISSION_GROUPS = {
@@ -441,7 +441,13 @@ COST_CONFIG_DEFS = [
 async def cost_config_view(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    # Was require_admin (hard role check) — the Module Permission matrix has
+    # a "Cost Config" entry admins can grant to other roles, but that entry
+    # was a dead control: this route never consulted it, so a granted
+    # non-admin role still got 403. require_module_perm reads the same
+    # matrix require_admin bypassed (admin still always passes — see its
+    # own "admin always passes" behaviour).
+    current_user: User = Depends(require_module_perm("cost_config")),
 ):
     result = await db.execute(select(CostConfig))
     rows = {r.key: r for r in result.scalars().all()}
@@ -457,7 +463,7 @@ async def cost_config_view(
 async def cost_config_save(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_module_perm("cost_config", "edit")),
 ):
     form = await request.form()
     for key, _label, _hint in COST_CONFIG_DEFS:

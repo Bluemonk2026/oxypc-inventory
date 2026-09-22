@@ -99,7 +99,7 @@
       {% endif %}
 
       {# ── INVENTORY ───────────────────────────────────────────────────── #}
-      {% if any_perm(role,'stock','production_manager','extended_warranty','part_estimation','transfers','inventory_requests','model_requested') %}
+      {% if any_perm(role,'stock','production_manager','extended_warranty','part_estimation','credit_note','transfers','inventory_requests','model_requested') %}
       <li class="nav-section">INVENTORY</li>
       {% if has_perm(role,'stock','enable') and not module_hidden('stock') %}
       <li><a href="/stock" class="nav-link {% if request.url.path == '/stock' %}active{% endif %}">
@@ -137,6 +137,11 @@
       {% if has_perm(role,'part_estimation','enable') and not module_hidden('part_estimation') %}
       <li><a href="/part-estimation" class="nav-link {% if '/part-estimation' in request.url.path %}active{% endif %}">
         <i class="bi bi-calculator me-2"></i> {{ sidebar_label('part_estimation', 'Part Estimation') }}
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'credit_note','enable') and not module_hidden('credit_note') %}
+      <li><a href="/credit-note" class="nav-link {% if '/credit-note' in request.url.path %}active{% endif %}">
+        <i class="bi bi-receipt-cutoff me-2"></i> {{ sidebar_label('credit_note', 'Credit Note') }}
       </a></li>
       {% endif %}
       {% if has_perm(role,'transfers','enable') and not module_hidden('transfers') %}

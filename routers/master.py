@@ -123,6 +123,7 @@ PERM_MODULES = [
     ("production_manager",   "Production Manager"),
     ("extended_warranty",    "Extended Warranty"),
     ("part_estimation",      "Part Estimation"),
+    ("credit_note",          "Credit Note"),
     ("scrap_products",       "Scrap Products"),
     ("transfers",            "Move Device"),
     # ── REPAIR ─────────────────────────────────────────────────────

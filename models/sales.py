@@ -115,15 +115,47 @@ class Return(Base):
     # used for the return receipt.
     customer_email      = Column(String(100), nullable=True)
     # ── Credit Note tab (Return New page, 2026-09-22) ─────────────────────
-    # action_taken == "credit" rows only. Sale Date shown on the CN form is
-    # NOT duplicated here — it's read live from the linked Sale.sold_at.
-    # Sale already carries customer_name/phone/state/address, but a CN can be
-    # raised against a walk-in-recorded sale with different contact details
-    # than what's on file, so captured independently here rather than reused.
+    # cn_number: action_taken == "credit" rows only, from the page's original
+    # (since superseded) single-tag CN flow — no longer written by the
+    # current Credit Note tab (see debit_note_number below instead).
+    # customer_name/phone/email now double as "Sender Details" (2026-09-23)
+    # for the Credit Note workflow's multi-tag Debit Note flow — bulk-set
+    # together with debit_note_number/amount, shown on the Credit Note page
+    # as the "Sender" badge. customer_state/address are unused by that flow.
     cn_number            = Column(String(50), nullable=True)
     customer_name        = Column(String(100), nullable=True)
     customer_phone       = Column(String(20), nullable=True)
     customer_state       = Column(String(100), nullable=True)
     customer_address     = Column(Text, nullable=True)
+    # ── Credit Note page workflow (2026-09-22) ─────────────────────────────
+    # Every Internal Tag return enters at CN_STAGES[0] ("Return Received")
+    # regardless of its eventual outcome (repair/replace/credit) — see
+    # process_return. The Return New page's Credit Note tab only ever stamps
+    # debit_note_number/amount + sender details (customer_name/phone/email
+    # above) — it does NOT advance cn_stage itself (2026-09-23 fix). Every
+    # stage move, including Return Received -> Debit Note Verified, happens
+    # one at a time through the Credit Note page's own Action column.
+    # Distinct from Device.tag_return_status, which still separately tracks
+    # Replaced-by/Return-for-Repair/CN for other pages.
+    cn_stage             = Column(String(30), nullable=True)
+    debit_note_number    = Column(String(50), nullable=True)
+    debit_note_amount    = Column(Numeric(12, 2), nullable=True)
+    payment_invoice      = Column(String(100), nullable=True)
 
     sale = relationship("Sale", back_populates="returns")
+
+
+# Credit Note page workflow stages, in order. Every Internal Tag return
+# starts at index 0; the Credit Note page's Action column only ever moves
+# forward one stage at a time (the Return New page's Credit Note tab no
+# longer auto-advances on its own — it only stamps Debit Note/Sender data).
+CN_STAGES = [
+    "Return Received", "Debit Note Verified", "Verify Payment",
+    "Payment Invoice Done", "Restock Pending", "CN Complete",
+]
+
+# Action-button label for advancing FROM CN_STAGES[i] to CN_STAGES[i+1] —
+# defaults to the resulting stage name, except the first transition, which
+# reads as a verb ("Verify Debit Note") rather than repeating the resulting
+# stage's own name ("Debit Note Verified").
+CN_STAGE_ACTION_LABELS = {0: "Verify Debit Note"}

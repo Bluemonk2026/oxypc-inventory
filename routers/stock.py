@@ -1139,7 +1139,6 @@ async def stock_in_list(
         "unit_type_options": [(u.value, UNIT_TYPE_LABELS.get(u, u.value)) for u in UnitType],
         "fqc_pass_buckets": fqc_pass_buckets,
         "return_stock_rows": return_stock_rows,
-        "credit_note_rows": await _credit_note_rows(db),
     })
 
 
@@ -1151,30 +1150,6 @@ async def _latest_return_for_device(db: AsyncSession, device_id) -> "Return | No
         select(Return).where(Return.device_id == device_id)
         .order_by(Return.return_date.desc()).limit(1)
     )).scalars().first()
-
-
-async def _credit_note_rows(db: AsyncSession) -> list[dict]:
-    """Devices with an active Credit Note — Device.tag_return_status starts
-    "CN " (set by the Return New page's Credit Note tab). Shared by the
-    Inventory Manager and Production Manager pages, which both show the same
-    table. Sale Date is the device's latest Sale.sold_at, not duplicated
-    onto Return (see models/sales.py Return's Credit Note comment)."""
-    rows = (await db.execute(
-        select(Device, Lot.lot_number)
-        .join(Lot, Device.lot_id == Lot.id, isouter=True)
-        .where(Device.tag_return_status.ilike("CN %"), Device.is_active == True)  # noqa: E712
-        .order_by(Device.updated_at.desc())
-    )).all()
-    device_ids = [d.id for d, _ in rows]
-    sale_map = {}
-    if device_ids:
-        sale_rows = (await db.execute(
-            select(Sale.device_id, func.max(Sale.sold_at))
-            .where(Sale.device_id.in_(device_ids))
-            .group_by(Sale.device_id)
-        )).all()
-        sale_map = {did: sold_at for did, sold_at in sale_rows}
-    return [{"device": d, "lot_number": lot_num, "sale_date": sale_map.get(d.id)} for d, lot_num in rows]
 
 
 @router.post("/stock/return-stock/assign-bucket")
@@ -1741,7 +1716,6 @@ async def trc_production_list(
         "tags_at_you": tags_at_you, "tags_l1l2": tags_l1l2, "tags_l3l4": tags_l3l4,
         "tags_pna": tags_pna, "tags_stress": tags_stress, "tags_final_qc": tags_final_qc,
         "tags_cosmetic": tags_cosmetic, "tags_returned": tags_returned,
-        "credit_note_rows": await _credit_note_rows(db),
         "change_engineer_stages": [(s.value, label) for s, label in CHANGE_ENGINEER_STAGES],
     })
 

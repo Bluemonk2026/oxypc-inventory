@@ -152,25 +152,20 @@
 {% set customise_return_to = '/stock' %}
 {% include "_customise_modal.html" %}
 
-<!-- Return Stock / Credit Note tabs -->
-<ul class="nav nav-tabs mt-4" id="stockExtraTabs" role="tablist">
-  <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#returnStockTabPane" type="button">
-    <i class="bi bi-arrow-return-left me-1"></i>Return Stock
-  </button></li>
-  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#creditNoteTabPane" type="button">
-    <i class="bi bi-receipt-cutoff me-1"></i>Credit Note
-  </button></li>
-</ul>
-<div class="tab-content border border-top-0 rounded-bottom bg-white mb-3">
-  <div class="tab-pane fade show active p-0" id="returnStockTabPane">
-    <div class="card-header bg-white d-flex flex-wrap align-items-center gap-2 border-0">
-      <input type="text" id="rsSearchBox" class="form-control form-control-sm" style="max-width:260px;"
-             placeholder="Search Tag / Model">
-      <button type="button" id="rsAssignBucketBtn" class="btn btn-sm btn-outline-primary" disabled>
-        <i class="bi bi-box me-1"></i>Assign Bucket
-      </button>
-      <span class="text-muted small ms-auto"><span id="rsSelectedCount">0</span> selected</span>
-    </div>
+<!-- Return Stock: customer-return tags back in the pipeline for repair/re-sale -->
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+  <h6 class="fw-bold mb-0"><i class="bi bi-arrow-return-left me-2"></i>Return Stock</h6>
+</div>
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white d-flex flex-wrap align-items-center gap-2">
+    <input type="text" id="rsSearchBox" class="form-control form-control-sm" style="max-width:260px;"
+           placeholder="Search Tag / Model">
+    <button type="button" id="rsAssignBucketBtn" class="btn btn-sm btn-outline-primary" disabled>
+      <i class="bi bi-box me-1"></i>Assign Bucket
+    </button>
+    <span class="text-muted small ms-auto"><span id="rsSelectedCount">0</span> selected</span>
+  </div>
+  <div class="card-body p-0">
     <div class="table-responsive">
       <table id="returnStockTable" class="table table-hover mb-0 small">
         <thead class="table-secondary">
@@ -213,9 +208,6 @@
         </tbody>
       </table>
     </div>
-  </div>
-  <div class="tab-pane fade p-0" id="creditNoteTabPane">
-    {% include "_credit_note_table.html" %}
   </div>
 </div>
 

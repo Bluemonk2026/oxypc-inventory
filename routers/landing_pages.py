@@ -69,6 +69,7 @@ NAV_PAGE_TITLES = [
     ("production_manager",   "Production Manager",            "Production Manager",            "/trc-production"),
     ("extended_warranty",    "Extended Warranty",             "Extended Warranty",             "/extended-warranty"),
     ("part_estimation",      "Part Estimation",               "Part Estimation",               "/part-estimation"),
+    ("credit_note",          "Credit Note",                    "Credit Note",                    "/credit-note"),
     ("scrap_products",       "Scrap Products",                "Scrap Products",                "/scrap-products"),
     ("transfers",            "Move Device",                   "Move Device",                   "/transfers"),
     ("repair_l1",            "L1 Repair",                     "L1 Repair",                     "/repair/l1"),

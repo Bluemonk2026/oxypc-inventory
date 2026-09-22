@@ -24,7 +24,7 @@ from utils.csv_decode import decode_csv_bytes
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.lot import Lot
-from models.sales import Sale, Return
+from models.sales import Sale, Return, CN_STAGES, CN_STAGE_ACTION_LABELS
 from models.company import Company
 from models.crm import CRMSalesOpportunity, CRMContact
 from models.dispatch_request import TelecallerDispatchRequest
@@ -1346,8 +1346,11 @@ async def return_form(request: Request, db: AsyncSession = Depends(get_db),
     )).scalar_one_or_none()
     default_paid_repair = float(row.value) if row else 1500.0
     return templates.TemplateResponse("sales/return_form.html", {
-        "request": request, "current_user": current_user, "error": None, "sale": None,
-        "default_paid_repair": default_paid_repair, "active_tab": "internal",
+        "request": request, "current_user": current_user, "sale": None,
+        "error": request.query_params.get("error"),
+        "success": request.query_params.get("success"),
+        "default_paid_repair": default_paid_repair,
+        "active_tab": request.query_params.get("active_tab", "internal"),
     })
 
 
@@ -1510,6 +1513,9 @@ async def process_return(
         serial_captured=barcode or None,
         warranty_status=warranty_status,
         complaint_text=complaint_text or None,
+        # Every Internal Tag return enters the Credit Note workflow here,
+        # regardless of eventual outcome — see CN_STAGES on models/sales.py.
+        cn_stage=CN_STAGES[0],
     )
     db.add(ret)
 
@@ -1684,11 +1690,10 @@ async def process_external_return(
 @router.get("/returns/new/credit-note/lookup")
 async def credit_note_lookup(barcode: str, db: AsyncSession = Depends(get_db),
                              current_user: User = Depends(allowed)):
-    """Credit Note tab's "Search Tag Number" autofill — Sale Date/Customer
-    Name/Phone/State/Address come from the device's latest Sale; Customer
-    Email has no home on Sale (see Return.customer_email's own comment), so
-    it's best-effort carried over from the device's latest existing Return
-    if one was ever captured, otherwise left blank for manual entry."""
+    """Credit Note tab's multi-tag search/add — validates a scanned Tag
+    Number is actually in the Credit Note pipeline (has a Return row with
+    cn_stage set, i.e. came through an Internal Tag return) before letting
+    it be added to the selection list."""
     from fastapi.responses import JSONResponse
     bc = (barcode or "").strip()
     if not bc:
@@ -1698,92 +1703,199 @@ async def credit_note_lookup(barcode: str, db: AsyncSession = Depends(get_db),
     )).scalars().first()
     if not device:
         return JSONResponse({"found": False, "error": f"Device {bc} not found"})
-    sale = (await db.execute(
-        select(Sale).where(Sale.device_id == device.id).order_by(Sale.sold_at.desc()).limit(1)
-    )).scalars().first()
-    if not sale:
-        return JSONResponse({"found": False, "error": f"No sale found for {bc}"})
-    last_email = (await db.execute(
-        select(Return.customer_email).where(Return.device_id == device.id, Return.customer_email.isnot(None))
+    ret = (await db.execute(
+        select(Return).where(Return.device_id == device.id, Return.cn_stage.isnot(None))
         .order_by(Return.return_date.desc()).limit(1)
-    )).scalar()
+    )).scalars().first()
+    if not ret:
+        return JSONResponse({"found": False, "error": f"{bc} has no Credit Note record (not returned via Internal Tags)"})
     return JSONResponse({
         "found": True, "barcode": device.barcode,
-        "sale_date": sale.sold_at.strftime("%Y-%m-%d") if sale.sold_at else "",
-        "customer_name": sale.customer_name or "",
-        "customer_phone": sale.customer_phone or "",
-        "customer_email": last_email or "",
-        "customer_state": sale.customer_state or "",
-        "customer_address": sale.customer_address or "",
+        "model": f"{device.brand or ''} {device.model or ''}".strip() or "—",
+        "cn_stage": ret.cn_stage,
     })
 
 
 @router.post("/returns/new/credit-note")
 async def process_credit_note(
     request: Request,
-    barcode: str = Form(...),
-    cn_number: str = Form(...),
-    customer_name: str = Form(""),
-    customer_phone: str = Form(""),
-    customer_email: str = Form(""),
-    customer_state: str = Form(""),
-    customer_address: str = Form(""),
-    notes: str = Form(""),
+    barcode: list[str] = Form(...),
+    debit_note_number: str = Form(...),
+    debit_note_amount: str = Form(""),
+    sender_name: str = Form(""),
+    sender_phone: str = Form(""),
+    sender_email: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("returns", "add")),
 ):
-    """Return New page's "Credit Note" tab — records a CN against a
-    previously-sold tag. Unlike the Internal Tags / External Tag flows,
-    there's no physical device movement to gate behind manager approval (the
-    tag isn't re-entering the repair pipeline), so this is recorded approved
-    immediately; what it always does is stamp Device.tag_return_status so
-    the tag shows up on the Inventory Manager / Production Manager Credit
-    Note tables."""
-    bc = barcode.strip()
-    cn = cn_number.strip()
-    if not bc or not cn:
-        return templates.TemplateResponse("sales/return_form.html", {
-            "request": request, "current_user": current_user, "sale": None,
-            "active_tab": "credit", "error": "Tag Number and CN Number are required.",
-        })
-    device = (await db.execute(
-        select(Device).where(func.upper(Device.barcode) == bc.upper())
-    )).scalars().first()
-    if not device:
-        return templates.TemplateResponse("sales/return_form.html", {
-            "request": request, "current_user": current_user, "sale": None,
-            "active_tab": "credit", "error": f"Device {bc} not found",
-        })
-    sale = (await db.execute(
-        select(Sale).where(Sale.device_id == device.id).order_by(Sale.sold_at.desc()).limit(1)
-    )).scalars().first()
-    if not sale:
-        return templates.TemplateResponse("sales/return_form.html", {
-            "request": request, "current_user": current_user, "sale": None,
-            "active_tab": "credit", "error": "No sale found for this device",
-        })
+    """Return New page's "Credit Note" tab — bulk-stamps Debit Note Number/
+    Amount and Sender Details onto every selected tag's existing Credit Note
+    record (created when the tag was first returned via Internal Tags — see
+    process_return). Data-only: does NOT advance cn_stage itself (that's the
+    Credit Note page's own Action column, one stage at a time — see
+    credit_note_advance) and never touches Device.tag_return_status (still
+    driven by the Internal Tag return itself)."""
+    codes = [b.strip() for b in barcode if b and b.strip()]
+    dn = debit_note_number.strip()
+    if not codes or not dn:
+        return RedirectResponse(
+            url="/returns/new?active_tab=credit&error=Select+at+least+one+Tag+Number+and+enter+a+Debit+Note+Number",
+            status_code=302)
+    try:
+        amount = Decimal(debit_note_amount) if debit_note_amount.strip() else None
+    except Exception:
+        return RedirectResponse(
+            url="/returns/new?active_tab=credit&error=Invalid+Debit+Note+Amount", status_code=302)
 
-    ret = Return(
-        sale_id=sale.id, device_id=device.id,
-        action_taken="credit", processed_by=current_user.username,
-        approval_status="approved", approved_by=current_user.username, approved_at=app_now(),
-        cn_number=cn,
-        customer_name=customer_name.strip() or None,
-        customer_phone=customer_phone.strip() or None,
-        customer_email=customer_email.strip() or None,
-        customer_state=customer_state.strip() or None,
-        customer_address=customer_address.strip() or None,
-        notes=notes.strip() or None,
-    )
-    db.add(ret)
-    device.tag_return_status = f"CN {cn}"
+    devices = (await db.execute(
+        select(Device).where(func.upper(Device.barcode).in_([c.upper() for c in codes]))
+    )).scalars().all()
+    updated = 0
+    for device in devices:
+        ret = (await db.execute(
+            select(Return).where(Return.device_id == device.id, Return.cn_stage.isnot(None))
+            .order_by(Return.return_date.desc()).limit(1)
+        )).scalars().first()
+        if not ret:
+            continue
+        ret.debit_note_number = dn
+        ret.debit_note_amount = amount
+        ret.customer_name = sender_name.strip() or None
+        ret.customer_phone = sender_phone.strip() or None
+        ret.customer_email = sender_email.strip() or None
+        updated += 1
 
-    await audit(db, user=current_user, action="CREDIT_NOTE_SUBMITTED",
-                table_name="returns", record_id=str(device.id),
-                new_value={"barcode": bc, "cn_number": cn}, request=request)
+    await audit(db, user=current_user, action="CREDIT_NOTE_DEBIT_NOTE_SET",
+                table_name="returns", record_id=",".join(codes),
+                new_value={"barcodes": codes, "debit_note_number": dn,
+                           "debit_note_amount": str(amount) if amount is not None else None,
+                           "sender_name": sender_name.strip() or None,
+                           "tags_updated": updated},
+                request=request)
     await db.commit()
-    return RedirectResponse(url="/returns?success=Credit+Note+recorded", status_code=302)
+    return RedirectResponse(
+        url=f"/returns/new?active_tab=credit&success={updated}+tag(s)+updated", status_code=302)
+
+
+# ── Credit Note page: every Internal Tag return, tracked through CN_STAGES ────
+
+async def _credit_note_query_base(db: AsyncSession):
+    """Every Return row currently in the Credit Note pipeline, joined for
+    display — shared by the page's row query and its filter-dropdown /
+    tile-count option builders so they never see a different row set."""
+    return (
+        select(Return, Device, Lot.lot_number, Sale.id, Sale.sale_number, Sale.sold_at)
+        .join(Device, Return.device_id == Device.id)
+        .join(Lot, Device.lot_id == Lot.id, isouter=True)
+        .join(Sale, Return.sale_id == Sale.id, isouter=True)
+        .where(Return.cn_stage.isnot(None))
+    )
+
+
+@router.get("/credit-note", response_class=HTMLResponse)
+async def credit_note_page(
+    request: Request,
+    q: str = "", lot_number: str = "", sub_lot_number: str = "", tag_return_status: str = "",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_module_perm("credit_note")),
+):
+    base = await _credit_note_query_base(db)
+    all_rows = (await db.execute(base.order_by(Return.return_date.desc()))).all()
+
+    # Tile counts and filter-dropdown options are built from the full,
+    # unfiltered pipeline — they describe the whole workflow, not just
+    # whatever the current filter happens to show.
+    stage_counts = {s: 0 for s in CN_STAGES}
+    lot_number_options, sub_lot_number_options, tag_return_status_options = set(), set(), set()
+    for ret, device, lot_num, sale_id, sale_num, sold_at in all_rows:
+        if ret.cn_stage in stage_counts:
+            stage_counts[ret.cn_stage] += 1
+        if lot_num:
+            lot_number_options.add(lot_num)
+        if device.sub_lot_number:
+            sub_lot_number_options.add(device.sub_lot_number)
+        if device.tag_return_status:
+            tag_return_status_options.add(device.tag_return_status)
+
+    rows = all_rows
+    if q:
+        ql = q.strip().lower()
+        rows = [r for r in rows if
+                ql in (r[1].barcode or "").lower() or ql in (r[4] or "").lower()
+                or ql in (r[0].payment_invoice or "").lower()]
+    if lot_number:
+        rows = [r for r in rows if r[2] == lot_number]
+    if sub_lot_number:
+        rows = [r for r in rows if r[1].sub_lot_number == sub_lot_number]
+    if tag_return_status:
+        rows = [r for r in rows if r[1].tag_return_status == tag_return_status]
+
+    credit_note_rows = []
+    for ret, device, lot_num, sale_id, sale_num, sold_at in rows:
+        idx = CN_STAGES.index(ret.cn_stage) if ret.cn_stage in CN_STAGES else -1
+        has_next = 0 <= idx < len(CN_STAGES) - 1
+        credit_note_rows.append({
+            "return_id": str(ret.id), "device": device, "ret": ret, "lot_number": lot_num,
+            "sale_id": str(sale_id) if sale_id else None, "sale_number": sale_num, "sale_date": sold_at,
+            "next_stage": CN_STAGES[idx + 1] if has_next else None,
+            "action_label": CN_STAGE_ACTION_LABELS.get(idx, CN_STAGES[idx + 1] if has_next else None),
+        })
+
+    return templates.TemplateResponse("sales/credit_note.html", {
+        "request": request, "current_user": current_user,
+        "credit_note_rows": credit_note_rows,
+        "stage_counts": stage_counts, "cn_stages": CN_STAGES,
+        "lot_number_options": sorted(lot_number_options),
+        "sub_lot_number_options": sorted(sub_lot_number_options),
+        "tag_return_status_options": sorted(tag_return_status_options),
+        "q": q, "f_lot_number": lot_number, "f_sub_lot_number": sub_lot_number,
+        "f_tag_return_status": tag_return_status,
+        "success": request.query_params.get("success"),
+        "error": request.query_params.get("error"),
+    })
+
+
+@router.post("/credit-note/{return_id}/advance")
+async def credit_note_advance(
+    request: Request,
+    return_id: str,
+    payment_invoice: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_module_perm("credit_note", "edit")),
+):
+    """Credit Note page's Action column — moves one record to the next
+    CN_STAGES entry. The Payment Invoice Done transition specifically
+    requires a Payment Invoice value, since that's the one stage with its
+    own stored field; every other transition is a plain advance."""
+    try:
+        rid = _uuid.UUID(return_id)
+    except ValueError:
+        raise HTTPException(404)
+    ret = (await db.execute(select(Return).where(Return.id == rid))).scalar_one_or_none()
+    if not ret or ret.cn_stage not in CN_STAGES:
+        return RedirectResponse(url="/credit-note?error=Credit+Note+record+not+found", status_code=302)
+    idx = CN_STAGES.index(ret.cn_stage)
+    if idx >= len(CN_STAGES) - 1:
+        return RedirectResponse(url="/credit-note?error=Already+at+final+stage", status_code=302)
+    next_stage = CN_STAGES[idx + 1]
+    if next_stage == "Debit Note Verified" and not ret.debit_note_number:
+        return RedirectResponse(
+            url="/credit-note?error=Set+a+Debit+Note+Number+first+(Return+New+page%27s+Credit+Note+tab)",
+            status_code=302)
+    if next_stage == "Payment Invoice Done":
+        pi = payment_invoice.strip()
+        if not pi:
+            return RedirectResponse(
+                url="/credit-note?error=Payment+Invoice+is+required+for+this+step", status_code=302)
+        ret.payment_invoice = pi
+    ret.cn_stage = next_stage
+    await audit(db, user=current_user, action="CREDIT_NOTE_STAGE_ADVANCED",
+                table_name="returns", record_id=str(ret.id),
+                new_value={"cn_stage": next_stage}, request=request)
+    await db.commit()
+    return RedirectResponse(
+        url=f"/credit-note?success=Marked+{next_stage.replace(' ', '+')}", status_code=302)
 
 
 # ── Manager: pending returns list ─────────────────────────────────────────────

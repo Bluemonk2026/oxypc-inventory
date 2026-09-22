@@ -241,54 +241,50 @@
     {# ═══════════════ CREDIT NOTE — CN against a previously-sold tag ═══════════ #}
     <div class="tab-pane fade {{ 'show active' if active_tab == 'credit' else '' }}" id="creditNoteTab">
     <div class="card border-0 shadow-sm">
-      <div class="card-header bg-transparent fw-semibold"><i class="bi bi-receipt-cutoff me-2"></i>Credit Note</div>
+      <div class="card-header bg-transparent fw-semibold"><i class="bi bi-receipt-cutoff me-2"></i>Credit Note — Verify Debit Note</div>
       <div class="card-body">
         {% if error and active_tab == 'credit' %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+        {% if success and active_tab == 'credit' %}<div class="alert alert-success">{{ success }}</div>{% endif %}
+        <p class="text-muted small mb-3">Search Tag Numbers already in the Credit Note pipeline (returned via
+          Internal Tags) and add as many as needed — the Debit Note Number/Amount below apply to all of them.</p>
         <form action="/returns/new/credit-note" method="post" id="creditNoteForm">
           <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+          <div id="cnBarcodeHiddenInputs"></div>
           <div class="mb-3">
-            <label class="form-label fw-semibold">Search Tag Number <span class="text-danger">*</span></label>
+            <label class="form-label fw-semibold">Search Tag Number</label>
             <div class="input-group">
-              <input type="text" name="barcode" id="cnBarcode" class="form-control barcode-field font-monospace"
-                     placeholder="Scan or type Tag Number" required>
-              <button type="button" class="btn btn-primary" id="cnSearchBtn"><i class="bi bi-search me-1"></i>Search</button>
+              <input type="text" id="cnScanInput" class="form-control barcode-field font-monospace"
+                     placeholder="Scan or type Tag Number, Enter to add">
+              <button type="button" class="btn btn-outline-primary" id="cnScanAddBtn"><i class="bi bi-plus-circle me-1"></i>Add</button>
             </div>
             <div id="cnSearchMsg" class="mt-2"></div>
+            <div id="cnScanList" class="mt-2"></div>
           </div>
           <div class="mb-3">
-            <label class="form-label fw-semibold">CN Number <span class="text-danger">*</span></label>
-            <input type="text" name="cn_number" class="form-control" required>
+            <label class="form-label fw-semibold">Debit Note Number <span class="text-danger">*</span></label>
+            <input type="text" name="debit_note_number" class="form-control" required>
           </div>
           <div class="mb-3">
-            <label class="form-label">Sale Date</label>
-            <input type="date" id="cnSaleDate" class="form-control" readonly>
+            <label class="form-label fw-semibold">Debit Note Amount</label>
+            <input type="number" step="0.01" min="0" name="debit_note_amount" class="form-control">
+          </div>
+          <hr>
+          <p class="text-muted small mb-2">Sender Details — shown on the Credit Note page as a contact badge.</p>
+          <div class="mb-3">
+            <label class="form-label">Sender Name</label>
+            <input type="text" name="sender_name" class="form-control">
           </div>
           <div class="mb-3">
-            <label class="form-label">Customer Name</label>
-            <input type="text" name="customer_name" id="cnCustomerName" class="form-control">
+            <label class="form-label">Sender Phone</label>
+            <input type="text" name="sender_phone" class="form-control">
           </div>
           <div class="mb-3">
-            <label class="form-label">Customer Phone</label>
-            <input type="text" name="customer_phone" id="cnCustomerPhone" class="form-control">
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Customer Email</label>
-            <input type="email" name="customer_email" id="cnCustomerEmail" class="form-control">
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Customer State</label>
-            <input type="text" name="customer_state" id="cnCustomerState" class="form-control">
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Customer Address</label>
-            <input type="text" name="customer_address" id="cnCustomerAddress" class="form-control">
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Notes</label>
-            <textarea name="notes" class="form-control" rows="2"></textarea>
+            <label class="form-label">Sender Email</label>
+            <input type="email" name="sender_email" class="form-control">
           </div>
           <div class="d-flex gap-2">
-            <button type="submit" class="btn btn-warning px-4"><i class="bi bi-receipt-cutoff me-2"></i>Submit Credit Note</button>
+            <button type="submit" class="btn btn-warning px-4" id="cnSubmitBtn" disabled>
+              <i class="bi bi-receipt-cutoff me-2"></i>Submit (<span id="cnSelCount">0</span> tag(s))</button>
             <a href="/sales" class="btn btn-outline-secondary">Cancel</a>
           </div>
         </form>
@@ -437,35 +433,67 @@
 })();
 
 (function(){
-  var barcodeInput = document.getElementById('cnBarcode');
-  var searchBtn = document.getElementById('cnSearchBtn');
+  var scanInput = document.getElementById('cnScanInput');
+  var addBtn = document.getElementById('cnScanAddBtn');
   var msg = document.getElementById('cnSearchMsg');
-  if(!barcodeInput || !searchBtn) return;
+  var listEl = document.getElementById('cnScanList');
+  var hiddenEl = document.getElementById('cnBarcodeHiddenInputs');
+  var submitBtn = document.getElementById('cnSubmitBtn');
+  var selCount = document.getElementById('cnSelCount');
+  if(!scanInput || !addBtn) return;
 
-  function search(){
-    var val = barcodeInput.value.trim();
+  var items = []; // {barcode, label}
+
+  function render(){
+    listEl.innerHTML = items.length ? (
+      '<div class="list-group">' + items.map(function(it, i){
+        return '<div class="list-group-item d-flex justify-content-between align-items-center py-1">' +
+          '<span class="font-monospace small">' + it.label + '</span>' +
+          '<button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" data-i="' + i + '">' +
+          '<i class="bi bi-x-lg"></i></button></div>';
+      }).join('') + '</div>'
+    ) : '';
+    hiddenEl.innerHTML = items.map(function(it){
+      return '<input type="hidden" name="barcode" value="' + it.barcode.replace(/"/g, '&quot;') + '">';
+    }).join('');
+    selCount.textContent = items.length;
+    submitBtn.disabled = items.length === 0;
+  }
+  listEl.addEventListener('click', function(e){
+    var btn = e.target.closest('button[data-i]');
+    if(!btn) return;
+    items.splice(parseInt(btn.getAttribute('data-i'), 10), 1);
+    render();
+  });
+
+  function add(){
+    var val = scanInput.value.trim();
     if(!val){
       msg.innerHTML = '<div class="alert alert-warning py-2 px-3 small mb-0">Enter a Tag Number to search.</div>';
+      return;
+    }
+    if(items.some(function(it){ return it.barcode.toUpperCase() === val.toUpperCase(); })){
+      msg.innerHTML = '<div class="alert alert-warning py-2 px-3 small mb-0">"' + val + '" already added.</div>';
+      scanInput.value = '';
       return;
     }
     fetch('/returns/new/credit-note/lookup?barcode=' + encodeURIComponent(val))
       .then(function(r){ return r.ok ? r.json() : {found:false}; })
       .then(function(d){
         if(d && d.found){
-          document.getElementById('cnSaleDate').value = d.sale_date || '';
-          document.getElementById('cnCustomerName').value = d.customer_name || '';
-          document.getElementById('cnCustomerPhone').value = d.customer_phone || '';
-          document.getElementById('cnCustomerEmail').value = d.customer_email || '';
-          document.getElementById('cnCustomerState').value = d.customer_state || '';
-          document.getElementById('cnCustomerAddress').value = d.customer_address || '';
-          msg.innerHTML = '<div class="alert alert-success py-2 px-3 small mb-0">Tag found — details auto-filled below.</div>';
+          items.push({barcode: d.barcode, label: d.barcode + ' — ' + d.model + ' (' + d.cn_stage + ')'});
+          render();
+          msg.innerHTML = '';
+          scanInput.value = '';
+          scanInput.focus();
         } else {
-          msg.innerHTML = '<div class="alert alert-danger py-2 px-3 small mb-0">' + (d.error || (val + ' not found or has no sale on file.')) + '</div>';
+          msg.innerHTML = '<div class="alert alert-danger py-2 px-3 small mb-0">' + (d.error || (val + ' not found.')) + '</div>';
         }
       }).catch(function(){ msg.innerHTML = ''; });
   }
-  searchBtn.addEventListener('click', search);
-  barcodeInput.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); search(); } });
+  addBtn.addEventListener('click', add);
+  scanInput.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); add(); } });
+  render();
 })();
 </script>
 {% endblock %}

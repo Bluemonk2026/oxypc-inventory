@@ -165,7 +165,7 @@
         <table class="table table-hover mb-0 small align-middle">
           <thead class="table-dark">
             <tr>
-              <th class="ps-3">Barcode</th><th>Lot Number</th><th>Brand / Model</th>
+              <th class="ps-3">Tag Number</th><th>Lot Number</th><th>Brand / Model</th>
               <th>CPU</th><th>Gen</th><th>RAM</th><th>Storage</th>
               <th>Stage</th><th>Uploaded</th><th>GRN</th><th>Action</th>
             </tr>
@@ -175,7 +175,17 @@
             {% set d = row.device %}
             {% set _mapped = row.matched_grn and d.grn_number == row.matched_grn %}
             <tr>
-              <td class="ps-3"><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
+              <td class="ps-3">
+                <button type="button" class="btn btn-link p-0 font-monospace text-decoration-none device-details-btn"
+                        data-barcode="{{ d.barcode }}" data-lot="{{ row.lot_number or '' }}"
+                        data-stage="{{ stage_labels.get(d.current_stage, d.current_stage.value) }}"
+                        data-serial="{{ d.serial_no or '' }}" data-brand="{{ d.brand or '' }}" data-model="{{ d.model or '' }}"
+                        data-cpu="{{ d.cpu or '' }}" data-cpu-make="{{ d.cpu_make or '' }}" data-generation="{{ d.generation or '' }}"
+                        data-ram-gb="{{ d.ram_gb or '' }}" data-storage-gb="{{ d.storage_gb or '' }}" data-storage-type="{{ d.storage_type or '' }}"
+                        data-device-type="{{ d.device_type or '' }}" data-grade="{{ d.grade.value if d.grade else '' }}" data-notes="{{ d.notes or '' }}">
+                  {{ d.barcode }}
+                </button>
+              </td>
               <td class="font-monospace small">{{ row.lot_number or '—' }}</td>
               <td>{{ d.brand or '—' }} {{ d.model or '' }}</td>
               <td>{{ d.cpu or '—' }}</td>
@@ -202,9 +212,17 @@
                     <i class="bi bi-link-45deg"></i> Map
                   </button>
                 </form>
-                {% else %}
-                <span class="text-muted">—</span>
                 {% endif %}
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 device-details-btn"
+                        data-edit="1"
+                        data-barcode="{{ d.barcode }}" data-lot="{{ row.lot_number or '' }}"
+                        data-stage="{{ stage_labels.get(d.current_stage, d.current_stage.value) }}"
+                        data-serial="{{ d.serial_no or '' }}" data-brand="{{ d.brand or '' }}" data-model="{{ d.model or '' }}"
+                        data-cpu="{{ d.cpu or '' }}" data-cpu-make="{{ d.cpu_make or '' }}" data-generation="{{ d.generation or '' }}"
+                        data-ram-gb="{{ d.ram_gb or '' }}" data-storage-gb="{{ d.storage_gb or '' }}" data-storage-type="{{ d.storage_type or '' }}"
+                        data-device-type="{{ d.device_type or '' }}" data-grade="{{ d.grade.value if d.grade else '' }}" data-notes="{{ d.notes or '' }}">
+                  <i class="bi bi-pencil"></i> Edit
+                </button>
               </td>
             </tr>
             {% else %}
@@ -328,6 +346,63 @@
   </div>
 </div>
 
+<!-- Device Details modal — Tag Number click opens read-only; Edit button
+     opens the same modal with inputs enabled. -->
+<div class="modal fade" id="deviceDetailsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <form method="post" action="/trade-partner/manage-lots/edit-device" class="modal-content" id="deviceDetailsForm">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="barcode" id="dd_barcode_hidden">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-laptop me-2"></i>Tag <span id="dd_barcode_label" class="font-monospace"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-2 mb-3">
+          <div class="col-md-6"><span class="text-muted small">Lot Number:</span> <strong id="dd_lot">—</strong></div>
+          <div class="col-md-6"><span class="text-muted small">Stage:</span> <strong id="dd_stage">—</strong></div>
+        </div>
+        <div class="row g-2">
+          <div class="col-md-6"><label class="form-label small fw-semibold">Serial No</label>
+            <input type="text" name="serial_no" id="dd_serial" class="form-control form-control-sm"></div>
+          <div class="col-md-6"><label class="form-label small fw-semibold">Brand</label>
+            <input type="text" name="brand" id="dd_brand" class="form-control form-control-sm"></div>
+          <div class="col-md-6"><label class="form-label small fw-semibold">Model</label>
+            <input type="text" name="model" id="dd_model" class="form-control form-control-sm"></div>
+          <div class="col-md-6"><label class="form-label small fw-semibold">Device Type</label>
+            <input type="text" name="device_type" id="dd_device_type" class="form-control form-control-sm"></div>
+          <div class="col-md-6"><label class="form-label small fw-semibold">CPU</label>
+            <input type="text" name="cpu" id="dd_cpu" class="form-control form-control-sm"></div>
+          <div class="col-md-6"><label class="form-label small fw-semibold">CPU Make</label>
+            <input type="text" name="cpu_make" id="dd_cpu_make" class="form-control form-control-sm"></div>
+          <div class="col-md-6"><label class="form-label small fw-semibold">Generation</label>
+            <input type="text" name="generation" id="dd_generation" class="form-control form-control-sm"></div>
+          <div class="col-md-3"><label class="form-label small fw-semibold">RAM (GB)</label>
+            <input type="number" name="ram_gb" id="dd_ram_gb" class="form-control form-control-sm"></div>
+          <div class="col-md-3"><label class="form-label small fw-semibold">Storage (GB)</label>
+            <input type="number" name="storage_gb" id="dd_storage_gb" class="form-control form-control-sm"></div>
+          <div class="col-md-6"><label class="form-label small fw-semibold">Storage Type</label>
+            <input type="text" name="storage_type" id="dd_storage_type" class="form-control form-control-sm"></div>
+          <div class="col-md-6"><label class="form-label small fw-semibold">Grade</label>
+            <select name="grade" id="dd_grade" class="form-select form-select-sm">
+              <option value="">—</option>
+              {% for value, label in grade_options() %}
+              <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12"><label class="form-label small fw-semibold">Notes</label>
+            <textarea name="notes" id="dd_notes" class="form-control form-control-sm" rows="2"></textarea></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="submit" class="btn btn-primary" id="dd_save_btn"><i class="bi bi-check-lg me-1"></i>Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Add/Edit Lot modal -->
 <div class="modal fade" id="addLotModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
@@ -356,6 +431,46 @@
 {% endblock %}
 {% block scripts %}
 <script>
+// Land back on Asset IQC after an action there (map-grn/edit-device redirect
+// with ?tab=asset) instead of always resetting to the default GRN & Lot tab.
+if (new URLSearchParams(location.search).get('tab') === 'asset') {
+  var assetTabBtn = document.querySelector('#manageLotsTabs button[data-bs-target="#assetIqcTab"]');
+  if (assetTabBtn) new bootstrap.Tab(assetTabBtn).show();
+}
+
+// Device Details modal — Tag Number click opens read-only (inputs disabled,
+// Save hidden); Edit button opens the same modal with inputs editable. Both
+// populate from the same set of data-* attributes on the triggering button.
+document.querySelectorAll('.device-details-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var editMode = this.getAttribute('data-edit') === '1';
+    document.getElementById('dd_barcode_hidden').value = this.getAttribute('data-barcode') || '';
+    document.getElementById('dd_lot').textContent = this.getAttribute('data-lot') || '—';
+    document.getElementById('dd_stage').textContent = this.getAttribute('data-stage') || '—';
+    document.getElementById('dd_serial').value = this.getAttribute('data-serial') || '';
+    document.getElementById('dd_brand').value = this.getAttribute('data-brand') || '';
+    document.getElementById('dd_model').value = this.getAttribute('data-model') || '';
+    document.getElementById('dd_device_type').value = this.getAttribute('data-device-type') || '';
+    document.getElementById('dd_cpu').value = this.getAttribute('data-cpu') || '';
+    document.getElementById('dd_cpu_make').value = this.getAttribute('data-cpu-make') || '';
+    document.getElementById('dd_generation').value = this.getAttribute('data-generation') || '';
+    document.getElementById('dd_ram_gb').value = this.getAttribute('data-ram-gb') || '';
+    document.getElementById('dd_storage_gb').value = this.getAttribute('data-storage-gb') || '';
+    document.getElementById('dd_storage_type').value = this.getAttribute('data-storage-type') || '';
+    document.getElementById('dd_grade').value = this.getAttribute('data-grade') || '';
+    document.getElementById('dd_notes').value = this.getAttribute('data-notes') || '';
+
+    var fieldIds = ['dd_serial','dd_brand','dd_model','dd_device_type','dd_cpu','dd_cpu_make',
+      'dd_generation','dd_ram_gb','dd_storage_gb','dd_storage_type','dd_grade','dd_notes'];
+    fieldIds.forEach(function(id){ document.getElementById(id).disabled = !editMode; });
+    document.getElementById('dd_save_btn').classList.toggle('d-none', !editMode);
+    document.getElementById('deviceDetailsModal').querySelector('.modal-title').innerHTML =
+      '<i class="bi bi-laptop me-2"></i>' + (editMode ? 'Edit Tag ' : 'Tag ') +
+      '<span class="font-monospace">' + (this.getAttribute('data-barcode') || '') + '</span>';
+    new bootstrap.Modal(document.getElementById('deviceDetailsModal')).show();
+  });
+});
+
 // Edit modal wiring — populated from the row Edit button's data-* attributes.
 var em = document.getElementById('editGrnModal');
 if (em) { em.addEventListener('show.bs.modal', function(e){

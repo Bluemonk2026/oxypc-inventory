@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Credit Note — OxyPC{% endblock %}
+{% block page_title %}Credit Note{% endblock %}
+{% block content %}
+
+{% if success %}
+<div class="alert alert-success py-2"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
+{% endif %}
+
+<!-- Stage summary tiles -->
+<div class="d-flex flex-wrap gap-2 mb-3">
+  {% set tile_colors = {
+    'Return Received': '#6f42c1', 'Verify Debit Note': '#0d6efd', 'Verify Payment': '#fd7e14',
+    'Payment Invoice Done': '#20c997', 'Restock Pending': '#dc3545', 'CN Complete': '#198754',
+  } %}
+  {% for stage in cn_stages %}
+  <div class="flex-fill" style="min-width:140px">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-2">
+        <div class="small text-muted mb-1">{{ stage }}</div>
+        <div class="fs-4 fw-bold" style="color:{{ tile_colors.get(stage, '#333') }}">{{ stage_counts.get(stage, 0) }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Filters -->
+<form method="get" action="/credit-note" class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold mb-1">Search</label>
+        <input type="text" name="q" class="form-control form-control-sm" value="{{ q }}"
+               placeholder="Tag Number / Sale ID / Payment Invoice">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold mb-1">Lot Number</label>
+        <select name="lot_number" class="form-select form-select-sm">
+          <option value="">All Lots</option>
+          {% for ln in lot_number_options %}
+          <option value="{{ ln }}" {% if f_lot_number == ln %}selected{% endif %}>{{ ln }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Sub-Lot Number</label>
+        <select name="sub_lot_number" class="form-select form-select-sm">
+          <option value="">All Sub-Lots</option>
+          {% for sl in sub_lot_number_options %}
+          <option value="{{ sl }}" {% if f_sub_lot_number == sl %}selected{% endif %}>{{ sl }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Tag Return Status</label>
+        <select name="tag_return_status" class="form-select form-select-sm">
+          <option value="">All Statuses</option>
+          {% for s in tag_return_status_options %}
+          <option value="{{ s }}" {% if f_tag_return_status == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2 d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm flex-grow-1"><i class="bi bi-search me-1"></i>Filter</button>
+        <a href="/credit-note" class="btn btn-outline-secondary btn-sm">Reset</a>
+      </div>
+    </div>
+  </div>
+</form>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-receipt-cutoff me-2"></i>Credit Note</div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small align-middle">
+        <thead class="table-dark">
+          <tr>
+            <th class="ps-3">Tag Number</th><th>Tag Return Status</th><th>Lot Number</th>
+            <th>Sub-Lot Number</th><th>Device Price</th><th>Sale Date</th>
+            <th>Debit Amount</th><th>Debit Number</th><th>Sale ID</th>
+            <th>Payment Invoice</th><th>Sender</th><th>Status</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in credit_note_rows %}
+          {% set d = row.device %}{% set ret = row.ret %}
+          <tr>
+            <td class="ps-3"><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
+            <td>{{ d.tag_return_status or '—' }}</td>
+            <td><span class="badge bg-info text-dark">{{ row.lot_number or '—' }}</span></td>
+            <td>{{ d.sub_lot_number or '—' }}</td>
+            <td>{{ '%.2f'|format(d.device_price) if d.device_price is not none else '—' }}</td>
+            <td>{{ row.sale_date.strftime('%d-%m-%Y') if row.sale_date else '—' }}</td>
+            <td>{% if ret.debit_note_amount is not none %}₹{{ "{:,.0f}".format(ret.debit_note_amount) }}{% else %}—{% endif %}</td>
+            <td>{{ ret.debit_note_number or '—' }}</td>
+            <td>{% if row.sale_id %}<a href="/sales/{{ row.sale_id }}" class="text-decoration-none">{{ row.sale_number }}</a>{% else %}—{% endif %}</td>
+            <td>{{ ret.payment_invoice or '—' }}</td>
+            <td>
+              {% if ret.customer_name or ret.customer_phone or ret.customer_email %}
+              <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 sender-badge-btn"
+                      data-name="{{ ret.customer_name or '' }}" data-phone="{{ ret.customer_phone or '' }}"
+                      data-email="{{ ret.customer_email or '' }}">
+                <i class="bi bi-person-vcard me-1"></i>Contact
+              </button>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td><span class="badge bg-secondary">{{ ret.cn_stage }}</span></td>
+            <td class="text-nowrap">
+              {% if row.next_stage %}
+              <form method="post" action="/credit-note/{{ row.return_id }}/advance" class="d-flex gap-1">
+                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                {% if row.next_stage == 'Payment Invoice Done' %}
+                <input type="text" name="payment_invoice" class="form-control form-control-sm" style="width:120px" placeholder="Invoice #" required>
+                {% endif %}
+                <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2">{{ row.action_label }}</button>
+              </form>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="13" class="text-center text-muted py-4">No Credit Note records yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Sender Details modal — opened from the "Contact" badge -->
+<div class="modal fade" id="senderDetailsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-person-vcard me-2"></i>Sender Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2"><span class="text-muted small">Name:</span> <strong id="sd_name">—</strong></div>
+        <div class="mb-2"><span class="text-muted small">Phone:</span> <strong id="sd_phone">—</strong></div>
+        <div class="mb-0"><span class="text-muted small">Email:</span> <strong id="sd_email">—</strong></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll('.sender-badge-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.getElementById('sd_name').textContent = this.getAttribute('data-name') || '—';
+    document.getElementById('sd_phone').textContent = this.getAttribute('data-phone') || '—';
+    document.getElementById('sd_email').textContent = this.getAttribute('data-email') || '—';
+    new bootstrap.Modal(document.getElementById('senderDetailsModal')).show();
+  });
+});
+</script>
+{% endblock %}

@@ -12,6 +12,15 @@
      jumps straight to the (first) matching card — same flow as scanning a
      barcode gun into a search box elsewhere in the app. #}
   <div class="ms-auto d-flex align-items-center gap-2">
+    <form method="get" class="d-flex align-items-center gap-2">
+      <select name="entity" class="form-select form-select-sm" style="width:160px"
+              onchange="this.form.submit()">
+        <option value="">All Entities</option>
+        {% for e in entity_options %}
+        <option value="{{ e }}" {% if e == f_entity %}selected{% endif %}>{{ e }}</option>
+        {% endfor %}
+      </select>
+    </form>
     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openSearchTagsModal()">
       <i class="bi bi-clock-history me-1"></i>Search Tags</button>
     <input type="text" id="fqcScanSearch" class="form-control form-control-sm" style="width:240px"

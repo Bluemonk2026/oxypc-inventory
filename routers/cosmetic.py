@@ -5,10 +5,10 @@ Stages: QC Check → Cleaning → Dry Sanding → Masking → Painting → Water
 from templates_config import templates
 from datetime import datetime
 from utils.timezone import app_now
-from fastapi import APIRouter, Depends, Form, Request, HTTPException
+from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, update
+from sqlalchemy import select, func, update, or_
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement
@@ -26,6 +26,8 @@ from models.work_order import WorkOrder
 from models.role_permissions import has_perm
 from models.cosmetic_flow import CosmeticFlowRow
 from models.cost_config import CostConfig
+from models.master import EXTERNAL_PARTNER_TEST_ENTITY
+from utils.master_data import entity_values
 from utils.attendance_groups import is_group_manager, managed_usernames
 from routers.transfers import _gen_work_id
 from routers.buckets import _apply_department_move
@@ -289,11 +291,21 @@ async def _resolve_fail_engineer(db: AsyncSession, device_id, failure_reason: st
     return {"user_id": wo.assigned_user_id, "username": wo.assigned_username, "name": wo.assigned_name}
 
 
-async def _get_devices_at_stage(db: AsyncSession, stage: DeviceStage):
+async def _get_devices_at_stage(db: AsyncSession, stage: DeviceStage, entity: str = ""):
+    where = [Device.current_stage == stage]
+    if entity:
+        where.append(Device.entity == entity)
+    else:
+        # No explicit Entity filter -> exclude the External Partner test-data
+        # entity by default, same convention as routers/dashboard.py,
+        # devices.py, stock.py and entity_movement.py. NULL-safe: `entity !=
+        # X` alone silently drops every entity-less device too, since SQL
+        # NULL != X evaluates to NULL, not TRUE.
+        where.append(or_(Device.entity.is_(None), Device.entity != EXTERNAL_PARTNER_TEST_ENTITY))
     result = await db.execute(
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id)
-        .where(Device.current_stage == stage)
+        .where(*where)
         .order_by(Device.updated_at.desc())
     )
     return result.all()
@@ -551,14 +563,16 @@ async def cosmetic_flow_data_delete(
 
 
 @router.get("/{stage_name}", response_class=HTMLResponse)
-async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(allowed)):
+async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSession = Depends(get_db),
+                              current_user: User = Depends(allowed),
+                              entity: str = Query(default="")):
     try:
         stage = DeviceStage(stage_name)
     except ValueError:
         raise HTTPException(404)
     if stage not in COSMETIC_PIPELINE:
         raise HTTPException(404)
-    devices = await _get_devices_at_stage(db, stage)
+    devices = await _get_devices_at_stage(db, stage, entity=entity)
     next_stage = NEXT_COSMETIC.get(stage)
 
     # Final QC (#18): show IQC data + post-repair data read-only, then grade + Ready to Sale
@@ -719,6 +733,7 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
             "pipeline": COSMETIC_NAV_STAGES, "stage_labels": STAGE_LABELS,
             "bucket_name_map": bucket_name_map,
             "passed_buckets": passed_buckets, "failed_devices": failed_devices,
+            "entity_options": await entity_values(db), "f_entity": entity,
         })
 
     # ── Most recent L1/L2 Engineer per device, for the "L1/L2 Engineer" column

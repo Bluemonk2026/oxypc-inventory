@@ -6,18 +6,25 @@
 <!-- Filter Bar -->
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body py-2">
-    {# Single row, no wrap — every filter + button stays on one line; a
-       narrow viewport scrolls the bar sideways (overflow-auto) instead of
-       stacking fields onto a second line. Bootstrap's .row is already a
-       flex container (flex-wrap:wrap by default, needed for align-items-end
-       to work) — flex-nowrap just overrides that one property, so every
-       col-md-* width below still applies unchanged. #}
-    <form method="get" action="/transfers" class="row g-2 align-items-end flex-nowrap overflow-auto pb-1">
-      <div class="col-md-3 flex-shrink-0" style="min-width:180px">
+    {# Single row, no wrap, no horizontal scroll — every filter field shrinks
+       to fit the viewport instead (min-width:0 lets a flex item shrink past
+       its own content's natural width, which Bootstrap's fixed-width
+       col-md-* normally blocks via flex-shrink:0). Buttons stay flex-shrink-0
+       so their labels never get squished — the input/select fields absorb
+       all the compression. #}
+    <style>
+      #transfersFilterForm.row { flex-wrap: nowrap; }
+      #transfersFilterForm > [class*="col-"] {
+        flex: 1 1 0; min-width: 0; max-width: none; width: auto;
+      }
+      #transfersFilterForm .btn-group-col { flex: 0 0 auto; }
+    </style>
+    <form method="get" action="/transfers" id="transfersFilterForm" class="row g-2 align-items-end">
+      <div class="col-md-3">
         <label class="form-label small text-muted mb-1">Search Tag Number / Device</label>
         <input type="text" name="q" class="form-control form-control-sm" placeholder="Tag Number..." value="{{ q }}">
       </div>
-      <div class="col-md-2 flex-shrink-0" style="min-width:150px">
+      <div class="col-md-2">
         <label class="form-label small text-muted mb-1">Transfer Type</label>
         {% set transfer_type_arrow_labels = {
           'trc_to_showroom': 'TRC → Showroom',
@@ -32,7 +39,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-2 flex-shrink-0" style="min-width:150px">
+      <div class="col-md-2">
         <label class="form-label small text-muted mb-1">Transfer by</label>
         <select name="transferred_by" class="form-select form-select-sm">
           <option value="">All</option>
@@ -41,7 +48,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-2 flex-shrink-0" style="min-width:150px">
+      <div class="col-md-2">
         <label class="form-label small text-muted mb-1">Location ID</label>
         <select name="location_id" class="form-select form-select-sm">
           <option value="">All Locations</option>
@@ -51,7 +58,7 @@
         </select>
       </div>
       {% include "_date_range_fields.html" %}
-      <div class="col-auto flex-shrink-0 d-flex gap-2">
+      <div class="col-auto btn-group-col d-flex gap-2">
         <button type="submit" class="btn btn-sm btn-primary text-nowrap"><i class="bi bi-search me-1"></i>Search</button>
         <a href="/transfers" class="btn btn-sm btn-outline-secondary text-nowrap">Clear</a>
         <a href="/transfers/new" class="btn btn-sm btn-success text-nowrap"><i class="bi bi-plus-circle me-1"></i>New Transfer</a>

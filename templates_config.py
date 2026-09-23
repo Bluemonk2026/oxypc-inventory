@@ -82,6 +82,7 @@ templates.env.filters["ist_datetime"] = ist_datetime  # {{ dt | ist_datetime }}
 from models.role_permissions import (
     has_perm as _has_perm,
     has_explicit_perm as _has_explicit_perm_fn,
+    is_narrowly_scoped_to as _is_narrowly_scoped_to_fn,
     get_cached_sidebar_label as _sidebar_label,
     get_cached_page_title as _get_cached_page_title,
     can_view_pricing as _can_view_pricing_by_role,
@@ -109,6 +110,19 @@ def _can_view_pricing(current_user):
 
 def _any_perm(role, *modules):
     return any(_has_perm(role, m, "enable") for m in modules)
+
+
+def _narrowly_scoped_to(role, *modules):
+    """Template helper mirroring models.role_permissions.is_narrowly_scoped_to
+    — True if `role` was deliberately scoped down to at least one of
+    `modules` (an explicit matrix row), OR has zero matrix configuration
+    anywhere (unconfigured-role-defaults-to-narrow convention). False for a
+    role that's configured elsewhere in the matrix but just never had these
+    particular modules touched — e.g. distinguishing a genuinely narrow
+    single-stage custom role from a broad one nobody scoped down (mirrors
+    routers/cosmetic.py _is_cosmetic_stage_role)."""
+    role_val = getattr(role, "value", None) or str(role)
+    return _is_narrowly_scoped_to_fn(role_val, *modules)
 
 
 from models.user import UserRole as _UserRole
@@ -192,6 +206,7 @@ def _breadcrumb_enabled(path: str) -> bool:
 templates.env.globals["has_perm"] = _has_perm
 templates.env.globals["has_explicit_perm"] = _has_explicit_perm
 templates.env.globals["any_perm"] = _any_perm
+templates.env.globals["narrowly_scoped_to"] = _narrowly_scoped_to
 templates.env.globals["can_view_pricing"] = _can_view_pricing
 templates.env.globals["breadcrumb_enabled"] = _breadcrumb_enabled
 templates.env.globals["module_hidden"] = _module_hidden

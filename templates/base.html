@@ -189,8 +189,15 @@
          sees the hub, even if cosmetic_received/cosmetic_completed happen
          to be enabled for it in the Permission Matrix. Mirrors
          routers/cosmetic.py _is_cosmetic_stage_role — kept in sync so the
-         nav link and the manager/member page behaviour can never disagree. #}
-      {% set has_stage_perm = any_perm(role,'cosmetic_cleaning','cosmetic_putty','cosmetic_dry_sanding','cosmetic_masking','cosmetic_painting','cosmetic_water_sanding') %}
+         nav link and the manager/member page behaviour can never disagree.
+         narrowly_scoped_to, not any_perm (2026-09-24): any_perm treats an
+         unconfigured module as granted, which misclassified a broad role
+         like "trc_manager" (explicitly configured across ~100 OTHER
+         modules, but never these 6) as a narrow single-stage worker and
+         hid the hub link for it. narrowly_scoped_to still treats a role
+         with ZERO matrix configuration anywhere as narrow by default,
+         same as before — see models.role_permissions.is_narrowly_scoped_to. #}
+      {% set has_stage_perm = narrowly_scoped_to(role,'cosmetic_cleaning','cosmetic_putty','cosmetic_dry_sanding','cosmetic_masking','cosmetic_painting','cosmetic_water_sanding') %}
       {% set is_cosmetic_user_role = has_stage_perm and role not in ('admin','cosmetic_manager','qc_inspector','inventory_manager','sales_manager') %}
       {% if not is_cosmetic_user_role and any_perm(role,'cosmetic_received','cosmetic_cleaning','cosmetic_putty','cosmetic_dry_sanding','cosmetic_masking','cosmetic_painting','cosmetic_water_sanding','cosmetic_completed') %}
       <li><a href="/cosmetic/cosmetic_received" class="nav-link {% if request.url.path.startswith('/cosmetic/') and request.url.path != '/cosmetic/final_qc' %}active{% endif %}">

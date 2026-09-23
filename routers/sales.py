@@ -2,6 +2,7 @@
 Sales Router — sale block enforcement + return re-entry to IQC + audit
 """
 from templates_config import templates
+from urllib.parse import quote_plus
 import uuid as _uuid
 import os
 import re
@@ -1903,6 +1904,48 @@ async def credit_note_page(
     })
 
 
+def _try_advance_return(ret: Return, payment_invoice: str = "") -> str | None:
+    """Advance one Return to its next CN_STAGES entry, in place. Returns
+    None on success, or a short human-readable reason it couldn't advance.
+    Shared by the single-row Action-column advance and Bulk Verify below,
+    so a bulk run can report exactly which rows it skipped and why instead
+    of silently dropping them."""
+    if ret.cn_stage not in CN_STAGES:
+        return "not in Credit Note pipeline"
+    idx = CN_STAGES.index(ret.cn_stage)
+    if idx >= len(CN_STAGES) - 1:
+        return "already at final stage"
+    next_stage = CN_STAGES[idx + 1]
+    if next_stage == "Debit Note Verified" and not ret.debit_note_number:
+        return "Debit Note Number not set (Return New page's Credit Note tab)"
+    if next_stage == "Payment Invoice Done":
+        pi = payment_invoice.strip()
+        if not pi:
+            return "Payment Invoice required for this step"
+        ret.payment_invoice = pi
+    ret.cn_stage = next_stage
+    return None
+
+
+async def _reset_device_return_flags_if_orphaned(db: AsyncSession, device_id) -> None:
+    """After deleting a Return row, clear Device.return_status/
+    tag_return_status IF this was the device's last remaining Return —
+    otherwise those flags describe a record that no longer exists (the
+    device would keep showing "Return for Credit Note" on its profile and
+    the Production Manager "Tags Returned" tile forever). A device can carry
+    more than one Return over its life (return → resold → returned again),
+    so only clear when none are left."""
+    remaining = (await db.execute(
+        select(Return.id).where(Return.device_id == device_id).limit(1)
+    )).scalar_one_or_none()
+    if remaining:
+        return
+    device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
+    if device:
+        device.return_status = False
+        device.tag_return_status = None
+
+
 @router.post("/credit-note/{return_id}/advance")
 async def credit_note_advance(
     request: Request,
@@ -1920,29 +1963,127 @@ async def credit_note_advance(
     except ValueError:
         raise HTTPException(404)
     ret = (await db.execute(select(Return).where(Return.id == rid))).scalar_one_or_none()
-    if not ret or ret.cn_stage not in CN_STAGES:
+    if not ret:
         return RedirectResponse(url="/credit-note?error=Credit+Note+record+not+found", status_code=302)
-    idx = CN_STAGES.index(ret.cn_stage)
-    if idx >= len(CN_STAGES) - 1:
-        return RedirectResponse(url="/credit-note?error=Already+at+final+stage", status_code=302)
-    next_stage = CN_STAGES[idx + 1]
-    if next_stage == "Debit Note Verified" and not ret.debit_note_number:
-        return RedirectResponse(
-            url="/credit-note?error=Set+a+Debit+Note+Number+first+(Return+New+page%27s+Credit+Note+tab)",
-            status_code=302)
-    if next_stage == "Payment Invoice Done":
-        pi = payment_invoice.strip()
-        if not pi:
-            return RedirectResponse(
-                url="/credit-note?error=Payment+Invoice+is+required+for+this+step", status_code=302)
-        ret.payment_invoice = pi
-    ret.cn_stage = next_stage
+    reason = _try_advance_return(ret, payment_invoice)
+    if reason:
+        return RedirectResponse(url=f"/credit-note?error={quote_plus(reason.capitalize())}", status_code=302)
+    next_stage = ret.cn_stage
     await audit(db, user=current_user, action="CREDIT_NOTE_STAGE_ADVANCED",
                 table_name="returns", record_id=str(ret.id),
                 new_value={"cn_stage": next_stage}, request=request)
     await db.commit()
     return RedirectResponse(
         url=f"/credit-note?success=Marked+{next_stage.replace(' ', '+')}", status_code=302)
+
+
+@router.post("/credit-note/{return_id}/delete")
+async def credit_note_delete(
+    request: Request,
+    return_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_module_perm("credit_note", "edit")),
+):
+    """Credit Note page's per-row Delete — permanently removes the Return
+    record (per explicit instruction: a hard delete, not just exiting the
+    Credit Note pipeline). Also drops it out of Inventory Manager's Return
+    Stock table (that table inner-joins Return, so it can't show a device
+    with none left) and, if no other Return remains for the device, clears
+    the now-stale return_status/tag_return_status flags."""
+    try:
+        rid = _uuid.UUID(return_id)
+    except ValueError:
+        raise HTTPException(404)
+    ret = (await db.execute(select(Return).where(Return.id == rid))).scalar_one_or_none()
+    if not ret:
+        return RedirectResponse(url="/credit-note?error=Credit+Note+record+not+found", status_code=302)
+    device_id, barcode = ret.device_id, ret.serial_captured
+    await audit(db, user=current_user, action="CREDIT_NOTE_RETURN_DELETED",
+                table_name="returns", record_id=str(ret.id),
+                old_value={"cn_stage": ret.cn_stage, "debit_note_number": ret.debit_note_number,
+                           "barcode": barcode},
+                request=request)
+    await db.delete(ret)
+    await db.flush()
+    await _reset_device_return_flags_if_orphaned(db, device_id)
+    await db.commit()
+    return RedirectResponse(url="/credit-note?success=Return+record+deleted", status_code=302)
+
+
+@router.post("/credit-note/bulk-delete")
+async def credit_note_bulk_delete(
+    request: Request,
+    return_id: list[str] = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_module_perm("credit_note", "edit")),
+):
+    """Credit Note page's Bulk Delete — same permanent-delete semantics as
+    the single-row action above, applied to every checked row."""
+    ids = []
+    for r in return_id:
+        try:
+            ids.append(_uuid.UUID(r))
+        except ValueError:
+            continue
+    if not ids:
+        return RedirectResponse(url="/credit-note?error=Select+at+least+one+row", status_code=302)
+    rets = (await db.execute(select(Return).where(Return.id.in_(ids)))).scalars().all()
+    device_ids = {r.device_id for r in rets}
+    for ret in rets:
+        await audit(db, user=current_user, action="CREDIT_NOTE_RETURN_DELETED",
+                    table_name="returns", record_id=str(ret.id),
+                    old_value={"cn_stage": ret.cn_stage, "debit_note_number": ret.debit_note_number,
+                               "barcode": ret.serial_captured},
+                    request=request)
+        await db.delete(ret)
+    await db.flush()
+    for device_id in device_ids:
+        await _reset_device_return_flags_if_orphaned(db, device_id)
+    await db.commit()
+    return RedirectResponse(
+        url=f"/credit-note?success={len(rets)}+return+record(s)+deleted", status_code=302)
+
+
+@router.post("/credit-note/bulk-verify")
+async def credit_note_bulk_verify(
+    request: Request,
+    return_id: list[str] = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_module_perm("credit_note", "edit")),
+):
+    """Credit Note page's Bulk Verify — advances every checked row from ITS
+    OWN current cn_stage to the next one (not a single target stage for the
+    whole batch — each row's Status column already differs). Rows blocked
+    by a missing Debit Note Number, a missing Payment Invoice, or already
+    at the final stage are skipped (not partially applied) and counted
+    separately, same validation _try_advance_return already enforces for
+    the single-row action — a bulk run can't collect one Payment Invoice
+    value per row, so any row whose next step is "Payment Invoice Done"
+    always lands in the skipped count."""
+    ids = []
+    for r in return_id:
+        try:
+            ids.append(_uuid.UUID(r))
+        except ValueError:
+            continue
+    if not ids:
+        return RedirectResponse(url="/credit-note?error=Select+at+least+one+row", status_code=302)
+    rets = (await db.execute(select(Return).where(Return.id.in_(ids)))).scalars().all()
+    advanced, skipped = 0, 0
+    for ret in rets:
+        reason = _try_advance_return(ret)
+        if reason:
+            skipped += 1
+            continue
+        await audit(db, user=current_user, action="CREDIT_NOTE_STAGE_ADVANCED",
+                    table_name="returns", record_id=str(ret.id),
+                    new_value={"cn_stage": ret.cn_stage}, request=request)
+        advanced += 1
+    await db.commit()
+    msg = f"{advanced}+advanced"
+    if skipped:
+        msg += f",+{skipped}+skipped+(needs+Debit+Note+or+Payment+Invoice+set+individually)"
+    return RedirectResponse(url=f"/credit-note?success={msg}", status_code=302)
 
 
 # ── Manager: pending returns list ─────────────────────────────────────────────

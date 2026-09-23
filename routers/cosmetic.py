@@ -23,7 +23,7 @@ from services.audit_engine import audit
 from services.notifications import create_notification
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from models.work_order import WorkOrder
-from models.role_permissions import has_perm
+from models.role_permissions import has_perm, is_narrowly_scoped_to
 from models.cosmetic_flow import CosmeticFlowRow
 from models.cost_config import CostConfig
 from models.master import EXTERNAL_PARTNER_TEST_ENTITY
@@ -217,14 +217,27 @@ _COSMETIC_HUB_ROLES = {"admin"} | {r.value for r in COSMETIC_ELIGIBLE_ROLES}
 
 def _is_cosmetic_stage_role(role_val: str) -> bool:
     """True for a genuine single-stage cosmetic role (e.g. a custom
-    "Cosmetic Cleaning" role) — anyone NOT in _COSMETIC_HUB_ROLES who has at
-    least one of the 6 mid-pipeline stage permissions enabled. Mirrors the
-    matching blacklist used for the sidebar's "Cosmetic & Paint" hub link
+    "Cosmetic Cleaning" role) — anyone NOT in _COSMETIC_HUB_ROLES who was
+    deliberately scoped to at least one of the 6 mid-pipeline stages (see
+    models.role_permissions.is_narrowly_scoped_to). Mirrors the matching
+    blacklist used for the sidebar's "Cosmetic & Paint" hub link
     (templates/base.html) — kept in sync so the nav link and the
-    manager/member page behaviour below can never disagree."""
+    manager/member page behaviour below can never disagree.
+
+    Fixed 2026-09-24: previously used has_perm() alone, which defaults to
+    True for a module nobody ever configured either way. That misread a
+    broad, deliberately-configured role like "trc_manager" (explicit rows
+    across ~100 OTHER modules, but nobody had touched these 6 specifically)
+    as a narrow single-stage worker, forcing manager_mode to False for them
+    regardless of Group Config and hiding most stages/tags from someone
+    who'd actually been set up as a manager. is_narrowly_scoped_to still
+    falls back to the old permissive default for a role with ZERO matrix
+    configuration anywhere — that unconfigured-role-defaults-to-narrow
+    convention is intentional (see tests/test_cosmetic_page_sidebar_link.py)
+    and unaffected by this fix."""
     if role_val in _COSMETIC_HUB_ROLES:
         return False
-    return any(has_perm(role_val, module, "enable") for _, _, module in FLOW_STAGE_COLUMNS)
+    return is_narrowly_scoped_to(role_val, *(module for _, _, module in FLOW_STAGE_COLUMNS))
 
 
 async def _move_assignee_pool(db: AsyncSession, current_user: User) -> list:

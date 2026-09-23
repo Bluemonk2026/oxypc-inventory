@@ -219,6 +219,40 @@ def has_perm(role_name: str, module: str, action: str = "enable") -> bool:
     return bool(mod_perms.get("enable", True))
 
 
+def is_narrowly_scoped_to(role_name: str, *modules: str) -> bool:
+    """True if role_name was deliberately scoped down to (at least one of)
+    `modules` — used to tell a genuine narrow-purpose custom role (e.g. a
+    "Cosmetic Painting" role explicitly given only that one stage) apart
+    from a broad role that simply never had these particular checkboxes
+    touched (e.g. "trc_manager", explicitly configured across ~100 OTHER
+    modules but never these).
+
+    Three cases, in order:
+    1. An explicit ENABLE row exists for at least one of `modules` — the
+       clearest positive signal: someone deliberately turned this on.
+    2. The role has ANY matrix configuration at all (rows for other
+       modules), just none of these — a broadly-configured role that
+       happens not to cover `modules`. Not narrow.
+    3. The role has ZERO matrix configuration anywhere (freshly created,
+       nothing ever set) — falls back to has_perm's permissive default
+       (unconfigured module → enabled), matching this app's long-standing
+       "an unconfigured role defaults to narrow/restricted on cosmetic
+       stage pages" convention. Only reached when case 2 doesn't apply.
+
+    Found 2026-09-24: cosmetic.py's _is_cosmetic_stage_role originally used
+    has_perm() alone for the whole check, which is case 3's rule applied
+    unconditionally — correct for a truly unconfigured role, wrong for one
+    like trc_manager that IS configured, just not on these modules. That
+    misread a broad, deliberately-configured manager role as a narrow
+    single-stage worker and hid most of the Cosmetic pipeline from them.
+    """
+    if any(has_explicit_perm(role_name, m) for m in modules):
+        return True
+    if get_cached_perms(role_name):
+        return False
+    return any(has_perm(role_name, m, "enable") for m in modules)
+
+
 def has_explicit_perm(role_name: str, module: str) -> bool:
     """True only when the matrix holds an explicit row ENABLING `module` for
     `role_name`.

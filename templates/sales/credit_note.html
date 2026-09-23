@@ -73,13 +73,24 @@
 </form>
 
 <div class="card border-0 shadow-sm">
-  <div class="card-header bg-transparent fw-semibold"><i class="bi bi-receipt-cutoff me-2"></i>Credit Note</div>
+  <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-receipt-cutoff me-2"></i>Credit Note</span>
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+      <button type="button" id="cnBulkVerifyBtn" class="btn btn-sm btn-outline-primary" disabled>
+        <i class="bi bi-check2-circle me-1"></i>Verify (<span id="cnVerifySelCount">0</span>)
+      </button>
+      <button type="button" id="cnBulkDeleteBtn" class="btn btn-sm btn-outline-danger" disabled>
+        <i class="bi bi-trash me-1"></i>Delete (<span id="cnDeleteSelCount">0</span>)
+      </button>
+    </div>
+  </div>
   <div class="card-body p-0">
     <div class="table-responsive">
       <table class="table table-hover mb-0 small align-middle">
         <thead class="table-dark">
           <tr>
-            <th class="ps-3">Tag Number</th><th>Tag Return Status</th><th>Lot Number</th>
+            <th class="ps-3"><input type="checkbox" id="cnSelectAll" class="form-check-input"></th>
+            <th>Tag Number</th><th>Tag Return Status</th><th>Lot Number</th>
             <th>Sub-Lot Number</th><th>Device Price</th><th>Sale Date</th>
             <th>Debit Amount</th><th>Debit Number</th><th>Sale ID</th>
             <th>Payment Invoice</th><th>Sender</th><th>Status</th><th>Action</th>
@@ -89,7 +100,8 @@
           {% for row in credit_note_rows %}
           {% set d = row.device %}{% set ret = row.ret %}
           <tr>
-            <td class="ps-3"><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
+            <td class="ps-3"><input type="checkbox" class="form-check-input cn-row-chk" value="{{ row.return_id }}"></td>
+            <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
             <td>{{ d.tag_return_status or '—' }}</td>
             <td><span class="badge bg-info text-dark">{{ row.lot_number or '—' }}</span></td>
             <td>{{ d.sub_lot_number or '—' }}</td>
@@ -112,27 +124,45 @@
             </td>
             <td><span class="badge bg-secondary">{{ ret.cn_stage }}</span></td>
             <td class="text-nowrap">
-              {% if row.next_stage %}
-              <form method="post" action="/credit-note/{{ row.return_id }}/advance" class="d-flex gap-1">
-                <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-                {% if row.next_stage == 'Payment Invoice Done' %}
-                <input type="text" name="payment_invoice" class="form-control form-control-sm" style="width:120px" placeholder="Invoice #" required>
+              <div class="d-flex gap-1">
+                {% if row.next_stage %}
+                <form method="post" action="/credit-note/{{ row.return_id }}/advance" class="d-flex gap-1">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                  {% if row.next_stage == 'Payment Invoice Done' %}
+                  <input type="text" name="payment_invoice" class="form-control form-control-sm" style="width:120px" placeholder="Invoice #" required>
+                  {% endif %}
+                  <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2">{{ row.action_label }}</button>
+                </form>
+                {% else %}
+                <span class="text-muted">—</span>
                 {% endif %}
-                <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2">{{ row.action_label }}</button>
-              </form>
-              {% else %}
-              <span class="text-muted">—</span>
-              {% endif %}
+                <form method="post" action="/credit-note/{{ row.return_id }}/delete" class="cn-delete-form">
+                  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+                  <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2" title="Permanently delete this return record">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </div>
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="13" class="text-center text-muted py-4">No Credit Note records yet.</td></tr>
+          <tr><td colspan="14" class="text-center text-muted py-4">No Credit Note records yet.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
   </div>
 </div>
+
+<!-- Bulk Verify / Bulk Delete hidden forms — populated with the checked
+     rows' return_id right before submit, same pattern as other bulk
+     actions in this app (e.g. Manage Lots' bulk Move to Ready for Sale). -->
+<form method="post" action="/credit-note/bulk-verify" id="cnBulkVerifyForm" style="display:none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+</form>
+<form method="post" action="/credit-note/bulk-delete" id="cnBulkDeleteForm" style="display:none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+</form>
 
 <!-- Sender Details modal — opened from the "Contact" badge -->
 <div class="modal fade" id="senderDetailsModal" tabindex="-1" aria-hidden="true">
@@ -165,5 +195,68 @@ document.querySelectorAll('.sender-badge-btn').forEach(function(btn){
     new bootstrap.Modal(document.getElementById('senderDetailsModal')).show();
   });
 });
+
+// ── Row selection + Bulk Verify / Bulk Delete ──
+(function(){
+  var selectAll = document.getElementById('cnSelectAll');
+  var verifyBtn = document.getElementById('cnBulkVerifyBtn');
+  var deleteBtn = document.getElementById('cnBulkDeleteBtn');
+  var verifyCount = document.getElementById('cnVerifySelCount');
+  var deleteCount = document.getElementById('cnDeleteSelCount');
+  if (!selectAll) return;
+
+  function selectedIds(){
+    return Array.from(document.querySelectorAll('.cn-row-chk:checked')).map(function(c){ return c.value; });
+  }
+  function updateSel(){
+    var n = selectedIds().length;
+    verifyCount.textContent = n;
+    deleteCount.textContent = n;
+    verifyBtn.disabled = n === 0;
+    deleteBtn.disabled = n === 0;
+    var all = document.querySelectorAll('.cn-row-chk');
+    selectAll.checked = all.length > 0 && n === all.length;
+  }
+  function fillHiddenIds(form, ids){
+    form.querySelectorAll('input[name="return_id"]').forEach(function(i){ i.remove(); });
+    ids.forEach(function(id){
+      var inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = 'return_id'; inp.value = id;
+      form.appendChild(inp);
+    });
+  }
+
+  selectAll.addEventListener('change', function(){
+    document.querySelectorAll('.cn-row-chk').forEach(function(c){ c.checked = selectAll.checked; });
+    updateSel();
+  });
+  document.querySelectorAll('.cn-row-chk').forEach(function(c){
+    c.addEventListener('change', updateSel);
+  });
+
+  verifyBtn.addEventListener('click', function(){
+    var ids = selectedIds();
+    if (!ids.length) return;
+    if (!confirm('Verify ' + ids.length + ' selected row(s)? Each moves from its own current stage to the next. Rows needing a Debit Note Number or Payment Invoice will be skipped.')) return;
+    fillHiddenIds(document.getElementById('cnBulkVerifyForm'), ids);
+    document.getElementById('cnBulkVerifyForm').submit();
+  });
+
+  deleteBtn.addEventListener('click', function(){
+    var ids = selectedIds();
+    if (!ids.length) return;
+    if (!confirm('Permanently delete ' + ids.length + ' selected return record(s)? This cannot be undone.')) return;
+    fillHiddenIds(document.getElementById('cnBulkDeleteForm'), ids);
+    document.getElementById('cnBulkDeleteForm').submit();
+  });
+
+  document.querySelectorAll('.cn-delete-form').forEach(function(form){
+    form.addEventListener('submit', function(e){
+      if (!confirm('Permanently delete this return record? This cannot be undone.')) e.preventDefault();
+    });
+  });
+
+  updateSel();
+})();
 </script>
 {% endblock %}

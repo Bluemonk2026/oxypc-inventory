@@ -1519,9 +1519,13 @@ async def process_return(
         serial_captured=barcode or None,
         warranty_status=warranty_status,
         complaint_text=complaint_text or None,
-        # Every Internal Tag return enters the Credit Note workflow here,
-        # regardless of eventual outcome — see CN_STAGES on models/sales.py.
-        cn_stage=CN_STAGES[0],
+        # cn_stage intentionally left unset here — an Internal Tags return
+        # does NOT enter the Credit Note pipeline on its own (changed
+        # 2026-09-23; it used to, unconditionally, which put every plain
+        # repair/replace return on the Credit Note page whether or not a
+        # credit note was ever intended for it). Only submitting the Return
+        # New page's own Credit Note tab (process_credit_note below) stamps
+        # cn_stage — see that function's docstring.
     )
     db.add(ret)
 
@@ -1531,6 +1535,30 @@ async def process_return(
     # return_status above — not gated on manager approval. Replace Now wins
     # over the generic "sent for repair" status when both could apply.
     device.tag_return_status = f"Replaced by {replace_tag.strip()}" if do_replace else "Return for Repair"
+
+    # Device stage: move to Stock In immediately at submission (2026-09-24) —
+    # not gated on manager approval like reentered_stage above. A returned
+    # tag physically comes back into the warehouse the moment it's logged
+    # here, so it showing as still "Sold" on Inventory Manager's Return
+    # Stock table (device.current_stage untouched until approve_return)
+    # misrepresented where the tag actually is. Approval still moves it
+    # further, into IQC or Scrapped (reentered_stage, approve_return above) —
+    # this only fixes the immediate landing stage, not the approval gate.
+    prev_stage = device.current_stage
+    prev_mv = (await db.execute(
+        select(StageMovement)
+        .where(StageMovement.device_id == device.id,
+               StageMovement.to_stage  == prev_stage,
+               StageMovement.exited_at == None)
+        .order_by(StageMovement.moved_at.desc())
+    )).scalars().first()
+    if prev_mv:
+        prev_mv.exited_at = app_now()
+    device.current_stage = DeviceStage.stock_in
+    device.updated_at = app_now()
+    db.add(StageMovement(device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.stock_in,
+                         moved_by=current_user.username,
+                         notes="Internal Tag return submitted — back in Stock In pending approval"))
 
     await audit(db, user=current_user, action="RETURN_SUBMITTED",
                 table_name="returns", record_id=str(device.id),
@@ -1697,9 +1725,12 @@ async def process_external_return(
 async def credit_note_lookup(barcode: str, db: AsyncSession = Depends(get_db),
                              current_user: User = Depends(allowed)):
     """Credit Note tab's multi-tag search/add — validates a scanned Tag
-    Number is actually in the Credit Note pipeline (has a Return row with
-    cn_stage set, i.e. came through an Internal Tag return) before letting
-    it be added to the selection list."""
+    Number has an existing Return row (i.e. came through an Internal Tag
+    return at some point) before letting it be added to the selection list.
+    Not gated on cn_stage already being set (changed 2026-09-23) — entering
+    the Credit Note pipeline is now this tab's own job, done on submit
+    (process_credit_note below), not something Internal Tags does on its
+    own."""
     from fastapi.responses import JSONResponse
     bc = (barcode or "").strip()
     if not bc:
@@ -1710,15 +1741,15 @@ async def credit_note_lookup(barcode: str, db: AsyncSession = Depends(get_db),
     if not device:
         return JSONResponse({"found": False, "error": f"Device {bc} not found"})
     ret = (await db.execute(
-        select(Return).where(Return.device_id == device.id, Return.cn_stage.isnot(None))
+        select(Return).where(Return.device_id == device.id)
         .order_by(Return.return_date.desc()).limit(1)
     )).scalars().first()
     if not ret:
-        return JSONResponse({"found": False, "error": f"{bc} has no Credit Note record (not returned via Internal Tags)"})
+        return JSONResponse({"found": False, "error": f"{bc} has no return on file (not returned via Internal Tags)"})
     return JSONResponse({
         "found": True, "barcode": device.barcode,
         "model": f"{device.brand or ''} {device.model or ''}".strip() or "—",
-        "cn_stage": ret.cn_stage,
+        "cn_stage": ret.cn_stage or "Not yet in Credit Note pipeline",
     })
 
 
@@ -1735,13 +1766,21 @@ async def process_credit_note(
     current_user: User = Depends(allowed),
     _perm: User = Depends(require_module_perm("returns", "add")),
 ):
-    """Return New page's "Credit Note" tab — bulk-stamps Debit Note Number/
-    Amount and Sender Details onto every selected tag's existing Credit Note
-    record (created when the tag was first returned via Internal Tags — see
-    process_return). Data-only: does NOT advance cn_stage itself (that's the
-    Credit Note page's own Action column, one stage at a time — see
-    credit_note_advance) and never touches Device.tag_return_status (still
-    driven by the Internal Tag return itself)."""
+    """Return New page's "Credit Note" tab — the ONLY place a Return row
+    enters the Credit Note pipeline (changed 2026-09-23; Internal Tags used
+    to do this unconditionally on every return — see process_return's
+    comment). Bulk-stamps Debit Note Number/Amount and Sender Details onto
+    every selected tag's existing Return record (created when the tag was
+    first returned via Internal Tags) and sets cn_stage to the pipeline's
+    first stage if it isn't already in it — `or` rather than an
+    unconditional overwrite, so re-submitting this form for a tag already
+    further along (e.g. at "Verify Payment") never regresses it back to
+    "Return Received". Advancing PAST the first stage is still only the
+    Credit Note page's own Action column, one stage at a time (see
+    credit_note_advance). Also stamps Device.tag_return_status to
+    "Return for Credit Note" (2026-09-24) — the one place that value comes
+    from, distinct from Internal Tags' own "Return for Repair" / "Replaced
+    by <tag>" (process_return above)."""
     codes = [b.strip() for b in barcode if b and b.strip()]
     dn = debit_note_number.strip()
     if not codes or not dn:
@@ -1760,16 +1799,18 @@ async def process_credit_note(
     updated = 0
     for device in devices:
         ret = (await db.execute(
-            select(Return).where(Return.device_id == device.id, Return.cn_stage.isnot(None))
+            select(Return).where(Return.device_id == device.id)
             .order_by(Return.return_date.desc()).limit(1)
         )).scalars().first()
         if not ret:
             continue
+        ret.cn_stage = ret.cn_stage or CN_STAGES[0]
         ret.debit_note_number = dn
         ret.debit_note_amount = amount
         ret.customer_name = sender_name.strip() or None
         ret.customer_phone = sender_phone.strip() or None
         ret.customer_email = sender_email.strip() or None
+        device.tag_return_status = "Return for Credit Note"
         updated += 1
 
     await audit(db, user=current_user, action="CREDIT_NOTE_DEBIT_NOTE_SET",

@@ -245,8 +245,9 @@
       <div class="card-body">
         {% if error and active_tab == 'credit' %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
         {% if success and active_tab == 'credit' %}<div class="alert alert-success">{{ success }}</div>{% endif %}
-        <p class="text-muted small mb-3">Search Tag Numbers already in the Credit Note pipeline (returned via
-          Internal Tags) and add as many as needed — the Debit Note Number/Amount below apply to all of them.</p>
+        <p class="text-muted small mb-3">Search any previously returned Tag Number (returned via Internal Tags)
+          and add as many as needed — submitting this form is what adds them to the Credit Note pipeline; the
+          Debit Note Number/Amount below apply to all of them.</p>
         <form action="/returns/new/credit-note" method="post" id="creditNoteForm">
           <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
           <div id="cnBarcodeHiddenInputs"></div>

@@ -181,7 +181,12 @@
           {% set d = row.device %}{% set ret = row.ret %}
           <tr data-rs-search="{{ (d.barcode or '') ~ ' ' ~ (d.model or '') }}">
             <td><input type="checkbox" class="rs-row-check" value="{{ d.barcode }}"></td>
-            <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none"><code>{{ d.barcode }}</code></a></td>
+            <td>
+              <a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none"><code>{{ d.barcode }}</code></a>
+              {% if d.tag_return_status and d.tag_return_status.startswith('Replaced by ') %}
+              <div class="mt-1"><span class="badge bg-info text-dark">{{ d.tag_return_status }}</span></div>
+              {% endif %}
+            </td>
             <td>{{ d.model or '—' }}</td>
             <td>{{ d.cpu or '—' }}</td>
             <td>{{ (d.ram_gb ~ ' GB') if d.ram_gb else '—' }}</td>

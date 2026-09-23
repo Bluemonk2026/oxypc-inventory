@@ -177,11 +177,12 @@ class Device(Base):
     replaced = Column(String(120), nullable=True)      # "Replaced by <tag>" / "Replaced from <tag>" (L3 device swap)
     replace_with_barcode = Column(String(100), nullable=True)  # Scrap Products "Replace" modal — selected replacement tag (Replacement Scrap flow)
     # ── Return New page / Change Floor / GRN Post-IQC "As-Is Lot" (2026-09-22) ──
-    # Free text: "Replaced by <tag>" / "CN <cn number>" / "Return for Repair" —
-    # set by the Internal Tag tab (process_return) and the Credit Note tab
-    # (process_credit_note) of /returns/new. Drives the Inventory Manager /
-    # Production Manager "Credit Note" table and the Production Manager
-    # "Tags Returned" tile.
+    # Free text, exactly one of: "Return for Repair" / "Replaced by <tag>" —
+    # set by the Internal Tag tab (process_return) — or "Return for Credit
+    # Note" — set by the Credit Note tab (process_credit_note), the only
+    # place that value comes from (2026-09-24). Drives the Inventory
+    # Manager / Production Manager "Credit Note" table and the Production
+    # Manager "Tags Returned" tile.
     tag_return_status = Column(String(120), nullable=True)
     # Set by Change Floor's "As-Is Lot" transfer (New Sub-Lot radio) or GRN
     # Post-IQC's "Yes As-Is" modal — both bulk-write this across every Tag

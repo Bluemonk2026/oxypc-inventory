@@ -144,6 +144,48 @@ async def stage_movement_report(request: Request, db: AsyncSession = Depends(get
     })
 
 
+# ── Orphaned "sold" devices: current_stage=sold but no Sale row exists.
+# Legacy data from before 2026-09-21 (see models/device.py DROPDOWN_STAGES
+# comment) — a bulk "Move to Stage" action (IQC/Devices Customise modal)
+# could push a device straight to `sold` without going through the real
+# Sale-creation flow, leaving it with no Sale row ever created. That fix only
+# stops new orphans; the ones already stuck at current_stage=sold were
+# otherwise invisible on both the Sales Report page and its CSV export
+# forever. Shared by both below so they never drift apart (export showing
+# rows the page doesn't, or vice versa). Dated by the StageMovement that
+# actually moved the device to `sold` (Sale.sold_at doesn't exist for these),
+# or included regardless of the date filter if even that movement record is
+# missing. Shaped like the Sale-joined dict rows below so both callers can
+# treat every row the same way from here on.
+async def _sold_orphan_rows(db: AsyncSession, from_dt: datetime | None = None, to_dt: datetime | None = None) -> list[dict]:
+    sold_moved_at = {
+        r.device_id: r.moved_at
+        for r in (await db.execute(
+            select(StageMovement.device_id, func.max(StageMovement.moved_at).label("moved_at"))
+            .where(StageMovement.to_stage == DeviceStage.sold)
+            .group_by(StageMovement.device_id)
+        )).all()
+    }
+    orphan_result = await db.execute(
+        select(Device.id, Device.barcode, Device.brand, Device.model, Device.grade, Lot.lot_number)
+        .outerjoin(Lot, Device.lot_id == Lot.id)
+        .where(Device.current_stage == DeviceStage.sold,
+               ~Device.id.in_(select(Sale.device_id)))
+    )
+    rows = []
+    for device_id, barcode, brand, model, grade, lot_number in orphan_result.all():
+        moved_at = sold_moved_at.get(device_id)
+        if moved_at is not None and from_dt is not None and not (from_dt <= moved_at <= to_dt):
+            continue
+        rows.append({
+            "sale_number": None, "sold_at": moved_at, "barcode": barcode,
+            "brand": brand, "model": model, "lot_number": lot_number, "grade": grade,
+            "sale_price": None, "customer_name": None, "customer_phone": None,
+            "payment_mode": None, "sold_by": None, "has_sale": False,
+        })
+    return rows
+
+
 @router.get("/sales", response_class=HTMLResponse)
 async def sales_report(request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     # Default: last 90 days; override with ?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD
@@ -168,10 +210,20 @@ async def sales_report(request: Request, db: AsyncSession = Depends(get_db), cur
         .where(Sale.sold_at >= from_dt, Sale.sold_at <= to_dt)
         .order_by(Sale.sold_at.desc())
     )
-    sales = result.all()
-    total = sum(float(s.Sale.sale_price or 0) for s in sales)
+    rows = [{
+        "sale_number": s.Sale.sale_number, "sold_at": s.Sale.sold_at, "barcode": s.barcode,
+        "brand": s.brand, "model": s.model, "lot_number": s.lot_number, "grade": s.grade,
+        "sale_price": s.Sale.sale_price, "customer_name": s.Sale.customer_name,
+        "customer_phone": s.Sale.customer_phone,
+        "payment_mode": s.Sale.payment_mode, "sold_by": s.Sale.sold_by, "has_sale": True,
+    } for s in result.all()]
+    total = sum(float(r["sale_price"] or 0) for r in rows)
+
+    rows.extend(await _sold_orphan_rows(db, from_dt, to_dt))
+    rows.sort(key=lambda r: r["sold_at"] or datetime.min, reverse=True)
+
     return templates.TemplateResponse("reports/sales_report.html", {
-        "request": request, "sales": sales, "total": total, "current_user": current_user,
+        "request": request, "sales": rows, "total": total, "current_user": current_user,
         "from_date": from_date_str, "to_date": to_date_str,
     })
 
@@ -224,6 +276,10 @@ async def export_lot_pl(db: AsyncSession = Depends(get_db), current_user: User =
 
 @router.get("/export/sales")
 async def export_sales(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    # Capped at the SQL level, same as before — the orphan set added below is
+    # always small in practice (legacy stragglers, not an ongoing stream), so
+    # bounding just the real-Sale query here is enough to keep this endpoint
+    # from ever pulling an unbounded result set into memory.
     result = await db.execute(
         select(Sale, Device.barcode, Device.brand, Device.model, Lot.lot_number)
         .join(Device, Sale.device_id == Device.id)
@@ -231,16 +287,34 @@ async def export_sales(db: AsyncSession = Depends(get_db), current_user: User = 
         .order_by(Sale.sold_at.desc())
         .limit(MAX_EXPORT_ROWS)
     )
-    sales = result.all()
+    rows = [{
+        "sale_number": s.Sale.sale_number, "sold_at": s.Sale.sold_at, "barcode": s.barcode,
+        "brand": s.brand, "model": s.model, "lot_number": s.lot_number,
+        "sale_price": s.Sale.sale_price, "customer_name": s.Sale.customer_name,
+        "customer_phone": s.Sale.customer_phone, "payment_mode": s.Sale.payment_mode,
+        "sold_by": s.Sale.sold_by,
+    } for s in result.all()]
+
+    # Same "sold with no Sale row" devices the Sales Report page shows (see
+    # _sold_orphan_rows above) — no date filter here, matching this export's
+    # own existing all-time scope, so the CSV isn't a subset of the page.
+    rows.extend(await _sold_orphan_rows(db))
+    rows.sort(key=lambda r: r["sold_at"] or datetime.min, reverse=True)
+    truncated = len(rows) > MAX_EXPORT_ROWS
+    rows = rows[:MAX_EXPORT_ROWS]
+
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["Sale#", "Date", "Barcode", "Brand", "Model", "Lot", "Price", "Customer", "Phone", "Payment", "Sold By"])
-    for row in sales:
-        s = row.Sale
-        writer.writerow([s.sale_number, s.sold_at.strftime("%d-%m-%Y"), row.barcode,
-                         row.brand, row.model, row.lot_number, float(s.sale_price or 0),
-                         s.customer_name, s.customer_phone, s.payment_mode, s.sold_by])
-    if len(sales) == MAX_EXPORT_ROWS:
+    for r in rows:
+        writer.writerow([
+            r["sale_number"] or "NO SALE RECORD",
+            r["sold_at"].strftime("%d-%m-%Y") if r["sold_at"] else "",
+            r["barcode"], r["brand"], r["model"], r["lot_number"],
+            float(r["sale_price"]) if r["sale_price"] is not None else "",
+            r["customer_name"] or "", r["customer_phone"] or "", r["payment_mode"] or "", r["sold_by"] or "",
+        ])
+    if truncated:
         writer.writerow(["# TRUNCATED", f"Export capped at {MAX_EXPORT_ROWS} rows", "", "", "", "", "", "", "", "", ""])
     output.seek(0)
     return StreamingResponse(io.BytesIO(output.getvalue().encode()), media_type="text/csv",

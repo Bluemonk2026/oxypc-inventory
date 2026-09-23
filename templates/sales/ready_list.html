@@ -119,8 +119,6 @@
           <td class="d-none">{{ r.ram }}</td>
           <td class="d-none">{{ r.storage }}</td>
         </tr>
-        {% else %}
-        <tr><td colspan="12" class="text-center text-muted small py-3">No As-Is Lot tags currently Ready to Sale.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -328,7 +326,7 @@
       <div class="modal-body">
         <label class="form-label fw-semibold">Tag Numbers CSV</label>
         <input type="file" id="bulkTagFile" class="form-control" accept=".csv">
-        <div class="form-text small">One column with header <code>tag_number</code> (or <code>barcode</code>), one tag per row.</div>
+        <div class="form-text small">One column with header <code>tag_number</code>, <code>barcode</code>, <code>Tag No</code>, or <code>Tag Number</code>, one tag per row.</div>
         <div id="bulkTagStatus" class="small mt-2"></div>
       </div>
       <div class="modal-footer">
@@ -466,6 +464,7 @@ document.getElementById('multiRequestBtn').addEventListener('click', function(){
 // the table only ever shows one row per (Lot, Sub-Lot). ───────────────────
 var dtAsIsLot = initGlobalTable('#asIsLotTable', {
   order: [[0, 'asc']],
+  language: { emptyTable: "No As-Is Lot tags currently Ready to Sale." },
   columnDefs: [
     { orderable: false, targets: [7] },
     { visible: false, targets: [8, 9, 10, 11] },

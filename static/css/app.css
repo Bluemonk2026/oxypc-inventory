@@ -347,6 +347,32 @@ fieldset:disabled .btn {
   word-break: break-word;
 }
 
+/* Global Table "no data" state — every initGlobalTable table renders this
+   (language.emptyTable, set in global-table.js) instead of a page ever
+   hand-authoring its own placeholder <tr>. That hand-authored-row pattern is
+   what caused the DataTables "Incorrect column count" crash on the Ready to
+   Sale As-Is Lot table (2026-09-23): columnDefs indexing into a single
+   <td colspan> row as if it were real data. DataTables' own emptyTable
+   rendering has no such risk — it's inserted after init, never parsed by
+   columnDefs — so every table gets it by default now. */
+.gtable-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.5rem 1rem;
+  text-align: center;
+  color: var(--bs-secondary-color, #6c757d);
+}
+.gtable-empty-img {
+  max-height: 200px;
+  max-width: 100%;
+  object-fit: contain;
+}
+.gtable-empty-text {
+  font-size: 0.875rem;
+}
+
 /* Freeze the first column while the table scrolls horizontally. DataTables'
    scrollX splits the header into a cloned table (.dataTables_scrollHead) kept
    in sync with the body table (.dataTables_scrollBody) — both live under the

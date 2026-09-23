@@ -429,13 +429,19 @@ async def upload_ready_tags(
     text_data = decode_csv_bytes(content)
     reader = csv.DictReader(io.StringIO(text_data))
 
-    # Accept `tag_number` or `barcode`, any casing — read by header name so a
-    # user's extra columns can't shift the one we want out from under us.
+    # Accept `tag_number`/`barcode`, any casing, plus the same "Tag No" /
+    # "Tag Number" aliases the IQC bulk upload already accepts
+    # (routers/bulk_upload.py _TAG_HEADER_ALIASES) — this app's own CSV
+    # exports elsewhere (Transfers, WorkID Status) use "Tag Number" as the
+    # header, and re-uploading one of those here used to fail with "CSV must
+    # have a 'tag_number' column header" even though the column was right
+    # there, just spelled with a space instead of an underscore.
     field_map = {(f or "").strip().lower(): f for f in (reader.fieldnames or [])}
-    key = field_map.get("tag_number") or field_map.get("barcode")
+    key = (field_map.get("tag_number") or field_map.get("barcode")
+           or field_map.get("tag number") or field_map.get("tag no"))
     if not key:
         return JSONResponse(
-            {"error": "CSV must have a 'tag_number' (or 'barcode') column header"},
+            {"error": "CSV must have a 'tag_number' (or 'barcode'/'Tag No'/'Tag Number') column header"},
             status_code=400,
         )
 

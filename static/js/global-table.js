@@ -221,11 +221,79 @@ $.fn.dataTable.ext.pager.gtable_numbers = function (page, pages) {
   return ['previous', nums, 'next'];
 };
 
+// Default "no data" illustration — inline SVG (no static asset to go
+// missing, no extra HTTP request) at max-height:200px. Used automatically by
+// every initGlobalTable table's empty state (see GTABLE_EMPTY_HTML below),
+// so no page has to hand-author its own "no rows" placeholder <tr> ever
+// again. A hand-authored placeholder row is exactly what caused the
+// "DataTables warning: table id=... - Incorrect column count" class of bug
+// (found 2026-09-23 on Ready to Sale's As-Is Lot table): a single <td
+// colspan> row sitting in the table's initial HTML looks fine to the eye,
+// but DataTables' own columnDefs (targets: [7], [8,9,10,11], ...) index into
+// it as if it were a full data row and crash the moment the table actually
+// has zero rows. DataTables' *own* built-in empty-table rendering (this
+// file's language.emptyTable, inserted after init, never part of the
+// columnDefs-indexed initial parse) has no such failure mode — so the fix
+// isn't just this one table, it's never hand-authoring that row again.
+// An empty, open crate (nothing to show) + a magnifying glass looking it
+// over, with a couple of floating sparkles for a little life — same spirit
+// as a typical "no results" illustration, built as flat shapes so it stays
+// legible at 200px and themes cleanly (every fill/stroke is a CSS var with a
+// light-mode-safe fallback, so it doesn't go invisible in dark mode).
+var GTABLE_EMPTY_SVG =
+  '<svg viewBox="0 0 200 160" width="180" height="144" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+    '<ellipse cx="100" cy="122" rx="72" ry="14" fill="var(--bs-tertiary-bg, #f1f3f5)"/>' +
+    // Sparkles
+    '<path d="M36 34 L39 42 L47 45 L39 48 L36 56 L33 48 L25 45 L33 42 Z" fill="var(--bs-warning, #ffc107)" opacity="0.8"/>' +
+    '<path d="M164 78 L166 84 L172 86 L166 88 L164 94 L162 88 L156 86 L162 84 Z" fill="var(--bs-warning, #ffc107)" opacity="0.6"/>' +
+    '<circle cx="150" cy="36" r="4" fill="var(--bs-primary, #0d6efd)" opacity="0.35"/>' +
+    // Open crate: back rim, then left/right faces for a simple 3D look
+    '<path d="M58 66 L100 50 L142 66 L100 82 Z" fill="var(--bs-tertiary-bg, #e9ecef)" stroke="var(--bs-border-color, #ced4da)" stroke-width="2" stroke-linejoin="round"/>' +
+    '<path d="M58 66 L58 106 L100 122 L100 82 Z" fill="var(--bs-secondary-bg, #e9ecef)" stroke="var(--bs-border-color, #ced4da)" stroke-width="2" stroke-linejoin="round"/>' +
+    '<path d="M142 66 L142 106 L100 122 L100 82 Z" fill="var(--bs-body-bg, #f8f9fa)" stroke="var(--bs-border-color, #ced4da)" stroke-width="2" stroke-linejoin="round"/>' +
+    '<path d="M70 84 L92 92 M70 94 L92 102" stroke="var(--bs-border-color, #ced4da)" stroke-width="2" stroke-linecap="round" opacity="0.6"/>' +
+    // Magnifying glass, tilted over the crate's open top
+    '<circle cx="132" cy="46" r="19" fill="var(--bs-body-bg, #fff)" stroke="var(--bs-secondary-color, #6c757d)" stroke-width="5"/>' +
+    '<line x1="145" y1="59" x2="160" y2="74" stroke="var(--bs-secondary-color, #6c757d)" stroke-width="6" stroke-linecap="round"/>' +
+  '</svg>';
+
+function _gtableEmptyHtml(imageUrl, captionText) {
+  var img = imageUrl
+    ? '<img src="' + imageUrl + '" alt="" class="gtable-empty-img">'
+    : '<span class="gtable-empty-img d-inline-block">' + GTABLE_EMPTY_SVG + '</span>';
+  var caption = captionText || 'No matching records found.';
+  return '<div class="gtable-empty">' + img +
+         '<div class="gtable-empty-text">' + caption + '</div></div>';
+}
+
 function initGlobalTable(tableSelector, dtOptions, opts) {
   opts = opts || {};
   dtOptions = dtOptions || {};
   var $table = $(tableSelector);
   $table.addClass('gtable');
+
+  // Caller may still pass language.emptyTable (plain text, e.g. "No L3/L4
+  // work orders assigned.") — captured before the deep-merge below so it
+  // becomes the caption under the shared image instead of replacing it.
+  // opts.emptyImage overrides the default SVG with a page-specific image
+  // (e.g. a branded "no results" illustration); still capped at 200px via
+  // .gtable-empty-img in app.css regardless of the image's native size.
+  //
+  // Two distinct DataTables language keys need this treatment, not just one:
+  // emptyTable fires when the table's underlying data source has zero rows
+  // (what the As-Is Lot table bug was about); zeroRecords fires separately
+  // when a search/filter narrows an otherwise non-empty table down to zero
+  // matches — DataTables never falls back from one to the other, so leaving
+  // zeroRecords unset meant every "search filtered to zero rows" case fell
+  // straight through to DataTables' own plain-text default and never showed
+  // the illustration at all. Both are wired to the same image; only the
+  // caption text differs, and zeroRecords keeps DataTables' own familiar
+  // wording as the default so a filtered-to-zero result doesn't read as if
+  // the table has no data at all.
+  var emptyTableCaption = (dtOptions.language && dtOptions.language.emptyTable) || null;
+  var zeroRecordsCaption = (dtOptions.language && dtOptions.language.zeroRecords) || 'No matching records found.';
+  var emptyTableHtml = _gtableEmptyHtml(opts.emptyImage, emptyTableCaption);
+  var zeroRecordsHtml = _gtableEmptyHtml(opts.emptyImage, zeroRecordsCaption);
 
   var clampLength = opts.clampLength || 32;
   var columnDefs = (dtOptions.columnDefs || []).slice();
@@ -276,6 +344,8 @@ function initGlobalTable(tableSelector, dtOptions, opts) {
 
   var merged = $.extend(true, {}, base, dtOptions);
   merged.columnDefs = columnDefs; // set post-merge — array-of-objects deep-extend would merge by index, not append
+  merged.language.emptyTable = emptyTableHtml; // set post-merge — always the image+caption wrapper, never a caller's bare string
+  merged.language.zeroRecords = zeroRecordsHtml; // same wrapper for the "search filtered to zero" case — see note above
 
   var dt = $table.DataTable(merged);
 

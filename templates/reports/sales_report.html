@@ -28,17 +28,17 @@
       <thead class="table-dark"><tr><th>Sale#</th><th>Date</th><th>Tag Number</th><th>Brand/Model</th><th>Lot</th><th>Grade</th><th>Price</th><th>Customer</th><th>Payment</th><th>By</th></tr></thead>
       <tbody>
         {% for row in sales %}
-        <tr>
-          <td class="fw-semibold">{{ row.Sale.sale_number }}</td>
-          <td>{{ row.Sale.sold_at.strftime('%d-%m-%Y') }}</td>
+        <tr{% if not row.has_sale %} class="table-warning" title="Moved to Sold via bulk stage-change — no Sale record exists for this tag"{% endif %}>
+          <td class="fw-semibold">{% if row.has_sale %}{{ row.sale_number }}{% else %}<span class="badge bg-warning text-dark">No Sale Record</span>{% endif %}</td>
+          <td>{{ row.sold_at.strftime('%d-%m-%Y') if row.sold_at else '—' }}</td>
           <td><code>{{ row.barcode }}</code></td>
           <td>{{ row.brand }} {{ row.model }}</td>
-          <td><span class="badge bg-info text-dark">{{ row.lot_number }}</span></td>
+          <td>{% if row.lot_number %}<span class="badge bg-info text-dark">{{ row.lot_number }}</span>{% else %}—{% endif %}</td>
           <td>{{ row.grade or '—' }}</td>
-          <td class="fw-semibold text-success">₹{{ "{:,.0f}".format(row.Sale.sale_price) }}</td>
-          <td>{{ row.Sale.customer_name or '—' }}</td>
-          <td><span class="badge bg-secondary">{{ row.Sale.payment_mode }}</span></td>
-          <td>{{ row.Sale.sold_by }}</td>
+          <td class="fw-semibold text-success">{% if row.sale_price is not none %}₹{{ "{:,.0f}".format(row.sale_price) }}{% else %}—{% endif %}</td>
+          <td>{{ row.customer_name or '—' }}</td>
+          <td>{% if row.payment_mode %}<span class="badge bg-secondary">{{ row.payment_mode }}</span>{% else %}—{% endif %}</td>
+          <td>{{ row.sold_by or '—' }}</td>
         </tr>
         {% endfor %}
       </tbody>

@@ -41,6 +41,7 @@ async def main():
         db.add(dev)
         await db.flush()
         st = StockTransfer(device_id=dev.id, move_kind="device", transfer_type="internal",
+                           source="transfers_new",
                            from_warehouse="A", to_warehouse="B", barcode="{barcode}",
                            product_stage="{snapshot_stage}", transfer_date=app_now())
         db.add(st)

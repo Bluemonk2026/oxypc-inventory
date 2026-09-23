@@ -140,8 +140,19 @@ def _parse_simple_date(s: str):
 
 def _transfers_list_filters(q, transfer_type, transferred_by, location_id, date_from, date_to):
     """Filter clauses shared by the /transfers page and its CSV export, so
-    export can never drift from what the table is showing."""
-    w = []
+    export can never drift from what the table is showing.
+
+    Always scoped to source='transfers_new' (2026-09-24) — this page is
+    meant to be a log of what actually got submitted through /transfers/new,
+    not a general device-movement audit trail. Final QC Fail routing,
+    bucket/engineer assignment, Stock Validate reassignment and Stock In's
+    own bulk transfer all write StockTransfer rows too (for their own audit
+    purposes), but none of them happened on this page, so they're excluded
+    here rather than shown indistinguishably from a real transfer. Rows from
+    before this column existed were backfilled by
+    migrate_stock_transfer_source.py using the same notes/transfer_type
+    patterns those write sites have always used — see that script."""
+    w = [StockTransfer.source == "transfers_new"]
     if q:
         w.append(StockTransfer.barcode.ilike(f"%{q}%"))
     if transfer_type:
@@ -203,7 +214,8 @@ async def list_transfers(
         transfers.append(t)
 
     transferred_by_raw = [r[0] for r in (await db.execute(
-        select(StockTransfer.transferred_by).where(StockTransfer.transferred_by.isnot(None))
+        select(StockTransfer.transferred_by).where(
+            StockTransfer.transferred_by.isnot(None), StockTransfer.source == "transfers_new")
         .distinct().order_by(StockTransfer.transferred_by)
     )).all() if r[0]]
     filter_name_map = await _user_display_name_map(db, transferred_by_raw)
@@ -526,6 +538,7 @@ async def create_transfer(
             move_kind="device",
             to_location_id=loc_uuid,
             transfer_type=transfer_type,
+            source="transfers_new",
             from_warehouse=_from_wh,
             to_warehouse=_to_wh,
             transferred_by=transferred_by or current_user.username,
@@ -664,6 +677,7 @@ async def create_parts_transfer(
         move_kind="parts",
         to_location_id=_resolve_location_uuid(to_location_id),
         transfer_type=transfer_type,
+        source="transfers_new",
         from_warehouse="—",
         to_warehouse="—",
         transferred_by=current_user.username,
@@ -729,6 +743,7 @@ async def _move_devices_bulk(
             lot_id=lot_id,
             to_location_id=loc_uuid,
             transfer_type=transfer_type,
+            source="transfers_new",
             from_warehouse=_from_wh,
             to_warehouse=_from_wh,
             transferred_by=transferred_by or current_user.username,

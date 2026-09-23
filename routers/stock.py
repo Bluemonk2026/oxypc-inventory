@@ -1347,7 +1347,8 @@ async def stock_validate(
     if reassign_department:
         wh = device.warehouse or "Stock In"
         db.add(StockTransfer(**_transfer_snapshot(
-            device, transfer_type="reassign", from_warehouse=wh, to_warehouse=wh,
+            device, transfer_type="reassign", source="stock_reassign",
+            from_warehouse=wh, to_warehouse=wh,
             transferred_by=current_user.username, department=reassign_department,
             notes="Reassigned via Stock Validate", created_by=current_user.username,
         )))
@@ -1377,6 +1378,7 @@ async def stock_bulk_transfer(
     for device in devices:
         db.add(StockTransfer(**_transfer_snapshot(
             device, transfer_type=transfer_type or "transfer_to_trc",
+            source="stock_bulk_transfer",
             from_warehouse=device.warehouse or "Stock In", to_warehouse=device.warehouse or "TRC",
             transferred_by=current_user.username, department=department or None,
             notes="Bulk stock transfer", created_by=current_user.username,

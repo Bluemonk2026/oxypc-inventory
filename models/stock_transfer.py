@@ -57,5 +57,15 @@ class StockTransfer(Base):
     notes = Column(Text, nullable=True)
     created_by = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=app_now)
+    # Which endpoint created this row (2026-09-24 — migrate_stock_transfer_source.py).
+    # "transfer_to_trc" used to be shared by genuine /transfers/new submissions
+    # AND three internal auto-write sites (Final QC Fail routing, bucket/
+    # engineer assignment) with no way to tell them apart, so every Final QC
+    # fail/pass tag an engineer got assigned showed up on /transfers looking
+    # like a real stock transfer. "transfers_new" is the only value the
+    # /transfers page (and its CSV export) shows by default; every other
+    # value stays fully recorded here for audit but off that page. See
+    # routers/transfers.py _transfers_list_filters.
+    source = Column(String(30), nullable=True)
 
     device = relationship("Device", lazy="select")

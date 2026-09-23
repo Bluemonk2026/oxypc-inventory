@@ -75,7 +75,7 @@ async def main():
         db.add(dev)
         await db.flush()
         t = StockTransfer(device_id=dev.id, move_kind="device", to_location_id="{location_id}",
-                          transfer_type="internal", from_warehouse="TRC 1st Floor",
+                          transfer_type="internal", source="transfers_new", from_warehouse="TRC 1st Floor",
                           to_warehouse="TRC 1st Floor", transferred_by="itest_sender",
                           barcode=dev.barcode, make=dev.brand, model=dev.model,
                           lot_number=None, transfer_date=app_now(), created_by="itest_sender")
@@ -354,7 +354,7 @@ async def main():
         db.add(dev)
         await db.flush()
         t = StockTransfer(device_id=dev.id, move_kind="device", to_location_id="{loc_id}",
-                          transfer_type="internal", from_warehouse="TRC 1st Floor",
+                          transfer_type="internal", source="transfers_new", from_warehouse="TRC 1st Floor",
                           to_warehouse="TRC 1st Floor", transferred_by="itest_sender",
                           barcode=dev.barcode, make=dev.brand, model=dev.model,
                           serial_no=dev.serial_no, cpu=dev.cpu, generation=dev.generation,
@@ -542,7 +542,7 @@ async def main():
         db.add(dev)
         await db.flush()
         db.add(StockTransfer(device_id=dev.id, move_kind="device", to_location_id="{loc_id}",
-                             transfer_type="internal", from_warehouse="TRC 1st Floor",
+                             transfer_type="internal", source="transfers_new", from_warehouse="TRC 1st Floor",
                              to_warehouse="TRC 1st Floor",
                              transferred_by="{sender_username}", received_by="{receiver_username}",
                              barcode=dev.barcode, make=dev.brand, model=dev.model,

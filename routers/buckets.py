@@ -627,6 +627,10 @@ async def _apply_department_move(
     transfer = StockTransfer(
         device_id=device.id,
         transfer_type="transfer_to_trc",
+        # Not a /transfers/new submission — see StockTransfer.source's own
+        # comment. Kept as a StockTransfer row for audit continuity, just
+        # excluded from the /transfers page by default.
+        source="department_assignment",
         from_warehouse=_from_wh,
         to_warehouse=_from_wh,
         transferred_by=current_user.username,
@@ -795,6 +799,7 @@ async def assign_device(
     _from_wh = getattr(device, "warehouse", None) or "—"
     transfer = StockTransfer(
         device_id=device.id, transfer_type="transfer_to_trc",
+        source="department_assignment",
         from_warehouse=_from_wh, to_warehouse=_from_wh,
         transferred_by=current_user.username, department=department,
         barcode=device.barcode, serial_no=device.serial_no,
@@ -892,6 +897,7 @@ async def bulk_assign_devices_l1l2(
         _from_wh = getattr(device, "warehouse", None) or "—"
         transfer = StockTransfer(
             device_id=device.id, transfer_type="transfer_to_trc",
+            source="department_assignment",
             from_warehouse=_from_wh, to_warehouse=_from_wh,
             transferred_by=current_user.username, department=department,
             barcode=device.barcode, serial_no=device.serial_no,

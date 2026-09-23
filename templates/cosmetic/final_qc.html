@@ -185,6 +185,17 @@
       </div>
     </div>
     {% endfor %}
+    {# Shown by the Scan/search box below when the typed Tag Number matches no
+       card — otherwise whichever detail pane was last active just stayed
+       visible, which read as "found" even when nothing matched. #}
+    <div class="card border-0 shadow-sm d-none" id="fqcNoSearchMatch">
+      <div class="card-body">
+        <div class="gtable-empty">
+          <span class="gtable-empty-img d-inline-block" id="fqcNoSearchMatchIcon"></span>
+          <div class="gtable-empty-text">No tag matches that search.</div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 {% else %}
@@ -197,17 +208,36 @@
 </ul>
 <div class="tab-content border border-top-0 p-3">
   <div class="tab-pane fade show active" id="fqcPassedTab">
-    <table class="table table-sm table-hover mb-0">
-      <thead><tr><th>Bucket Name</th><th>Bucket ID</th><th>Count of Tag Numbers</th><th>Stage</th><th>Pass Notes</th><th>Action</th></tr></thead>
-      <tbody>
-        {% for row in passed_buckets %}
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+      <input type="text" id="fqcPassedSearch" class="form-control form-control-sm" style="max-width: 280px;"
+             placeholder="Search Tag Number or Bucket Name">
+      <button type="button" class="btn btn-sm btn-success" id="fqcBulkMoveInvBtn" disabled>
+        <i class="bi bi-arrow-right-circle me-1"></i>Bulk Move to Inventory (<span id="fqcBulkMoveInvCount">0</span>)
+      </button>
+    </div>
+    <table class="table table-sm table-hover mb-0" id="fqcPassedTable">
+      <thead>
         <tr>
+          <th style="width:2rem;"><input type="checkbox" id="fqcPassedSelectAll"></th>
+          <th>Tag Number</th>
+          <th>Bucket Name</th>
+          <th>Stage</th>
+          <th>Pass Notes</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in passed_devices %}
+        <tr data-barcode="{{ row.barcode|lower }}" data-bucket="{{ (row.bucket_name or '')|lower }}">
+          <td><input type="checkbox" class="fqc-passed-check" value="{{ row.barcode }}"></td>
+          <td class="font-monospace small">{{ row.barcode }}</td>
           <td>{{ row.bucket_name or '—' }}</td>
-          <td class="font-monospace small">{{ row.bucket_number }}</td>
-          <td>{{ row.count }}</td>
           <td><span class="badge bg-success">Final QC — Pass Hold</span></td>
           <td class="small">{{ row.pass_notes or '—' }}</td>
-          <td><button class="btn btn-sm btn-success fqc-move-inv" data-bucket-id="{{ row.bucket_id }}">Move to Inventory</button></td>
+          <td class="text-nowrap">
+            <button type="button" class="btn btn-sm btn-success fqc-move-one-passed" data-barcode="{{ row.barcode }}">Move to Inventory</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary fqc-edit" data-barcode="{{ row.barcode }}">Edit</button>
+          </td>
         </tr>
         {% else %}
         <tr><td colspan="6" class="text-center text-muted py-3">No devices awaiting inventory move.</td></tr>
@@ -251,8 +281,9 @@
           <td class="small">{{ row.engineer_name or '—' }}</td>
           <td class="small">{{ row.failure_reason or '—' }}</td>
           <td class="small">{{ row.final_notes or '—' }}</td>
-          <td>
+          <td class="text-nowrap">
             <button type="button" class="btn btn-sm btn-primary fqc-move-one" data-barcode="{{ row.barcode }}">Move</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary fqc-edit" data-barcode="{{ row.barcode }}">Edit</button>
           </td>
         </tr>
         {% else %}
@@ -294,6 +325,8 @@
 (function () {
   var input = document.getElementById('fqcScanSearch');
   if (!input) return;
+  var emptyState = document.getElementById('fqcNoSearchMatch');
+
   function applyFilter() {
     var q = input.value.trim().toLowerCase();
     var firstMatch = null;
@@ -303,6 +336,16 @@
       card.classList.toggle('d-none', !match);
       if (match && !firstMatch) firstMatch = card;
     });
+    if (!firstMatch) {
+      // Nothing matched — hide every detail pane instead of leaving whichever
+      // one was last active on screen (that was the reported bug: the search
+      // box would empty the card list but silently keep showing a stale
+      // tag's details as if it had matched), and show the empty illustration.
+      document.querySelectorAll('.fqc-detail-pane').forEach(function (p) { p.classList.add('d-none'); });
+      if (emptyState) emptyState.classList.remove('d-none');
+    } else if (emptyState) {
+      emptyState.classList.add('d-none');
+    }
     return firstMatch;
   }
   input.addEventListener('input', applyFilter);
@@ -387,17 +430,14 @@
 {% endblock %}
 {% block scripts %}
 <script>
-// Must live in block scripts (renders after base.html's jQuery <script src>
-// tag) — block content renders BEFORE jQuery loads, so putting these two
-// jQuery-dependent handlers there left $ undefined and both buttons
-// silently did nothing on click.
-$(document).on('click', '.fqc-move-inv', function () {
-  var id = $(this).data('bucket-id');
-  var csrf = "{{ request.cookies.get('csrf_token','') }}";
-  if (!confirm('Move this bucket to inventory?')) return;
-  $.post('/cosmetic/final-qc/move-to-inventory/' + id, { csrf_token: csrf }).done(function () { location.reload(); })
-    .fail(function (xhr) { alert(xhr.responseJSON && xhr.responseJSON.detail || 'Move failed'); });
-});
+// Must live in block scripts (renders after base.html's jQuery/global-table.js
+// <script src> tags) — block content renders before those load, so putting
+// GTABLE_EMPTY_SVG-dependent or jQuery-dependent code there found both
+// undefined.
+(function () {
+  var icon = document.getElementById('fqcNoSearchMatchIcon');
+  if (icon && typeof GTABLE_EMPTY_SVG !== 'undefined') icon.innerHTML = GTABLE_EMPTY_SVG;
+})();
 // Devices Failed — search (Bucket Name or Tag Number), row select + Bulk
 // Move, and the per-row Move button (2026-08-29 redesign, replacing the
 // Assign Bucket modal). All three post to the SAME endpoint
@@ -485,6 +525,107 @@ $(document).on('click', '.fqc-move-inv', function () {
       postMove(codes);
     });
   }
+})();
+
+// Devices Passed — search (Tag Number or Bucket Name), row select + Bulk
+// Move to Inventory, and the per-row Move to Inventory button. Mirrors the
+// Devices Failed block above; posts to /cosmetic/final-qc/move-passed.
+(function () {
+  var table = document.getElementById('fqcPassedTable');
+  if (!table) return;
+  var rows = function () { return table.querySelectorAll('tbody tr[data-barcode]'); };
+
+  var searchInput = document.getElementById('fqcPassedSearch');
+  function applyRowFilters() {
+    var q = searchInput ? searchInput.value.trim().toLowerCase() : '';
+    rows().forEach(function (tr) {
+      var match = !q || tr.dataset.barcode.indexOf(q) !== -1 || tr.dataset.bucket.indexOf(q) !== -1;
+      tr.classList.toggle('d-none', !match);
+    });
+    refreshBulkState();
+  }
+  if (searchInput) searchInput.addEventListener('input', applyRowFilters);
+
+  var selectAll = document.getElementById('fqcPassedSelectAll');
+  var bulkBtn2 = document.getElementById('fqcBulkMoveInvBtn');
+  var bulkCount2 = document.getElementById('fqcBulkMoveInvCount');
+
+  function checkedBoxes() {
+    return Array.prototype.filter.call(table.querySelectorAll('.fqc-passed-check'), function (cb) {
+      return cb.checked && !cb.closest('tr').classList.contains('d-none');
+    });
+  }
+  function refreshBulkState() {
+    var n = checkedBoxes().length;
+    if (bulkCount2) bulkCount2.textContent = n;
+    if (bulkBtn2) bulkBtn2.disabled = n === 0;
+  }
+  table.addEventListener('change', function (e) {
+    if (e.target.classList.contains('fqc-passed-check')) refreshBulkState();
+  });
+  if (selectAll) {
+    selectAll.addEventListener('change', function () {
+      rows().forEach(function (tr) {
+        if (tr.classList.contains('d-none')) return;
+        var cb = tr.querySelector('.fqc-passed-check');
+        if (cb) cb.checked = selectAll.checked;
+      });
+      refreshBulkState();
+    });
+  }
+
+  function postMoveToInventory(barcodes) {
+    var csrf = "{{ request.cookies.get('csrf_token','') }}";
+    var fd = new FormData();
+    fd.append('csrf_token', csrf);
+    fd.append('barcodes', barcodes.join(','));
+    fetch('/cosmetic/final-qc/move-passed', { method: 'POST', body: fd })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+      .then(function (res) {
+        if (!res.ok) { alert((res.data && res.data.detail) || 'Move failed'); return; }
+        var d = res.data;
+        var msg = 'Moved ' + d.moved.length + ' tag(s) to Inventory.';
+        if (d.skipped && d.skipped.length) {
+          msg += ' Skipped: ' + d.skipped.map(function (s) { return s.barcode + ' (' + s.reason + ')'; }).join(', ');
+        }
+        alert(msg);
+        window.location.reload();
+      })
+      .catch(function () { alert('Move failed — please try again.'); });
+  }
+
+  $(document).on('click', '.fqc-move-one-passed', function () {
+    var barcode = $(this).data('barcode');
+    if (!confirm('Move ' + barcode + ' to Inventory?')) return;
+    postMoveToInventory([barcode]);
+  });
+  if (bulkBtn2) {
+    bulkBtn2.addEventListener('click', function () {
+      var codes = checkedBoxes().map(function (cb) { return cb.value; });
+      if (!codes.length) return;
+      if (!confirm('Bulk move ' + codes.length + ' tag(s) to Inventory?')) return;
+      postMoveToInventory(codes);
+    });
+  }
+})();
+
+// Devices Passed + Devices Failed — shared Edit button: sends the tag back
+// to the main pending Final QC list so its Pass/Fail decision can be redone.
+(function () {
+  $(document).on('click', '.fqc-edit', function () {
+    var barcode = $(this).data('barcode');
+    if (!confirm('Send ' + barcode + ' back to Final QC for a new decision?')) return;
+    var csrf = "{{ request.cookies.get('csrf_token','') }}";
+    var fd = new FormData();
+    fd.append('csrf_token', csrf);
+    fetch('/cosmetic/final-qc/edit/' + encodeURIComponent(barcode), { method: 'POST', body: fd })
+      .then(function (r) {
+        if (r.redirected) { window.location.href = r.url; return; }
+        if (!r.ok) return r.json().then(function (d) { throw new Error((d && d.detail) || 'Edit failed'); });
+        window.location.reload();
+      })
+      .catch(function (e) { alert(e.message || 'Edit failed — please try again.'); });
+  });
 })();
 </script>
 {% endblock %}

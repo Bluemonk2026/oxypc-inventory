@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
+from sqlalchemy.exc import IntegrityError
 from models.location import DeviceLocationLog, StorageLocation
 
 from database import get_db
@@ -100,6 +101,32 @@ async def _gen_prefixed_work_id(db: AsyncSession, prefix: str) -> str:
             return wid
         n += 1
     raise HTTPException(500, "Could not allocate a WorkID")
+
+
+async def _create_work_order_with_unique_id(db: AsyncSession, prefix: str, **fields) -> WorkOrder:
+    """Generate a prefixed WorkID and insert the WorkOrder, retrying under a
+    SAVEPOINT if a concurrent request already claimed the ID in between
+    _gen_prefixed_work_id's existence check and this insert (found 2026-09-23:
+    two L1/L2 engineers requesting L3/L4 within the same window could compute
+    the identical "next" WorkID and both commit it, producing a real duplicate
+    work_id across two different devices). The SAVEPOINT keeps the retry
+    scoped to just the insert — it does not roll back the caller's earlier
+    stage-change/StageMovement work already pending in the same session."""
+    # Each retry only resolves once some other concurrent request commits (or
+    # rolls back) the row it collided with, so the attempt budget needs to
+    # cover realistic worst-case concurrency (a handful of engineers
+    # submitting requests within the same second), not just 1-2 retries.
+    for _attempt in range(20):
+        work_id = await _gen_prefixed_work_id(db, prefix)
+        wo = WorkOrder(work_id=work_id, **fields)
+        try:
+            async with db.begin_nested():
+                db.add(wo)
+                await db.flush()
+            return wo
+        except IntegrityError:
+            continue
+    raise HTTPException(500, "Could not allocate a unique WorkID after 20 attempts")
 
 
 async def _close_open_movement(db, device):
@@ -396,15 +423,15 @@ async def request_l3l4(
                          moved_by=current_user.username,
                          notes=f"Requested to L3/L4 — assigned to {eng.full_name or eng.username}"))
 
-    work_id = await _gen_prefixed_work_id(db, "L3L4-")
-    db.add(WorkOrder(
-        work_id=work_id, device_id=device.id, barcode=device.barcode,
+    wo = await _create_work_order_with_unique_id(
+        db, "L3L4-", device_id=device.id, barcode=device.barcode,
         stage="l3", assigned_role="l3_engineer",
         assigned_user_id=eng.id, assigned_username=eng.username,
         assigned_name=eng.full_name, status="pending",
         requested_by_name=current_user.full_name or current_user.username,
         created_by=current_user.username,
-    ))
+    )
+    work_id = wo.work_id
     await create_notification(
         db, user_id=eng.id, title="L3/L4 Repair Requested",
         message=(f"{device.barcode} was sent to you for L3/L4 repair by "
@@ -471,16 +498,16 @@ async def l1l2_complete_to_stress(
                          notes=(f"L1/L2 completed — assigned to Stress Test ({eng.full_name or eng.username})"
                                 if eng else "L1/L2 completed — moved to Stress Test (unassigned)")))
     # A WorkOrder makes the assignment visible on the WorkID Status board
-    work_id = await _gen_prefixed_work_id(db, "STRS-")
-    db.add(WorkOrder(
-        work_id=work_id, device_id=device.id, barcode=device.barcode,
+    wo = await _create_work_order_with_unique_id(
+        db, "STRS-", device_id=device.id, barcode=device.barcode,
         stage="qc", assigned_role="qc_inspector",
         assigned_user_id=eng.id if eng else None,
         assigned_username=eng.username if eng else None,
         assigned_name=eng.full_name if eng else None, status="pending",
         requested_by_name=current_user.full_name or current_user.username,
         created_by=current_user.username,
-    ))
+    )
+    work_id = wo.work_id
     if eng:
         await create_notification(
             db, user_id=eng.id, title="Device Assigned for Stress Test",
@@ -569,6 +596,7 @@ async def l3l4_list(request: Request,
         aging = max(0, (today - wo.assigned_at.date()).days) if wo.assigned_at else 0
         items.append({
             "work_id": wo.work_id,
+            "assigned_date": wo.assigned_at,
             "device_id": str(dev.id),
             "barcode": dev.barcode,
             "status": dev.l34_status or "New",

@@ -21,13 +21,20 @@
       <div class="card-body p-0">
           <table id="l3l4Table" class="table table-hover mb-0 small">
             <thead class="table-dark">
-              <tr><th>Tag Number</th><th>WorkID</th><th>Bucket</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>PNA Parts</th><th>Action</th></tr>
+              <tr><th>Tag Number</th><th>WorkID</th><th>Date Assigned</th><th>Bucket</th><th>Repair Notes</th><th>Aging</th><th>Status</th><th>PNA Parts</th><th>Action</th></tr>
             </thead>
             <tbody>
               {% for it in items %}
               <tr data-pna="{{ (pna_map.get(it.device_id|string, []) | length) if pna_map is defined else 0 }}">
                 <td><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
                 <td><span class="font-monospace fw-bold">{{ it.work_id }}</span></td>
+                {# data-order carries the sortable ISO value; DataTables reads it
+                   natively, so the visible date can stay in DD-MM-YYYY without
+                   breaking the sort (same pattern as repair/l1.html). #}
+                <td class="text-nowrap" data-order="{{ it.assigned_date.isoformat() if it.assigned_date else '' }}">
+                  {% if it.assigned_date %}{{ it.assigned_date.strftime('%d-%m-%Y %H:%M') }}
+                  {% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
                 <td>{% if it.bucket %}<span class="badge bg-warning text-dark font-monospace">{{ it.bucket }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                 {# Full text, untruncated — initGlobalTable's own clamp+
                    tooltip now handles long Repair Notes with a 2-line clamp
@@ -156,6 +163,7 @@ $(document).ready(function(){
   // convention as L1/L2's and QC's inline filters.
   var dt = initGlobalTable('#l3l4Table', {
     language: { emptyTable: "No L3/L4 work orders assigned." },
+    order: [[2, 'desc']],  // default sort: Date Assigned, most recent first
     columnDefs: [{ orderable: false, targets: [-1] }],
     initComplete: function() {
       var pnaFilter = $('<div class="form-check form-check-inline me-2">' +

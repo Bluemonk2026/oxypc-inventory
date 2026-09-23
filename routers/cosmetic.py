@@ -324,39 +324,34 @@ async def _get_devices_at_stage(db: AsyncSession, stage: DeviceStage, entity: st
     return result.all()
 
 
-async def _bucket_group(db: AsyncSession, stage: DeviceStage, status_val: str):
-    """Group active, bucket-linked devices at `stage` (with `final_qc_status`
-    == status_val) by their bucket — feeds the Devices Passed / Devices
-    Failed tables on the Final QC page."""
+async def _passed_device_rows(db: AsyncSession) -> list[dict]:
+    """Devices Passed tab — one row PER TAG, not grouped by bucket (2026-09-23
+    redesign, mirrors _failed_device_rows below for the same reason: a single
+    Bucket Name can hold tags decided at different times with different Pass
+    Notes, so a bucket-level row can no longer show correct per-tag detail or
+    be moved as one unit). Feeds the per-row "Move to Inventory" button, the
+    multi-select "Bulk Move to Inventory" button, and the search box."""
     rows = (await db.execute(
         select(Device).where(
-            Device.current_stage == stage,
-            Device.final_qc_status == status_val,
+            Device.current_stage == DeviceStage.final_qc_pass_hold,
+            Device.final_qc_status == "pass",
             Device.is_active == True,
-            Device.bucket_id.isnot(None),
-        )
+        ).order_by(Device.updated_at.desc())
     )).scalars().all()
-    bucket_ids = {d.bucket_id for d in rows}
+    bucket_ids = {d.bucket_id for d in rows if d.bucket_id}
     buckets_by_id = {}
     if bucket_ids:
         b_rows = (await db.execute(select(Bucket).where(Bucket.id.in_(bucket_ids)))).scalars().all()
         buckets_by_id = {b.id: b for b in b_rows}
-    grouped = {}
+    out = []
     for d in rows:
         b = buckets_by_id.get(d.bucket_id)
-        if not b:
-            continue
-        g = grouped.setdefault(b.id, {
-            "bucket_id": str(b.id), "bucket_name": b.name or b.bucket_number, "bucket_number": b.bucket_number,
-            "count": 0, "failure_reason": None, "pass_notes": None,
-            # Bucket-level, not aggregated per device — see
-            # Bucket.fail_engineer_name (models/bucket.py).
-            "engineer_name": b.fail_engineer_name,
+        out.append({
+            "device_id": str(d.id), "barcode": d.barcode,
+            "bucket_name": (b.name or b.bucket_number) if b else None,
+            "pass_notes": d.fqc_pass_notes,
         })
-        g["count"] += 1
-        g["failure_reason"] = g["failure_reason"] or d.fqc_failure_reason
-        g["pass_notes"] = g["pass_notes"] or d.fqc_pass_notes
-    return list(grouped.values())
+    return out
 
 
 async def _failed_device_rows(db: AsyncSession) -> list[dict]:
@@ -718,7 +713,7 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
             # since this feeds a form value, not read-only display text.
             bucket_name_map = {str(d.id): bname_by_id.get(d.bucket_id, "") for d, _ in devices if d.bucket_id}
 
-        passed_buckets = await _bucket_group(db, DeviceStage.final_qc_pass_hold, "pass")
+        passed_devices = await _passed_device_rows(db)
         failed_devices = await _failed_device_rows(db)
 
         # ── Most recent L1/L2 Engineer per device — shown next to Lot Number
@@ -745,7 +740,7 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
             "l1l2_engineer_map": l1l2_engineer_map,
             "pipeline": COSMETIC_NAV_STAGES, "stage_labels": STAGE_LABELS,
             "bucket_name_map": bucket_name_map,
-            "passed_buckets": passed_buckets, "failed_devices": failed_devices,
+            "passed_devices": passed_devices, "failed_devices": failed_devices,
             "entity_options": await entity_values(db), "f_entity": entity,
         })
 
@@ -1244,33 +1239,82 @@ async def fqc_move_failed(
     return JSONResponse({"ok": True, "moved": moved, "skipped": skipped})
 
 
-@router.post("/final-qc/move-to-inventory/{bucket_id}")
-async def fqc_move_to_inventory(bucket_id: str, db: AsyncSession = Depends(get_db),
-                                 current_user: User = Depends(allowed)):
-    """Devices Passed → Final QC Pass (Buckets) on Inventory Manager."""
-    import uuid as _u
-    try:
-        bid = _u.UUID(bucket_id)
-    except ValueError:
-        raise HTTPException(404)
+@router.post("/final-qc/move-passed")
+async def fqc_move_passed(
+    barcodes: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Devices Passed tab's per-row "Move to Inventory" and multi-select
+    "Bulk Move to Inventory" both post here — same barcode-list shape as
+    fqc_move_failed above. Each tag: final_qc_pass_hold -> ready_to_sale,
+    identical transition to the older bucket-based fqc_move_to_inventory."""
+    role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    if not has_perm(role_val, "cosmetic_finalqc", "edit"):
+        raise HTTPException(403, f"Your role ({role_val}) does not have 'edit' permission for the cosmetic_finalqc module.")
+
+    codes = [b.strip() for b in barcodes.split(",") if b.strip()]
+    if not codes:
+        raise HTTPException(400, "No tags selected.")
+
     devices = (await db.execute(
-        select(Device).where(
-            Device.bucket_id == bid,
-            Device.current_stage == DeviceStage.final_qc_pass_hold,
-            Device.is_active == True,
-        )
+        select(Device).where(Device.barcode.in_(codes))
     )).scalars().all()
-    if not devices:
-        raise HTTPException(404, "No devices found in this bucket at Final QC Pass Hold.")
-    for device in devices:
+    by_barcode = {d.barcode: d for d in devices}
+
+    moved, skipped = [], []
+    for code in codes:
+        device = by_barcode.get(code)
+        if not device or device.current_stage != DeviceStage.final_qc_pass_hold:
+            skipped.append({"barcode": code, "reason": "No longer awaiting Final QC Pass Hold."})
+            continue
         device.current_stage = DeviceStage.ready_to_sale
         device.updated_at = app_now()
         db.add(StageMovement(
             device_id=device.id, from_stage=DeviceStage.final_qc_pass_hold, to_stage=DeviceStage.ready_to_sale,
             moved_by=current_user.username, notes="Moved to Inventory from Final QC Pass",
         ))
+        moved.append(code)
+
+    if moved:
+        await db.commit()
+    return JSONResponse({"ok": True, "moved": moved, "skipped": skipped})
+
+
+@router.post("/final-qc/edit/{barcode}")
+async def fqc_edit_revert(
+    barcode: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Devices Passed / Devices Failed tables' Edit button — sends a tag back
+    to the main pending Final QC list so its decision can be redone. Reverses
+    advance_stage()'s Pass/Fail branches above: clears the recorded decision
+    and moves the device back to DeviceStage.final_qc, which alone drops it
+    out of both tables (their queries filter on current_stage)."""
+    role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    if not has_perm(role_val, "cosmetic_finalqc", "edit"):
+        raise HTTPException(403, f"Your role ({role_val}) does not have 'edit' permission for the cosmetic_finalqc module.")
+
+    device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+    if not device:
+        raise HTTPException(404, "Device not found")
+    if device.current_stage not in (DeviceStage.final_qc_pass_hold, DeviceStage.final_qc_fail_hold):
+        raise HTTPException(409, "Tag is no longer awaiting a Final QC Pass/Fail decision.")
+
+    prev = device.current_stage
+    device.final_qc_status = None
+    device.fqc_failure_reason = None
+    device.fqc_final_notes = None
+    device.fqc_pass_notes = None
+    device.current_stage = DeviceStage.final_qc
+    device.updated_at = app_now()
+    db.add(StageMovement(
+        device_id=device.id, from_stage=prev, to_stage=DeviceStage.final_qc,
+        moved_by=current_user.username, notes="Final QC decision reverted via Edit — back to pending decision",
+    ))
     await db.commit()
-    return {"ok": True, "moved": len(devices)}
+    return RedirectResponse(url=f"/cosmetic/final_qc?success={barcode}+returned+to+Final+QC", status_code=302)
 
 
 @router.post("/send-to-cosmetic")

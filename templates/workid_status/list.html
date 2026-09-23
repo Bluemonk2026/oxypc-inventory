@@ -66,11 +66,6 @@
         </a>
       </div>
     </div>
-    <div class="small text-muted mt-2">
-      <i class="bi bi-info-circle me-1"></i>Most stage transitions don't create a WorkID (only ones with an
-      engineer assigned do). Search a specific Tag Number, or set a Completed From/To date (optionally
-      narrowed further with Stage), to also see those tags' Asset History here.
-    </div>
   </div>
 </form>
 
@@ -79,15 +74,6 @@
   <i class="bi bi-info-circle me-1"></i>
   {{ '{:,}'.format(main_total) }} WorkIDs match — showing the most recent {{ '{:,}'.format(main_cap) }}.
   Narrow with Search WorkID/Tag, Engineer, or a Completed date range to see the rest.
-</div>
-{% endif %}
-
-{% if backfill_truncated %}
-<div class="alert alert-warning py-2 small mb-3">
-  <i class="bi bi-exclamation-triangle me-1"></i>
-  {{ '{:,}'.format(backfill_total) }} Asset History records matched this date range — showing the most
-  recent {{ '{:,}'.format(backfill_cap) }}. Narrow with a Stage, a Tag Number, or a smaller date range to
-  see the rest.
 </div>
 {% endif %}
 
@@ -157,11 +143,7 @@
           {% for it in items %}
           <tr id="{{ it.row_key }}" class="{{ 'table-warning' if highlight and highlight == it.work_id else '' }}">
             <td><a href="/devices/{{ it.barcode }}" class="font-monospace text-decoration-none">{{ it.barcode }}</a></td>
-            <td class="font-monospace fw-bold">
-              {% if it.work_id %}{{ it.work_id }}
-              {% else %}<span class="text-muted fst-italic" title="No WorkID was ever created for this stage transition — backfilled from Asset History">— No WorkID —</span>
-              {% endif %}
-            </td>
+            <td class="font-monospace fw-bold">{{ it.work_id }}</td>
             <td>{{ it.model or '—' }}</td>
             <td><span class="badge bg-secondary">{{ it.stage_label }}</span></td>
             <td class="text-nowrap">
@@ -185,9 +167,7 @@
             </td>
             <td class="text-nowrap text-muted">
               {# When the tag arrived at the Stage it's shown completing —
-                 wo.assigned_at for a real WorkID, or (for a backfilled row
-                 with no WorkID) the most recent earlier StageMovement into
-                 that same stage. #}
+                 wo.assigned_at. #}
               {{ it.assigned_date.strftime('%d-%m-%Y %H:%M') if it.assigned_date else '—' }}
             </td>
             <td class="text-nowrap text-muted">

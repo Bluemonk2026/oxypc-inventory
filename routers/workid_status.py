@@ -17,23 +17,19 @@ movement. A still-pending WorkOrder (no completed_at yet) has no closing
 movement to match, so it falls back to the device's latest movement as the
 best available "where things stand" hint.
 
-Most StageMovements have NO WorkOrder at all (2026-09-02 — reported as
-"can't see tags that completed Cleaning / Water Sanding on <date>" even
-after the above fix): a WorkOrder is only created when advance_stage assigns
-an engineer, but plenty of transitions happen without one (bulk stage moves,
-IQC intake, Final QC pass/fail, etc.) — in production, 131k+ StageMovements
-exist against under 5k WorkOrders ever created. Since this page's rows were
-strictly "one per WorkOrder", those movements were invisible here no matter
-how the Stage/Completed Date/Engineer columns were sourced. The backfill
-block below adds one row per WorkOrder-less StageMovement, scoped to
-whichever of tag / any Completed Date bound the caller supplied (Stage is no
-longer required alongside the date — "all stages for the month", not one
-stage at a time) — never unscoped, since an unfiltered query would return
-the full 131k-row table. Results are capped (BACKFILL_ROW_CAP) with a
-visible "narrow further" notice rather than a silent truncation — a full
-August is 64k+ matching rows, an order of magnitude past what a
-browser-rendered table can hold. These backfilled rows have no WorkID
-(work_id is None) and show "—" for Notes.
+2026-09-02 through 2026-09-24 this page also "backfilled" one row per
+WorkOrder-less StageMovement (most StageMovements never get a WorkOrder —
+bulk stage moves, IQC intake, Final QC pass/fail, etc.), so a tag that
+completed a stage with no engineer assignment wasn't invisible here. Removed
+2026-09-24 at the user's explicit request: matching a WorkOrder to "its own"
+closing movement is inherently a single best-guess pick (closest StageMovement
+by timestamp), and a WorkOrder that legitimately has TWO associated movements
+(e.g. assignment-time + completion-time — repair.py's l1_pick "Picked by..."
+vs. l1l2_complete_to_stress's closing movement) could only ever have one of
+them matched, leaving the other to backfill in as a confusing "— No WorkID —"
+duplicate of the real row right next to it. This page now shows exactly one
+row per real WorkOrder — nothing else — trading away visibility into
+WorkOrder-less transitions for never showing a phantom duplicate.
 
 2026-09-19 — Aging/Completed Date redefined to be per-WorkID. Completed
 Date only shows once the WorkID is genuinely done (WorkOrder.completed_at
@@ -42,9 +38,7 @@ handed off to another stage/assignee) shows blank rather than falling back
 to the device's latest, possibly-unrelated StageMovement as a "best guess".
 Aging is a running day-count from Assigned Date: it keeps counting up every
 day the WorkID stays open, then freezes at whatever it reached the moment
-the WorkID is genuinely completed -- it is never blank. A backfilled
-StageMovement (no WorkOrder) is always a completed transition by
-definition, so it always gets a real (frozen) Aging/Completed Date.
+the WorkID is genuinely completed -- it is never blank.
 
 "Exclude Admin" filter (2026-09-02) drops rows whose engineer (the
 underlying StageMovement.moved_by / WorkOrder.assigned_username, not the
@@ -52,14 +46,13 @@ rendered display name) belongs to an admin-role User — resolved once per
 request, not by string-matching a display name. CSV export (2026-09-02)
 was narrowed to exactly Tag Number / Lot Number / Make / Model / Engineer
 Name / Stage / Assigned Date / Completed Date; Lot Number is looked up once
-across every device appearing in `items`, from both the WorkOrder loop and
-the backfill loop.
+across every device appearing in `items`.
 """
 from datetime import datetime
 from fastapi import APIRouter, Depends, Request, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func
 
 from templates_config import templates
 from database import get_db
@@ -102,11 +95,23 @@ def _multi(value) -> list:
 def _is_l3l4_request_movement(mv) -> bool:
     """True for the synthetic StageMovement repair.py:request_l3l4 writes on
     the L1/L2 engineer's side purely to move current_stage to L3 (so the tag
-    drops off /repair/l1) — not a genuine stage completion. It must never
-    surface on this page: the L3L4- WorkOrder already shows the request under
-    the assigned L3/L4 engineer via the handoff-stage branch above, and this
-    movement being unmatched to any WorkOrder let it resurface a second time
-    as a phantom backfilled row attributed to the L1/L2 requester instead."""
+    drops off /repair/l1) — not a genuine stage completion. Excluded from
+    movements_by_device so the ordinary else-branch matching below (closest
+    StageMovement to a WorkOrder's own completed_at) never mismatches it to
+    some other WorkOrder's completion just because it happens to be the
+    nearest-in-time candidate — the L3L4- WorkOrder already shows this
+    request under the assigned L3/L4 engineer via the handoff-stage branch
+    above, so this movement carries no information not already shown there.
+
+    NOTE: l1l2_complete_to_stress's "L1/L2 completed —..." movement is
+    deliberately NOT excluded here (tried 2026-09-24, reverted) — unlike the
+    request-side movement above, it IS the correct match for the plain L1/L2
+    WorkOrder's own completion (closest StageMovement to WorkOrder.completed_at,
+    matched by the ordinary else-branch below), so excluding it from
+    movements_by_device entirely starved that match of its correct candidate
+    and made the L1/L2 row fall back to displaying its earlier "Picked by..."
+    movement instead — a real regression, confirmed via
+    _verify_workid_status_l3l4_duplicate.py-style reproduction."""
     return bool(mv.notes) and mv.notes.startswith("Requested to L3/L4")
 
 
@@ -161,8 +166,8 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
     # Asset-History processing over all of them before Stage/Completed-Date
     # even get applied (those are Python-side filters, see below) — the
     # slowest page views were exactly the common "just open the page" case.
-    # Capped to the most recent MAIN_ROW_CAP, same truncation-notice pattern
-    # already used for the backfill query below, rather than a silent cut.
+    # Capped to the most recent MAIN_ROW_CAP, with a visible truncation
+    # notice rather than a silent cut.
     main_total = (await db.execute(
         select(func.count()).select_from(stmt.subquery())
     )).scalar() or 0
@@ -255,11 +260,11 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
 
     today = app_now()
     items = []
-    used_movement_ids = set()
     for wo, dev in rows:
         did = str(wo.device_id)
         start = wo.assigned_at or wo.created_at
         finalqc_dt = finalqc_date_map.get(did)
+
         handoff_stage = _handoff_stage(wo)
         if handoff_stage:
             stage_value = handoff_stage.value
@@ -270,7 +275,6 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         else:
             mv = _movement_for_work_order(wo, movements_by_device.get(did, []))
             if mv:
-                used_movement_ids.add(mv.id)
                 stage_value = mv.from_stage.value if mv.from_stage else ""
                 stage_label = STAGE_LABELS.get(mv.from_stage, mv.from_stage.value if mv.from_stage else "—")
                 movement_engineer = (display_name_by_username.get(mv.moved_by) or mv.moved_by) if mv.moved_by else "—"
@@ -313,117 +317,13 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
             "engineer_username": engineer_username,
         })
 
-    # ── Backfill: StageMovements with no WorkOrder at all ───────────────────
-    # Only run when the request is bounded — a specific tag, OR any Completed
-    # Date bound (Stage no longer required to also be picked — a date range
-    # alone now backfills every stage within it) — never on an unfiltered
-    # load of the page (see module docstring for the 131k-row reason).
-    BACKFILL_ROW_CAP = 5000
-    backfill_truncated = False
-    backfill_total = 0
+    # Stage filter (applied below, after items are built) reads the same
+    # cosmetic_stage query param the removed backfill block used to also
+    # scope its own query by.
     stage_vals = _multi(cosmetic_stage)
-    bounded_by_tag = bool(tag.strip())
-    bounded_by_date = bool(cf or ct)
-    if bounded_by_tag or bounded_by_date:
-        mv_filters = [
-            StageMovement.from_stage.isnot(None),
-            # Exclude the synthetic L1/L2-side "Requested to L3/L4" bookkeeping
-            # movement — see _is_l3l4_request_movement. `notlike` is NULL-unsafe
-            # in SQL, so this explicitly keeps NULL-notes rows too.
-            or_(StageMovement.notes.is_(None),
-                StageMovement.notes.notlike("Requested to L3/L4%")),
-        ]
-        if tag.strip():
-            mv_filters.append(Device.barcode.ilike(f"%{tag.strip()}%"))
-        if stage_vals:
-            mv_filters.append(StageMovement.from_stage.in_(stage_vals))
-        if engineer:
-            mv_filters.append(StageMovement.moved_by == engineer)
-        if cf:
-            mv_filters.append(StageMovement.moved_at >= cf)
-        if ct:
-            mv_filters.append(StageMovement.moved_at <= ct.replace(hour=23, minute=59, second=59))
-        if not is_admin:
-            mv_filters.append(StageMovement.moved_by.in_(visible_usernames))
 
-        backfill_total = (await db.execute(
-            select(func.count()).select_from(StageMovement)
-            .join(Device, StageMovement.device_id == Device.id).where(*mv_filters)
-        )).scalar() or 0
-        backfill_truncated = backfill_total > BACKFILL_ROW_CAP
-
-        mv_rows = (await db.execute(
-            select(StageMovement, Device)
-            .join(Device, StageMovement.device_id == Device.id)
-            .where(*mv_filters)
-            .order_by(StageMovement.moved_at.desc())
-            .limit(BACKFILL_ROW_CAP)
-        )).all()
-
-        # Batch-resolve display names for movers not already covered by the
-        # WorkOrder-scoped lookup above, instead of one query per row.
-        new_usernames = {mv.moved_by for mv, _ in mv_rows
-                         if mv.moved_by and mv.moved_by not in display_name_by_username}
-        if new_usernames:
-            u_rows = (await db.execute(
-                select(User.username, User.full_name).where(User.username.in_(new_usernames))
-            )).all()
-            display_name_by_username.update({uname: full for uname, full in u_rows})
-
-        # Assigned Date for a backfilled row = when the device arrived at the
-        # stage it's shown completing, i.e. the latest earlier StageMovement
-        # into that same stage. Fetched unfiltered (every from_stage,
-        # including the null-from_stage IQC-intake movement) in one query per
-        # batch rather than per row.
-        backfill_device_ids = {mv.device_id for mv, _ in mv_rows}
-        full_movements_by_device = {}
-        if backfill_device_ids:
-            full_rows = (await db.execute(
-                select(StageMovement).where(StageMovement.device_id.in_(backfill_device_ids))
-                .order_by(StageMovement.moved_at.asc())
-            )).scalars().all()
-            for m in full_rows:
-                full_movements_by_device.setdefault(str(m.device_id), []).append(m)
-
-        def _entered_stage_at(device_id, stage, before_dt):
-            candidates = [m.moved_at for m in full_movements_by_device.get(str(device_id), [])
-                         if m.to_stage == stage and m.moved_at and m.moved_at <= before_dt]
-            return max(candidates) if candidates else None
-
-        for mv, dev in mv_rows:
-            if mv.id in used_movement_ids:
-                continue  # already shown above via its matching WorkOrder
-            used_movement_ids.add(mv.id)
-            engineer_name = (display_name_by_username.get(mv.moved_by) or mv.moved_by) if mv.moved_by else "—"
-            bf_assigned = _entered_stage_at(mv.device_id, mv.from_stage, mv.moved_at)
-            # A bare StageMovement (no WorkOrder) is by definition a completed
-            # transition -- the tag already left that stage -- so it always
-            # gets a real Completed Date/Aging, unlike a still-open WorkOrder.
-            bf_days = (mv.moved_at.date() - bf_assigned.date()).days if (mv.moved_at and bf_assigned) else None
-            items.append({
-                "row_key": f"mv-{mv.id}",
-                "work_id": None,
-                "device_id": mv.device_id,
-                "barcode": dev.barcode if dev else "—",
-                "model": (dev.model or dev.brand) if dev else "—",
-                "brand": (dev.brand if dev else None),
-                "stage_label": STAGE_LABELS.get(mv.from_stage, mv.from_stage.value),
-                "stage_value": mv.from_stage.value,
-                "wo_status": None,
-                "start": None,
-                "assigned_date": bf_assigned,
-                "finalqc": finalqc_date_map.get(str(mv.device_id)),
-                "completed_at": mv.moved_at,
-                "days": bf_days,
-                "ongoing": False,
-                "notes": (dev.notes if dev else None),
-                "engineer": engineer_name,
-                "engineer_username": mv.moved_by,
-            })
-
-    # Lot Number (export column) — one lookup covering every device across
-    # both the WorkOrder loop and the backfill loop, rather than joining Lot
-    # into either query above.
+    # Lot Number (export column) — one lookup covering every device in
+    # `items`, rather than joining Lot into the WorkOrder query above.
     all_device_ids = {it["device_id"] for it in items if it.get("device_id")}
     lot_number_by_device = {}
     if all_device_ids:
@@ -453,11 +353,9 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         )).scalars().all())
         items = [it for it in items if it.get("engineer_username") not in admin_usernames]
 
-    # WorkOrder rows and backfilled movement-only rows come from two
-    # separately-ordered queries — sort the merged list so it still reads
-    # newest-first regardless of source. Sorted by Assigned Date (2026-09-18
-    # — was completed_at-first, which put completed rows out of Assigned
-    # Date order whenever their completed_at diverged from assigned_date).
+    # Sorted by Assigned Date (2026-09-18 — was completed_at-first, which put
+    # completed rows out of Assigned Date order whenever their completed_at
+    # diverged from assigned_date).
     items.sort(key=lambda it: it["assigned_date"] or datetime.min, reverse=True)
 
     # ── Card Count tiles — computed from the SAME filtered `items` list, so
@@ -514,8 +412,6 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
         "f_completed_from": completed_from, "f_completed_to": completed_to,
         "f_cosmetic_stage": cosmetic_stage, "f_exclude_admin": exclude_admin,
         "highlight": highlight,
-        "backfill_truncated": backfill_truncated, "backfill_total": backfill_total,
-        "backfill_cap": BACKFILL_ROW_CAP,
         "main_truncated": main_truncated, "main_total": main_total,
         "main_cap": MAIN_ROW_CAP,
     })

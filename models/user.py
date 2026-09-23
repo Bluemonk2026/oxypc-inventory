@@ -94,6 +94,12 @@ class User(Base):
 
     email = Column(String(150), nullable=True)
 
+    # Free-text job title, and org-chart "reports to" (distinct from
+    # manager_username above, which drives Attendance Group rollups only —
+    # kept separate so this field never silently changes that feature).
+    designation = Column(String(100), nullable=True)
+    reports_to = Column(String(50), ForeignKey("users.username"), nullable=True, index=True)
+
     login_logs = relationship("LoginLog", back_populates="user", lazy="select")
 
     @property

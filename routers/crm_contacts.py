@@ -21,30 +21,55 @@ from services.audit_engine import audit
 from auth.dependencies import get_current_user, verify_csrf, require_module_perm
 from models.user import User, UserRole
 from models.crm import (
-    CRMContact, CRMContactNumber, CRMSourcingDeal, CRMSalesOpportunity,
+    CRMContact, CRMContactNumber, CRMContactLocation, CRMSourcingDeal, CRMSalesOpportunity,
     CRMActivity, CRMPurchaseOrder, SOURCE_TYPES, BUYER_TYPES,
 )
 
 PERSON_ROLES = ["Directors", "Finance", "Manager", "Other"]
 
 
-def _parse_contact_numbers(form) -> list[tuple[str, str, str, str]]:
-    """Extract (person_role, person_name, phone, email) rows from the
-    repeating Contact Numbers section. Skips fully-blank rows. Used by
-    create + update."""
-    roles = form.getlist("cn_role[]")
-    names = form.getlist("cn_person[]")
-    phones = form.getlist("cn_phone[]")
-    emails = form.getlist("cn_email[]")
-    rows: list[tuple[str, str, str, str]] = []
-    for i in range(max(len(roles), len(names), len(phones), len(emails))):
-        rl = (roles[i] if i < len(roles) else "").strip()
-        nm = (names[i] if i < len(names) else "").strip()
-        ph = (phones[i] if i < len(phones) else "").strip()
+def _parse_locations(form) -> list[dict]:
+    """Extract Location rows (email, address, city, state) from the repeating
+    Locations section on the form, along with each location's own nested
+    Contact Numbers rows (matched via the parallel cn_location_index[] array
+    the template writes just before submit). Skips fully-blank location rows.
+    Used by create + update."""
+    emails = form.getlist("loc_email[]")
+    addresses = form.getlist("loc_address[]")
+    cities = form.getlist("loc_city[]")
+    states = form.getlist("loc_state[]")
+    n_locations = max(len(emails), len(addresses), len(cities), len(states))
+
+    cn_indexes = form.getlist("cn_location_index[]")
+    cn_roles = form.getlist("cn_role[]")
+    cn_names = form.getlist("cn_person[]")
+    cn_phones = form.getlist("cn_phone[]")
+    cn_emails = form.getlist("cn_email[]")
+
+    locations: list[dict] = []
+    for i in range(n_locations):
         em = (emails[i] if i < len(emails) else "").strip()
-        if rl or nm or ph or em:
-            rows.append((rl, nm, ph, em))
-    return rows
+        ad = (addresses[i] if i < len(addresses) else "").strip()
+        ci = (cities[i] if i < len(cities) else "").strip()
+        st = (states[i] if i < len(states) else "").strip()
+        if not (em or ad or ci or st):
+            continue
+        numbers: list[tuple[str, str, str, str]] = []
+        for j in range(len(cn_indexes)):
+            try:
+                loc_idx = int(cn_indexes[j])
+            except ValueError:
+                continue
+            if loc_idx != i:
+                continue
+            rl = (cn_roles[j] if j < len(cn_roles) else "").strip()
+            nm = (cn_names[j] if j < len(cn_names) else "").strip()
+            ph = (cn_phones[j] if j < len(cn_phones) else "").strip()
+            em2 = (cn_emails[j] if j < len(cn_emails) else "").strip()
+            if rl or nm or ph or em2:
+                numbers.append((rl, nm, ph, em2))
+        locations.append({"email": em, "address": ad, "city": ci, "state": st, "numbers": numbers})
+    return locations
 
 
 async def _save_kyc_upload(upload: UploadFile):
@@ -168,26 +193,36 @@ async def list_contacts(
 
     contacted_set = set(activity_map.keys())   # contact IDs that have ≥1 activity
 
-    # Contact-numbers count + tooltip data per contact (one grouped query, no N+1).
-    # numbers_map: str(contact_id) -> list[(person_name, phone)]
-    # numbers_map: str(contact_id) -> list[{name, phone, email}]
+    # Locations + their nested Contact Numbers, grouped per contact (one query, no N+1).
+    # locations_map: str(contact_id) -> list[{address, city, state}]
+    # numbers_map:   str(contact_id) -> list[{location, numbers: [{role, name, phone, email}]}]
+    locations_map: dict = {}
     numbers_map: dict = {}
     if all_ids:
-        num_rows = (await db.execute(
-            select(CRMContactNumber.contact_id,
-                   CRMContactNumber.person_role,
-                   CRMContactNumber.person_name,
-                   CRMContactNumber.phone,
-                   CRMContactNumber.email)
-            .where(CRMContactNumber.contact_id.in_(all_ids))
-            .order_by(CRMContactNumber.contact_id, CRMContactNumber.sort_order)
-        )).all()
-        for r in num_rows:
-            numbers_map.setdefault(str(r.contact_id), []).append({
-                "role": r.person_role or "",
-                "name": r.person_name or "",
-                "phone": r.phone or "",
-                "email": r.email or "",
+        locs_result = await db.execute(
+            select(CRMContactLocation)
+            .where(CRMContactLocation.contact_id.in_(all_ids))
+            .options(selectinload(CRMContactLocation.contact_numbers))
+            .order_by(CRMContactLocation.contact_id, CRMContactLocation.sort_order)
+        )
+        for loc in locs_result.scalars().all():
+            cid = str(loc.contact_id)
+            locations_map.setdefault(cid, []).append({
+                "address": loc.address or "",
+                "city": loc.city or "",
+                "state": loc.state or "",
+            })
+            numbers_map.setdefault(cid, []).append({
+                "location": ", ".join(filter(None, [loc.address, loc.city, loc.state])) or "Location",
+                "numbers": [
+                    {
+                        "role": n.person_role or "",
+                        "name": n.person_name or "",
+                        "phone": n.phone or "",
+                        "email": n.email or "",
+                    }
+                    for n in loc.contact_numbers
+                ],
             })
 
     counts = {
@@ -202,6 +237,7 @@ async def list_contacts(
         "contacts": contacts, "counts": counts,
         "trashed_contacts": trashed_contacts,
         "activity_map": activity_map,
+        "locations_map": locations_map,
         "numbers_map": numbers_map,
         "contacted_set": contacted_set,
         "q": q, "contact_type": contact_type,
@@ -826,7 +862,7 @@ async def new_contact_form(
     )).scalars().all()
     return templates.TemplateResponse("crm/contacts/form.html", {
         "request": request, "current_user": current_user,
-        "contact": None, "contact_numbers": [],
+        "contact": None, "locations": [],
         "source_types": SOURCE_TYPES, "buyer_types": BUYER_TYPES,
         "users": users, "person_roles": PERSON_ROLES,
     })
@@ -865,8 +901,8 @@ async def create_contact(
     current_user: User = Depends(get_current_user),
     _perm: User = Depends(require_module_perm("crm_contacts", "add")),
 ):
-    # Contact person / phone / whatsapp now live per-person in Contact Numbers.
-    number_rows = _parse_contact_numbers(await request.form())
+    # Contact person / phone / whatsapp now live per-person in each Location's Contact Numbers.
+    location_rows = _parse_locations(await request.form())
     for _attempt in range(3):
         code = await _next_code(db)
         contact = CRMContact(
@@ -897,11 +933,23 @@ async def create_contact(
         except IntegrityError:
             await db.rollback()
             continue
-        for i, (rl, nm, ph, em) in enumerate(number_rows):
-            db.add(CRMContactNumber(
-                contact_id=contact.id, person_role=rl or None, person_name=nm or None,
-                phone=ph or None, email=em or None, sort_order=i,
-            ))
+        for i, loc in enumerate(location_rows):
+            location = CRMContactLocation(
+                contact_id=contact.id,
+                contact_email=loc["email"] or None,
+                address=loc["address"] or None,
+                city=loc["city"] or None,
+                state=loc["state"] or None,
+                sort_order=i,
+            )
+            db.add(location)
+            await db.flush()   # assigns location.id
+            for j, (rl, nm, ph, em) in enumerate(loc["numbers"]):
+                db.add(CRMContactNumber(
+                    contact_id=contact.id, location_id=location.id,
+                    person_role=rl or None, person_name=nm or None,
+                    phone=ph or None, email=em or None, sort_order=j,
+                ))
         await db.commit()
         return RedirectResponse(url=f"/crm/contacts/{contact.id}?success=Contact+created", status_code=302)
     return RedirectResponse(url="/crm/contacts?error=Failed+to+generate+unique+contact+code,+please+retry", status_code=302)
@@ -1075,18 +1123,19 @@ async def edit_contact_form(
     contact = result.scalar_one_or_none()
     if not contact:
         return RedirectResponse(url="/crm/contacts?error=Not+found", status_code=302)
-    nums_r = await db.execute(
-        select(CRMContactNumber)
-        .where(CRMContactNumber.contact_id == contact.id)
-        .order_by(CRMContactNumber.sort_order)
+    locs_r = await db.execute(
+        select(CRMContactLocation)
+        .where(CRMContactLocation.contact_id == contact.id)
+        .options(selectinload(CRMContactLocation.contact_numbers))
+        .order_by(CRMContactLocation.sort_order)
     )
-    contact_numbers = nums_r.scalars().all()
+    locations = locs_r.scalars().all()
     users = (await db.execute(
         select(User).where(User.status == True).order_by(User.full_name)
     )).scalars().all()
     return templates.TemplateResponse("crm/contacts/form.html", {
         "request": request, "current_user": current_user,
-        "contact": contact, "contact_numbers": contact_numbers,
+        "contact": contact, "locations": locations,
         "source_types": SOURCE_TYPES, "buyer_types": BUYER_TYPES,
         "users": users, "person_roles": PERSON_ROLES,
     })
@@ -1173,14 +1222,34 @@ async def update_contact(
     if dir2_name:
         contact.director2_doc_path = dir2_name
 
-    # Replace the Contact Numbers child rows with whatever the form submitted.
-    number_rows = _parse_contact_numbers(await request.form())
-    await db.execute(delete(CRMContactNumber).where(CRMContactNumber.contact_id == contact.id))
-    for i, (rl, nm, ph, em) in enumerate(number_rows):
-        db.add(CRMContactNumber(
-            contact_id=contact.id, person_role=rl or None, person_name=nm or None,
-            phone=ph or None, email=em or None, sort_order=i,
-        ))
+    # Replace the Locations (and their nested Contact Numbers) with whatever the form submitted.
+    location_rows = _parse_locations(await request.form())
+    await db.execute(
+        delete(CRMContactNumber).where(
+            CRMContactNumber.location_id.in_(
+                select(CRMContactLocation.id).where(CRMContactLocation.contact_id == contact.id)
+            )
+        )
+    )
+    await db.execute(delete(CRMContactLocation).where(CRMContactLocation.contact_id == contact.id))
+    await db.flush()
+    for i, loc in enumerate(location_rows):
+        location = CRMContactLocation(
+            contact_id=contact.id,
+            contact_email=loc["email"] or None,
+            address=loc["address"] or None,
+            city=loc["city"] or None,
+            state=loc["state"] or None,
+            sort_order=i,
+        )
+        db.add(location)
+        await db.flush()   # assigns location.id
+        for j, (rl, nm, ph, em) in enumerate(loc["numbers"]):
+            db.add(CRMContactNumber(
+                contact_id=contact.id, location_id=location.id,
+                person_role=rl or None, person_name=nm or None,
+                phone=ph or None, email=em or None, sort_order=j,
+            ))
     await db.commit()
     return RedirectResponse(url=f"/crm/contacts/{contact_id}?success=Contact+updated", status_code=302)
 

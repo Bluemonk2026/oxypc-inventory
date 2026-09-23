@@ -95,17 +95,15 @@
         'neutral':        'secondary',
         'pending':        'warning',
       } %}
-      {# Column order: Type | Category | Company | Contacts | Address | City | Recent Contact Date | Status | Notes | Actions #}
+      {# Column order: Type | Category | Company | Locations | Contacts | Status | KYC | Notes | Actions #}
       <table class="table table-hover mb-0 small" id="contactsTable">
         <thead class="table-light">
           <tr>
             <th>Type</th>
             <th>Category</th>
             <th>Company</th>
+            <th>Locations</th>
             <th>Contacts</th>
-            <th>Address</th>
-            <th>City</th>
-            <th>Recent Contact Date</th>
             <th>Status</th>
             <th>KYC</th>
             <th>Notes</th>
@@ -160,42 +158,34 @@
                 {% endif %}
               </div>
             </td>
-            {# 4. Contacts count (child Contact Numbers) — click to open details modal #}
+            {# 4. Locations count — click to open details modal #}
             <td>
-              {% set nums = numbers_map.get(cid, []) %}
-              {% if nums %}
-              <button type="button" class="btn btn-sm btn-info text-dark py-0 px-2 contact-numbers-btn"
+              {% set locs = locations_map.get(cid, []) %}
+              {% if locs %}
+              <button type="button" class="btn btn-sm btn-secondary py-0 px-2 locations-btn"
                       data-company="{{ c.company_name }}"
-                      data-numbers='{{ nums|tojson }}'
-                      title="{{ nums|map(attribute='role')|select|join(', ') or 'No role set' }}">
-                <i class="bi bi-people me-1"></i>{{ nums|length }}
+                      data-locations='{{ locs|tojson }}'>
+                <i class="bi bi-geo-alt me-1"></i>{{ locs|length }}
               </button>
               {% else %}
               <span class="text-muted">0</span>
               {% endif %}
             </td>
-            {# 5. Address #}
+            {# 5. Contacts count (grouped per Location) — click to open details modal #}
             <td>
-              {% if c.address %}
-              <span title="{{ c.address }}" style="cursor:default">
-                {{ c.address[:80] }}{% if c.address | length > 80 %}…{% endif %}
-              </span>
+              {% set groups = numbers_map.get(cid, []) %}
+              {% set total = groups | map(attribute='numbers') | map('length') | sum %}
+              {% if total %}
+              <button type="button" class="btn btn-sm btn-info text-dark py-0 px-2 contact-numbers-btn"
+                      data-company="{{ c.company_name }}"
+                      data-groups='{{ groups|tojson }}'>
+                <i class="bi bi-people me-1"></i>{{ total }}
+              </button>
               {% else %}
-              <span class="text-muted">—</span>
+              <span class="text-muted">0</span>
               {% endif %}
             </td>
-            {# 6. City #}
-            <td>{{ c.city or '—' }}</td>
-            {# 8. Recent Contact Date (from latest activity log) #}
-            <td>
-              {% if last_act_date %}
-              <span class="text-nowrap">{{ last_act_date.strftime('%d-%m-%Y') }}</span>
-              <div class="text-muted" style="font-size:0.7rem">{{ last_act_date.strftime('%H:%M') }}</div>
-              {% else %}
-              <span class="text-muted">—</span>
-              {% endif %}
-            </td>
-            {# 9. Status — renamed from "Last Outcome", shows latest call/activity outcome badge #}
+            {# 6. Status — renamed from "Last Outcome", shows latest call/activity outcome badge #}
             <td>
               {% if last_outcome %}
               <span class="badge bg-{{ oc_colors.get(last_outcome, 'secondary') }}">
@@ -241,7 +231,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="11" class="text-center text-muted py-4">No contacts found. <a href="/crm/contacts/new">Add your first contact</a></td></tr>
+          <tr><td colspan="9" class="text-center text-muted py-4">No contacts found. <a href="/crm/contacts/new">Add your first contact</a></td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -329,6 +319,24 @@
   </div>
 </div>
 
+<!-- Locations detail modal (opened from the Locations count column) -->
+<div class="modal fade" id="locationsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title"><i class="bi bi-geo-alt me-2"></i><span id="locModalCompany"></span> — Locations</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-0">
+        <table class="table table-sm mb-0">
+          <thead class="table-light"><tr><th>Full Address</th><th>City</th><th>State</th></tr></thead>
+          <tbody id="locModalBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Bulk Upload Accounts & Calls modal -->
 <div class="modal fade" id="accountBulkUploadModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
@@ -370,37 +378,64 @@
 {% endblock %}
 {% block scripts %}
 <script>
-// col index: 0=Type,1=Category,2=Company,3=Contacts,4=Address,5=City,6=Recent Contact Date,7=Status,8=Notes,9=Actions
+// col index: 0=Type,1=Category,2=Company,3=Locations,4=Contacts,5=Status,6=KYC,7=Notes,8=Actions
 initGlobalTable('#contactsTable', {
   order: [[2, 'asc']],  // default sort by Company
-  columnDefs: [{ orderable: false, targets: [3, 9] }]  // Contacts + Actions not sortable
+  columnDefs: [{ orderable: false, targets: [3, 4, 8] }]  // Locations + Contacts + Actions not sortable
 });
 
-// Contacts count → open modal listing saved Name / Email / Phone
 (function () {
-  var modalEl = document.getElementById('contactNumbersModal');
-  if (!modalEl) return;
-  var modal = new bootstrap.Modal(modalEl);
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
     });
   }
-  document.querySelectorAll('.contact-numbers-btn').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      var company = this.getAttribute('data-company') || '';
-      var nums = [];
-      try { nums = JSON.parse(this.getAttribute('data-numbers') || '[]'); } catch (e) {}
-      document.getElementById('cnModalCompany').textContent = company;
-      var rows = nums.map(function (n) {
-        return '<tr><td>' + (esc(n.role) || '—') + '</td><td>' + (esc(n.name) || '—') + '</td><td>' +
-               (esc(n.email) || '—') + '</td><td>' + (esc(n.phone) || '—') + '</td></tr>';
-      }).join('');
-      document.getElementById('cnModalBody').innerHTML = rows ||
-        '<tr><td colspan="4" class="text-muted text-center py-3">No contact numbers.</td></tr>';
-      modal.show();
+
+  // Contacts count → open modal listing Name / Email / Phone, grouped by Location
+  var cnModalEl = document.getElementById('contactNumbersModal');
+  if (cnModalEl) {
+    var cnModal = new bootstrap.Modal(cnModalEl);
+    document.querySelectorAll('.contact-numbers-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var company = this.getAttribute('data-company') || '';
+        var groups = [];
+        try { groups = JSON.parse(this.getAttribute('data-groups') || '[]'); } catch (e) {}
+        document.getElementById('cnModalCompany').textContent = company;
+        var html = groups.map(function (g) {
+          var header = '<tr class="table-light"><td colspan="4" class="fw-semibold small">' + esc(g.location) + '</td></tr>';
+          var rows = g.numbers.map(function (n) {
+            return '<tr><td>' + (esc(n.role) || '—') + '</td><td>' + (esc(n.name) || '—') + '</td><td>' +
+                   (esc(n.email) || '—') + '</td><td>' + (esc(n.phone) || '—') + '</td></tr>';
+          }).join('');
+          return header + (rows || '<tr><td colspan="4" class="text-muted text-center py-2">No contact numbers.</td></tr>');
+        }).join('');
+        document.getElementById('cnModalBody').innerHTML = html ||
+          '<tr><td colspan="4" class="text-muted text-center py-3">No locations.</td></tr>';
+        cnModal.show();
+      });
     });
-  });
+  }
+
+  // Locations count → open modal listing Full Address / City / State
+  var locModalEl = document.getElementById('locationsModal');
+  if (locModalEl) {
+    var locModal = new bootstrap.Modal(locModalEl);
+    document.querySelectorAll('.locations-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var company = this.getAttribute('data-company') || '';
+        var locs = [];
+        try { locs = JSON.parse(this.getAttribute('data-locations') || '[]'); } catch (e) {}
+        document.getElementById('locModalCompany').textContent = company;
+        var rows = locs.map(function (l) {
+          return '<tr><td>' + (esc(l.address) || '—') + '</td><td>' + (esc(l.city) || '—') + '</td><td>' +
+                 (esc(l.state) || '—') + '</td></tr>';
+        }).join('');
+        document.getElementById('locModalBody').innerHTML = rows ||
+          '<tr><td colspan="3" class="text-muted text-center py-3">No locations.</td></tr>';
+        locModal.show();
+      });
+    });
+  }
 })();
 </script>
 {% endblock %}

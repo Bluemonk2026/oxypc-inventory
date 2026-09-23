@@ -148,21 +148,29 @@ async def list_users(
         select(func.count(User.id)).where(func.date(User.last_login) == today)
     )).scalar() or 0
 
+    all_users_result = await db.execute(select(User.username, User.full_name))
+    users_by_username = {u.username: u.full_name for u in all_users_result.all()}
+
     return templates.TemplateResponse("admin/users.html", {
         "request": request, "users": users, "current_user": current_user,
         "role_choices": role_choices, "role_label_map": role_label_map,
         "role_filter": role, "last_login_date_filter": last_login_date,
         "show_inactive_filter": show_inactive_on,
         "today_login_count": today_login_count,
+        "users_by_username": users_by_username,
     })
 
 
 @router.get("/users/new", response_class=HTMLResponse)
 async def new_user_form(request: Request, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
     role_choices, role_label_map = await _role_data(db)
+    users_list = (await db.execute(
+        select(User).where(User.status == True).order_by(User.full_name)
+    )).scalars().all()
     return templates.TemplateResponse("admin/user_form.html", {
         "request": request, "current_user": current_user,
-        "role_choices": role_choices, "role_label_map": role_label_map, "edit_user": None
+        "role_choices": role_choices, "role_label_map": role_label_map, "edit_user": None,
+        "users": users_list,
     })
 
 
@@ -175,22 +183,30 @@ async def create_user(
     password: str = Form(...),
     whatsapp_number: str = Form(""),
     email: str = Form(""),
+    designation: str = Form(""),
+    reports_to: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
     existing = await db.execute(select(User).where(User.username == username))
     if existing.scalar_one_or_none():
         role_choices, role_label_map = await _role_data(db)
+        users_list = (await db.execute(
+            select(User).where(User.status == True).order_by(User.full_name)
+        )).scalars().all()
         return templates.TemplateResponse("admin/user_form.html", {
             "request": request, "current_user": current_user,
             "role_choices": role_choices, "role_label_map": role_label_map,
-            "edit_user": None, "error": "Username already exists"
+            "edit_user": None, "error": "Username already exists",
+            "users": users_list,
         })
     user = User(
         username=username, full_name=full_name,
         role=role, password_hash=await hash_password_async(password),
         whatsapp_number=(whatsapp_number.strip() or None),
         email=(email.strip() or None),
+        designation=(designation.strip() or None),
+        reports_to=(reports_to or None),
         created_by=current_user.username, status=True,
     )
     db.add(user)
@@ -210,9 +226,13 @@ async def edit_user_form(user_id: str, request: Request, db: AsyncSession = Depe
     if not edit_user:
         raise HTTPException(404)
     role_choices, role_label_map = await _role_data(db)
+    users_list = (await db.execute(
+        select(User).where(User.status == True, User.id != user_id).order_by(User.full_name)
+    )).scalars().all()
     return templates.TemplateResponse("admin/user_form.html", {
         "request": request, "current_user": current_user,
-        "role_choices": role_choices, "role_label_map": role_label_map, "edit_user": edit_user
+        "role_choices": role_choices, "role_label_map": role_label_map, "edit_user": edit_user,
+        "users": users_list,
     })
 
 
@@ -226,6 +246,8 @@ async def update_user(
     status: str = Form(None),
     whatsapp_number: str = Form(""),
     email: str = Form(""),
+    designation: str = Form(""),
+    reports_to: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -242,11 +264,15 @@ async def update_user(
         )
         if dup.scalar_one_or_none():
             role_choices, role_label_map = await _role_data(db)
+            users_list = (await db.execute(
+                select(User).where(User.status == True, User.id != user.id).order_by(User.full_name)
+            )).scalars().all()
             return templates.TemplateResponse("admin/user_form.html", {
                 "request": request, "current_user": current_user,
                 "role_choices": role_choices, "role_label_map": role_label_map,
                 "edit_user": user,
                 "error": f"Username '{new_username}' is already taken.",
+                "users": users_list,
             }, status_code=400)
         user.username = new_username
 
@@ -255,6 +281,8 @@ async def update_user(
     user.role = role
     user.whatsapp_number = whatsapp_number.strip() or None
     user.email = email.strip() or None
+    user.designation = designation.strip() or None
+    user.reports_to = reports_to or None
     new_status = (status == "on")
     user.status = new_status
     action = "USER_DISABLED" if not new_status and old_vals["status"] else "USER_UPDATED"

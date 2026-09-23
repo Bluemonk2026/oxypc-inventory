@@ -15,13 +15,13 @@
     <div class="row g-3">
       <div class="col-md-4">
         <label class="form-label fw-semibold">Contact Type <span class="text-danger">*</span></label>
-        <select name="contact_type" class="form-select" required>
+        <select name="contact_type" class="form-select" required id="contactTypeSelect">
           <option value="supplier" {% if not contact or contact.contact_type=='supplier' %}selected{% endif %}>Supplier (we buy from them)</option>
           <option value="buyer"    {% if contact and contact.contact_type=='buyer'    %}selected{% endif %}>Buyer (they buy from us)</option>
           <option value="both"     {% if contact and contact.contact_type=='both'     %}selected{% endif %}>Both (buy &amp; sell)</option>
         </select>
       </div>
-      <div class="col-md-4">
+      <div class="col-md-4" id="supplierTypeCol">
         <label class="form-label fw-semibold">Supplier Type (if supplier)</label>
         <select name="source_type" class="form-select">
           <option value="">— Select —</option>
@@ -30,7 +30,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-4">
+      <div class="col-md-4" id="buyerTypeCol">
         <label class="form-label fw-semibold">Buyer Type (if buyer)</label>
         <select name="buyer_type" class="form-select">
           <option value="">— Select —</option>
@@ -46,7 +46,7 @@
       </div>
       <div class="col-md-4">
         <label class="form-label fw-semibold">Company Email</label>
-        <input type="email" name="email" class="form-control" value="{{ contact.email or '' if contact else '' }}" placeholder="email@company.com">
+        <input type="email" name="email" class="form-control" id="companyEmailField" value="{{ contact.email or '' if contact else '' }}" placeholder="email@company.com">
       </div>
       <div class="col-md-4">
         <label class="form-label fw-semibold">Address</label>
@@ -137,59 +137,23 @@
   </div>
 </div>
 
-<!-- ═══ SECTION 3: Contact Numbers ═══ -->
+<!-- ═══ SECTION: Locations ═══ -->
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
-    <span class="fw-semibold"><i class="bi bi-telephone me-2 text-primary"></i>Contact Numbers</span>
-    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addNumberRow()">
-      <i class="bi bi-plus-lg me-1"></i>Add Number
+    <span class="fw-semibold"><i class="bi bi-geo-alt me-2 text-primary"></i>Locations</span>
+    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addLocationBlock()">
+      <i class="bi bi-plus-lg me-1"></i>Add Location
     </button>
   </div>
   <div class="card-body">
-    <div class="text-muted small mb-2">Add one or more people and their phone numbers for this contact.</div>
-    <div class="table-responsive">
-      <table class="table table-sm align-middle mb-0" id="contactNumbersTable">
-        <thead class="table-light">
-          <tr>
-            <th style="width:18%">Person Role</th>
-            <th style="width:27%">Person Name</th>
-            <th style="width:24%">Phone Number</th>
-            <th style="width:23%">Email</th>
-            <th style="width:8%"></th>
-          </tr>
-        </thead>
-        <tbody id="contactNumbersBody">
-          {% for cn in contact_numbers %}
-          <tr>
-            <td>
-              <select name="cn_role[]" class="form-select form-select-sm">
-                <option value="">— Select —</option>
-                {% for r in person_roles %}
-                <option value="{{ r }}" {% if cn.person_role == r %}selected{% endif %}>{{ r }}</option>
-                {% endfor %}
-              </select>
-            </td>
-            <td><input type="text" name="cn_person[]" class="form-control form-control-sm" value="{{ cn.person_name or '' }}" placeholder="Name"></td>
-            <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" value="{{ cn.phone or '' }}" placeholder="Phone number"></td>
-            <td><input type="email" name="cn_email[]" class="form-control form-control-sm" value="{{ cn.email or '' }}" placeholder="email@example.com"></td>
-            <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button></td>
-          </tr>
-          {% else %}
-          <tr>
-            <td>
-              <select name="cn_role[]" class="form-select form-select-sm">
-                <option value="">— Select —</option>
-                {% for r in person_roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
-              </select>
-            </td>
-            <td><input type="text" name="cn_person[]" class="form-control form-control-sm" placeholder="Name"></td>
-            <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" placeholder="Phone number"></td>
-            <td><input type="email" name="cn_email[]" class="form-control form-control-sm" placeholder="email@example.com"></td>
-            <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button></td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="text-muted small mb-2">Add one or more sites/branches for this account. Each location can have its own contact numbers.</div>
+    <div id="locationsContainer">
+      {% for loc in locations %}
+      {% include "crm/contacts/_location_block.html" %}
+      {% else %}
+      {% set loc = None %}
+      {% include "crm/contacts/_location_block.html" %}
+      {% endfor %}
     </div>
   </div>
 </div>
@@ -242,39 +206,87 @@
 </div>
 </div>
 
-<!-- Row template for a new Contact Number -->
-<template id="contactNumberRowTemplate">
+<!-- Block templates for a new Location / Contact Number row -->
+<template id="locationBlockTemplate">
+  {% set loc = None %}
+  {% include "crm/contacts/_location_block.html" %}
+</template>
+<template id="numberRowTemplate">
   <tr>
-    <td>
-      <select name="cn_role[]" class="form-select form-select-sm">
-        <option value="">— Select —</option>
-        {% for r in person_roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
-      </select>
-    </td>
+    <td><select name="cn_role[]" class="form-select form-select-sm">
+      <option value="">— Select —</option>
+      {% for r in person_roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+    </select></td>
     <td><input type="text" name="cn_person[]" class="form-control form-control-sm" placeholder="Name"></td>
     <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" placeholder="Phone number"></td>
     <td><input type="email" name="cn_email[]" class="form-control form-control-sm" placeholder="email@example.com"></td>
-    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button></td>
+    <td class="text-center">
+      <input type="hidden" name="cn_location_index[]" class="cn-loc-index" value="0">
+      <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button>
+    </td>
   </tr>
 </template>
 {% endblock %}
 {% block scripts %}
 <script>
-function addNumberRow() {
-  var tpl = document.getElementById('contactNumberRowTemplate');
+function addLocationBlock() {
+  var tpl = document.getElementById('locationBlockTemplate');
   var clone = tpl.content.cloneNode(true);
-  document.getElementById('contactNumbersBody').appendChild(clone);
+  document.getElementById('locationsContainer').appendChild(clone);
+  syncLocationIndices();
+}
+function removeLocationBlock(btn) {
+  var blocks = document.querySelectorAll('#locationsContainer .location-block');
+  if (blocks.length <= 1) return; // keep at least one Location block
+  btn.closest('.location-block').remove();
+  syncLocationIndices();
+}
+function addNumberRow(btn) {
+  var tpl = document.getElementById('numberRowTemplate');
+  var clone = tpl.content.cloneNode(true);
+  btn.closest('.location-block').querySelector('.loc-numbers-body').appendChild(clone);
+  syncLocationIndices();
 }
 function removeNumberRow(btn) {
-  // Always keep at least one row so the section never becomes empty.
-  var rows = document.querySelectorAll('#contactNumbersBody tr');
+  var body = btn.closest('.loc-numbers-body');
+  var rows = body.querySelectorAll('tr');
   if (rows.length <= 1) {
+    // Always keep at least one row so the section never becomes empty.
     var r = btn.closest('tr');
-    r.querySelectorAll('input').forEach(function (i) { i.value = ''; });
+    r.querySelectorAll('input').forEach(function (i) { if (i.type !== 'hidden') i.value = ''; });
     r.querySelectorAll('select').forEach(function (s) { s.selectedIndex = 0; });
     return;
   }
   btn.closest('tr').remove();
 }
+function syncLocationIndices() {
+  document.querySelectorAll('#locationsContainer .location-block').forEach(function (block, idx) {
+    block.querySelectorAll('.cn-loc-index').forEach(function (input) { input.value = idx; });
+  });
+}
+function toggleLocEmailSame(checkbox) {
+  var block = checkbox.closest('.location-block');
+  var input = block.querySelector('.loc-email-input');
+  if (checkbox.checked) {
+    var companyEmail = document.getElementById('companyEmailField');
+    input.value = companyEmail ? companyEmail.value : '';
+    input.readOnly = true;
+  } else {
+    input.readOnly = false;
+  }
+}
+function toggleContactTypeDropdowns() {
+  var val = document.getElementById('contactTypeSelect').value;
+  var supplierCol = document.getElementById('supplierTypeCol');
+  var buyerCol = document.getElementById('buyerTypeCol');
+  supplierCol.style.display = (val === 'supplier' || val === 'both') ? '' : 'none';
+  buyerCol.style.display = (val === 'buyer' || val === 'both') ? '' : 'none';
+}
+document.addEventListener('DOMContentLoaded', function () {
+  syncLocationIndices();
+  toggleContactTypeDropdowns();
+  document.getElementById('contactTypeSelect').addEventListener('change', toggleContactTypeDropdowns);
+  document.querySelector('form').addEventListener('submit', syncLocationIndices);
+});
 </script>
 {% endblock %}

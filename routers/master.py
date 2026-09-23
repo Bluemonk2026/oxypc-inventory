@@ -183,6 +183,7 @@ PERM_MODULES = [
     ("trade_partner_floors",      "External Partner - Margin Floors"),
     ("trade_partner_settings",    "External Partner - Portal Settings"),
     ("trade_partner_manage_lots", "External Partner - Manage Lots"),
+    ("trade_partner_all_deals",   "External Partner - All Deals"),
     ("trade_partner_bids",        "External Partner - Bids Created"),
     # ── CUSTOMER CARE AGENT ──────────────────────────────────────────
     ("care_support",         "Customer Care"),

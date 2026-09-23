@@ -359,6 +359,7 @@
             or (has_perm(role,'trade_partner_floors','enable') and not module_hidden('trade_partner_floors'))
             or (has_perm(role,'trade_partner_settings','enable') and not module_hidden('trade_partner_settings'))
             or (has_perm(role,'trade_partner_manage_lots','enable') and not module_hidden('trade_partner_manage_lots'))
+            or (has_perm(role,'trade_partner_all_deals','enable') and not module_hidden('trade_partner_all_deals'))
             or (has_perm(role,'trade_partner_bids','enable') and not module_hidden('trade_partner_bids')) %}
       <li class="nav-section">EXTERNAL PARTNER</li>
       {% endif %}
@@ -380,6 +381,11 @@
       {% if has_perm(role,'trade_partner_manage_lots','enable') and not module_hidden('trade_partner_manage_lots') %}
       <li><a href="/trade-partner/manage-lots" class="nav-link {% if request.url.path.startswith('/trade-partner/manage-lots') %}active{% endif %}">
         <i class="bi bi-box-seam me-2"></i> {{ sidebar_label('trade_partner_manage_lots', 'Manage Lots') }}
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'trade_partner_all_deals','enable') and not module_hidden('trade_partner_all_deals') %}
+      <li><a href="/deals" class="nav-link {% if request.url.path.startswith('/deals') %}active{% endif %}">
+        <i class="bi bi-briefcase me-2"></i> {{ sidebar_label('trade_partner_all_deals', 'All Deals') }}
       </a></li>
       {% endif %}
       {% if has_perm(role,'trade_partner_bookings','enable') and not module_hidden('trade_partner_bookings') %}

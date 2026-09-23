@@ -147,20 +147,55 @@ class CRMContact(Base):
     contact_numbers  = relationship("CRMContactNumber",    back_populates="contact",
                                     cascade="all, delete-orphan",
                                     order_by="CRMContactNumber.sort_order")
+    locations = relationship(
+        "CRMContactLocation", back_populates="contact",
+        cascade="all, delete-orphan", order_by="CRMContactLocation.sort_order",
+    )
+
+
+class CRMContactLocation(Base):
+    """A site/branch location for a CRM contact (one contact → many locations).
+
+    Sits alongside the contact's own Company Details address (which is left
+    untouched) — this is the "Locations" section on the New/Edit Account form.
+    Each location owns its own set of CRMContactNumber rows (moved here from
+    being contact-level, per the 2026-09-23 Locations feature).
+    """
+    __tablename__ = "crm_contact_locations"
+
+    id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    contact_id    = Column(UUID(as_uuid=True), ForeignKey("crm_contacts.id"), nullable=False, index=True)
+    contact_email = Column(String(100), nullable=True)
+    address       = Column(String(300), nullable=True)
+    city          = Column(String(100), nullable=True)
+    state         = Column(String(100), nullable=True)
+    sort_order    = Column(Integer, default=0)
+    created_at    = Column(DateTime, default=app_now)
+
+    contact = relationship("CRMContact", back_populates="locations")
+    contact_numbers = relationship(
+        "CRMContactNumber", back_populates="location",
+        cascade="all, delete-orphan", order_by="CRMContactNumber.sort_order",
+    )
 
 
 class CRMContactNumber(Base):
-    """Additional person + phone entries for a contact (one contact → many numbers).
+    """Additional person + phone entries for a contact location (one location → many numbers).
 
     The parent CRMContact keeps its single primary `phone`/`whatsapp`; this child
     table holds the extra people/numbers added via the "Contact Numbers" section
-    on the New/Edit Contact form. Managed as line-items (cascade delete-orphan),
-    mirroring CRMQuoteItem / CRMPOLineItem.
+    nested under each Location on the New/Edit Contact form. Managed as line-items
+    (cascade delete-orphan), mirroring CRMQuoteItem / CRMPOLineItem.
+
+    `contact_id` is legacy (pre-2026-09-24 rows were linked directly to the
+    contact, before the Locations feature existed) — left in place, unused by
+    new writes, rather than dropped. `location_id` is the live FK going forward.
     """
     __tablename__ = "crm_contact_numbers"
 
     id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    contact_id  = Column(UUID(as_uuid=True), ForeignKey("crm_contacts.id"), nullable=False, index=True)
+    contact_id  = Column(UUID(as_uuid=True), ForeignKey("crm_contacts.id"), nullable=True, index=True)
+    location_id = Column(UUID(as_uuid=True), ForeignKey("crm_contact_locations.id"), nullable=True, index=True)
     person_role = Column(String(30),  nullable=True)   # Directors/Finance/Manager/Other
     person_name = Column(String(100), nullable=True)
     phone       = Column(String(20),  nullable=True)
@@ -169,6 +204,7 @@ class CRMContactNumber(Base):
     created_at  = Column(DateTime,    default=app_now)
 
     contact = relationship("CRMContact", back_populates="contact_numbers")
+    location = relationship("CRMContactLocation", back_populates="contact_numbers")
 
 
 class CRMSourcingDeal(Base):

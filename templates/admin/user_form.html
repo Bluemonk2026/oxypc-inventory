@@ -52,6 +52,23 @@
               {% endfor %}
             </select>
           </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Designation</label>
+            <input type="text" name="designation" class="form-control"
+                   value="{{ edit_user.designation if edit_user and edit_user.designation else '' }}"
+                   placeholder="e.g. Regional Sales Manager">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Report To</label>
+            <select name="reports_to" class="form-select">
+              <option value="">— None —</option>
+              {% for u in users %}
+              <option value="{{ u.username }}" {% if edit_user and edit_user.reports_to == u.username %}selected{% endif %}>
+                {{ u.full_name }} ({{ u.username }})
+              </option>
+              {% endfor %}
+            </select>
+          </div>
           {% if edit_user %}
           <div class="mb-3">
             <div class="form-check form-switch">

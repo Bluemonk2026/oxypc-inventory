@@ -1,0 +1,78 @@
+<div class="location-block border rounded p-3 mb-3">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <span class="fw-semibold small text-muted">Location</span>
+    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeLocationBlock(this)"><i class="bi bi-trash"></i> Remove Location</button>
+  </div>
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">Contact Email</label>
+      <input type="email" name="loc_email[]" class="form-control loc-email-input" value="{{ loc.contact_email or '' if loc else '' }}" placeholder="email@example.com">
+      <div class="form-check mt-1">
+        <input class="form-check-input loc-email-same" type="checkbox" onchange="toggleLocEmailSame(this)">
+        <label class="form-check-label small">Same as company details</label>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">Address</label>
+      <input type="text" name="loc_address[]" class="form-control" value="{{ loc.address or '' if loc else '' }}" placeholder="Address">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">City</label>
+      <input type="text" name="loc_city[]" class="form-control" value="{{ loc.city or '' if loc else '' }}" placeholder="City">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">State</label>
+      <select name="loc_state[]" class="form-select">
+        <option value="">— Select —</option>
+        {% for s in master_options('customer_state') %}
+        <option value="{{ s }}" {% if loc and loc.state == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <div class="mt-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <span class="fw-semibold small"><i class="bi bi-telephone me-1"></i>Contact Numbers for this Location</span>
+      <button type="button" class="btn btn-sm btn-outline-primary" onclick="addNumberRow(this)"><i class="bi bi-plus-lg me-1"></i>Add Number</button>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0 loc-numbers-table">
+        <thead class="table-light">
+          <tr><th style="width:18%">Person Role</th><th style="width:27%">Person Name</th><th style="width:24%">Phone Number</th><th style="width:23%">Email</th><th style="width:8%"></th></tr>
+        </thead>
+        <tbody class="loc-numbers-body">
+          {% for cn in (loc.contact_numbers if loc else []) %}
+          <tr>
+            <td><select name="cn_role[]" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              {% for r in person_roles %}<option value="{{ r }}" {% if cn.person_role == r %}selected{% endif %}>{{ r }}</option>{% endfor %}
+            </select></td>
+            <td><input type="text" name="cn_person[]" class="form-control form-control-sm" value="{{ cn.person_name or '' }}" placeholder="Name"></td>
+            <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" value="{{ cn.phone or '' }}" placeholder="Phone number"></td>
+            <td><input type="email" name="cn_email[]" class="form-control form-control-sm" value="{{ cn.email or '' }}" placeholder="email@example.com"></td>
+            <td class="text-center">
+              <input type="hidden" name="cn_location_index[]" class="cn-loc-index" value="0">
+              <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td><select name="cn_role[]" class="form-select form-select-sm">
+              <option value="">— Select —</option>
+              {% for r in person_roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+            </select></td>
+            <td><input type="text" name="cn_person[]" class="form-control form-control-sm" placeholder="Name"></td>
+            <td><input type="text" name="cn_phone[]" class="form-control form-control-sm" placeholder="Phone number"></td>
+            <td><input type="email" name="cn_email[]" class="form-control form-control-sm" placeholder="email@example.com"></td>
+            <td class="text-center">
+              <input type="hidden" name="cn_location_index[]" class="cn-loc-index" value="0">
+              <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeNumberRow(this)"><i class="bi bi-trash"></i></button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

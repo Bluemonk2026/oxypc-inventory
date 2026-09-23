@@ -2086,6 +2086,50 @@ async def credit_note_bulk_verify(
     return RedirectResponse(url=f"/credit-note?success={msg}", status_code=302)
 
 
+@router.post("/credit-note/export")
+async def credit_note_export_selected(
+    return_id: list[str] = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_module_perm("credit_note")),
+):
+    """Credit Note page's Export button — CSV of exactly the checked rows,
+    same columns the table shows. Shares the row-selection checkboxes with
+    Bulk Verify/Delete (see credit_note.html) — a row at CN Complete has its
+    checkbox disabled there, so it can't be selected for this either."""
+    ids = []
+    for r in return_id:
+        try:
+            ids.append(_uuid.UUID(r))
+        except ValueError:
+            continue
+    if not ids:
+        return RedirectResponse(url="/credit-note?error=Select+at+least+one+row", status_code=302)
+
+    base = await _credit_note_query_base(db)
+    rows = (await db.execute(
+        base.where(Return.id.in_(ids)).order_by(Return.return_date.desc())
+    )).all()
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Tag Number", "Tag Return Status", "Lot Number", "Sub-Lot Number", "Device Price",
+                "Sale Date", "Debit Amount", "Debit Number", "Sale Number", "Payment Invoice",
+                "Sender Name", "Sender Phone", "Sender Email", "Status"])
+    for ret, device, lot_num, sale_id, sale_num, sold_at in rows:
+        w.writerow([
+            device.barcode, device.tag_return_status or "", lot_num or "", device.sub_lot_number or "",
+            f"{device.device_price:.2f}" if device.device_price is not None else "",
+            sold_at.strftime("%d-%m-%Y") if sold_at else "",
+            f"{ret.debit_note_amount:,.0f}" if ret.debit_note_amount is not None else "",
+            ret.debit_note_number or "", sale_num or "", ret.payment_invoice or "",
+            ret.customer_name or "", ret.customer_phone or "", ret.customer_email or "",
+            ret.cn_stage,
+        ])
+    buf.seek(0)
+    return StreamingResponse(io.BytesIO(buf.getvalue().encode()), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=credit_note_selected.csv"})
+
+
 # ── Manager: pending returns list ─────────────────────────────────────────────
 
 MANAGER_ROLES = (UserRole.admin, UserRole.sales_manager)

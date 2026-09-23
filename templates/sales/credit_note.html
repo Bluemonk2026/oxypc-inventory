@@ -82,6 +82,9 @@
       <button type="button" id="cnBulkDeleteBtn" class="btn btn-sm btn-outline-danger" disabled>
         <i class="bi bi-trash me-1"></i>Delete (<span id="cnDeleteSelCount">0</span>)
       </button>
+      <button type="button" id="cnExportBtn" class="btn btn-sm btn-outline-success" disabled>
+        <i class="bi bi-download me-1"></i>Export (<span id="cnExportSelCount">0</span>)
+      </button>
     </div>
   </div>
   <div class="card-body p-0">
@@ -100,7 +103,10 @@
           {% for row in credit_note_rows %}
           {% set d = row.device %}{% set ret = row.ret %}
           <tr>
-            <td class="ps-3"><input type="checkbox" class="form-check-input cn-row-chk" value="{{ row.return_id }}"></td>
+            <td class="ps-3">
+              <input type="checkbox" class="form-check-input cn-row-chk" value="{{ row.return_id }}"
+                     {% if ret.cn_stage == 'CN Complete' %}disabled title="Already at final stage — nothing left to verify, delete, or export"{% endif %}>
+            </td>
             <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
             <td>{{ d.tag_return_status or '—' }}</td>
             <td><span class="badge bg-info text-dark">{{ row.lot_number or '—' }}</span></td>
@@ -154,13 +160,16 @@
   </div>
 </div>
 
-<!-- Bulk Verify / Bulk Delete hidden forms — populated with the checked
-     rows' return_id right before submit, same pattern as other bulk
+<!-- Bulk Verify / Bulk Delete / Export hidden forms — populated with the
+     checked rows' return_id right before submit, same pattern as other bulk
      actions in this app (e.g. Manage Lots' bulk Move to Ready for Sale). -->
 <form method="post" action="/credit-note/bulk-verify" id="cnBulkVerifyForm" style="display:none">
   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
 </form>
 <form method="post" action="/credit-note/bulk-delete" id="cnBulkDeleteForm" style="display:none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+</form>
+<form method="post" action="/credit-note/export" id="cnExportForm" style="display:none">
   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
 </form>
 
@@ -196,25 +205,34 @@ document.querySelectorAll('.sender-badge-btn').forEach(function(btn){
   });
 });
 
-// ── Row selection + Bulk Verify / Bulk Delete ──
+// ── Row selection + Bulk Verify / Bulk Delete / Export ──
+// A row at CN Complete (final stage) renders its checkbox `disabled` in the
+// template — nothing left to verify, and per explicit instruction it's also
+// excluded from Bulk Delete and Export, so every selector below scopes to
+// ':not(:disabled)' rather than assuming "all checkboxes are selectable".
 (function(){
   var selectAll = document.getElementById('cnSelectAll');
   var verifyBtn = document.getElementById('cnBulkVerifyBtn');
   var deleteBtn = document.getElementById('cnBulkDeleteBtn');
+  var exportBtn = document.getElementById('cnExportBtn');
   var verifyCount = document.getElementById('cnVerifySelCount');
   var deleteCount = document.getElementById('cnDeleteSelCount');
+  var exportCount = document.getElementById('cnExportSelCount');
   if (!selectAll) return;
 
+  function selectableChks(){ return document.querySelectorAll('.cn-row-chk:not(:disabled)'); }
   function selectedIds(){
-    return Array.from(document.querySelectorAll('.cn-row-chk:checked')).map(function(c){ return c.value; });
+    return Array.from(document.querySelectorAll('.cn-row-chk:checked:not(:disabled)')).map(function(c){ return c.value; });
   }
   function updateSel(){
     var n = selectedIds().length;
     verifyCount.textContent = n;
     deleteCount.textContent = n;
+    exportCount.textContent = n;
     verifyBtn.disabled = n === 0;
     deleteBtn.disabled = n === 0;
-    var all = document.querySelectorAll('.cn-row-chk');
+    exportBtn.disabled = n === 0;
+    var all = selectableChks();
     selectAll.checked = all.length > 0 && n === all.length;
   }
   function fillHiddenIds(form, ids){
@@ -227,7 +245,7 @@ document.querySelectorAll('.sender-badge-btn').forEach(function(btn){
   }
 
   selectAll.addEventListener('change', function(){
-    document.querySelectorAll('.cn-row-chk').forEach(function(c){ c.checked = selectAll.checked; });
+    selectableChks().forEach(function(c){ c.checked = selectAll.checked; });
     updateSel();
   });
   document.querySelectorAll('.cn-row-chk').forEach(function(c){
@@ -248,6 +266,13 @@ document.querySelectorAll('.sender-badge-btn').forEach(function(btn){
     if (!confirm('Permanently delete ' + ids.length + ' selected return record(s)? This cannot be undone.')) return;
     fillHiddenIds(document.getElementById('cnBulkDeleteForm'), ids);
     document.getElementById('cnBulkDeleteForm').submit();
+  });
+
+  exportBtn.addEventListener('click', function(){
+    var ids = selectedIds();
+    if (!ids.length) return;
+    fillHiddenIds(document.getElementById('cnExportForm'), ids);
+    document.getElementById('cnExportForm').submit();
   });
 
   document.querySelectorAll('.cn-delete-form').forEach(function(form){

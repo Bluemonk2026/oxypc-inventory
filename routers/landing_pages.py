@@ -99,6 +99,7 @@ NAV_PAGE_TITLES = [
     ("sales",                "Ready to Sale",                 "Ready to Sale",                 "/sales/ready"),
     ("sales_list",           "Sales List",                    "Sales List",                    "/sales"),
     ("ready_to_sale_parts",  "Ready to Sale Parts",           "Ready to Sale Parts",           "/ready-to-sale-parts"),
+    ("scrap_for_sale",       "Scrap for Sale",                "Scrap for Sale",                "/scrap-for-sale"),
     ("part_sales",           "Spare Part Sales",              "Spare Part Sales",              "/part-sales"),
     ("gate_pass",            "Gate Pass",                     "Gate Pass",                     "/gate-pass"),
     ("returns",              "Returns",                       "Process Return",                "/returns"),

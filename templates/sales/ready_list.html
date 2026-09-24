@@ -61,12 +61,13 @@
       <thead class="table-dark">
         <tr>
           <th><input type="checkbox" id="readySelectAll" class="form-check-input"></th>
-          <th>Tag Number</th><th>Lot</th><th>Brand</th><th>Model</th>
+          <th>Tag Number</th><th>Lot</th><th>Location ID</th><th>Brand</th><th>Model</th>
           <th>RAM</th><th>Storage</th><th>Grade</th>
           {% if can_view_pricing(current_user) %}
           <th title="Device-specific price if set, otherwise Lot Buying Price ÷ Lot Qty">Unit Cost</th>
           {% endif %}
           <th>Warranty</th>
+          <th>Assigned To</th>
           <th>Action</th>
         </tr>
       </thead>
@@ -86,11 +87,12 @@
     <table id="asIsLotTable" class="table table-hover mb-0 small">
       <thead class="table-dark">
         <tr>
-          <th>Lot Number</th><th>Sub Lot</th><th>Device Type</th>
+          <th>Lot Number</th><th>Sub Lot</th><th>Device Type</th><th>Model Name</th>
           <th>Total Quantities</th><th>Availability</th>
-          <th>Min Selling Price</th><th>Max Selling Price</th><th>Action</th>
-          {# Hidden — searchable only, so the toolbar search box can match Model/CPU/RAM/Storage #}
-          <th class="d-none">Model</th><th class="d-none">CPU</th><th class="d-none">RAM</th><th class="d-none">Storage</th>
+          <th>Min Selling Price</th><th>Max Selling Price</th><th>Assigned To</th><th>Action</th>
+          {# Hidden — searchable only, so the toolbar search box can match these too #}
+          <th class="d-none">CPU</th><th class="d-none">RAM</th><th class="d-none">Storage</th>
+          <th class="d-none">Device Types</th><th class="d-none">Models</th>
         </tr>
       </thead>
       <tbody>
@@ -98,11 +100,29 @@
         <tr>
           <td class="font-monospace">{{ r.lot_number or '—' }}</td>
           <td class="font-monospace">{{ r.sub_lot_number }}</td>
-          <td>{{ r.device_type or '—' }}</td>
+          <td>
+            {% if r.device_type_breakdown %}
+            <button type="button" class="btn btn-sm btn-secondary py-0 px-2 as-is-lot-devtype-btn"
+                    data-label="{{ r.lot_number or '' }} / {{ r.sub_lot_number }}"
+                    data-items='{{ r.device_type_breakdown | tojson }}'>
+              <i class="bi bi-laptop me-1"></i>{{ r.device_type_count }}
+            </button>
+            {% else %}<span class="text-muted">0</span>{% endif %}
+          </td>
+          <td>
+            {% if r.model_breakdown %}
+            <button type="button" class="btn btn-sm btn-info text-dark py-0 px-2 as-is-lot-model-btn"
+                    data-label="{{ r.lot_number or '' }} / {{ r.sub_lot_number }}"
+                    data-items='{{ r.model_breakdown | tojson }}'>
+              <i class="bi bi-tag me-1"></i>{{ r.model_count }}
+            </button>
+            {% else %}<span class="text-muted">0</span>{% endif %}
+          </td>
           <td>{{ r.total_qty }}</td>
           <td>{{ r.availability }}</td>
           <td>{% if r.min_price is not none %}₹{{ "{:,.0f}".format(r.min_price) }}{% else %}—{% endif %}</td>
           <td>{% if r.max_price is not none %}₹{{ "{:,.0f}".format(r.max_price) }}{% else %}—{% endif %}</td>
+          <td>{{ r.assigned_to_name }}</td>
           <td class="text-nowrap">
             <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 as-is-lot-edit-btn"
                     data-lot-id="{{ r.lot_id }}" data-sub-lot="{{ r.sub_lot_number }}"
@@ -114,10 +134,11 @@
             <a href="/sales/new?barcodes={{ r.barcodes|join(',') }}&qty={{ r.barcodes|length }}"
                class="btn btn-sm btn-outline-success py-0 px-2">Sell</a>
           </td>
-          <td class="d-none">{{ r.model }}</td>
           <td class="d-none">{{ r.cpu }}</td>
           <td class="d-none">{{ r.ram }}</td>
           <td class="d-none">{{ r.storage }}</td>
+          <td class="d-none">{{ r.device_type_breakdown | map(attribute='name') | join(', ') }}</td>
+          <td class="d-none">{{ r.model_breakdown | map(attribute='name') | join(', ') }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -153,6 +174,42 @@
         <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Save</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- As-Is Lot Device Type / Model Name breakdown modals -->
+<div class="modal fade" id="asIsLotDevTypeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-laptop me-2"></i>Device Types
+          <span id="devTypeModalLabel" class="fw-normal small text-muted ms-2"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <table class="table table-sm mb-0">
+          <thead class="table-light"><tr><th>Device Type</th><th class="text-end">Count</th></tr></thead>
+          <tbody id="devTypeModalBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="asIsLotModelModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-tag me-2"></i>Model Names
+          <span id="modelModalLabel" class="fw-normal small text-muted ms-2"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <table class="table table-sm mb-0">
+          <thead class="table-light"><tr><th>Model Name</th><th class="text-end">Count</th></tr></thead>
+          <tbody id="modelModalBody"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -272,49 +329,6 @@
   <input type="hidden" name="qty" id="multiSellQty">
 </form>
 
-<!-- Requests for Lot — browse every lot, request or approve/handover -->
-<div class="card border-0 shadow-sm mb-3 mt-3">
-  <div class="card-header bg-transparent">
-    <span class="fw-semibold"><i class="bi bi-box-seam me-2"></i>Requests for Lot</span>
-  </div>
-  <div class="card-body p-0">
-    <table id="lotOverviewTable" class="table table-hover mb-0 small align-middle">
-      <thead class="table-dark"><tr>
-        <th class="ps-3">Lot Number</th><th>Purchase Date</th><th>Supplier Name</th><th>Device Type</th>
-        <th>Total Quantity</th><th>Requested Quantity</th><th>Stock Price</th><th>Selling Price</th><th>Action</th>
-      </tr></thead>
-      <tbody>
-        {% for l in lot_overview %}
-        <tr>
-          <td class="ps-3 font-monospace">{{ l.lot_number }}</td>
-          <td class="text-muted small">{{ l.purchase_date.strftime('%d-%m-%Y') if l.purchase_date else '—' }}</td>
-          <td>{{ l.supplier_name or '—' }}</td>
-          <td>{{ l.device_type }}</td>
-          <td><span class="badge bg-info text-dark">{{ l.total_quantity }}</span></td>
-          <td><span class="badge bg-{{ 'warning text-dark' if l.requested_quantity else 'light text-muted border' }}">{{ l.requested_quantity }}</span></td>
-          <td>&#8377;{{ '%.2f'|format(l.stock_price) }}</td>
-          <td>{% if l.selling_price is not none %}&#8377;{{ '%.2f'|format(l.selling_price) }}{% else %}—{% endif %}</td>
-          <td>
-            <form method="post" action="/dispatch/request" class="d-inline">
-              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
-              <input type="hidden" name="barcode" value="{{ l.sample_barcode }}">
-              <input type="hidden" name="source" value="lot">
-              <input type="hidden" name="qty" value="1">
-              <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2">Request</button>
-            </form>
-            {% if l.sample_barcode %}
-            <a href="/sales/new?barcodes={{ l.sample_barcode }}&qty=1"
-               class="btn btn-sm btn-success py-0 px-2 ms-1">Sell</a>
-            {% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="9" class="text-center text-muted small py-3">No lots available.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
 <!-- Bulk Upload Tags modal: CSV of tag numbers → ticks the matching ready rows -->
 <div class="modal fade" id="bulkTagModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
@@ -459,15 +473,16 @@ document.getElementById('multiRequestBtn').addEventListener('click', function(){
   document.getElementById('multiRequestForm').submit();
 });
 
-// ── Ready to Sale As-Is Lot (Global Table) — Model/CPU/RAM/Storage are
-// hidden columns so the toolbar search box matches them too, even though
-// the table only ever shows one row per (Lot, Sub-Lot). ───────────────────
+// ── Ready to Sale As-Is Lot (Global Table) — CPU/RAM/Storage plus joined
+// Device Type/Model text are hidden columns so the toolbar search box
+// matches them too, even though the table only ever shows one row per
+// (Lot, Sub-Lot). ──────────────────────────────────────────────────────────
 var dtAsIsLot = initGlobalTable('#asIsLotTable', {
   order: [[0, 'asc']],
   language: { emptyTable: "No As-Is Lot tags currently Ready to Sale." },
   columnDefs: [
-    { orderable: false, targets: [7] },
-    { visible: false, targets: [8, 9, 10, 11] },
+    { orderable: false, targets: [9] },
+    { visible: false, targets: [10, 11, 12, 13, 14] },
   ],
 });
 $(dtAsIsLot.table().container()).find('input[type="search"]')
@@ -485,13 +500,34 @@ document.querySelectorAll('.as-is-lot-edit-btn').forEach(function(btn){
   });
 });
 
+// ── Device Type / Model Name breakdown modals — same "count badge with a
+// data-items JSON payload, filled client-side, no round-trip" pattern as
+// CRM Contacts' Locations/Contacts count badges. ────────────────────────────
+function escHtml(v){
+  var d = document.createElement('div');
+  d.textContent = v == null ? '' : String(v);
+  return d.innerHTML;
+}
+function wireBreakdownModal(btnSelector, modalId, labelId, bodyId){
+  var modalEl = document.getElementById(modalId);
+  var modal = new bootstrap.Modal(modalEl);
+  document.querySelectorAll(btnSelector).forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.getElementById(labelId).textContent = this.getAttribute('data-label') || '';
+      var items = JSON.parse(this.getAttribute('data-items') || '[]');
+      document.getElementById(bodyId).innerHTML = items.map(function(it){
+        return '<tr><td>' + escHtml(it.name) + '</td><td class="text-end">' + escHtml(it.count) + '</td></tr>';
+      }).join('') || '<tr><td colspan="2" class="text-center text-muted">None</td></tr>';
+      modal.show();
+    });
+  });
+}
+wireBreakdownModal('.as-is-lot-devtype-btn', 'asIsLotDevTypeModal', 'devTypeModalLabel', 'devTypeModalBody');
+wireBreakdownModal('.as-is-lot-model-btn', 'asIsLotModelModal', 'modelModalLabel', 'modelModalBody');
+
 // ── Model Summary: checkboxes + per-row Request modal + Request Selected ──
 if (!$.fn.dataTable.isDataTable('#readyModelSummaryTable'))
   $('#readyModelSummaryTable').DataTable({pageLength:12, columnDefs:[{orderable:false, targets:[0,8]}]});
-
-// ── Requests for Lot: search + pagination ──
-if (!$.fn.dataTable.isDataTable('#lotOverviewTable'))
-  $('#lotOverviewTable').DataTable({pageLength:12, columnDefs:[{orderable:false, targets:[-1]}]});
 
 function selectedModelSumRows(){ return Array.from(document.querySelectorAll('.modelSumChk:checked')); }
 function updateModelSumSel(){

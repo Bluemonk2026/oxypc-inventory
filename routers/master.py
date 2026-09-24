@@ -192,6 +192,7 @@ PERM_MODULES = [
     ("sales",                "Ready to Sale"),
     ("sales_list",           "Sales List"),
     ("ready_to_sale_parts",  "Ready to Sale Parts"),
+    ("scrap_for_sale",       "Scrap for Sale"),
     ("part_sales",           "Spare Part Sales"),
     ("gate_pass",            "Gate Pass"),
     ("partner_payments",     "Partner Payments"),

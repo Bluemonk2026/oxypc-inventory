@@ -30,7 +30,7 @@
         'showroom_lot': 'Showroom Lot',
         'internal': 'Internal',
       } %}
-      {% set _ = transfer_type_labels.update({'as_is_lot': 'As-Is Lot'}) %}
+      {% set _ = transfer_type_labels.update({'as_is_lot': 'As-Is Lot', 'ready_for_sale': 'Ready for Sale', 'scrap_for_sale': 'Scrap for Sale'}) %}
       <select name="transfer_type" class="form-select {{ prefix }}-transfer-type" required>
         <option value="">— Select Transfer Type —</option>
         {% for t in master_options('transfer_type') if t != 'internal' %}

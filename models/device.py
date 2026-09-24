@@ -194,6 +194,11 @@ class Device(Base):
     # no default/computed value.
     min_selling_price = Column(Numeric(12, 2), nullable=True)
     max_selling_price = Column(Numeric(12, 2), nullable=True)
+    # Set in bulk by GRN Post-IQC's "Yes As-Is" modal or by /transfers when
+    # Transfer Type is Ready for Sale / As-Is Lot / Scrap for Sale — the
+    # employee this Tag Number is currently assigned to. Additive; auto-
+    # provisioned by db_validator.
+    assigned_to_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     # ── L1/L2 → L3/L4 status-driven hand-off flow (additive; auto-provisioned by db_validator) ──
     l1l2_status = Column(String(30), nullable=True, default="New")   # New | Repair Started | Requested to L3/L4
     l34_status  = Column(String(30), nullable=True)                  # (blank) | Repair Started | Completed | Normal Scrap | Replacement Scrap

@@ -156,6 +156,8 @@ from routers.bulk_upload import router as bulk_upload_router
 from routers.cosmetic import router as cosmetic_router
 from routers.workid_status import router as workid_status_router
 from routers.scrap import router as scrap_router
+from routers.scrap_for_sale import router as scrap_for_sale_router
+import models.scrap_for_sale  # ensure scrap_for_sale table is in Base.metadata
 from routers.devices import router as devices_router
 from routers.transfers import router as transfers_router
 from routers.part_requests import router as part_requests_router
@@ -243,6 +245,7 @@ app.include_router(bulk_upload_router)
 app.include_router(cosmetic_router)
 app.include_router(workid_status_router)
 app.include_router(scrap_router)
+app.include_router(scrap_for_sale_router)
 app.include_router(devices_router)
 app.include_router(transfers_router)
 app.include_router(part_requests_router)

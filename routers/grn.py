@@ -258,10 +258,15 @@ async def grn_post_iqc(request: Request, db: AsyncSession = Depends(get_db),
         for grn_number, lots in lots_by_grn.items()
     }
 
+    all_users = (await db.execute(
+        select(User).where(User.status == True).order_by(User.full_name)  # noqa: E712
+    )).scalars().all()
+
     return templates.TemplateResponse("grn/post_iqc.html", {
         "request": request, "grns": grns, "pending_count": pending_count,
         "stocked": await _stocked_map(db, grns),
         "as_is_lot": await _as_is_lot_map(db, grns),
+        "all_users": all_users,
         "current_user": current_user, "error": error, "success": success,
         "highlight_tag": highlight_tag,
         "device_type_options": ["Laptop", "Desktop", "AIO", "Workstation", "Mini PC", "Server", "Tablet"],
@@ -1016,10 +1021,12 @@ async def grn_add_lot(grn_id: str, lot_number: list[str] = Form(...),
 
 @router.post("/{grn_id}/as-is-lot")
 async def grn_as_is_lot(request: Request, grn_id: str, sub_lot_number: str = Form(...),
+                        assigned_to_user_id: str = Form(""),
                         db: AsyncSession = Depends(get_db), current_user: User = Depends(allowed)):
-    """GRN Post-IQC's "Yes As-Is" modal — bulk-writes one Sub-Lot Number
-    across every Tag Number currently mapped to this GRN (Device.grn_number),
-    same "stocked" scope _stocked_map counts."""
+    """GRN Post-IQC's "Yes As-Is" modal — bulk-writes one Sub-Lot Number (and,
+    optionally, an Assigned To employee) across every Tag Number currently
+    mapped to this GRN (Device.grn_number), same "stocked" scope
+    _stocked_map counts."""
     try:
         import uuid as _u
         gid = _u.UUID(grn_id)
@@ -1034,13 +1041,25 @@ async def grn_as_is_lot(request: Request, grn_id: str, sub_lot_number: str = For
     if not g.grn_number:
         raise HTTPException(400, "This GRN has no GRN Number to match Tag Numbers against.")
 
+    assign_uid = None
+    if assigned_to_user_id.strip():
+        try:
+            import uuid as _u2
+            assign_uid = _u2.UUID(assigned_to_user_id.strip())
+        except ValueError:
+            assign_uid = None
+
+    values = {"sub_lot_number": value}
+    if assign_uid:
+        values["assigned_to_user_id"] = assign_uid
     result = await db.execute(
         update(Device).where(Device.grn_number == g.grn_number, Device.is_active == True)
-        .values(sub_lot_number=value)
+        .values(**values)
     )
     await audit(db, user=current_user, action="GRN_AS_IS_LOT_SET",
                 table_name="grn_imports", record_id=str(g.id),
                 new_value={"grn_number": g.grn_number, "sub_lot_number": value,
+                           "assigned_to_user_id": str(assign_uid) if assign_uid else None,
                            "tags_updated": result.rowcount},
                 request=request)
     await db.commit()

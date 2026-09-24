@@ -319,7 +319,8 @@ MASTER_SEED = {
         "short_delivery", "price_adjustment", "other",
     ],
     # ── Transfers ──────────────────────────────────────────────────────────────
-    "transfer_type": ["trc_to_showroom", "showroom_to_trc", "showroom_lot", "internal", "as_is_lot"],
+    "transfer_type": ["trc_to_showroom", "showroom_to_trc", "showroom_lot", "internal", "as_is_lot",
+                      "ready_for_sale", "scrap_for_sale"],
     # ── WhatsApp ───────────────────────────────────────────────────────────────
     "whatsapp_message_type": ["Text", "Product Catalog", "Invoice", "Payment Reminder"],
     "whatsapp_group_category": ["dealer", "personal", "other"],

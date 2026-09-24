@@ -24,6 +24,10 @@ class StockTransfer(Base):
     bucket_id = Column(UUID(as_uuid=True), ForeignKey("buckets.id"), nullable=True, index=True)
     lot_id = Column(UUID(as_uuid=True), ForeignKey("lots.id"), nullable=True, index=True)
     to_location_id = Column(UUID(as_uuid=True), ForeignKey("storage_locations.id"), nullable=True, index=True)
+    # Set when transfer_type == "scrap_for_sale" — links this row (a Tag Number
+    # move or a Move Parts row) to the Scrap for Sale batch it created/joined.
+    # Additive; auto-provisioned by db_validator.
+    scrap_for_sale_id = Column(UUID(as_uuid=True), ForeignKey("scrap_for_sale.id"), nullable=True, index=True)
 
     # ── Transfer Direction ────────────────────────────────────────────────────
     transfer_type = Column(String(30), nullable=False)    # "trc_to_showroom" | "showroom_to_trc" | "showroom_lot"
@@ -69,3 +73,4 @@ class StockTransfer(Base):
     source = Column(String(30), nullable=True)
 
     device = relationship("Device", lazy="select")
+    scrap_for_sale = relationship("ScrapForSale", back_populates="transfers", lazy="select")

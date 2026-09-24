@@ -16,6 +16,7 @@ from models.bucket import Bucket
 from models.location import StorageLocation, ZONE_LABELS, DeviceLocationLog, LocationAction
 from models.sales import Sale
 from models.stock_transfer import StockTransfer
+from models.scrap_for_sale import ScrapForSale
 from models.work_order import WorkOrder
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from models.master import MasterData
@@ -58,6 +59,34 @@ DEPT_TO_ROLE = {
     "Sales Manager": "sales_manager", "Parts Manager": "spare_parts_manager",
 }
 STAGE_ENUM = {"l1": DeviceStage.l1}
+
+
+async def _next_scrap_id(db: AsyncSession) -> str:
+    """Autogenerate the next 4-digit Scrap for Sale ID (e.g. "0001"), one per
+    Transfer submission with Transfer Type = Scrap for Sale."""
+    last = (await db.execute(
+        select(ScrapForSale.scrap_id).order_by(ScrapForSale.scrap_id.desc()).limit(1)
+    )).scalar()
+    n = (int(last) + 1) if last and last.isdigit() else 1
+    return f"{n:04d}"
+
+
+async def _maybe_create_scrap_batch(db: AsyncSession, transfer_type: str, assigned_user, current_user):
+    """When Transfer Type == Scrap for Sale, one new ScrapForSale row is
+    created per submission (not per device/part) — every StockTransfer row
+    this submission creates links back to it via scrap_for_sale_id, and that
+    linkage is how the Scrap for Sale page groups its Device Type/Parts
+    counts. Returns None for every other transfer_type."""
+    if transfer_type != "scrap_for_sale":
+        return None
+    scrap = ScrapForSale(
+        scrap_id=await _next_scrap_id(db),
+        assigned_to_user_id=assigned_user.id if assigned_user else None,
+        created_by=current_user.username,
+    )
+    db.add(scrap)
+    await db.flush()
+    return scrap
 
 
 async def _gen_work_id(db: AsyncSession) -> str:
@@ -537,6 +566,8 @@ async def create_transfer(
     if not assigned_user:
         return RedirectResponse(url="/transfers/new?error=Select+an+employee+to+assign", status_code=302)
 
+    scrap_batch = await _maybe_create_scrap_batch(db, transfer_type, assigned_user, current_user)
+
     loc_uuid = _resolve_location_uuid(to_location_id)
     loc = None
     if loc_uuid:
@@ -558,11 +589,19 @@ async def create_transfer(
 
         _from_wh = from_warehouse or getattr(device, "warehouse", None) or "—"
         _to_wh = to_warehouse or _from_wh
+        # Ready for Sale / As-Is Lot: stamp the Assigned To employee straight
+        # onto the device — that's what the Ready to Sale Tag / As-Is Lot
+        # tables' own Assigned To columns read. Scrap for Sale instead links
+        # this row to scrap_batch (see StockTransfer below).
+        if transfer_type in ("ready_for_sale", "as_is_lot"):
+            device.assigned_to_user_id = assigned_user.id
+
         transfer = StockTransfer(
             device_id=device.id,
             move_kind="device",
             to_location_id=loc_uuid,
             transfer_type=transfer_type,
+            scrap_for_sale_id=scrap_batch.id if scrap_batch else None,
             source="transfers_new",
             from_warehouse=_from_wh,
             to_warehouse=_to_wh,
@@ -697,11 +736,14 @@ async def create_parts_transfer(
     if not assigned_user:
         return RedirectResponse(url="/transfers/new?error=Select+an+employee+to+assign", status_code=302)
 
+    scrap_batch = await _maybe_create_scrap_batch(db, transfer_type, assigned_user, current_user)
+
     transfer = StockTransfer(
         device_id=None,
         move_kind="parts",
         to_location_id=_resolve_location_uuid(to_location_id),
         transfer_type=transfer_type,
+        scrap_for_sale_id=scrap_batch.id if scrap_batch else None,
         source="transfers_new",
         from_warehouse="—",
         to_warehouse="—",
@@ -753,12 +795,17 @@ async def _move_devices_bulk(
     if loc_uuid:
         loc = (await db.execute(select(StorageLocation).where(StorageLocation.id == loc_uuid))).scalar_one_or_none()
 
+    scrap_batch = await _maybe_create_scrap_batch(db, transfer_type, assigned_user, current_user)
+
     moved = []
     for device in devices:
         lot_number = None
         if getattr(device, "lot_id", None):
             lot_row = (await db.execute(select(Lot.lot_number).where(Lot.id == device.lot_id))).scalar()
             lot_number = lot_row
+
+        if transfer_type in ("ready_for_sale", "as_is_lot"):
+            device.assigned_to_user_id = assigned_user.id
 
         _from_wh = getattr(device, "warehouse", None) or "—"
         transfer = StockTransfer(
@@ -768,6 +815,7 @@ async def _move_devices_bulk(
             lot_id=lot_id,
             to_location_id=loc_uuid,
             transfer_type=transfer_type,
+            scrap_for_sale_id=scrap_batch.id if scrap_batch else None,
             source="transfers_new",
             from_warehouse=_from_wh,
             to_warehouse=_from_wh,

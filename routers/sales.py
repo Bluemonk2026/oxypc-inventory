@@ -25,6 +25,7 @@ from utils.csv_decode import decode_csv_bytes
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.lot import Lot
+from models.location import StorageLocation
 from models.sales import Sale, Return, CN_STAGES, CN_STAGE_ACTION_LABELS
 from models.company import Company
 from models.crm import CRMSalesOpportunity, CRMContact
@@ -128,7 +129,7 @@ async def ready_list_data(
     else:
         filtered = total
 
-    col_map = {1: Device.barcode, 2: Lot.lot_number, 3: Device.brand, 4: Device.model, 7: Device.grade}
+    col_map = {1: Device.barcode, 2: Lot.lot_number, 4: Device.brand, 5: Device.model, 8: Device.grade}
     try:
         order_col = int(request.query_params.get("order[0][column]", 0))
     except ValueError:
@@ -165,6 +166,22 @@ async def ready_list_data(
         if w:
             warranty_map[did] = w
 
+    # Location ID + Assigned To — looked up in bulk for this page of rows only.
+    loc_ids = {d.location_id for d, *_ in rows if d.location_id}
+    location_name_map = {}
+    if loc_ids:
+        location_name_map = {
+            l.id: l.unit_id
+            for l in (await db.execute(select(StorageLocation).where(StorageLocation.id.in_(loc_ids)))).scalars().all()
+        }
+    assigned_ids = {d.assigned_to_user_id for d, *_ in rows if d.assigned_to_user_id}
+    assigned_name_map = {}
+    if assigned_ids:
+        assigned_name_map = {
+            u.id: (u.full_name or u.username)
+            for u in (await db.execute(select(User).where(User.id.in_(assigned_ids)))).scalars().all()
+        }
+
     def esc(v):
         return escape(str(v)) if v is not None else ""
 
@@ -184,13 +201,16 @@ async def ready_list_data(
         rejected_notes = rejected_notes_map.get(did)
         w = warranty_map.get(did)
 
+        loc_name = location_name_map.get(d.location_id)
+        assigned_name = assigned_name_map.get(d.assigned_to_user_id)
         cells = [
             (f'<input type="checkbox" class="form-check-input readyChk" value="{esc(d.barcode)}" '
              f'data-serial="{esc(d.serial_no or "")}">'),
             (f'<a href="/devices/{esc(d.barcode)}" class="text-decoration-none"><code class="fw-bold">{esc(d.barcode)}</code></a>'
-             f'<span class="badge rounded-pill bg-secondary ms-1" title="Quantity">{d.qty or 1}</span>'),
+             + (f'<br><span class="badge bg-info text-dark">{esc(d.entity)}</span>' if d.entity else '')),
             (f'<a href="/devices?lot={esc(lot_number)}" class="btn btn-sm py-0 px-2 small text-decoration-none" '
              f'style="background-color:#ffffff;border:1px solid #6C757D;color:#6C757D;">{esc(lot_number)}</a>'),
+            f'<span class="font-monospace">{esc(loc_name)}</span>' if loc_name else '<span class="text-muted">—</span>',
             esc(d.brand or "—"), esc(d.model or "—"),
             f"{d.ram_gb}GB" if d.ram_gb else "—", f"{d.storage_gb}GB" if d.storage_gb else "—",
             f'<span class="badge bg-{gcls}">{esc(gv) or "—"}</span>',
@@ -205,6 +225,7 @@ async def ready_list_data(
             f'<span class="badge bg-{"success" if w["status"] == "active" else "secondary"}">{esc(w["label"])}</span>'
             if w else '<span class="text-muted">—</span>'
         )
+        cells.append(esc(assigned_name) if assigned_name else '<span class="text-muted">—</span>')
         if approved:
             action = f'<a href="/sales/new?barcodes={esc(d.barcode)}&qty=1" class="btn btn-sm btn-success">Sell</a><span class="badge bg-success align-self-center ms-1">Approved</span>'
         else:
@@ -307,27 +328,26 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
             for opp, company, phone in opps
         ]
 
-    from routers.dispatch import _build_lot_overview
-    lot_overview = await _build_lot_overview(db)
-
     # ── Ready to Sale As-Is Lot: one row per (Lot, Sub-Lot) pair that
     # currently has ready-to-sale stock. Built from `devices` above (already
     # stage-filtered) for Availability/Device Type/Min-Max Price, plus one
     # extra query for Total Quantities — the same (lot_id, sub_lot_number)
     # pair's device count across EVERY stage, not just ready-to-sale. ───────
+    from collections import Counter
     as_is_groups: dict = {}
     for device, lot_number, *_rest in devices:
         if not device.sub_lot_number:
             continue
         key = (device.lot_id, device.sub_lot_number)
         g = as_is_groups.setdefault(key, {
-            "lot_number": lot_number, "device_types": set(),
-            "models": set(), "cpus": set(), "rams": set(), "storages": set(),
+            "lot_number": lot_number, "device_types": Counter(),
+            "models": Counter(), "cpus": set(), "rams": set(), "storages": set(),
             "availability": 0, "barcodes": [], "min_prices": [], "max_prices": [],
+            "assigned_to_user_id": device.assigned_to_user_id,
         })
-        g["device_types"].add(device.device_type or "—")
+        g["device_types"][device.device_type or "—"] += 1
         if device.model:
-            g["models"].add(device.model)
+            g["models"][device.model] += 1
         if device.cpu:
             g["cpus"].add(device.cpu)
         if device.ram_gb:
@@ -340,6 +360,10 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
             g["min_prices"].append(float(device.min_selling_price))
         if device.max_selling_price is not None:
             g["max_prices"].append(float(device.max_selling_price))
+        # First device in the group wins — sub-lots are assigned in bulk
+        # (GRN Post-IQC / Transfers), so every device normally agrees anyway.
+        if g["assigned_to_user_id"] is None and device.assigned_to_user_id is not None:
+            g["assigned_to_user_id"] = device.assigned_to_user_id
 
     as_is_lots = []
     if as_is_groups:
@@ -351,12 +375,25 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
             .group_by(Device.lot_id, Device.sub_lot_number)
         )).all()
         total_map = {(lid, sl): c for lid, sl, c in total_rows}
+
+        assigned_ids = {g["assigned_to_user_id"] for g in as_is_groups.values() if g["assigned_to_user_id"]}
+        user_name_map = {}
+        if assigned_ids:
+            user_name_map = {
+                u.id: (u.full_name or u.username)
+                for u in (await db.execute(select(User).where(User.id.in_(assigned_ids)))).scalars().all()
+            }
+
         for (lot_id, sub_lot), g in as_is_groups.items():
+            device_type_breakdown = [{"name": n, "count": c} for n, c in sorted(g["device_types"].items())]
+            model_breakdown = [{"name": n, "count": c} for n, c in sorted(g["models"].items())]
             as_is_lots.append({
                 "lot_id": str(lot_id), "lot_number": g["lot_number"],
                 "sub_lot_number": sub_lot,
-                "device_type": ", ".join(sorted(g["device_types"])),
-                "model": ", ".join(sorted(g["models"])),
+                "device_type_breakdown": device_type_breakdown,
+                "device_type_count": len(device_type_breakdown),
+                "model_breakdown": model_breakdown,
+                "model_count": len(model_breakdown),
                 "cpu": ", ".join(sorted(g["cpus"])),
                 "ram": ", ".join(sorted(g["rams"])),
                 "storage": ", ".join(sorted(g["storages"])),
@@ -365,6 +402,7 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
                 "min_price": min(g["min_prices"]) if g["min_prices"] else None,
                 "max_price": max(g["max_prices"]) if g["max_prices"] else None,
                 "barcodes": g["barcodes"],
+                "assigned_to_name": user_name_map.get(g["assigned_to_user_id"], "—"),
             })
         as_is_lots.sort(key=lambda r: (r["lot_number"] or "", r["sub_lot_number"] or ""))
 
@@ -372,7 +410,6 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
         "request": request, "devices": devices, "current_user": current_user,
         "interested_dealers": interested_dealers,
         "model_summary_ready": model_summary_ready,
-        "lot_overview": lot_overview,
         "as_is_lots": as_is_lots,
     })
 

@@ -28,7 +28,7 @@ from models.engines import DeviceCosting
 from models.sales import Sale
 from services.parts_required import compute_required, LEGACY_LABELS
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_additional_perm
-from utils.warranty import warranty_from_sold_at, warranty_status_for_sale
+from utils.warranty import effective_warranty_for_sale, warranty_status_for_sale
 from utils.master_data import master_values, entity_values
 
 router = APIRouter(prefix="/devices", tags=["devices"], dependencies=[Depends(verify_csrf)])
@@ -73,7 +73,7 @@ async def device_brief(barcode: str, require_stage: str = "", db: AsyncSession =
     sale = (await db.execute(
         select(Sale).where(Sale.device_id == device.id).order_by(Sale.sold_at.desc()).limit(1)
     )).scalars().first()
-    w = warranty_from_sold_at(sale.sold_at if sale else None)
+    w = effective_warranty_for_sale(sale)
     loc = None
     info = (await _build_location_map(db, [str(device.id)])).get(str(device.id))
     if info and info.get("unit_id"):
@@ -1451,7 +1451,7 @@ async def device_detail(
     _sale_for_warranty = (await db.execute(
         select(Sale).where(Sale.device_id == device.id).order_by(Sale.sold_at.desc()).limit(1)
     )).scalars().first()
-    _w = warranty_from_sold_at(_sale_for_warranty.sold_at if _sale_for_warranty else None)
+    _w = effective_warranty_for_sale(_sale_for_warranty)
     if device.current_stage != DeviceStage.sold:
         warranty_label = "Not Sold Yet"
     elif _w and _w["status"] == "active":

@@ -76,6 +76,40 @@ def compute_warranty_expiry(sold_at: datetime, warranty_type: str) -> datetime |
     return sold_at + delta
 
 
+def effective_warranty_for_sale(sale) -> dict | None:
+    """Same descriptor shape as warranty_from_sold_at (status/days_left/expiry/
+    label), but gives precedence to an explicit Sale.warranty_type +
+    warranty_expires_at (set at sale time, or pushed forward by Extended
+    Warranty) over the implicit WARRANTY_DAYS-from-sold_at default. Falls back
+    to warranty_from_sold_at when this sale never had a warranty_type chosen.
+
+    Use this instead of warranty_from_sold_at anywhere the result needs to
+    agree with warranty_status_for_sale (the RMA/Extended Warranty status) for
+    the same sale — warranty_from_sold_at never looks at warranty_expires_at
+    at all, so after a warranty extension it kept reporting "Out of Warranty"
+    on Process Return's "Warranty Status" field while RMA Warranty correctly
+    said "In Warranty" for the same tag, and Process Return's paid-repair-
+    charge banner keyed off the stale one.
+    """
+    if not sale:
+        return None
+    wtype = getattr(sale, "warranty_type", None) or "none"
+    expires_at = getattr(sale, "warranty_expires_at", None)
+    if wtype == "none" or not expires_at:
+        return warranty_from_sold_at(getattr(sale, "sold_at", None))
+    now = app_now()
+    if now <= expires_at:
+        days_left = max((expires_at.date() - now.date()).days, 0)
+        return {
+            "status": "active", "days_left": days_left, "expiry": expires_at,
+            "label": f"Warranty Left: {days_left} days",
+        }
+    return {
+        "status": "expired", "days_left": 0, "expiry": expires_at,
+        "label": f"Warranty Expired on {expires_at.strftime('%d %b %Y')}",
+    }
+
+
 def warranty_status_for_sale(sale) -> str:
     """Return 'in_warranty' | 'out_of_warranty' | 'no_warranty' for a Sale record,
     using the Sale's own warranty_type/warranty_expires_at (Phase 1a fields).

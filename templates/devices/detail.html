@@ -1110,16 +1110,32 @@
             </tr>
             {% endfor %}
             {% endif %}
+            {# Parts Consumption table's own "Part Changed" rows (PartRequest.status
+               == 'received') — previously computed as changed_parts_consumed /
+               total_changed_parts_cost but never rendered anywhere on this page,
+               so verifying a part (or Mark Complete auto-verifying it) never moved
+               this card's own numbers even though the cost was correctly tracked
+               everywhere else (Spare Parts Consumption tab, Business P&L). #}
+            {% if changed_parts_consumed %}
+            {% for row in changed_parts_consumed %}
+            <tr>
+              <th class="ps-3 text-muted small fw-normal ps-4">
+                <i class="bi bi-check2-circle me-1"></i>{{ row.part_name }} <small class="text-muted">&times;{{ row.qty }} @ ₹{{ "%.2f"|format(row.unit_price) }}</small>
+              </th>
+              <td class="text-end pe-3 small">₹{{ "%.2f"|format(row.total) }}</td>
+            </tr>
+            {% endfor %}
+            {% endif %}
             <tr>
               <th class="ps-3 text-muted small">Parts Consumed <small class="text-muted">(Total Price of Parts Consumed)</small></th>
-              <td class="text-end pe-3 text-danger">₹{{ "%.2f"|format(total_parts_cost) }}</td>
+              <td class="text-end pe-3 text-danger">₹{{ "%.2f"|format(total_parts_cost + total_changed_parts_cost) }}</td>
             </tr>
             <tr class="table-light">
               <th class="ps-3 fw-bold small">Total Cost</th>
               {% if device.device_price %}
-              <td class="text-end pe-3 fw-bold">₹{{ "%.2f"|format((device.device_price|float) * (device.qty or 1) + (total_parts_cost|float)) }}</td>
+              <td class="text-end pe-3 fw-bold">₹{{ "%.2f"|format((device.device_price|float) * (device.qty or 1) + (total_parts_cost|float) + (total_changed_parts_cost|float)) }}</td>
               {% else %}
-              <td class="text-end pe-3 fw-bold">₹{{ "%.2f"|format((lot_cost_per_device|float) + (total_parts_cost|float)) }}</td>
+              <td class="text-end pe-3 fw-bold">₹{{ "%.2f"|format((lot_cost_per_device|float) + (total_parts_cost|float) + (total_changed_parts_cost|float)) }}</td>
               {% endif %}
             </tr>
           </tbody>

@@ -7,7 +7,7 @@ from datetime import datetime
 from utils.timezone import app_now
 from decimal import Decimal
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.exc import IntegrityError
@@ -447,6 +447,57 @@ async def request_l3l4(
     return RedirectResponse(url="/repair/l1?success=Requested+to+L3/L4", status_code=302)
 
 
+async def _mark_complete_open_parts(db: AsyncSession, device_id):
+    """Every still-open part request on this device, split into the two
+    groups Mark Complete resolves differently (2026-09-24) — Normal and
+    Faulty request_type treated identically in both groups, since a Faulty
+    request is just another PartRequest row, not a different table:
+
+      verify — status 'handed_over': a physical part actually reached the
+        engineer (qty_handed_over > 0) but was never confirmed installed.
+        Real, uncosted transaction — safe to close as 'received' (same as
+        clicking Verify by hand) and count its cost, same as any manual
+        Verify does.
+
+      cancel — status 'requested': nothing was ever handed over
+        (qty_handed_over == 0) — the Spare Parts Manager never actioned it.
+        Force-closing this to 'received' would fabricate a part-installed
+        event that never happened, so it's soft-closed to 'cancelled'
+        instead (the same status Spare Parts' own bulk-delete uses for
+        "never fulfilled, don't lose the record" — routers/part_requests.py
+        bulk_request_action) — no cost, request just stops sitting open on
+        a tag that has already moved on.
+
+    Shared by the Mark Complete precheck (what to warn about) and the
+    completion endpoint itself (what to actually close) so the two can
+    never disagree about which rows count."""
+    rows = (await db.execute(
+        select(PartRequest).where(PartRequest.device_id == device_id,
+                                  PartRequest.status.in_(["handed_over", "requested"]))
+    )).scalars().all()
+    return ([pr for pr in rows if pr.status == "handed_over"],
+            [pr for pr in rows if pr.status == "requested"])
+
+
+@router.get("/l1l2-complete-precheck")
+async def l1l2_complete_precheck(
+    device_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Mark Complete's soft-warn step: tells the Mark Complete button, before
+    it submits, which parts on this device are still open — so the engineer
+    sees them named before Mark Complete silently resolves every one (see
+    l1l2_complete_to_stress below)."""
+    to_verify, to_cancel = await _mark_complete_open_parts(db, device_id)
+    return JSONResponse({
+        "to_verify": [{"part_name": pr.part_name, "qty": pr.qty_handed_over,
+                       "faulty": pr.request_type == "faulty"} for pr in to_verify],
+        "to_cancel": [{"part_name": pr.part_name,
+                       "faulty": pr.request_type == "faulty"} for pr in to_cancel],
+    })
+
+
 @router.post("/l1l2-complete-to-stress")
 async def l1l2_complete_to_stress(
     request: Request,
@@ -458,7 +509,18 @@ async def l1l2_complete_to_stress(
 ):
     """Complete L1/L2: move the device to Stress Test (qc_check). An engineer is
     optional — with none the STRS- WorkOrder is still raised, unassigned, so the
-    WorkID Status board keeps full traceability."""
+    WorkID Status board keeps full traceability.
+
+    Also resolves (2026-09-24) every still-open part request on this device
+    — Normal or Faulty request_type alike — instead of leaving them open on
+    a tag that has already moved past L1/L2. See _mark_complete_open_parts
+    above for the two outcomes: 'handed_over' rows auto-verify (status ->
+    'received', cost counted — routers/devices.py's changed_parts_consumed
+    already sums every 'received' PartRequest regardless of request_type,
+    so this needs no separate handling there); 'requested' rows auto-cancel
+    (status -> 'cancelled', no cost — nothing was ever handed over).
+    l1l2-complete-precheck (above) is what the Mark Complete button calls
+    first to warn about exactly this set before it happens."""
     device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
     if not device:
         raise HTTPException(404, "Device not found")
@@ -469,6 +531,31 @@ async def l1l2_complete_to_stress(
         )).scalar_one_or_none()
         if not eng:
             raise HTTPException(404, "Selected Stress Test engineer not found")
+
+    to_verify, to_cancel = await _mark_complete_open_parts(db, device.id)
+    now = app_now()
+    for pr in to_verify:
+        pr.status = "received"
+        pr.actioned_at = now
+        pr.actioned_by = current_user.username
+    for pr in to_cancel:
+        pr.status = "cancelled"
+        pr.actioned_at = now
+        pr.actioned_by = current_user.username
+    if to_verify:
+        await audit(db, user=current_user, action="PART_AUTO_VERIFIED_ON_COMPLETE",
+                    table_name="part_requests", record_id=str(device.id),
+                    new_value={"barcode": device.barcode,
+                               "parts": [{"part_name": pr.part_name, "request_type": pr.request_type}
+                                         for pr in to_verify]},
+                    request=request)
+    if to_cancel:
+        await audit(db, user=current_user, action="PART_AUTO_CANCELLED_ON_COMPLETE",
+                    table_name="part_requests", record_id=str(device.id),
+                    new_value={"barcode": device.barcode,
+                               "parts": [{"part_name": pr.part_name, "request_type": pr.request_type}
+                                         for pr in to_cancel]},
+                    request=request)
 
     prev = device.current_stage
     await _close_open_movement(db, device)

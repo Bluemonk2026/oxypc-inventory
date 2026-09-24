@@ -174,6 +174,20 @@
       </div>
       <div class="modal-body">
         <div class="mb-2"><span class="text-muted small">Tag Number:</span> <strong id="cs_barcode">—</strong></div>
+        <!-- Soft-warn (2026-09-24): shown only when l1l2-complete-precheck finds
+             open part requests (Normal or Faulty) — Complete resolves each on
+             submit: 'handed_over' auto-verifies (cost added), 'requested'
+             auto-cancels (no cost, Spare Parts Manager never handed it over). -->
+        <div id="cs_warn_verify" class="alert alert-warning small py-2 px-3 d-none">
+          <i class="bi bi-exclamation-triangle me-1"></i>Still awaiting Verify — completing will
+          auto-verify these (Part Changed) and add their cost to Parts Consumed:
+          <ul id="cs_warn_verify_list" class="mb-0"></ul>
+        </div>
+        <div id="cs_warn_cancel" class="alert alert-secondary small py-2 px-3 d-none">
+          <i class="bi bi-x-circle me-1"></i>Never handed over by the Spare Parts Manager — completing
+          will cancel these requests (no cost added):
+          <ul id="cs_warn_cancel_list" class="mb-0"></ul>
+        </div>
         <label class="form-label small fw-semibold">Stress Test Engineer</label>
         <select name="stress_engineer_username" class="form-select" required>
           <option value="">-- Select engineer --</option>
@@ -208,10 +222,36 @@ $(document).ready(function(){
       rlModal.show();
     });
   });
+  function fillWarnList(ulId, rows, suffixFn){
+    var ul = document.getElementById(ulId);
+    ul.innerHTML = '';
+    rows.forEach(function(p){
+      var li = document.createElement('li');
+      li.textContent = p.part_name + suffixFn(p) + (p.faulty ? ' (Faulty Request)' : '');
+      ul.appendChild(li);
+    });
+  }
   document.querySelectorAll('.complete-btn').forEach(function(btn){
     btn.addEventListener('click', function(){
       document.getElementById('cs_device').value = btn.dataset.device;
       document.getElementById('cs_barcode').textContent = btn.dataset.barcode;
+      var verifyBox = document.getElementById('cs_warn_verify');
+      var cancelBox = document.getElementById('cs_warn_cancel');
+      verifyBox.classList.add('d-none');
+      cancelBox.classList.add('d-none');
+      fetch('/repair/l1l2-complete-precheck?device_id=' + encodeURIComponent(btn.dataset.device))
+        .then(function(r){ return r.ok ? r.json() : { to_verify: [], to_cancel: [] }; })
+        .then(function(d){
+          if (d.to_verify && d.to_verify.length) {
+            fillWarnList('cs_warn_verify_list', d.to_verify, function(p){ return ' ×' + p.qty; });
+            verifyBox.classList.remove('d-none');
+          }
+          if (d.to_cancel && d.to_cancel.length) {
+            fillWarnList('cs_warn_cancel_list', d.to_cancel, function(){ return ''; });
+            cancelBox.classList.remove('d-none');
+          }
+        })
+        .catch(function(){}); // silent — Assign still works either way
       csModal.show();
     });
   });

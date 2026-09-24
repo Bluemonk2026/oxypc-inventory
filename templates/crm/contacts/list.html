@@ -3,7 +3,7 @@
 {% block page_title %}CRM Contacts{% endblock %}
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+<div class="mb-3">
   <form method="get" class="d-flex gap-2 flex-wrap">
     <input type="text" name="q" value="{{ q }}" placeholder="Search name, phone, city, state…" class="form-control form-control-sm" style="width:220px">
     <select name="contact_type" class="form-select form-select-sm" style="width:130px">
@@ -46,22 +46,6 @@
     <a href="/crm/contacts" class="btn btn-sm btn-outline-secondary">Clear</a>
     {% endif %}
   </form>
-  <div class="d-flex gap-2">
-    {# The old accounts-only uploader is kept reachable but no longer the
-       primary button: the new one accepts its columns unchanged AND handles
-       call records, so it supersedes it. #}
-    <a href="/crm/contacts/upload" class="btn btn-sm btn-outline-secondary"><i class="bi bi-cloud-upload me-1"></i>Bulk Upload CSV</a>
-    <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#accountBulkUploadModal">
-      <i class="bi bi-telephone-plus me-1"></i>Bulk Upload Accounts &amp; Calls
-    </button>
-    {% if current_user.role.value == 'admin' %}
-    <a href="/crm/contacts/export-csv?q={{ q }}&contact_type={{ contact_type }}&source_type={{ source_type }}&buyer_type={{ buyer_type }}&contacted={{ contacted }}&created_by_filter={{ created_by_filter }}"
-       class="btn btn-sm btn-outline-success">
-      <i class="bi bi-download me-1"></i>Export CSV
-    </a>
-    {% endif %}
-    <a href="/crm/contacts/new" class="btn btn-sm btn-primary"><i class="bi bi-person-plus me-1"></i>Add Account</a>
-  </div>
 </div>
 
 <!-- Summary cards -->
@@ -78,8 +62,27 @@
 
 <!-- Main contacts table -->
 <div class="card border-0 shadow-sm mb-4">
-  <div class="card-header bg-transparent fw-semibold">
-    <i class="bi bi-building me-2"></i>List of Accounts
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span class="fw-semibold"><i class="bi bi-building me-2"></i>List of Accounts</span>
+    <div class="d-flex gap-2 flex-wrap">
+      {# The old accounts-only uploader is kept reachable but no longer the
+         primary button: the new one accepts its columns unchanged AND handles
+         call records, so it supersedes it. #}
+      <a href="/crm/contacts/upload" class="btn btn-sm btn-outline-secondary"><i class="bi bi-cloud-upload me-1"></i>Bulk Upload CSV</a>
+      {# Hidden for now — reuse later. Modal (#accountBulkUploadModal) and its
+         route are left intact below, only the trigger button is hidden.
+      <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#accountBulkUploadModal">
+        <i class="bi bi-telephone-plus me-1"></i>Bulk Upload Accounts &amp; Calls
+      </button>
+      #}
+      {% if current_user.role.value == 'admin' %}
+      <a href="/crm/contacts/export-csv?q={{ q }}&contact_type={{ contact_type }}&source_type={{ source_type }}&buyer_type={{ buyer_type }}&contacted={{ contacted }}&created_by_filter={{ created_by_filter }}"
+         class="btn btn-sm btn-outline-success">
+        <i class="bi bi-download me-1"></i>Export CSV
+      </a>
+      {% endif %}
+      <a href="/crm/contacts/new" class="btn btn-sm btn-primary"><i class="bi bi-person-plus me-1"></i>Add Account</a>
+    </div>
   </div>
   <div class="card-body p-0">
       {% set oc_colors = {
@@ -95,13 +98,13 @@
         'neutral':        'secondary',
         'pending':        'warning',
       } %}
-      {# Column order: Type | Category | Company | Locations | Contacts | Status | KYC | Notes | Actions #}
+      {# Column order: Company | Type | Category | Locations | Contacts | Status | KYC | Notes | Actions #}
       <table class="table table-hover mb-0 small" id="contactsTable">
         <thead class="table-light">
           <tr>
+            <th>Company</th>
             <th>Type</th>
             <th>Category</th>
-            <th>Company</th>
             <th>Locations</th>
             <th>Contacts</th>
             <th>Status</th>
@@ -119,29 +122,7 @@
           {% set last_outcome = act.get('outcome', '') if act else '' %}
           {% set last_act_date = act.get('date', none) if act else none %}
           <tr>
-            {# 1. Type #}
-            <td>
-              {% if c.contact_type == 'supplier' %}
-                <span class="badge bg-primary">Supplier</span>
-              {% elif c.contact_type == 'buyer' %}
-                <span class="badge bg-info text-white">Buyer</span>
-              {% else %}
-                <span class="badge bg-success">Both</span>
-              {% endif %}
-            </td>
-            {# 2. Category (Source / Buyer type) #}
-            <td>
-              {% if c.source_type %}
-                {% if c.source_type == 'endcust' %}
-                <span class="badge bg-light text-dark border me-1">Corporate</span>
-                {% else %}
-                <span class="badge bg-light text-dark border me-1">{{ c.source_type | title }}</span>
-                {% endif %}
-              {% endif %}
-              {% if c.buyer_type %}<span class="badge bg-light text-dark border">{{ c.buyer_type | replace('_',' ') | title }}</span>{% endif %}
-              {% if not c.source_type and not c.buyer_type %}<span class="text-muted">—</span>{% endif %}
-            </td>
-            {# 3. Company + Contacted badge #}
+            {# 1. Company + Contacted badge #}
             <td style="max-width:160px">
               <a href="/crm/contacts/{{ c.id }}" class="fw-semibold text-decoration-none"
                  title="{{ c.company_name }}">
@@ -158,6 +139,28 @@
                 </span>
                 {% endif %}
               </div>
+            </td>
+            {# 2. Type #}
+            <td>
+              {% if c.contact_type == 'supplier' %}
+                <span class="badge bg-primary">Supplier</span>
+              {% elif c.contact_type == 'buyer' %}
+                <span class="badge bg-info text-white">Buyer</span>
+              {% else %}
+                <span class="badge bg-success">Both</span>
+              {% endif %}
+            </td>
+            {# 3. Category (Source / Buyer type) #}
+            <td>
+              {% if c.source_type %}
+                {% if c.source_type == 'endcust' %}
+                <span class="badge bg-light text-dark border me-1">Corporate</span>
+                {% else %}
+                <span class="badge bg-light text-dark border me-1">{{ c.source_type | title }}</span>
+                {% endif %}
+              {% endif %}
+              {% if c.buyer_type %}<span class="badge bg-light text-dark border">{{ c.buyer_type | replace('_',' ') | title }}</span>{% endif %}
+              {% if not c.source_type and not c.buyer_type %}<span class="text-muted">—</span>{% endif %}
             </td>
             {# 4. Locations count — click to open details modal #}
             <td>
@@ -388,7 +391,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-// col index: 0=Type,1=Category,2=Company,3=Locations,4=Contacts,5=Status,6=KYC,7=Notes,8=Created By,9=Actions
+// col index: 0=Company,1=Type,2=Category,3=Locations,4=Contacts,5=Status,6=KYC,7=Notes,8=Created By,9=Actions
 $(document).ready(function(){
   // Global Table module (static/js/global-table.js) — always initialized,
   // even with zero rows: DataTables reads its columns from <thead>, not from
@@ -398,7 +401,7 @@ $(document).ready(function(){
   // with it removed, letting DataTables run is what makes its own built-in
   // empty-state illustration (language.emptyTable) render at all.
   initGlobalTable('#contactsTable', {
-    order: [[2, 'asc']],  // default sort by Company
+    order: [[0, 'asc']],  // default sort by Company
     columnDefs: [{ orderable: false, targets: [3, 4, 9] }],  // Locations + Contacts + Actions not sortable
     language: { emptyTable: 'No contacts found. Use the Add Account button above to create one.' }
   });

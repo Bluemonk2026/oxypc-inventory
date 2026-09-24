@@ -274,17 +274,42 @@ async def upload_contacts_csv(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Bulk-create Accounts from one CSV — and optionally, in the same sheet,
+    add multiple Locations per Account and multiple Contacts per Location.
+
+    One row = one Account, OR one row = an extra Location (with its own
+    Contact) for an Account already established earlier in the same file or
+    already in the database. Rows for the same Account are matched by
+    location_contact_phone first, then by company_name — so a sheet carries
+    one full "header" row per Account followed by as many location-only rows
+    as needed, each just repeating company_name plus that location's own
+    location_* / location_contact_* columns.
+
+    There is deliberately no separate contact_person/phone/whatsapp/city/state
+    column at the Account level any more — that was the same information the
+    Location columns already carry. A new Account's own Company Details are
+    auto-filled from its first row's location_contact_name (-> contact_person),
+    location_contact_phone (-> phone and whatsapp) and location_city/
+    location_state (-> city/state), so the sheet never asks for the same fact
+    twice; they stay editable afterwards on the Account's own Edit page.
+
+    location_address/location_city/location_state/location_email create or
+    reuse a CRMContactLocation under the resolved Account — reused (not
+    duplicated) if an existing Location for that Account already has the same
+    address/city/state. location_contact_role/_name/_phone/_email then add a
+    CRMContactNumber under that Location — reused if the Location already has
+    a number with that phone (or, lacking a phone, that name). A row with
+    location_contact_* but no location_address/city/state is an error (a
+    contact number always belongs to a location), reported without aborting
+    the rest of the file.
+    """
     if not (file.filename or "").lower().endswith(".csv"):
         return templates.TemplateResponse("crm/contacts/upload.html", {
             "request": request, "current_user": current_user,
             "result": None, "error": "Please upload a .csv file",
         })
 
-    content = await file.read()
-    try:
-        text_content = content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text_content = content.decode("latin-1")
+    text_content = decode_csv_bytes(await file.read())
 
     reader = csv.DictReader(io.StringIO(text_content))
     fieldnames_lower = {(c or "").strip().lower() for c in (reader.fieldnames or [])}
@@ -300,74 +325,193 @@ async def upload_contacts_csv(
     _valid_buyer_types   = {v for v, _ in BUYER_TYPES}  | {""}
     _valid_statuses      = {"active", "inactive", "blacklisted"}
 
-    created, skipped, errors = 0, 0, []
+    rows = list(reader)
 
-    for i, row in enumerate(reader, start=2):
+    # Preload existing Accounts by phone / company_name. There is no separate
+    # top-level "phone" column any more (see docstring) — location_contact_phone
+    # doubles as the matching key, since a new Account's own phone is set from
+    # exactly that value on the row that creates it.
+    want_phones = {(r.get("location_contact_phone") or "").strip()
+                   for r in rows if (r.get("location_contact_phone") or "").strip()}
+    want_names = {(r.get("company_name") or "").strip().lower()
+                  for r in rows if (r.get("company_name") or "").strip()}
+    by_phone: dict = {}
+    by_name: dict = {}
+    if want_phones:
+        res = await db.execute(select(CRMContact).where(
+            CRMContact.phone.in_(want_phones), CRMContact.is_trashed == False))  # noqa: E712
+        by_phone = {c.phone: c for c in res.scalars().all()}
+    if want_names:
+        res = await db.execute(select(CRMContact).where(
+            func.lower(CRMContact.company_name).in_(want_names),
+            CRMContact.is_trashed == False))  # noqa: E712
+        by_name = {(c.company_name or "").strip().lower(): c for c in res.scalars().all()}
+
+    # Per-Account location cache: {contact_id: {(addr,city,state) lower -> CRMContactLocation}}
+    locations_by_contact: dict = {}
+    # Per-Location contact-number cache: {location_id: {phone-or-name lower}}
+    numbers_by_location: dict = {}
+
+    async def _locations_for(contact) -> dict:
+        cache = locations_by_contact.get(contact.id)
+        if cache is None:
+            existing = (await db.execute(
+                select(CRMContactLocation).where(CRMContactLocation.contact_id == contact.id)
+            )).scalars().all()
+            cache = {
+                ((l.address or "").strip().lower(), (l.city or "").strip().lower(),
+                 (l.state or "").strip().lower()): l
+                for l in existing
+            }
+            locations_by_contact[contact.id] = cache
+        return cache
+
+    async def _numbers_for(location) -> set:
+        cache = numbers_by_location.get(location.id)
+        if cache is None:
+            existing = (await db.execute(
+                select(CRMContactNumber).where(CRMContactNumber.location_id == location.id)
+            )).scalars().all()
+            cache = {((n.phone or "").strip() or (n.person_name or "").strip().lower())
+                     for n in existing}
+            numbers_by_location[location.id] = cache
+        return cache
+
+    created = skipped = 0
+    locations_created = contacts_created = 0
+    errors: list[str] = []
+
+    for i, row in enumerate(rows, start=2):
         company = (row.get("company_name") or "").strip()
         if not company:
             skipped += 1
             continue
-
-        phone = (row.get("phone") or "").strip() or None
-
-        # Skip duplicates (match on company_name + phone)
-        existing = (await db.execute(
-            select(CRMContact).where(
-                CRMContact.company_name == company,
-                CRMContact.phone == phone,
-            )
-        )).scalars().first()
-        if existing:
-            skipped += 1
-            continue
-
-        contact_type = (row.get("contact_type") or "buyer").strip()
-        if contact_type not in _valid_contact_types:
-            contact_type = "buyer"
-
-        source_type = (row.get("source_type") or "").strip() or None
-        if source_type and source_type not in _valid_source_types:
-            source_type = None
-
-        buyer_type = (row.get("buyer_type") or "").strip() or None
-        if buyer_type and buyer_type not in _valid_buyer_types:
-            buyer_type = None
-
-        status = (row.get("status") or "active").strip()
-        if status not in _valid_statuses:
-            status = "active"
-
         try:
-            code = await _next_code(db)
-            db.add(CRMContact(
-                contact_code=code,
-                company_name=company,
-                contact_person=(row.get("contact_person") or "").strip() or None,
-                phone=phone,
-                whatsapp=(row.get("whatsapp") or "").strip() or None,
-                email=(row.get("email") or "").strip() or None,
-                contact_type=contact_type,
-                source_type=source_type,
-                buyer_type=buyer_type,
-                city=(row.get("city") or "").strip() or None,
-                state=(row.get("state") or "").strip() or None,
-                gstin=(row.get("gstin") or "").strip() or None,
-                tags=(row.get("tags") or "").strip() or None,
-                notes=(row.get("notes") or "").strip() or None,
-                status=status,
-                created_by=current_user.username,
-            ))
-            await db.flush()
-            created += 1
+            # Each row runs in its own SAVEPOINT: one bad row rolls back only
+            # its own inserts, never the Accounts/Locations already committed
+            # to the session by earlier rows in this same file.
+            async with db.begin_nested():
+                # ── Location / Location Contact columns (read first — a new
+                # Account's own Company Details are derived from these) ──────
+                loc_address = (row.get("location_address") or "").strip()
+                loc_city = (row.get("location_city") or "").strip()
+                loc_state = (row.get("location_state") or "").strip()
+                loc_email = (row.get("location_email") or "").strip()
+                loc_contact_role = (row.get("location_contact_role") or "").strip()
+                loc_contact_name = (row.get("location_contact_name") or "").strip()
+                loc_contact_phone = (row.get("location_contact_phone") or "").strip()
+                loc_contact_email = (row.get("location_contact_email") or "").strip()
+
+                phone = loc_contact_phone or None
+                contact = by_phone.get(phone) if phone else None
+                if contact is None:
+                    contact = by_name.get(company.lower())
+
+                row_added_something = False
+
+                if contact is None:
+                    contact_type = (row.get("contact_type") or "buyer").strip()
+                    if contact_type not in _valid_contact_types:
+                        contact_type = "buyer"
+                    source_type = (row.get("source_type") or "").strip() or None
+                    if source_type and source_type not in _valid_source_types:
+                        source_type = None
+                    buyer_type = (row.get("buyer_type") or "").strip() or None
+                    if buyer_type and buyer_type not in _valid_buyer_types:
+                        buyer_type = None
+                    status = (row.get("status") or "active").strip()
+                    if status not in _valid_statuses:
+                        status = "active"
+
+                    code = await _next_code(db)
+                    contact = CRMContact(
+                        contact_code=code,
+                        company_name=company,
+                        # Auto-filled from this row's Location Contact / Location —
+                        # no separate contact_person/phone/whatsapp/city/state
+                        # column exists any more (see docstring).
+                        contact_person=loc_contact_name or None,
+                        phone=phone,
+                        whatsapp=phone,
+                        email=(row.get("email") or "").strip() or None,
+                        contact_type=contact_type,
+                        source_type=source_type,
+                        buyer_type=buyer_type,
+                        city=loc_city or None,
+                        state=loc_state or None,
+                        gstin=(row.get("gstin") or "").strip() or None,
+                        tags=(row.get("tags") or "").strip() or None,
+                        notes=(row.get("notes") or "").strip() or None,
+                        status=status,
+                        created_by=current_user.username,
+                    )
+                    db.add(contact)
+                    await db.flush()
+                    if phone:
+                        by_phone[phone] = contact
+                    by_name[company.lower()] = contact
+                    created += 1
+                    row_added_something = True
+
+                # ── Location (optional) ─────────────────────────────────────
+                location = None
+                if loc_address or loc_city or loc_state:
+                    loc_cache = await _locations_for(contact)
+                    loc_key = (loc_address.lower(), loc_city.lower(), loc_state.lower())
+                    location = loc_cache.get(loc_key)
+                    if location is None:
+                        location = CRMContactLocation(
+                            contact_id=contact.id,
+                            contact_email=loc_email or None,
+                            address=loc_address or None,
+                            city=loc_city or None,
+                            state=loc_state or None,
+                            sort_order=len(loc_cache),
+                        )
+                        db.add(location)
+                        await db.flush()
+                        loc_cache[loc_key] = location
+                        locations_created += 1
+                        row_added_something = True
+                elif loc_contact_name or loc_contact_phone:
+                    raise ValueError(
+                        "location_contact_* needs location_address/city/state on the same row")
+
+                # ── Location contact number (optional) ──────────────────────
+                if location is not None and (loc_contact_name or loc_contact_phone):
+                    num_cache = await _numbers_for(location)
+                    num_key = loc_contact_phone or loc_contact_name.lower()
+                    if num_key not in num_cache:
+                        db.add(CRMContactNumber(
+                            # contact_id is model-docs "legacy", but the live DB still
+                            # enforces NOT NULL on it — every other writer in this file
+                            # (create_contact/update_contact) sets it for that reason.
+                            contact_id=contact.id, location_id=location.id,
+                            person_role=loc_contact_role or None,
+                            person_name=loc_contact_name or None,
+                            phone=loc_contact_phone or None,
+                            email=loc_contact_email or None,
+                            sort_order=len(num_cache),
+                        ))
+                        num_cache.add(num_key)
+                        contacts_created += 1
+                        row_added_something = True
+
+                if not row_added_something:
+                    skipped += 1
         except Exception as e:
-            await db.rollback()
             errors.append(f"Row {i}: {str(e)[:100]}")
 
     await db.commit()
 
     return templates.TemplateResponse("crm/contacts/upload.html", {
         "request": request, "current_user": current_user,
-        "result": {"created": created, "skipped": skipped, "errors": errors},
+        "result": {
+            "created": created, "skipped": skipped,
+            "locations_created": locations_created,
+            "contacts_created": contacts_created,
+            "errors": errors,
+        },
         "error": None,
     })
 

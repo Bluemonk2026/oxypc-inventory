@@ -778,6 +778,21 @@ async def _hard_delete_dealers(db: AsyncSession, ids: list[str]) -> dict:
     counts: dict = {}
     if not ids:
         return counts
+    # partner_bid_documents / partner_bid_payments carry a NOT NULL FK to
+    # partner_bids.id (no cascade) — they reference a bid, not a dealer, so
+    # they're invisible to the generic dealer_id loop below. Deleting
+    # partner_bids first without clearing these would fail with a foreign-key
+    # violation (this was the cause of the 500 on the partner Delete button).
+    for grandchild in ("partner_bid_documents", "partner_bid_payments"):
+        try:
+            res = await db.execute(sa_text(
+                f"DELETE FROM {grandchild} WHERE bid_id IN "
+                f"(SELECT id FROM partner_bids WHERE dealer_id = ANY(:ids))"
+            ), {"ids": ids})
+            if res.rowcount:
+                counts[grandchild] = res.rowcount
+        except Exception:
+            continue
     for table in _DEALER_CHILD_TABLES:
         try:
             res = await db.execute(

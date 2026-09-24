@@ -150,6 +150,16 @@
                         data-verb="{{ 'Disable' if p.portal_enabled else 'Enable' }}">
                   <i class="bi bi-{{ 'slash-circle' if p.portal_enabled else 'check-circle' }}"></i>
                 </button>
+                {# Delete opens a real Bootstrap modal too — same reason as
+                   Reset/Toggle above: a native confirm() is silently
+                   suppressed once the browser's "prevent additional dialogs"
+                   is ticked, and this action is permanent. #}
+                <button type="button" class="btn btn-outline-danger" title="Delete"
+                        data-bs-toggle="modal" data-bs-target="#deletePartnerModal"
+                        data-action="/trade-partner/partners/{{ p.id }}/delete"
+                        data-name="{{ p.business_name }}">
+                  <i class="bi bi-trash3"></i>
+                </button>
               </div>
 
               <!-- Edit modal -->
@@ -259,6 +269,32 @@
         <div class="modal-footer py-2">
           <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
           <button type="submit" class="btn btn-sm" id="togglePortalConfirm">Confirm</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Partner confirmation modal (shared; populated on trigger click) -->
+<div class="modal fade" id="deletePartnerModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" id="deletePartnerForm" action="">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
+        <div class="modal-header py-2">
+          <h6 class="modal-title">Delete Partner</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-0">Permanently delete <strong id="deletePartnerName"></strong>?</p>
+          <p class="small text-muted mb-0 mt-2">
+            This cannot be undone. A partner holding orders, credit notes, quotations
+            or receipts is archived instead of deleted — those records must be retained.
+          </p>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-danger">Delete</button>
         </div>
       </form>
     </div>
@@ -378,6 +414,20 @@ initGlobalTable('#externalPartnerAccountsTable', { order: [] });
       : 'The dealer will be able to sign in to the partner portal again.';
     tpBtn.textContent = verb;
     tpBtn.className = 'btn btn-sm ' + (disabling ? 'btn-danger' : 'btn-success');
+  });
+})();
+// Delete-partner modal: action URL and partner name come from the clicked
+// trigger button's data attributes.
+(function(){
+  var dpModal = document.getElementById('deletePartnerModal');
+  if (!dpModal) return;
+  var dpForm = document.getElementById('deletePartnerForm');
+  var dpName = document.getElementById('deletePartnerName');
+  dpModal.addEventListener('show.bs.modal', function(ev){
+    var btn = ev.relatedTarget;
+    if (!btn) return;
+    dpForm.setAttribute('action', btn.getAttribute('data-action') || '');
+    dpName.textContent = btn.getAttribute('data-name') || 'this partner';
   });
 })();
 (function(){

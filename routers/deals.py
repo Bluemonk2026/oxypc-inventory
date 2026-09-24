@@ -79,7 +79,9 @@ async def list_deals(
     )).scalars().all()
 
     contacts = (await db.execute(
-        select(CRMContact).where(CRMContact.status == "active").order_by(CRMContact.company_name)
+        select(CRMContact)
+        .where(CRMContact.status == "active", CRMContact.is_trashed == False)
+        .order_by(CRMContact.company_name)
     )).scalars().all()
 
     locations = (await db.execute(
@@ -92,10 +94,14 @@ async def list_deals(
             "label": ", ".join(filter(None, [loc.address, loc.city, loc.state])) or "Location",
         })
 
+    from utils.user_lookup import added_by_display_map
+    added_by = await added_by_display_map(db)
+
     return templates.TemplateResponse("deals/list.html", {
         "request": request, "current_user": current_user,
         "deals": deals, "contacts": contacts,
         "locations_by_contact": locations_by_contact,
+        "added_by": added_by,
     })
 
 

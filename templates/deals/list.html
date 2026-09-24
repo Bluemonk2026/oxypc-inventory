@@ -33,7 +33,15 @@
           <td>{{ (d.contact.contact_type | title) if d.contact else '—' }}</td>
           <td>{{ (d.location.address ~ ', ' ~ (d.location.city or '')) if d.location else '—' }}</td>
           <td class="text-end">₹{{ '{:,.2f}'.format(d.amount) }}</td>
-          <td>{{ d.created_by or '—' }}</td>
+          <td class="small">
+            {% set ab = added_by.get(d.created_by) %}
+            {% if ab %}
+            <div>{{ ab.name }}</div>
+            {% if ab.reports_to %}<span class="badge bg-light text-dark border">Reports to: {{ ab.reports_to }}</span>{% endif %}
+            {% else %}
+            <span class="text-muted">{{ d.created_by or '—' }}</span>
+            {% endif %}
+          </td>
           <td>{{ d.approved_by or '—' }}</td>
           <td><span class="badge bg-{{ 'success' if d.payment_status == 'paid' else 'warning text-dark' }}">{{ d.payment_status | title }}</span></td>
           <td><span class="badge bg-{{ 'success' if d.status == 'approved' else 'secondary' }}">{{ d.status | title }}</span></td>
@@ -59,8 +67,6 @@
             </form>
           </td>
         </tr>
-        {% else %}
-        <tr><td colspan="10" class="text-center text-muted py-4">No deals yet. <a href="#" data-bs-toggle="modal" data-bs-target="#createDealModal">Create the first one</a></td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -236,9 +242,17 @@ function removeItemRow(btn) {
 })();
 
 $(document).ready(function(){
+  // Global Table module (static/js/global-table.js) — always initialized,
+  // even with zero rows: DataTables reads its columns from <thead>, not from
+  // data rows, so this is safe now that the hand-authored "No deals yet"
+  // placeholder <tr> is gone. That placeholder was the actual hazard (a
+  // <td colspan> row that columnDefs' targets:[-1] would misread as real
+  // data) — with it removed, letting DataTables run is what makes its own
+  // built-in empty-state illustration (language.emptyTable) render at all.
   initGlobalTable('#dealsTable', {
     order: [],
     columnDefs: [{ orderable: false, targets: [-1] }],
+    language: { emptyTable: 'No deals yet. Use the Create Deal button above to add one.' },
   });
 });
 </script>

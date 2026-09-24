@@ -470,6 +470,57 @@ async def reset_partner_password(
     )
 
 
+@router.post("/partners/{dealer_id}/delete")
+async def delete_partner(
+    request: Request,
+    dealer_id: str,
+    _csrf=Depends(verify_csrf),
+    current_user: User = Depends(require_module_perm("trade_partner_partners", "edit")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete a partner record.
+
+    A partner is a Dealer row (see routers/dealers.py) — reuses that router's
+    cascade/financial-guard logic so this and /dealers/{id}/delete never drift:
+    a partner holding financial records (orders, credit notes, quotations,
+    receipts) is trashed instead of hard-deleted, and the response says which
+    happened."""
+    from routers.dealers import _partition_deletable, _hard_delete_dealers
+
+    dealer = (await db.execute(select(Dealer).where(Dealer.id == dealer_id))).scalar_one_or_none()
+    if not dealer:
+        return RedirectResponse(url="/trade-partner/partners?error=Partner+not+found", status_code=302)
+
+    name = dealer.business_name or str(dealer.id)
+    deletable, blocked = await _partition_deletable(db, [str(dealer.id)])
+
+    if not deletable:
+        if dealer.trashed_at is None:
+            dealer.trashed_at = app_now()
+            dealer.trashed_by = current_user.username
+        reason = blocked.get(str(dealer.id), "financial records")
+        await audit(db, action="PARTNER_TRASHED_HAS_FINANCIALS", user=current_user,
+                    table_name="dealers", record_id=str(dealer.id),
+                    new_value={"business_name": name, "retained_because": reason},
+                    request=request)
+        await db.commit()
+        msg = quote_plus(
+            f"{name} has {reason} and was archived instead of deleted — "
+            f"financial records must be retained.")
+        return RedirectResponse(url=f"/trade-partner/partners?warning={msg}", status_code=302)
+
+    await audit(db, action="PARTNER_DELETED", user=current_user,
+                table_name="dealers", record_id=str(dealer.id),
+                old_value={"business_name": name, "phone": dealer.phone,
+                           "dealer_code": dealer.dealer_code},
+                new_value={"deleted": True, "by": current_user.username},
+                request=request)
+    await _hard_delete_dealers(db, deletable)
+    await db.commit()
+    msg = quote_plus(f"{name} deleted permanently")
+    return RedirectResponse(url=f"/trade-partner/partners?success={msg}", status_code=302)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Listings Manager
 # ═══════════════════════════════════════════════════════════════════════════

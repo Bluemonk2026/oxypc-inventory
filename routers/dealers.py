@@ -737,6 +737,7 @@ _DEALER_CHILD_TABLES = [
     "partner_listing_views",
     "lot_dealer_visibility",
     "lot_booking_requests",
+    "partner_bids",
 ]
 
 # Financial and statutory records. A dealer holding any of these is NOT deleted —

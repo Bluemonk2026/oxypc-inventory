@@ -5,7 +5,7 @@
 
 <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
   <form method="get" class="d-flex gap-2 flex-wrap">
-    <input type="text" name="q" value="{{ q }}" placeholder="Search name, phone, city…" class="form-control form-control-sm" style="width:220px">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search name, phone, city, state…" class="form-control form-control-sm" style="width:220px">
     <select name="contact_type" class="form-select form-select-sm" style="width:130px">
       <option value="">All Types</option>
       <option value="supplier" {% if contact_type=='supplier' %}selected{% endif %}>Supplier</option>
@@ -60,7 +60,7 @@
       <i class="bi bi-download me-1"></i>Export CSV
     </a>
     {% endif %}
-    <a href="/crm/contacts/new" class="btn btn-sm btn-primary"><i class="bi bi-person-plus me-1"></i>Add Contact</a>
+    <a href="/crm/contacts/new" class="btn btn-sm btn-primary"><i class="bi bi-person-plus me-1"></i>Add Account</a>
   </div>
 </div>
 
@@ -107,6 +107,7 @@
             <th>Status</th>
             <th>KYC</th>
             <th>Notes</th>
+            <th>Created By</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -213,6 +214,17 @@
               <span class="text-muted">—</span>
               {% endif %}
             </td>
+            {# 10b. Created By — who created it, or ran the bulk upload it came
+               in on; reports_to badge sourced from Admin > User Management #}
+            <td class="small">
+              {% set ab = added_by.get(c.created_by) %}
+              {% if ab %}
+              <div>{{ ab.name }}</div>
+              {% if ab.reports_to %}<span class="badge bg-light text-dark border">Reports to: {{ ab.reports_to }}</span>{% endif %}
+              {% else %}
+              <span class="text-muted">{{ c.created_by or '—' }}</span>
+              {% endif %}
+            </td>
             {# 11. Actions #}
             <td>
               <div class="d-flex gap-1 flex-wrap">
@@ -230,8 +242,6 @@
               </div>
             </td>
           </tr>
-          {% else %}
-          <tr><td colspan="9" class="text-center text-muted py-4">No contacts found. <a href="/crm/contacts/new">Add your first contact</a></td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -378,10 +388,20 @@
 {% endblock %}
 {% block scripts %}
 <script>
-// col index: 0=Type,1=Category,2=Company,3=Locations,4=Contacts,5=Status,6=KYC,7=Notes,8=Actions
-initGlobalTable('#contactsTable', {
-  order: [[2, 'asc']],  // default sort by Company
-  columnDefs: [{ orderable: false, targets: [3, 4, 8] }]  // Locations + Contacts + Actions not sortable
+// col index: 0=Type,1=Category,2=Company,3=Locations,4=Contacts,5=Status,6=KYC,7=Notes,8=Created By,9=Actions
+$(document).ready(function(){
+  // Global Table module (static/js/global-table.js) — always initialized,
+  // even with zero rows: DataTables reads its columns from <thead>, not from
+  // data rows, so this is safe now that the hand-authored "No contacts found"
+  // placeholder <tr> is gone. That placeholder was the actual hazard (a
+  // <td colspan> row that columnDefs' targets would misread as real data) —
+  // with it removed, letting DataTables run is what makes its own built-in
+  // empty-state illustration (language.emptyTable) render at all.
+  initGlobalTable('#contactsTable', {
+    order: [[2, 'asc']],  // default sort by Company
+    columnDefs: [{ orderable: false, targets: [3, 4, 9] }],  // Locations + Contacts + Actions not sortable
+    language: { emptyTable: 'No contacts found. Use the Add Account button above to create one.' }
+  });
 });
 
 (function () {

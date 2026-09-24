@@ -140,6 +140,7 @@ async def list_contacts(
             CRMContact.contact_person.ilike(like),
             CRMContact.phone.ilike(like),
             CRMContact.city.ilike(like),
+            CRMContact.state.ilike(like),
         ))
     if contact_type:
         query = query.where(CRMContact.contact_type == contact_type)
@@ -232,6 +233,9 @@ async def list_contacts(
         "active":    sum(1 for c in contacts if c.status == "active"),
     }
 
+    from utils.user_lookup import added_by_display_map
+    added_by = await added_by_display_map(db)
+
     return templates.TemplateResponse("crm/contacts/list.html", {
         "request": request, "current_user": current_user,
         "contacts": contacts, "counts": counts,
@@ -245,6 +249,7 @@ async def list_contacts(
         "contacted": contacted,
         "created_by_filter": created_by_filter,
         "crm_users": crm_users,
+        "added_by": added_by,
         "source_types": SOURCE_TYPES, "buyer_types": BUYER_TYPES,
     })
 
@@ -529,6 +534,7 @@ async def export_contacts_csv(
             CRMContact.contact_person.ilike(like),
             CRMContact.phone.ilike(like),
             CRMContact.city.ilike(like),
+            CRMContact.state.ilike(like),
         ))
     if contact_type:
         query = query.where(CRMContact.contact_type == contact_type)
@@ -951,7 +957,7 @@ async def create_contact(
                     phone=ph or None, email=em or None, sort_order=j,
                 ))
         await db.commit()
-        return RedirectResponse(url=f"/crm/contacts/{contact.id}?success=Contact+created", status_code=302)
+        return RedirectResponse(url="/crm/contacts?success=Contact+created", status_code=302)
     return RedirectResponse(url="/crm/contacts?error=Failed+to+generate+unique+contact+code,+please+retry", status_code=302)
 
 
@@ -1251,7 +1257,7 @@ async def update_contact(
                 phone=ph or None, email=em or None, sort_order=j,
             ))
     await db.commit()
-    return RedirectResponse(url=f"/crm/contacts/{contact_id}?success=Contact+updated", status_code=302)
+    return RedirectResponse(url="/crm/contacts?success=Contact+updated", status_code=302)
 
 
 # ── KYC VERIFICATION ─────────────────────────────────────────────────────────

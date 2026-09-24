@@ -130,8 +130,15 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
                         exclude_admin: str = Query(default=""),
                         highlight: str = Query(default="")):
     # ── Base query: WorkOrders joined to their Device ──────────────────────────
+    # stage="asgn" WorkOrders come from /transfers' "Assign To Employee" field
+    # (routers/transfers.py) — plain assignment bookkeeping, not a repair/
+    # cosmetic pipeline stage, so they have no Stage/StageMovement here to
+    # show and only clutter this page. Left in place (not deleted) so All
+    # Inventory's Employee filter/column and Device Detail's Work ID History,
+    # which both join WorkOrder directly, keep working.
     stmt = (select(WorkOrder, Device)
             .join(Device, WorkOrder.device_id == Device.id, isouter=True)
+            .where(WorkOrder.stage != "asgn")
             .order_by(WorkOrder.assigned_at.desc()))
     if workid:
         stmt = stmt.where(WorkOrder.work_id.ilike(f"%{workid.strip()}%"))

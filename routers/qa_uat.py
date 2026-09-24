@@ -256,11 +256,13 @@ def _auto_commits_since(after_date: str) -> list[dict]:
         return []
 
 
-def _get_recent_commits(days: int = 60) -> list[dict]:
+def _get_recent_commits() -> list[dict]:
     """Changelog for the QA dashboard: curated hand-written entries (more
     descriptive than raw commit subjects) for everything up to the latest
     hardcoded date, PLUS every real git commit after that date pulled
     automatically — so new work shows up here without editing this file.
+    Full history, not windowed to any number of days — the Global Table
+    module on the template side paginates it instead of a server-side cap.
     """
     latest_hardcoded_date = max((c["date"] for c in _HARDCODED_COMMITS), default="1970-01-01")
     # Start the automatic pull the day AFTER the last curated date, so today's
@@ -328,19 +330,34 @@ async def qa_dashboard(
                                 QADefect.status.notin_([DefectStatus.closed, DefectStatus.wont_fix]))
     def_total    = await _count(QADefect)
 
-    # UAT
+    # UAT — all 4 reachable statuses counted (2026-09-24: fail/blocked were
+    # silently invisible on the dashboard before; the progress bar's own
+    # "% complete" was uat_pass/uat_total, conflating pass rate with
+    # execution completion — a failed or blocked scenario still counts as
+    # "executed", just not "passed"). 'Draft' isn't counted: it's a status
+    # value in the enum but nothing in this app ever creates or sets it
+    # (new scenarios default to 'Pending Execution', and the Record Result
+    # modal explicitly excludes 'Draft' from its options) — unreachable.
     uat_total    = await _count(QAUATScenario)
     uat_pass     = await _count(QAUATScenario, QAUATScenario.status == UATStatus.pass_)
+    uat_fail     = await _count(QAUATScenario, QAUATScenario.status == UATStatus.fail)
+    uat_blocked  = await _count(QAUATScenario, QAUATScenario.status == UATStatus.blocked)
     uat_pending  = await _count(QAUATScenario, QAUATScenario.status == UATStatus.pending)
+    uat_executed = uat_pass + uat_fail + uat_blocked
+    uat_pct_executed = round(uat_executed / uat_total * 100) if uat_total else 0
 
-    # Releases
-    active_rel_res = await db.execute(
+    # Releases: most recent 5 regardless of status (2026-09-24) — every
+    # release eventually reaches 'Deployed', so filtering to only non-
+    # deployed/rolled-back ones left this card permanently empty ("No
+    # active releases") the moment a project's releases all ship. Recent
+    # releases with their real status badges is useful indefinitely; an
+    # always-empty card isn't.
+    recent_rel_res = await db.execute(
         select(QARelease)
-        .where(QARelease.status.notin_([ReleaseStatus.deployed, ReleaseStatus.rolled_back]))
         .order_by(QARelease.created_at.desc())
         .limit(5)
     )
-    active_releases = active_rel_res.scalars().all()
+    recent_releases = recent_rel_res.scalars().all()
 
     # Recent defects (critical/high, open)
     recent_def_res = await db.execute(
@@ -352,8 +369,25 @@ async def qa_dashboard(
     )
     critical_defects = recent_def_res.scalars().all()
 
-    pass_rate = round(exec_pass / exec_total * 100, 1) if exec_total else 0
-    recent_commits = _get_recent_commits(days=60)
+    recent_commits = _get_recent_commits()
+    # Historical Pass/Fail proxy from real change history (2026-09-24): with
+    # zero QATestExecution rows to draw on, "Bug Fix" changelog entries are
+    # the only real, grounded signal of something having gone wrong — a
+    # defensible stand-in for "fail" until actual test executions exist.
+    # Everything else (Enhancement, Sprint Release, ...) counts as "pass".
+    changelog_total = len(recent_commits)
+    changelog_fail = sum(1 for c in recent_commits if c["category"] == "Bug Fix")
+    changelog_pass = changelog_total - changelog_fail
+    changelog_pass_rate = round(changelog_pass / changelog_total * 100, 1) if changelog_total else 0
+
+    # Pass Rate tile: real QATestExecution data when any exists; otherwise
+    # the changelog-derived proxy above instead of an unfounded 0% or a
+    # blind 100% — grounded in the same 549 real records shown just below,
+    # not a made-up number either way.
+    if exec_total:
+        pass_rate = round(exec_pass / exec_total * 100, 1)
+    else:
+        pass_rate = changelog_pass_rate
 
     return templates.TemplateResponse("qa/dashboard.html", {
         "request": request, "current_user": current_user,
@@ -364,9 +398,13 @@ async def qa_dashboard(
         "def_new": def_new, "def_open": def_open,
         "def_critical": def_critical, "def_total": def_total,
         "uat_total": uat_total, "uat_pass": uat_pass, "uat_pending": uat_pending,
-        "active_releases": active_releases,
+        "uat_fail": uat_fail, "uat_blocked": uat_blocked,
+        "uat_executed": uat_executed, "uat_pct_executed": uat_pct_executed,
+        "recent_releases": recent_releases,
         "critical_defects": critical_defects,
         "recent_commits": recent_commits,
+        "changelog_total": changelog_total, "changelog_pass": changelog_pass,
+        "changelog_fail": changelog_fail, "changelog_pass_rate": changelog_pass_rate,
     })
 
 

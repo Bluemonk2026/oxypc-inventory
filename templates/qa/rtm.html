@@ -48,7 +48,7 @@
 <!-- RTM Table -->
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
-    <table class="table table-bordered table-sm mb-0 align-middle">
+    <table id="qaRtmTable" class="table table-bordered table-sm mb-0 align-middle">
       <thead class="table-dark">
         <tr>
           <th class="ps-3" style="width:120px">Req Code</th>
@@ -161,12 +161,17 @@
             {% endif %}
           </td>
         </tr>
-        {% else %}
-        <tr><td colspan="8" class="text-center text-muted py-5">No requirements in the system yet. <a href="/qa/requirements">Add requirements</a> to build the RTM.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
 
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){
+  initGlobalTable('#qaRtmTable', { columnDefs: [{ orderable: false, targets: [4, 6] }] });
+});
+</script>
 {% endblock %}

@@ -303,6 +303,17 @@ fieldset:disabled .btn {
   white-space: nowrap;
 }
 
+/* Opt-out for a table whose last column is real prose, not Action buttons
+   (e.g. QA Dashboard's Recent Changes "Change Description") — the two rules
+   above assume every Global Table ends in an Action column, which centers
+   and single-lines it; a text column needs the opposite of both: left-
+   aligned and free to wrap. Add gtable-last-col-text to the <table> itself. */
+.gtable.gtable-last-col-text thead th:last-child,
+.gtable.gtable-last-col-text tbody td:last-child {
+  text-align: left;
+  white-space: normal;
+}
+
 /* Same guarantee for the table-top toolbar (2026-09-03): "Page view" /
    search / pagination controls sit in a flex-wrap row (.gtable-top), and a
    flex item is free to shrink below its content's natural width unless

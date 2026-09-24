@@ -30,7 +30,7 @@
 <!-- Table -->
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
-    <table class="table table-hover table-sm mb-0">
+    <table id="qaTestCasesTable" class="table table-hover table-sm mb-0">
       <thead class="table-light">
         <tr>
           <th class="ps-3">Code</th>
@@ -151,8 +151,6 @@
             </div>
           </div>
         </div>
-        {% else %}
-        <tr><td colspan="9" class="text-center text-muted py-4 small">No test cases yet. Create one above.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -239,4 +237,11 @@
   </div>
 </div>
 
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function(){
+  initGlobalTable('#qaTestCasesTable', { order: [[7, 'desc']] });
+});
+</script>
 {% endblock %}

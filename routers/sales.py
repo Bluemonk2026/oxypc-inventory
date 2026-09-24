@@ -166,14 +166,25 @@ async def ready_list_data(
         if w:
             warranty_map[did] = w
 
-    # Location ID + Assigned To — looked up in bulk for this page of rows only.
-    loc_ids = {d.location_id for d, *_ in rows if d.location_id}
-    location_name_map = {}
-    if loc_ids:
-        location_name_map = {
-            l.id: l.unit_id
-            for l in (await db.execute(select(StorageLocation).where(StorageLocation.id.in_(loc_ids)))).scalars().all()
-        }
+    # Location ID — reads the device's LATEST DeviceLocationLog entry first,
+    # same as All Inventory / Device Detail / Inventory Manager (see
+    # routers/devices.py's _build_location_map docstring) — Device.location_id
+    # alone is only a fallback for a device with no log entry at all. Most
+    # devices are assigned via the pickup-placeback flow, which only ever
+    # writes the log, so reading Device.location_id directly left this column
+    # blank for almost every real device.
+    from routers.devices import _build_location_map
+    log_map = await _build_location_map(db, device_ids)
+    location_map = {did: v["unit_id"] for did, v in log_map.items() if v.get("unit_id")}
+    missing_loc_ids = [d.id for d, *_ in rows if str(d.id) not in location_map and d.location_id]
+    if missing_loc_ids:
+        for did, unit_id in (await db.execute(
+            select(Device.id, StorageLocation.unit_id)
+            .join(StorageLocation, Device.location_id == StorageLocation.id)
+            .where(Device.id.in_(missing_loc_ids))
+        )).all():
+            location_map[str(did)] = unit_id
+
     assigned_ids = {d.assigned_to_user_id for d, *_ in rows if d.assigned_to_user_id}
     assigned_name_map = {}
     if assigned_ids:
@@ -201,7 +212,7 @@ async def ready_list_data(
         rejected_notes = rejected_notes_map.get(did)
         w = warranty_map.get(did)
 
-        loc_name = location_name_map.get(d.location_id)
+        loc_name = location_map.get(did)
         assigned_name = assigned_name_map.get(d.assigned_to_user_id)
         cells = [
             (f'<input type="checkbox" class="form-check-input readyChk" value="{esc(d.barcode)}" '
@@ -345,7 +356,10 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
             "availability": 0, "barcodes": [], "min_prices": [], "max_prices": [],
             "assigned_to_user_id": device.assigned_to_user_id,
         })
-        g["device_types"][device.device_type or "—"] += 1
+        # device_type is blank on a lot of real records; sub_category ("Laptop"/
+        # "Desktop"/"TFT"/...) is populated far more often and means the same
+        # thing — same fallback templates/sales/detail.html already uses.
+        g["device_types"][device.device_type or device.sub_category or "—"] += 1
         if device.model:
             g["models"][device.model] += 1
         if device.cpu:

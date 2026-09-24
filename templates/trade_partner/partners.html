@@ -217,10 +217,6 @@
               </div>
             </td>
           </tr>
-          {% else %}
-          <tr><td colspan="8" class="text-center text-muted py-4">
-            No portal partners yet. Click <strong>Generate Access</strong> to provision the first dealer.
-          </td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -373,7 +369,10 @@
 {% block scripts %}
 <script src="/static/vendor/tom-select/js/tom-select.complete.min.js"></script>
 <script>
-initGlobalTable('#externalPartnerAccountsTable', { order: [] });
+initGlobalTable('#externalPartnerAccountsTable', {
+  order: [],
+  language: { emptyTable: 'No portal partners yet. Click Generate Access to provision the first dealer.' }
+});
 // Reset-password modal: copy the clicked row's action URL and partner name
 // onto the shared modal's form. The csrf_token hidden input is already
 // injected by base.html's CSRF auto-inject on page load and is preserved here.

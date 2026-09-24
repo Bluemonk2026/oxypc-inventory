@@ -21,6 +21,7 @@ from models.spare_parts import SparePart, SparePartConsumption
 from services.parts_required import compute_required
 from services.audit_engine import audit
 from services.notifications import create_notification
+from services.location_defaults import ensure_stage_location
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_module_perm
 from models.work_order import WorkOrder
 from models.role_permissions import has_perm, is_narrowly_scoped_to
@@ -1274,6 +1275,7 @@ async def fqc_move_passed(
             device_id=device.id, from_stage=DeviceStage.final_qc_pass_hold, to_stage=DeviceStage.ready_to_sale,
             moved_by=current_user.username, notes="Moved to Inventory from Final QC Pass",
         ))
+        await ensure_stage_location(db, device, DeviceStage.ready_to_sale, current_user)
         moved.append(code)
 
     if moved:

@@ -18,6 +18,7 @@ from auth.dependencies import (get_current_user, require_roles, verify_csrf, req
                                require_any_module_perm, require_additional_perm, require_any_additional_perm)
 from services.audit_engine import audit
 from services.control_engine import validate_transition
+from services.location_defaults import ensure_stage_location
 from utils.master_data import master_values
 from utils.grades import parse_grade
 from routers.devices import _build_model_summary
@@ -1456,6 +1457,9 @@ async def iqc_create(
             "request": request, "lots": lots, "current_user": current_user,
             "error": f"Could not save this device: {str(exc)[:200]}",
         })
+
+    await ensure_stage_location(db, device, device.current_stage, current_user,
+                                preferred_location_id=device.location_id)
 
     # Save physical inspection data
     def _v(s): return s or None

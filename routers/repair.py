@@ -25,6 +25,7 @@ from services.control_engine import validate_transition, validate_repair_level, 
 from services.cost_engine import check_scrap_decision, auto_scrap_device, refresh_parts_cost, SCRAP_WARNING_RATIO
 from services.audit_engine import audit
 from services.notifications import create_notification
+from services.location_defaults import ensure_stage_location
 from models.spare_parts import SparePartConsumption as SPC, SparePart
 from models.work_order import WorkOrder
 from models.part_request import PartRequest
@@ -1384,6 +1385,7 @@ async def complete_repair(
                              notes=f"{job.stage} completed — moved back to Stock Inward"))
         device.current_stage = DeviceStage.stock_in
         device.updated_at    = app_now()
+        await ensure_stage_location(db, device, DeviceStage.stock_in, current_user)
         await create_notification(
             db,
             user_id=None,

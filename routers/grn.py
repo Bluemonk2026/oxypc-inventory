@@ -22,6 +22,7 @@ from models.engines import AuditLog
 from models.grn_import import GRNImport
 from services.invoice_parser import extract_invoice_fields
 from services.audit_engine import audit
+from services.location_defaults import ensure_stage_location
 from config import UPLOADS_DIR
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_additional_perm
 
@@ -332,6 +333,7 @@ async def grn_map(request: Request, grn_id: str = Form(...),
                 notes=f"GRN {g.grn_number} mapped — moved to Stock Inward"))
             d.current_stage = DeviceStage.stock_in
             d.updated_at = now
+            await ensure_stage_location(db, d, DeviceStage.stock_in, current_user)
             moved += 1
     await audit(db, user=current_user, action="GRN_MAPPED",
                 table_name="devices", record_id=str(gid),
@@ -679,6 +681,7 @@ async def grn_validate(
                     notes=f"GRN {g.grn_number} validated — auto-mapped to Stock Inward"))
                 d.current_stage = DeviceStage.stock_in
                 d.updated_at = now
+                await ensure_stage_location(db, d, DeviceStage.stock_in, current_user)
                 auto_mapped += 1
     await db.commit()
     return JSONResponse({"ok": True, "grn_number": g.grn_number, "auto_mapped": auto_mapped})

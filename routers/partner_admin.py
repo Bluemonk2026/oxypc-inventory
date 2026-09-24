@@ -50,6 +50,7 @@ from auth.dependencies import (
     get_current_user, verify_csrf, hash_password_async, require_module_perm,
 )
 from services.audit_engine import audit
+from services.location_defaults import ensure_stage_location
 from services.partner_service import (
     next_listing_code, resolve_floor, ageing_bucket, get_settings, set_setting,
     photos_list, SETTING_DEFAULTS,
@@ -1439,6 +1440,7 @@ async def manage_lots_move_ready_for_sale(
             device_id=device.id, from_stage=from_stage, to_stage=DeviceStage.ready_to_sale,
             moved_by=current_user.username, notes="Manage Lots — bulk moved to Ready for Sale",
         ))
+        await ensure_stage_location(db, device, DeviceStage.ready_to_sale, current_user)
     await audit(db, action="MANAGE_LOTS_BULK_READY_FOR_SALE", user=current_user,
                 table_name="devices", record_id=",".join(str(d.id) for d in devices),
                 new_value={"barcodes": [d.barcode for d in devices]},

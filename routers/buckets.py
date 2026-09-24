@@ -18,6 +18,7 @@ from models.work_order import WorkOrder
 from models.location import StorageLocation
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 from services.notifications import create_notification
+from services.location_defaults import ensure_stage_location
 from services.audit_engine import audit
 
 router = APIRouter(tags=["buckets"], dependencies=[Depends(verify_csrf)])
@@ -430,6 +431,7 @@ async def create_bucket(
         # Task 2(c): mark devices as Stock Inward stage on bucket assignment
         d.current_stage = DeviceStage.stock_in
         d.updated_at = app_now()
+        await ensure_stage_location(db, d, DeviceStage.stock_in, current_user)
 
     await db.commit()
     return JSONResponse({

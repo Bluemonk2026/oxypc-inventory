@@ -36,6 +36,7 @@ from models.bucket import Bucket, _new_bucket_number
 from models.pna_part import DevicePNAPart
 from routers.transfers import _gen_work_id
 from services.notifications import create_notification
+from services.location_defaults import ensure_stage_location
 
 _log = logging.getLogger(__name__)
 
@@ -1425,6 +1426,7 @@ async def move_to_stock(
         moved_by=current_user.username, notes=notes or "Moved to Stock"
     )
     db.add(movement)
+    await ensure_stage_location(db, device, DeviceStage.stock_in, current_user)
     await db.commit()
     return RedirectResponse(url="/stock?success=Moved+to+Stock", status_code=302)
 

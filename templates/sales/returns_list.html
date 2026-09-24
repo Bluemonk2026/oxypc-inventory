@@ -17,17 +17,20 @@
 </div>
 <div class="card border-0 shadow-sm">
   <div class="card-header bg-transparent d-flex flex-wrap align-items-center justify-content-between gap-2">
-    <span class="fw-semibold"><i class="bi bi-arrow-return-left me-2"></i>Returns</span>
-    <div class="d-flex flex-wrap align-items-center gap-2">
-      <label class="text-muted small mb-0">From</label>
-      <input type="date" id="retDateFrom" class="form-control form-control-sm" style="max-width:150px;">
-      <label class="text-muted small mb-0">To</label>
-      <input type="date" id="retDateTo" class="form-control form-control-sm" style="max-width:150px;">
-      <select id="retReplacementFilter" class="form-select form-select-sm" style="max-width:170px;">
+    <span class="fw-semibold text-nowrap"><i class="bi bi-arrow-return-left me-2"></i>Returns</span>
+    <div class="d-flex flex-nowrap align-items-center gap-2 overflow-x-auto">
+      <label class="text-muted small mb-0 text-nowrap">From</label>
+      <input type="date" id="retDateFrom" class="form-control form-control-sm" style="max-width:135px;">
+      <label class="text-muted small mb-0 text-nowrap">To</label>
+      <input type="date" id="retDateTo" class="form-control form-control-sm" style="max-width:135px;">
+      <select id="retReplacementFilter" class="form-select form-select-sm text-nowrap" style="max-width:150px;">
         <option value="all" selected>Replacement: All</option>
         <option value="yes">Replacement: Yes</option>
         <option value="no">Replacement: No</option>
       </select>
+      <button type="button" id="retResetBtn" class="btn btn-sm btn-outline-secondary text-nowrap">
+        <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+      </button>
       <button type="button" id="retExportBtn" class="btn btn-sm btn-outline-success text-nowrap">
         <i class="bi bi-download me-1"></i>Export
       </button>
@@ -175,6 +178,13 @@ $(document).ready(function(){
     return true;
   });
   $('#retDateFrom, #retDateTo, #retReplacementFilter').on('change', function(){ dt.draw(); });
+
+  $('#retResetBtn').on('click', function(){
+    $('#retDateFrom').val('');
+    $('#retDateTo').val('');
+    $('#retReplacementFilter').val('all');
+    dt.draw();
+  });
 
   // Export: current filtered result set (every page, not just the visible
   // one) as a CSV — same plain client-side pattern as GRN Records' export,

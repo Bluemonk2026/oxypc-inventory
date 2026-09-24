@@ -37,6 +37,7 @@ from services.cost_engine import (
 )
 from services.audit_engine import audit
 from services.event_bus import EventType, publish
+from services.location_defaults import ensure_stage_location
 from utils.warranty import (
     warranty_from_sold_at, latest_sold_at_map,
     parse_warranty_duration, warranty_status_for_sale,
@@ -1623,6 +1624,7 @@ async def process_return(
     db.add(StageMovement(device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.stock_in,
                          moved_by=current_user.username,
                          notes="Internal Tag return submitted — back in Stock In pending approval"))
+    await ensure_stage_location(db, device, DeviceStage.stock_in, current_user)
 
     await audit(db, user=current_user, action="RETURN_SUBMITTED",
                 table_name="returns", record_id=str(device.id),
@@ -1739,6 +1741,7 @@ async def process_external_return(
         )
         db.add(device)
         await db.flush()
+        await ensure_stage_location(db, device, DeviceStage.iqc, current_user)
 
     try:
         qty = max(1, int(quantity))

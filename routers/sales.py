@@ -8,7 +8,7 @@ import os
 import re
 import shutil
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from utils.timezone import app_now, app_today
 from decimal import Decimal
@@ -39,7 +39,7 @@ from services.audit_engine import audit
 from services.event_bus import EventType, publish
 from utils.warranty import (
     warranty_from_sold_at, latest_sold_at_map,
-    compute_warranty_expiry, warranty_status_for_sale,
+    parse_warranty_duration, warranty_status_for_sale,
 )
 
 router = APIRouter(tags=["sales"], dependencies=[Depends(verify_csrf)])
@@ -694,7 +694,14 @@ async def create_sale(
     except Exception:
         return await _fail("Invalid sale price — please enter a valid number")
 
-    wtype = warranty_type if warranty_type in ("none", "30_days", "6_months", "1_year") else "none"
+    # warranty_type is submitted as whatever raw label the admin has
+    # configured in Master Data (sale_warranty_type) — "30 Days", "60 Days",
+    # "6 Months", ... — not a fixed slug, so it's parsed generically rather
+    # than checked against a hardcoded list (which silently defaulted every
+    # sale, single or bulk, to No Warranty regardless of what was picked,
+    # since e.g. "30 Days" never equals "30_days").
+    wtype, warranty_days_selected = parse_warranty_duration(warranty_type)
+    wtype = wtype or "none"
 
     # Sale Date defaults to now; a selected date keeps the current time-of-day
     # so ordering within a day and warranty-expiry math both still make sense
@@ -809,7 +816,11 @@ async def create_sale(
         sale_num = sale_numbers[_num_idx]
         _num_idx += 1
         sold_at = resolved_sold_at
-        warranty_expires_at = compute_warranty_expiry(sold_at, wtype)
+        # Same shared parse as above — warranty_days_selected is the actual
+        # day count for whatever Master Data label was picked (not limited to
+        # the 3 legacy slugs compute_warranty_expiry's fixed map knows about).
+        warranty_expires_at = (sold_at + timedelta(days=warranty_days_selected)
+                               if warranty_days_selected else None)
         sale = Sale(
             sale_number=sale_num, device_id=device.id,
             sale_price=price,
@@ -820,7 +831,8 @@ async def create_sale(
             notes=notes or None,
             invoice_file_path=invoice_file_path or None,
             sold_at=sold_at,
-            warranty_type=wtype, warranty_expires_at=warranty_expires_at,
+            warranty_type=wtype, warranty_days=warranty_days_selected,
+            warranty_expires_at=warranty_expires_at,
             **_company_snapshot_fields(company_by_entity.get(device.entity, fallback_company)),
         )
         db.add(sale)

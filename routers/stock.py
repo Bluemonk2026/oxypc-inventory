@@ -2,7 +2,7 @@ from templates_config import templates
 import logging
 import uuid
 from decimal import Decimal, InvalidOperation
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, Form, Query, Request, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +10,6 @@ from sqlalchemy import select, func, or_, update, text
 from datetime import datetime as _dt
 from utils.timezone import app_now
 from utils.master_data import master_values, entity_values
-from utils.warranty import compute_warranty_expiry
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, DeviceGrade, StageMovement, STAGE_LABELS, DROPDOWN_STAGES, COSMETIC_STAGES
@@ -1265,7 +1264,13 @@ async def return_stock_complete(
         raise HTTPException(404, "Original sale record not found for this return")
 
     sold_at = app_now()
-    warranty_expires_at = compute_warranty_expiry(sold_at, orig_sale.warranty_type)
+    # orig_sale.warranty_days already holds the exact day count for whatever
+    # Master Data label was picked at the original sale — compute_warranty_expiry
+    # only understands the 3 legacy slugs (30_days/6_months/1_year), so any
+    # other admin-added duration (e.g. "60 Days") would silently compute no
+    # expiry at all if re-derived from warranty_type here instead.
+    warranty_expires_at = (sold_at + timedelta(days=orig_sale.warranty_days)
+                           if orig_sale.warranty_days else None)
     sale_num = await _gen_sale_number(db)
     new_sale = Sale(
         sale_number=sale_num, device_id=device.id, sale_price=orig_sale.sale_price,
@@ -1274,7 +1279,8 @@ async def return_stock_complete(
         payment_mode=orig_sale.payment_mode, sold_by=current_user.username,
         sales_person=orig_sale.sales_person, sold_at=sold_at,
         notes=f"Re-sale after customer return (Return {ret.id})",
-        warranty_type=orig_sale.warranty_type, warranty_expires_at=warranty_expires_at,
+        warranty_type=orig_sale.warranty_type, warranty_days=orig_sale.warranty_days,
+        warranty_expires_at=warranty_expires_at,
         company_id=orig_sale.company_id, company_name=orig_sale.company_name,
         company_address=orig_sale.company_address, company_gstin=orig_sale.company_gstin,
         company_state=orig_sale.company_state, company_state_code=orig_sale.company_state_code,

@@ -14,6 +14,7 @@ Used by Ready to Sale, Ready to Dispatch, Process Return and L3 replacement view
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
 
 from utils.timezone import app_now
@@ -67,13 +68,60 @@ WARRANTY_DURATIONS = {
 
 def compute_warranty_expiry(sold_at: datetime, warranty_type: str) -> datetime | None:
     """Server-side computation of warranty_expires_at from sold_at + warranty_type.
-    Returns None for warranty_type == 'none' or unrecognized values."""
+    Returns None for warranty_type == 'none' or unrecognized values.
+
+    Only understands the 3 fixed legacy slugs in WARRANTY_DURATIONS — use
+    parse_warranty_duration() + sold_at + timedelta(days=days) instead
+    wherever warranty_type comes from the admin-editable sale_warranty_type
+    Master Data list (New Sale, Extended Warranty), which can hold any
+    "<N> day/month/year" label, not just these three."""
     if not sold_at:
         return None
     delta = WARRANTY_DURATIONS.get(warranty_type)
     if delta is None:
         return None
     return sold_at + delta
+
+
+_WARRANTY_DURATION_RE = re.compile(r'(\d+)[\s_-]*(day|month|year)')
+
+
+def parse_warranty_duration(raw: str) -> tuple[str | None, int | None]:
+    """Parse a Master Data Warranty Type label into (canonical_slug, days).
+
+    A fixed 3-entry lookup table (30_days/6_months/1_year, see
+    WARRANTY_DURATIONS) breaks the moment an admin adds "60 Days"/"90 Days"
+    to the Master Data Dropdown Configuration, since neither is in the table
+    ("Select a valid Warranty Type" on a perfectly valid pick). This parses
+    the "<N> day/month/year" pattern generically instead —
+    case/spacing/underscore-insensitive — so ANY admin-added value (any N,
+    any unit) works with no further code change. "No Warranty" / "none" /
+    the blank placeholder all lack a digit+unit pattern and correctly fall
+    through to (None, None) — not a real duration, same as an unrecognized
+    value.
+
+    Single source for this parsing — New Sale (routers/sales.py) and
+    Extended Warranty (routers/extended_warranty.py) both read the same
+    admin-editable sale_warranty_type Master Data list and must agree on
+    what a given label means; New Sale silently defaulted every sale to "No
+    Warranty" for a long time because it checked warranty_type against the
+    fixed WARRANTY_DURATIONS keys instead of parsing it this way.
+    """
+    m = _WARRANTY_DURATION_RE.search((raw or '').lower())
+    if not m:
+        return None, None
+    n = int(m.group(1))
+    unit = m.group(2)
+    if unit == 'day':
+        days = n
+    elif unit == 'month':
+        # Preserve the pre-existing "6 Months" = 182 days convention exactly;
+        # any other month count uses the average month length.
+        days = 182 if n == 6 else round(n * 30.44)
+    else:
+        days = n * 365
+    slug = f"{n}_{unit}" + ('' if n == 1 else 's')
+    return slug, days
 
 
 def effective_warranty_for_sale(sale) -> dict | None:

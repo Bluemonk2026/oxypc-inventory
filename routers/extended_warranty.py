@@ -13,7 +13,6 @@ No new table — everything lives on the existing Sale row (Sale.sold_at is
 Sale.warranty_days is the running day count), per the smaller-schema-change
 call made for this feature.
 """
-import re
 import uuid as _uuid
 from datetime import datetime, timedelta
 
@@ -31,45 +30,11 @@ from models.lot import Lot
 from models.sales import Sale
 from auth.dependencies import verify_csrf, require_module_perm
 from services.audit_engine import audit
-from utils.warranty import WARRANTY_DURATIONS
+from utils.warranty import WARRANTY_DURATIONS, parse_warranty_duration as _parse_warranty_duration
 
 router = APIRouter(prefix="/extended-warranty", tags=["extended_warranty"],
                    dependencies=[Depends(verify_csrf)])
 allowed = require_module_perm("extended_warranty")
-
-_WARRANTY_DURATION_RE = re.compile(r'(\d+)[\s_-]*(day|month|year)')
-
-
-def _parse_warranty_duration(raw: str):
-    """Parse a Master Data Warranty Type label into (canonical_slug, days).
-
-    First attempt (2026-09-14) matched a fixed 3-entry lookup table
-    (30_days/6_months/1_year) — broke the moment production's admin added
-    "60 Days"/"90 Days" to the Master Data Dropdown Configuration, since
-    neither was in the table ("Select a valid Warranty Type" on a perfectly
-    valid pick, again). This parses the "<N> day/month/year" pattern
-    generically instead — case/spacing/underscore-insensitive — so ANY
-    admin-added value (any N, any unit) works with no further code change.
-    "No Warranty" / "none" / the blank placeholder all lack a digit+unit
-    pattern and correctly fall through to (None, None) — not a real
-    duration, same as an unrecognized value.
-    """
-    m = _WARRANTY_DURATION_RE.search((raw or '').lower())
-    if not m:
-        return None, None
-    n = int(m.group(1))
-    unit = m.group(2)
-    if unit == 'day':
-        days = n
-    elif unit == 'month':
-        # Preserve the pre-existing "6 Months" = 182 days convention
-        # (utils.warranty.WARRANTY_DURATIONS) exactly; any other month
-        # count uses the average month length.
-        days = 182 if n == 6 else round(n * 30.44)
-    else:
-        days = n * 365
-    slug = f"{n}_{unit}" + ('' if n == 1 else 's')
-    return slug, days
 
 
 @router.get("", response_class=HTMLResponse)

@@ -1348,7 +1348,7 @@ async def returns_list(request: Request, db: AsyncSession = Depends(get_db),
     # barcode/brand/model/sale_price/sale_number as before) so the Receipt
     # modal can render entirely from this one row — no per-receipt query.
     result = await db.execute(
-        select(Return, Device.barcode, Device.brand, Device.model, Device.entity,
+        select(Return, Device.barcode, Device.brand, Device.model, Device.entity, Device.serial_no,
                Sale.sale_price, Sale.sale_number, Sale.customer_name,
                Sale.customer_phone, Sale.customer_address)
         .join(Device, Return.device_id == Device.id)
@@ -1363,7 +1363,7 @@ async def returns_list(request: Request, db: AsyncSession = Depends(get_db),
     # with " by process_return above, flags them; merged into the same
     # table — DataTables re-sorts both blocks together by Return Date on init.
     repl_result = await db.execute(
-        select(Device.barcode, Device.brand, Device.model, Device.entity, Device.replaced,
+        select(Device.barcode, Device.brand, Device.model, Device.entity, Device.replaced, Device.serial_no,
                Sale.sale_price, Sale.sale_number, Sale.sold_at, Sale.sold_by,
                Sale.customer_name, Sale.customer_phone, Sale.customer_address)
         .join(Sale, Sale.device_id == Device.id)
@@ -1788,13 +1788,19 @@ async def process_external_return(
 @router.get("/returns/new/credit-note/lookup")
 async def credit_note_lookup(barcode: str, db: AsyncSession = Depends(get_db),
                              current_user: User = Depends(allowed)):
-    """Credit Note tab's multi-tag search/add — validates a scanned Tag
-    Number has an existing Return row (i.e. came through an Internal Tag
-    return at some point) before letting it be added to the selection list.
-    Not gated on cn_stage already being set (changed 2026-09-23) — entering
-    the Credit Note pipeline is now this tab's own job, done on submit
-    (process_credit_note below), not something Internal Tags does on its
-    own."""
+    """Credit Note tab's multi-tag search/add — looks up a scanned Tag
+    Number by Device only. No longer requires an existing Return row (i.e.
+    no longer requires the tag to have come through an Internal Tag return
+    at some point — changed 2026-09-24: Credit Note is its own independent
+    workflow, not something that should be gated on Internal Tags). If this
+    device has no Return on file yet, process_credit_note (below) creates
+    one at submit time — same placeholder-Sale pattern the External Tag tab
+    already uses for a tag with no prior Sale in the system. This lookup
+    stays read-only either way.
+
+    Still not gated on cn_stage already being set (2026-09-23) — entering
+    the Credit Note pipeline is this tab's own job, done on submit, not
+    something Internal Tags does on its own."""
     from fastapi.responses import JSONResponse
     bc = (barcode or "").strip()
     if not bc:
@@ -1808,12 +1814,10 @@ async def credit_note_lookup(barcode: str, db: AsyncSession = Depends(get_db),
         select(Return).where(Return.device_id == device.id)
         .order_by(Return.return_date.desc()).limit(1)
     )).scalars().first()
-    if not ret:
-        return JSONResponse({"found": False, "error": f"{bc} has no return on file (not returned via Internal Tags)"})
     return JSONResponse({
         "found": True, "barcode": device.barcode,
         "model": f"{device.brand or ''} {device.model or ''}".strip() or "—",
-        "cn_stage": ret.cn_stage or "Not yet in Credit Note pipeline",
+        "cn_stage": (ret.cn_stage if ret else None) or "Not yet in Credit Note pipeline",
     })
 
 
@@ -1867,7 +1871,29 @@ async def process_credit_note(
             .order_by(Return.return_date.desc()).limit(1)
         )).scalars().first()
         if not ret:
-            continue
+            # No Internal Tag return on file for this device — Credit Note
+            # is independent of that flow (2026-09-24), so create the
+            # underlying Return record here instead of skipping the tag.
+            # Return.sale_id is NOT NULL, so a placeholder Sale is created
+            # too — same pattern as the External Tag tab (process_external_
+            # return above) for a device with no prior Sale in the system.
+            sale_num = await _next_sale_number(db)
+            placeholder_sale = Sale(
+                sale_number=sale_num, device_id=device.id, sale_price=Decimal("0"),
+                sold_by=current_user.username, sold_at=app_now(), warranty_type="none",
+                notes="Placeholder sale — Credit Note tag with no prior Internal Tag return on file",
+            )
+            db.add(placeholder_sale)
+            await db.flush()
+            ret = Return(
+                sale_id=placeholder_sale.id, device_id=device.id,
+                processed_by=current_user.username,
+                serial_captured=device.barcode,
+                notes="Auto-created for Credit Note — no prior Internal Tag return on file.",
+            )
+            db.add(ret)
+            await db.flush()
+            device.return_status = True
         ret.cn_stage = ret.cn_stage or CN_STAGES[0]
         ret.debit_note_number = dn
         ret.debit_note_amount = amount

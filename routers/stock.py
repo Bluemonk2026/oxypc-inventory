@@ -1071,12 +1071,22 @@ async def stock_in_list(
     #    Complaint straight from that same form's Return row. A device can
     #    carry more than one Return over its life (rare); keep only the
     #    newest by return_date — approved_at is null for pending returns, so
-    #    that field can't be used to order here. ───────────────────────────
+    #    that field can't be used to order here. Excludes tags where a
+    #    replacement was already issued (Device.tag_return_status starts
+    #    with "Replaced by " — set by process_return's Replace Now) — that
+    #    tag's own repair is no longer pending, the replacement tag is what
+    #    the customer actually has, so it has no business sitting in Return
+    #    Stock (2026-09-24 fix; the `or_` keeps the common NULL/"Return for
+    #    Repair"/"Return for Credit Note" cases in, since `NOT (NULL LIKE
+    #    ...)` is NULL, not true, and would otherwise silently drop every
+    #    return whose tag_return_status was never set to "Replaced by "). ──
     return_join_rows = (await db.execute(
         select(Device, Lot.lot_number, Return)
         .join(Lot, Device.lot_id == Lot.id)
         .join(Return, Return.device_id == Device.id)
-        .where(Device.return_status == True, Device.is_active == True)  # noqa: E712
+        .where(Device.return_status == True, Device.is_active == True,  # noqa: E712
+               or_(Device.tag_return_status.is_(None),
+                   Device.tag_return_status.notlike('Replaced by %')))
         .order_by(Return.return_date.desc())
     )).all()
     return_stock_by_device = {}

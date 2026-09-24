@@ -16,20 +16,38 @@
   </div>
 </div>
 <div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <span class="fw-semibold"><i class="bi bi-arrow-return-left me-2"></i>Returns</span>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <label class="text-muted small mb-0">From</label>
+      <input type="date" id="retDateFrom" class="form-control form-control-sm" style="max-width:150px;">
+      <label class="text-muted small mb-0">To</label>
+      <input type="date" id="retDateTo" class="form-control form-control-sm" style="max-width:150px;">
+      <select id="retReplacementFilter" class="form-select form-select-sm" style="max-width:170px;">
+        <option value="all" selected>Replacement: All</option>
+        <option value="yes">Replacement: Yes</option>
+        <option value="no">Replacement: No</option>
+      </select>
+      <button type="button" id="retExportBtn" class="btn btn-sm btn-outline-success text-nowrap">
+        <i class="bi bi-download me-1"></i>Export
+      </button>
+    </div>
+  </div>
   <div class="card-body p-0">
     <table id="returnsTable" class="table table-hover mb-0 small">
       <thead class="table-dark">
         <tr>
-          <th>Return Date</th><th>Tag Number</th><th>Device</th><th>Sale No.</th>
-          <th>Sale Price</th><th>Refund</th><th>Reason</th><th>Condition</th>
+          <th>Return Date</th><th>Tag Number</th><th>Serial Number</th><th>Device</th><th>Sale No.</th>
+          <th>Sale Price</th><th>Paid Repair</th><th>Reason</th><th>Condition</th>
           <th>Status</th><th>Processed By</th><th>Receipt</th>
         </tr>
       </thead>
       <tbody>
-        {% for ret, barcode, brand, model, entity, sale_price, sale_number, customer_name, customer_phone, customer_address in returns %}
-        <tr>
+        {% for ret, barcode, brand, model, entity, serial_no, sale_price, sale_number, customer_name, customer_phone, customer_address in returns %}
+        <tr data-replacement="no" data-return-date="{{ ret.return_date.strftime('%Y-%m-%d') if ret.return_date else '' }}">
           <td>{{ ret.return_date.strftime('%d-%b-%Y') if ret.return_date else '—' }}</td>
           <td><code>{{ barcode }}</code></td>
+          <td>{{ serial_no or '—' }}</td>
           <td>{{ brand }} {{ model }}</td>
           <td><code>{{ sale_number }}</code></td>
           <td>&#8377;{{ "{:,.0f}".format(sale_price) }}</td>
@@ -74,10 +92,11 @@
           </td>
         </tr>
         {% endfor %}
-        {% for barcode, brand, model, entity, replaced, sale_price, sale_number, sold_at, sold_by, customer_name, customer_phone, customer_address in replacements %}
-        <tr>
+        {% for barcode, brand, model, entity, replaced, serial_no, sale_price, sale_number, sold_at, sold_by, customer_name, customer_phone, customer_address in replacements %}
+        <tr data-replacement="yes" data-return-date="{{ sold_at.strftime('%Y-%m-%d') if sold_at else '' }}">
           <td>{{ sold_at.strftime('%d-%b-%Y') if sold_at else '—' }}</td>
           <td><code>{{ barcode }}</code><br><span class="badge bg-info text-dark">{{ replaced }}</span></td>
+          <td>{{ serial_no or '—' }}</td>
           <td>{{ brand }} {{ model }}</td>
           <td><code>{{ sale_number }}</code></td>
           <td>&#8377;{{ "{:,.0f}".format(sale_price) }}</td>
@@ -133,7 +152,55 @@
 {% endblock %}
 {% block scripts %}
 <script>
-$(document).ready(function(){ $('#returnsTable').DataTable({order:[[0,'desc']],pageLength: 12}); });
+$(document).ready(function(){
+  var dt = initGlobalTable('#returnsTable', { order: [[0, 'desc']] });
+
+  // Date Range (Return Date column) + Replacement (All/Yes/No) filter bar,
+  // server-rendered in the card header per the Global Table convention —
+  // one search hook so paging/sorting never undoes the filter. Replacement
+  // reads off data-replacement, stamped "yes" only on the replacement-tag
+  // rows (the ones that actually carry the Replacement badge) and "no" on
+  // every plain returned-tag row, matching the badge the filter names.
+  $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
+    if (settings.nTable.id !== 'returnsTable') return true;
+    var tr = settings.aoData[dataIndex].nTr;
+    if (!tr) return true;
+    var repl = $('#retReplacementFilter').val();
+    if (repl !== 'all' && tr.getAttribute('data-replacement') !== repl) return false;
+    var d = tr.getAttribute('data-return-date') || '';
+    var from = $('#retDateFrom').val();
+    var to = $('#retDateTo').val();
+    if (from && (!d || d < from)) return false;
+    if (to && (!d || d > to)) return false;
+    return true;
+  });
+  $('#retDateFrom, #retDateTo, #retReplacementFilter').on('change', function(){ dt.draw(); });
+
+  // Export: current filtered result set (every page, not just the visible
+  // one) as a CSV — same plain client-side pattern as GRN Records' export,
+  // just sourced from dt.rows({search:'applied'}) instead of the raw tbody
+  // so it honours the filter bar above.
+  $('#retExportBtn').on('click', function(){
+    var headers = [];
+    $('#returnsTable thead th').each(function(){
+      headers.push('"' + $(this).text().trim().replace(/"/g, '""') + '"');
+    });
+    var rows = [];
+    dt.rows({ search: 'applied' }).nodes().each(function(tr){
+      var cells = [];
+      $(tr).find('td').each(function(){
+        cells.push('"' + $(this).text().trim().replace(/\s+/g, ' ').replace(/"/g, '""') + '"');
+      });
+      rows.push(cells.join(','));
+    });
+    if (!rows.length) { alert('No rows to export.'); return; }
+    var csv = [headers.join(',')].concat(rows).join('\r\n');
+    var a = document.createElement('a');
+    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent('﻿' + csv);
+    a.download = 'returns.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  });
+});
 
 document.querySelectorAll('.view-receipt-btn').forEach(function(btn){
   btn.addEventListener('click', function(){

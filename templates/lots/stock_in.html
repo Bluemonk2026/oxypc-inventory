@@ -159,7 +159,7 @@
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-header bg-white d-flex flex-wrap align-items-center gap-2">
     <input type="text" id="rsSearchBox" class="form-control form-control-sm" style="max-width:260px;"
-           placeholder="Search Tag / Model">
+           placeholder="Search Tag / Serial / Model">
     <button type="button" id="rsAssignBucketBtn" class="btn btn-sm btn-outline-primary" disabled>
       <i class="bi bi-box me-1"></i>Assign Bucket
     </button>
@@ -171,7 +171,7 @@
         <thead class="table-secondary">
           <tr>
             <th><input type="checkbox" id="rsSelectAll"></th>
-            <th>Tag Number</th><th>Model</th><th>CPU</th><th>RAM</th><th>Storage</th>
+            <th>Tag Number</th><th>Serial Number</th><th>Model</th><th>CPU</th><th>RAM</th><th>Storage</th>
             <th>Current Stage</th><th>Reason</th><th>Condition</th><th>Complaint</th>
             <th>Repair Cost</th><th>Labour Cost</th><th>Part Cost</th><th>Action</th>
           </tr>
@@ -179,7 +179,7 @@
         <tbody>
           {% for row in return_stock_rows %}
           {% set d = row.device %}{% set ret = row.ret %}
-          <tr data-rs-search="{{ (d.barcode or '') ~ ' ' ~ (d.model or '') }}">
+          <tr data-rs-search="{{ (d.barcode or '') ~ ' ' ~ (d.serial_no or '') ~ ' ' ~ (d.model or '') }}">
             <td><input type="checkbox" class="rs-row-check" value="{{ d.barcode }}"></td>
             <td>
               <a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none"><code>{{ d.barcode }}</code></a>
@@ -187,6 +187,7 @@
               <div class="mt-1"><span class="badge bg-info text-dark">{{ d.tag_return_status }}</span></div>
               {% endif %}
             </td>
+            <td>{{ d.serial_no or '—' }}</td>
             <td>{{ d.model or '—' }}</td>
             <td>{{ d.cpu or '—' }}</td>
             <td>{{ (d.ram_gb ~ ' GB') if d.ram_gb else '—' }}</td>
@@ -202,13 +203,13 @@
               <button type="button" class="btn btn-xs btn-outline-primary btn-sm py-0 px-2 me-1 rs-verify-btn"
                       data-barcode="{{ d.barcode }}"
                       data-repair-cost="{{ ret.repair_cost if ret.repair_cost is not none else '' }}"
-                      data-labour-cost="{{ row.labour_cost if row.labour_cost is not none else '' }}">Verify</button>
+                      data-labour-cost="{{ row.labour_cost if row.labour_cost is not none else '' }}">Charges</button>
               <button type="button" class="btn btn-xs btn-outline-success btn-sm py-0 px-2 rs-complete-btn"
                       data-barcode="{{ d.barcode }}">Complete</button>
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="14" class="text-center text-muted py-3">No return stock pending.</td></tr>
+          <tr><td colspan="15" class="text-center text-muted py-3">No return stock pending.</td></tr>
           {% endfor %}
         </tbody>
       </table>

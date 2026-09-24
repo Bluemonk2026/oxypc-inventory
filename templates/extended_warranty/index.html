@@ -28,7 +28,9 @@
           <input type="text" id="ewStarts" class="form-control" readonly placeholder="Date of mark sold">
         </div>
         <div class="col-md-2">
-          <label class="form-label">Warranty Stops</label>
+          <label class="form-label">Warranty Stops
+            <span id="ewStopsBadge" class="badge rounded-pill d-none ms-1"></span>
+          </label>
           <input type="text" id="ewStops" class="form-control" readonly>
         </div>
         <div class="col-md-2">
@@ -154,17 +156,60 @@ function parseWarrantyDays(label){
   var lotEl = document.getElementById('ewLot');
   var startsEl = document.getElementById('ewStarts');
   var stopsEl = document.getElementById('ewStops');
+  var stopsBadge = document.getElementById('ewStopsBadge');
   var typeEl = document.getElementById('ewWarrantyType');
   var msg = document.getElementById('ewMsg');
   var startsIso = null;
 
+  // "<N> days left" / "Expired" / "Not Set" badge next to the Warranty Stops
+  // label — driven by whatever date is currently in the Warranty Stops
+  // field, whether that's the tag's actual current warranty end date
+  // (populated on search) or a preview of a newly-selected Warranty Type
+  // (recomputeStops). found=true with no date means the tag was found but
+  // has no warranty on it yet — shows "Not Set" rather than hiding, since
+  // that's a real, meaningful state for a found tag (as opposed to no
+  // search having happened yet, or the tag not being found at all, which
+  // still just hide the badge).
+  function updateStopsBadge(stopsDdMmYyyy, found){
+    if(!stopsDdMmYyyy){
+      stopsBadge.classList.remove('bg-success', 'bg-danger');
+      if(found){
+        stopsBadge.classList.remove('d-none');
+        stopsBadge.classList.add('bg-secondary');
+        stopsBadge.textContent = 'Not Set';
+      } else {
+        stopsBadge.classList.add('d-none');
+        stopsBadge.classList.remove('bg-secondary');
+      }
+      return;
+    }
+    var parts = stopsDdMmYyyy.split('-');
+    var stopDate = new Date(parts[2] + '-' + parts[1] + '-' + parts[0]);
+    var today = new Date();
+    today.setHours(0,0,0,0);
+    var daysLeft = Math.round((stopDate - today) / 86400000);
+    stopsBadge.classList.remove('d-none', 'bg-secondary', 'bg-success', 'bg-danger');
+    if(daysLeft >= 0){
+      stopsBadge.classList.add('bg-success');
+      stopsBadge.textContent = daysLeft + ' days left';
+    } else {
+      stopsBadge.classList.add('bg-danger');
+      stopsBadge.textContent = 'Expired';
+    }
+  }
+
   function recomputeStops(){
-    if(!startsIso || !typeEl.value){ stopsEl.value = ''; return; }
+    // Only ever called once a tag has been found (directly, or via the
+    // Warranty Type dropdown's change handler) — a blank result here means
+    // "found, but no warranty set/selected", so the badge shows Not Set
+    // rather than hiding.
+    if(!startsIso || !typeEl.value){ stopsEl.value = ''; updateStopsBadge(null, true); return; }
     var days = parseWarrantyDays(typeEl.value);
-    if(!days){ stopsEl.value = ''; return; }
+    if(!days){ stopsEl.value = ''; updateStopsBadge(null, true); return; }
     var d = new Date(startsIso);
     d.setDate(d.getDate() + days);
     stopsEl.value = d.toLocaleDateString('en-GB').replace(/\//g,'-');
+    updateStopsBadge(stopsEl.value);
   }
 
   function search(){
@@ -178,9 +223,21 @@ function parseWarrantyDays(label){
           startsEl.value = d.sold_on || '—';
           startsIso = (d.sold_on && d.sold_on !== '—') ? d.sold_on.split('-').reverse().join('-') : null;
           msg.innerHTML = '';
-          recomputeStops();
+          // Show the tag's actual current warranty end date (extension-aware
+          // — same rma_warranty_expires_at Process Return's RMA Warranty
+          // reads) as soon as the tag is found, rather than waiting for a
+          // Warranty Type to be picked. Picking a new Warranty Type below
+          // still overwrites this with a preview of the NEW stop date via
+          // recomputeStops(), same as before.
+          if(d.rma_warranty_expires_at){
+            stopsEl.value = d.rma_warranty_expires_at;
+            updateStopsBadge(d.rma_warranty_expires_at);
+          } else {
+            recomputeStops();
+          }
         } else {
           lotEl.value = ''; startsEl.value = ''; stopsEl.value = ''; startsIso = null;
+          updateStopsBadge(null, false);
           msg.innerHTML = '<div class="alert alert-danger py-2 px-3 small mb-0">' +
             (d.error || (val + ' not found, or not sold yet.')) + '</div>';
         }

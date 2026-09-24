@@ -599,6 +599,25 @@ async def startup_event():
     except Exception as _se:
         print(f"  [SidebarConfig] Could not load label cache: {_se}")
 
+    # ── Auto-track QA Releases for any closed-out past week ──────────────────
+    # Runs on every startup (= every deploy, since this project restarts on
+    # every real commit) so the QA Dashboard's release tracking never falls
+    # behind reality again — see routers/qa_uat.py auto_track_releases and
+    # seed_qa_backfill_jul17_sep24.py (the one-off catch-up this replaces
+    # going forward). Only ever closes out a past, finished week; never
+    # creates a partial release for the week still in progress.
+    try:
+        from routers.qa_uat import auto_track_releases
+        from database import AsyncSessionLocal as _ASL7
+        async with _ASL7() as _sess7:
+            _new_releases = await auto_track_releases(_sess7)
+        if _new_releases:
+            print(f"  [QA] Auto-tracked {len(_new_releases)} release(s): {', '.join(_new_releases)}")
+        else:
+            print("  [QA] Release tracking up to date")
+    except Exception as _qae:
+        print(f"  [QA] Could not auto-track releases: {_qae}")
+
     # ── Warm sidebar-footer app version from the latest Deployed QARelease ────
     try:
         from models.qa_uat import QARelease, ReleaseStatus, set_cached_app_version

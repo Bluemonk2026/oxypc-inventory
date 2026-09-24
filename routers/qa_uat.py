@@ -274,6 +274,96 @@ def _get_recent_commits() -> list[dict]:
     return auto_entries + _HARDCODED_COMMITS
 
 
+def _week_start(date_str: str):
+    d = datetime.strptime(date_str, "%Y-%m-%d").date()
+    return d - timedelta(days=d.weekday())
+
+
+async def auto_track_releases(db: AsyncSession) -> list[str]:
+    """Keep QARelease tracking current automatically, called from main.py's
+    startup event — so every deploy (which is every real commit + restart in
+    this project's workflow) closes out any past week of real changelog
+    activity that doesn't have a release yet, the same way
+    seed_qa_backfill_jul17_sep24.py did for the gap that had already
+    accumulated by 2026-09-24. That script is the one-off catch-up; this is
+    what stops the gap from ever reopening.
+
+    Only CLOSED past weeks (ending before the current week) are turned into
+    releases — never the in-progress current week, so a server restarted
+    more than once in the same week (routine during active development)
+    never creates a partial, still-growing release. The cutoff is always
+    read from the latest existing release's own release_date, so this is
+    naturally idempotent: once a week has a release, re-running finds
+    nothing left to do for it.
+
+    Returns the list of version strings created (empty if already current).
+    """
+    latest = (await db.execute(
+        select(QARelease).where(QARelease.version.op("~")(r"^v\d+\.\d+\.\d+$"))
+        .order_by(QARelease.release_date.desc()).limit(1)
+    )).scalars().first()
+    if not latest or not latest.release_date:
+        return []  # no baseline to work from — nothing to safely auto-track yet
+
+    cutoff = latest.release_date.strftime("%Y-%m-%d")
+    major, minor, _patch = latest.version.lstrip("v").split(".")
+    next_minor = int(minor) + 1
+
+    commits = _get_recent_commits()
+    since = [c for c in commits if c["date"] > cutoff]
+    if not since:
+        return []
+    since.sort(key=lambda c: c["date"])
+
+    this_week_start = _week_start(app_now().strftime("%Y-%m-%d"))
+    groups: dict = {}
+    for c in since:
+        ws = _week_start(c["date"])
+        if ws >= this_week_start:
+            continue  # in-progress week — leave for next time it's actually closed
+        groups.setdefault(ws, []).append(c)
+
+    now = app_now()
+    created = []
+    for week_start in sorted(groups):
+        items = groups[week_start]
+        dates = sorted({i["date"] for i in items})
+        start_d, end_d = dates[0], dates[-1]
+        bug_fixes = [i["msg"] for i in items if i["category"] == "Bug Fix"]
+        others = [i["msg"] for i in items if i["category"] != "Bug Fix"]
+
+        version = f"v{major}.{next_minor}.0"
+        start_label = datetime.strptime(start_d, "%Y-%m-%d").strftime("%b %d")
+        end_label = datetime.strptime(end_d, "%Y-%m-%d").strftime("%b %d")
+        title = f"{start_label}-{end_label} batch — {len(items)} changes ({len(bug_fixes)} fixes)"
+
+        desc_parts = others + ([f"Fixes: {'; '.join(bug_fixes)}"] if bug_fixes else [])
+        description = " + ".join(desc_parts)
+        if len(description) > 1800:
+            description = description[:1800].rsplit(" + ", 1)[0] + " + …"
+
+        release_dt = datetime.combine(datetime.strptime(end_d, "%Y-%m-%d").date(), datetime.min.time().replace(hour=18))
+        planned_dt = datetime.combine(datetime.strptime(start_d, "%Y-%m-%d").date(), datetime.min.time().replace(hour=9))
+
+        db.add(QARelease(
+            version=version, title=title, description=description,
+            status=ReleaseStatus.deployed,
+            planned_date=planned_dt, release_date=release_dt,
+            qa_sign_off_by="system-auto", qa_sign_off_at=release_dt,
+            # created_at = release_dt, not `now` — Recent Releases / the
+            # Releases list both order by created_at.desc(); every row
+            # sharing `now` would sort in insertion order instead of
+            # newest-release-first (same bug the backfill script hit first).
+            created_by="system-auto", created_at=release_dt, updated_at=now,
+        ))
+        created.append(version)
+        next_minor += 1
+
+    if created:
+        await db.commit()
+    return created
+
+
 def _s(v: Optional[str]) -> Optional[str]:
     """Return None for blank strings."""
     return v.strip() or None if v else None

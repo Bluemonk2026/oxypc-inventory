@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
+from sqlalchemy.exc import IntegrityError
 
 from templates_config import templates
 from database import get_db
@@ -72,6 +73,30 @@ async def _gen_work_id(db: AsyncSession) -> str:
             return wid
         n += 1
     return str(n).zfill(12)
+
+
+async def _create_work_order_with_unique_id(db: AsyncSession, **fields) -> WorkOrder:
+    """Generate a plain numeric WorkID and insert the WorkOrder, retrying
+    under a SAVEPOINT if a concurrent request already claimed the ID in
+    between _gen_work_id's existence check and this insert — same race and
+    same fix as routers/repair.py's _create_work_order_with_unique_id
+    (found 2026-09-23 for L3/L4 first; _gen_work_id here has the identical
+    count-then-check flaw for Stock Transfer assignment, so two employees
+    assigned within the same window could be given the same WorkID). The
+    SAVEPOINT keeps the retry scoped to just the insert — it does not roll
+    back the caller's earlier transfer/device-move work already pending in
+    the same session."""
+    for _attempt in range(20):
+        work_id = await _gen_work_id(db)
+        wo = WorkOrder(work_id=work_id, **fields)
+        try:
+            async with db.begin_nested():
+                db.add(wo)
+                await db.flush()
+            return wo
+        except IntegrityError:
+            continue
+    raise HTTPException(500, "Could not allocate a unique WorkID after 20 attempts")
 
 
 async def _resolve_assigned_user(db: AsyncSession, assigned_user_id: str):
@@ -591,14 +616,14 @@ async def create_transfer(
         # ── Assignment only: record the device against the chosen employee via a
         #    WorkOrder. No device stage move and no repair-stage logic. ─────────
         u = assigned_user
-        work_id = await _gen_work_id(db)
-        db.add(WorkOrder(
-            work_id=work_id, device_id=device.id, barcode=device.barcode,
+        wo = await _create_work_order_with_unique_id(
+            db, device_id=device.id, barcode=device.barcode,
             stage="asgn", assigned_role=u.role.value if u.role else None,
             assigned_user_id=u.id, assigned_username=u.username,
             assigned_name=u.full_name, status="pending",
             source_transfer_id=transfer.id, created_by=current_user.username,
-        ))
+        )
+        work_id = wo.work_id
         work_ids.append(work_id)
         _device_label = f"{device.brand or ''} {device.model or ''}".strip()
         await create_notification(
@@ -782,14 +807,14 @@ async def _move_devices_bulk(
         db.add(transfer)
         await db.flush()
 
-        work_id = await _gen_work_id(db)
-        db.add(WorkOrder(
-            work_id=work_id, device_id=device.id, barcode=device.barcode,
+        wo = await _create_work_order_with_unique_id(
+            db, device_id=device.id, barcode=device.barcode,
             stage="asgn", assigned_role=assigned_user.role.value if assigned_user.role else None,
             assigned_user_id=assigned_user.id, assigned_username=assigned_user.username,
             assigned_name=assigned_user.full_name, status="pending",
             source_transfer_id=transfer.id, created_by=current_user.username,
-        ))
+        )
+        work_id = wo.work_id
         _device_label = f"{device.brand or ''} {device.model or ''}".strip()
         await create_notification(
             db, user_id=assigned_user.id, title="Device Assigned to You",

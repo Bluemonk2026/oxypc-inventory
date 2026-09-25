@@ -218,12 +218,12 @@ async def dashboard(
                         DeviceStage.scrap_for_sale.value}
 
     # Category quick-view tiles (dashboard.html's category_quick_view_cards
-    # macro) additionally drop GRN Receipt — those tags haven't cleared IQC
-    # yet, so counting them under a device category overstates what's
-    # actually available in that category's working pipeline. Kept separate
-    # from EXCLUDED_STAGES so Total Inventory / Stage Pipeline totals above
-    # are unaffected.
-    CATEGORY_EXCLUDED_STAGES = EXCLUDED_STAGES | {DeviceStage.grn.value}
+    # macro) additionally drop GRN Receipt and Sold — GRN because those tags
+    # haven't cleared IQC yet, and Sold because the tile counts "how much of
+    # this category is still active stock," not the full historical total.
+    # Kept separate from EXCLUDED_STAGES so Total Inventory / Stage Pipeline
+    # totals above are unaffected.
+    CATEGORY_EXCLUDED_STAGES = EXCLUDED_STAGES | {DeviceStage.grn.value, DeviceStage.sold.value}
 
     # ── Stage + category counts ───────────────────────────────────────────────
     # Cached 30 s, but only when no Entity/Device Type/Location filter is
@@ -238,7 +238,7 @@ async def dashboard(
         try:
             stage_result = await db.execute(
                 select(Device.current_stage, func.count(Device.id))
-                .where(*_ent, *_dtype, *_loc)
+                .where(Device.is_trashed == False, *_ent, *_dtype, *_loc)
                 .group_by(Device.current_stage)
             )
             stage_counts = {
@@ -255,7 +255,7 @@ async def dashboard(
         try:
             cat_stage_result = await db.execute(
                 select(Device.sub_category, Device.current_stage, func.count(Device.id))
-                .where(*_ent, *_dtype, *_loc)
+                .where(Device.is_trashed == False, *_ent, *_dtype, *_loc)
                 .group_by(Device.sub_category, Device.current_stage)
             )
             category_counts: dict = {cat: {"total": 0} for cat in CATEGORIES}

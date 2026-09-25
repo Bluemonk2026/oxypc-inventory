@@ -96,8 +96,6 @@
                   <th>source_type</th>
                   <th>buyer_type</th>
                   <th>gstin</th>
-                  <th>tags</th>
-                  <th>notes</th>
                 </tr>
               </thead>
               <tbody>
@@ -116,8 +114,6 @@
                   <td>dealer</td>
                   <td>dealer</td>
                   <td>07AABCA1234B1ZP</td>
-                  <td>laptop;desktop</td>
-                  <td>Bulk buyer</td>
                 </tr>
                 <tr>
                   <td>Acme Computers</td>
@@ -130,8 +126,6 @@
                   <td>Neha Gupta</td>
                   <td>9822200033</td>
                   <td>neha@acme.com</td>
-                  <td></td>
-                  <td></td>
                   <td></td>
                   <td></td>
                   <td></td>
@@ -151,9 +145,6 @@
                   <td>supplier</td>
                   <td>trader</td>
                   <td></td>
-                  <td></td>
-                  <td>wholesale</td>
-                  <td>Monthly lot supplier</td>
                 </tr>
               </tbody>
             </table>
@@ -164,7 +155,9 @@
             a new Account's own Company Details are auto-filled from its first row's
             <span class="text-warning">Location Contact</span> name/phone and
             <span class="text-info">Location</span> city/state, so you never type the
-            same fact twice. Rows 1–2 above are the <strong>same Account</strong>
+            same fact twice. Accounts are matched (never duplicated) by
+            <code>gstin</code> first, then by <code>company_name</code>. Rows 1–2
+            above are the <strong>same Account</strong>
             (same <code>company_name</code>) with two different
             <span class="text-info">Locations</span>, each with its own
             <span class="text-warning">Location Contact</span>.
@@ -183,9 +176,10 @@
             <input type="file" name="file" class="form-control form-control-sm" accept=".csv" required>
             <div class="form-text">
               Required: <code>company_name</code> &nbsp;|&nbsp;
-              Rows matching an existing Account (same location_contact_phone, else same
+              Rows matching an existing Account (same gstin, else same
               company_name) are reused instead of duplicated — repeat company_name on
-              extra rows to add more Locations/Contacts to that same Account.
+              extra rows to add more Locations/Contacts to that same Account. A GST
+              number already used by another Account can never create a duplicate.
             </div>
           </div>
           <div class="d-flex gap-2">
@@ -216,14 +210,12 @@
             <tr class="table-info bg-opacity-25"><td>location_email</td><td>No</td><td>Email for that Location</td></tr>
             <tr class="table-warning bg-opacity-25"><td>location_contact_role</td><td>No</td><td>Directors, Finance, Manager, Other</td></tr>
             <tr class="table-warning bg-opacity-25"><td>location_contact_name</td><td>No</td><td>Person at that Location — also becomes the new Account's own contact_person</td></tr>
-            <tr class="table-warning bg-opacity-25"><td>location_contact_phone</td><td>No</td><td>Their phone — also becomes the new Account's own phone/whatsapp, and is the field used to match rows to the same Account</td></tr>
+            <tr class="table-warning bg-opacity-25"><td>location_contact_phone</td><td>No</td><td>Their phone — also becomes the new Account's own phone/whatsapp</td></tr>
             <tr class="table-warning bg-opacity-25"><td>location_contact_email</td><td>No</td><td>Their email</td></tr>
             <tr><td>contact_type</td><td>No</td><td><code>buyer</code>, <code>supplier</code>, <code>both</code> (default: buyer)</td></tr>
             <tr><td>source_type</td><td>No</td><td>recycler, refurb_vendor, end_customer, trader, individual, online_platform</td></tr>
             <tr><td>buyer_type</td><td>No</td><td>corp_buyer, dealer, online_seller, exporter, retail, government</td></tr>
-            <tr><td>gstin</td><td>No</td><td>15-char GST number</td></tr>
-            <tr><td>tags</td><td>No</td><td>Comma or semicolon separated tags</td></tr>
-            <tr><td>notes</td><td>No</td><td>Any text notes</td></tr>
+            <tr><td>gstin</td><td>No</td><td>15-char GST number — the field used to match rows to the same Account and prevent duplicate Accounts for the same GST</td></tr>
             <tr><td>status</td><td>No</td><td><code>active</code>, <code>inactive</code>, <code>blacklisted</code> (default: active)</td></tr>
           </tbody>
         </table>

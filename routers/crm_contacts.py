@@ -141,6 +141,7 @@ async def list_contacts(
             CRMContact.phone.ilike(like),
             CRMContact.city.ilike(like),
             CRMContact.state.ilike(like),
+            CRMContact.gstin.ilike(like),
         ))
     if contact_type:
         query = query.where(CRMContact.contact_type == contact_type)
@@ -279,11 +280,13 @@ async def upload_contacts_csv(
 
     One row = one Account, OR one row = an extra Location (with its own
     Contact) for an Account already established earlier in the same file or
-    already in the database. Rows for the same Account are matched by
-    location_contact_phone first, then by company_name — so a sheet carries
-    one full "header" row per Account followed by as many location-only rows
-    as needed, each just repeating company_name plus that location's own
-    location_* / location_contact_* columns.
+    already in the database. Rows for the same Account are matched by gstin
+    first, then by company_name — so a sheet carries one full "header" row
+    per Account followed by as many location-only rows as needed, each just
+    repeating company_name plus that location's own location_* /
+    location_contact_* columns. Matching on gstin means a row can never
+    create a second Account for a GST number that already exists — it is
+    reused instead, same as an existing Account matched by company_name.
 
     There is deliberately no separate contact_person/phone/whatsapp/city/state
     column at the Account level any more — that was the same information the
@@ -327,20 +330,21 @@ async def upload_contacts_csv(
 
     rows = list(reader)
 
-    # Preload existing Accounts by phone / company_name. There is no separate
-    # top-level "phone" column any more (see docstring) — location_contact_phone
-    # doubles as the matching key, since a new Account's own phone is set from
-    # exactly that value on the row that creates it.
-    want_phones = {(r.get("location_contact_phone") or "").strip()
-                   for r in rows if (r.get("location_contact_phone") or "").strip()}
+    # Preload existing Accounts by gstin / company_name. gstin is the primary
+    # dedupe key — two rows (or a row and an Account already in the database)
+    # sharing the same GST number are the same real-world Account, so the
+    # upload reuses it instead of creating a duplicate. company_name is the
+    # fallback for rows with no gstin at all.
+    want_gstins = {(r.get("gstin") or "").strip().upper()
+                   for r in rows if (r.get("gstin") or "").strip()}
     want_names = {(r.get("company_name") or "").strip().lower()
                   for r in rows if (r.get("company_name") or "").strip()}
-    by_phone: dict = {}
+    by_gstin: dict = {}
     by_name: dict = {}
-    if want_phones:
+    if want_gstins:
         res = await db.execute(select(CRMContact).where(
-            CRMContact.phone.in_(want_phones), CRMContact.is_trashed == False))  # noqa: E712
-        by_phone = {c.phone: c for c in res.scalars().all()}
+            func.upper(CRMContact.gstin).in_(want_gstins), CRMContact.is_trashed == False))  # noqa: E712
+        by_gstin = {(c.gstin or "").strip().upper(): c for c in res.scalars().all()}
     if want_names:
         res = await db.execute(select(CRMContact).where(
             func.lower(CRMContact.company_name).in_(want_names),
@@ -403,7 +407,8 @@ async def upload_contacts_csv(
                 loc_contact_email = (row.get("location_contact_email") or "").strip()
 
                 phone = loc_contact_phone or None
-                contact = by_phone.get(phone) if phone else None
+                gstin_val = (row.get("gstin") or "").strip().upper() or None
+                contact = by_gstin.get(gstin_val) if gstin_val else None
                 if contact is None:
                     contact = by_name.get(company.lower())
 
@@ -440,15 +445,13 @@ async def upload_contacts_csv(
                         city=loc_city or None,
                         state=loc_state or None,
                         gstin=(row.get("gstin") or "").strip() or None,
-                        tags=(row.get("tags") or "").strip() or None,
-                        notes=(row.get("notes") or "").strip() or None,
                         status=status,
                         created_by=current_user.username,
                     )
                     db.add(contact)
                     await db.flush()
-                    if phone:
-                        by_phone[phone] = contact
+                    if gstin_val:
+                        by_gstin[gstin_val] = contact
                     by_name[company.lower()] = contact
                     created += 1
                     row_added_something = True
@@ -679,6 +682,7 @@ async def export_contacts_csv(
             CRMContact.phone.ilike(like),
             CRMContact.city.ilike(like),
             CRMContact.state.ilike(like),
+            CRMContact.gstin.ilike(like),
         ))
     if contact_type:
         query = query.where(CRMContact.contact_type == contact_type)

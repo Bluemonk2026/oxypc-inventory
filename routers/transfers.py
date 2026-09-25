@@ -415,7 +415,7 @@ async def bucket_lookup(
         return JSONResponse({"found": False})
 
     devices = (await db.execute(
-        select(Device).where(Device.location_id == loc.id, Device.is_active == True)
+        select(Device).where(Device.location_id == loc.id, Device.is_active == True, Device.is_trashed == False)
     )).scalars().all()
 
     grades = {d.grade.value for d in devices if d.grade}
@@ -457,7 +457,7 @@ async def lot_lookup(
         return JSONResponse({"found": False})
 
     devices = (await db.execute(
-        select(Device).where(Device.lot_id == lot.id, Device.is_active == True)
+        select(Device).where(Device.lot_id == lot.id, Device.is_active == True, Device.is_trashed == False)
     )).scalars().all()
 
     models = {d.model for d in devices if d.model}
@@ -923,7 +923,7 @@ async def create_bucket_transfer(
             not_found.append(uid)
             continue
         devices = (await db.execute(
-            select(Device).where(Device.location_id == loc.id, Device.is_active == True)
+            select(Device).where(Device.location_id == loc.id, Device.is_active == True, Device.is_trashed == False)
         )).scalars().all()
         if not devices:
             continue
@@ -980,7 +980,7 @@ async def create_lot_transfer(
             not_found.append(ln)
             continue
         devices = (await db.execute(
-            select(Device).where(Device.lot_id == lot.id, Device.is_active == True)
+            select(Device).where(Device.lot_id == lot.id, Device.is_active == True, Device.is_trashed == False)
         )).scalars().all()
         if not devices:
             continue

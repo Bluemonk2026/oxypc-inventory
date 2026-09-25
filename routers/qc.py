@@ -44,7 +44,8 @@ async def qc_list(request: Request, db: AsyncSession = Depends(get_db),
     result = await db.execute(
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id)
-        .where(Device.current_stage == DeviceStage.qc_check, Device.is_active == True)
+        .where(Device.current_stage == DeviceStage.qc_check, Device.is_active == True,
+               Device.is_trashed == False)
         .order_by(Device.updated_at.desc())
     )
     devices = result.all()

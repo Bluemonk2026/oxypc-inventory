@@ -74,7 +74,8 @@ async def ready_list_barcodes(
     full row HTML per device.
     """
     barcodes = (await db.execute(
-        select(Device.barcode).where(Device.current_stage == DeviceStage.ready_to_sale)
+        select(Device.barcode).where(Device.current_stage == DeviceStage.ready_to_sale,
+                                      Device.is_trashed == False)
     )).scalars().all()
     return {"barcodes": [b for b in barcodes if b]}
 
@@ -107,9 +108,10 @@ async def ready_list_data(
     base = (
         select(Device, Lot.lot_number, Lot.buying_price, Lot.qty, Lot.selling_price)
         .join(Lot, Device.lot_id == Lot.id)
-        .where(Device.current_stage == DeviceStage.ready_to_sale)
+        .where(Device.current_stage == DeviceStage.ready_to_sale, Device.is_trashed == False)
     )
-    count_q = select(func.count()).select_from(Device).where(Device.current_stage == DeviceStage.ready_to_sale)
+    count_q = select(func.count()).select_from(Device).where(
+        Device.current_stage == DeviceStage.ready_to_sale, Device.is_trashed == False)
     total = (await db.execute(count_q)).scalar() or 0
 
     search = (request.query_params.get("search[value]") or "").strip()
@@ -124,7 +126,8 @@ async def ready_list_data(
     if search_filters:
         filtered_q = (
             select(func.count()).select_from(Device).join(Lot, Device.lot_id == Lot.id)
-            .where(Device.current_stage == DeviceStage.ready_to_sale, *search_filters)
+            .where(Device.current_stage == DeviceStage.ready_to_sale, Device.is_trashed == False,
+                   *search_filters)
         )
         filtered = (await db.execute(filtered_q)).scalar() or 0
     else:
@@ -269,7 +272,7 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
     result = await db.execute(
         select(Device, Lot.lot_number, Lot.buying_price, Lot.qty, Lot.selling_price)
         .join(Lot, Device.lot_id == Lot.id)
-        .where(Device.current_stage == DeviceStage.ready_to_sale)
+        .where(Device.current_stage == DeviceStage.ready_to_sale, Device.is_trashed == False)
         .order_by(Device.updated_at.desc())
     )
     devices = result.all()
@@ -1383,7 +1386,7 @@ async def sales_list(
         select(
             func.count(Device.id).label("total"),
             func.count(sa_case((Device.current_stage == DeviceStage.sold, 1))).label("sold"),
-        ).where(Device.is_active == True)
+        ).where(Device.is_active == True, Device.is_trashed == False)
     )).one()
     total_registered = dev_stats.total
     total_devices_sold = dev_stats.sold

@@ -222,7 +222,7 @@ async def lot_quote_lines(db: AsyncSession, lot, amount=None) -> list[dict]:
     rows = (await db.execute(
         select(Device.model, Device.grade, Device.sub_category,
                func.count(Device.id).label("qty"))
-        .where(Device.lot_id == lot.id, Device.is_active == True)  # noqa: E712
+        .where(Device.lot_id == lot.id, Device.is_active == True, Device.is_trashed == False)  # noqa: E712
         .group_by(Device.model, Device.grade, Device.sub_category)
         .order_by(func.count(Device.id).desc())
     )).all()

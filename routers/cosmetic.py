@@ -306,7 +306,7 @@ async def _resolve_fail_engineer(db: AsyncSession, device_id, failure_reason: st
 
 
 async def _get_devices_at_stage(db: AsyncSession, stage: DeviceStage, entity: str = ""):
-    where = [Device.current_stage == stage]
+    where = [Device.current_stage == stage, Device.is_trashed == False]
     if entity:
         where.append(Device.entity == entity)
     else:
@@ -337,6 +337,7 @@ async def _passed_device_rows(db: AsyncSession) -> list[dict]:
             Device.current_stage == DeviceStage.final_qc_pass_hold,
             Device.final_qc_status == "pass",
             Device.is_active == True,
+            Device.is_trashed == False,
         ).order_by(Device.updated_at.desc())
     )).scalars().all()
     bucket_ids = {d.bucket_id for d in rows if d.bucket_id}
@@ -367,6 +368,7 @@ async def _failed_device_rows(db: AsyncSession) -> list[dict]:
             Device.current_stage == DeviceStage.final_qc_fail_hold,
             Device.final_qc_status == "fail",
             Device.is_active == True,
+            Device.is_trashed == False,
         ).order_by(Device.updated_at.desc())
     )).scalars().all()
     bucket_ids = {d.bucket_id for d in rows if d.bucket_id}

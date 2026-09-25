@@ -1560,7 +1560,7 @@ async def lookup_device(barcode: str, db: AsyncSession = Depends(get_db), curren
     result = await db.execute(
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id)
-        .where(Device.barcode == barcode, Device.is_active.is_(True))
+        .where(Device.barcode == barcode, Device.is_active.is_(True), Device.is_trashed.is_(False))
     )
     row = result.first()
     if not row:

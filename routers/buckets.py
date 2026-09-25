@@ -127,7 +127,7 @@ async def list_buckets(
         count_rows = (await db.execute(
             select(Device.bucket_id, func.count(Device.id))
             .where(Device.bucket_id.in_(bucket_ids),
-                   Device.current_stage == want_stage, Device.is_active == True)
+                   Device.current_stage == want_stage, Device.is_active == True, Device.is_trashed == False)
             .group_by(Device.bucket_id)
         )).all()
         count_map = {str(r[0]): r[1] for r in count_rows}
@@ -149,14 +149,14 @@ async def list_buckets(
         if exempt_ids:
             unscoped_rows = (await db.execute(
                 select(Device.bucket_id, func.count(Device.id))
-                .where(Device.bucket_id.in_(exempt_ids), Device.is_active == True)
+                .where(Device.bucket_id.in_(exempt_ids), Device.is_active == True, Device.is_trashed == False)
                 .group_by(Device.bucket_id)
             )).all()
             count_map.update({str(r[0]): r[1] for r in unscoped_rows})
     else:
         count_rows = (await db.execute(
             select(Device.bucket_id, func.count(Device.id))
-            .where(Device.bucket_id.in_(bucket_ids), Device.is_active == True)
+            .where(Device.bucket_id.in_(bucket_ids), Device.is_active == True, Device.is_trashed == False)
             .group_by(Device.bucket_id)
         )).all()
         count_map = {str(r[0]): r[1] for r in count_rows}
@@ -166,7 +166,7 @@ async def list_buckets(
     # on both the Inventory Manager and Production Manager pages.
     qc_rows = (await db.execute(
         select(Device.bucket_id, Device.final_qc_status, func.count(Device.id))
-        .where(Device.bucket_id.in_(bucket_ids), Device.is_active == True,
+        .where(Device.bucket_id.in_(bucket_ids), Device.is_active == True, Device.is_trashed == False,
                Device.final_qc_status.isnot(None))
         .group_by(Device.bucket_id, Device.final_qc_status)
     )).all()
@@ -220,7 +220,7 @@ async def bucket_device_map(
     bucket_num_map = {b.id: b.bucket_number for b in buckets}
     devices = (await db.execute(
         select(Device.barcode, Device.bucket_id)
-        .where(Device.bucket_id.in_(list(bucket_num_map.keys())), Device.is_active == True)
+        .where(Device.bucket_id.in_(list(bucket_num_map.keys())), Device.is_active == True, Device.is_trashed == False)
     )).all()
     return JSONResponse({d.barcode: bucket_num_map[d.bucket_id] for d in devices})
 
@@ -237,7 +237,7 @@ async def bucket_tags(
     except Exception:
         raise HTTPException(400, "Invalid bucket ID")
     devices = (await db.execute(
-        select(Device).where(Device.bucket_id == uid, Device.is_active == True)
+        select(Device).where(Device.bucket_id == uid, Device.is_active == True, Device.is_trashed == False)
     )).scalars().all()
     # Latest Final-QC failure note per device — failure reasons live only in
     # StageMovement notes, and the Production Manager needs to see them here.
@@ -341,7 +341,7 @@ async def lookup_bucket_by_name(name: str = "", db: AsyncSession = Depends(get_d
     if not bucket:
         return JSONResponse({"found": False})
     tag_count = (await db.execute(
-        select(func.count(Device.id)).where(Device.bucket_id == bucket.id, Device.is_active == True)
+        select(func.count(Device.id)).where(Device.bucket_id == bucket.id, Device.is_active == True, Device.is_trashed == False)
     )).scalar() or 0
     return JSONResponse({
         "found": True, "bucket_id": str(bucket.id), "bucket_number": bucket.bucket_number,
@@ -366,7 +366,7 @@ async def create_bucket(
         raise HTTPException(400, "No barcodes provided")
 
     devices = (await db.execute(
-        select(Device).where(Device.barcode.in_(barcode_list), Device.is_active == True)
+        select(Device).where(Device.barcode.in_(barcode_list), Device.is_active == True, Device.is_trashed == False)
     )).scalars().all()
     if not devices:
         raise HTTPException(404, "No matching devices found")
@@ -524,7 +524,7 @@ async def _move_bucket_devices_to_trc(db: AsyncSession, bucket: Bucket, username
     filter guards against — every device on one got there specifically via
     that same Assign Bucket action, never an unrelated earlier intake.
     """
-    filters = [Device.bucket_id == bucket.id, Device.is_active == True]
+    filters = [Device.bucket_id == bucket.id, Device.is_active == True, Device.is_trashed == False]
     if not bucket.is_customer_return:
         filters.append(Device.current_stage == DeviceStage.stock_in)
     devices = (await db.execute(select(Device).where(*filters))).scalars().all()
@@ -739,7 +739,7 @@ async def assign_bucket(
             raise HTTPException(404, "Engineer not found")
 
     devices = (await db.execute(
-        select(Device).where(Device.bucket_id == uid, Device.is_active == True)
+        select(Device).where(Device.bucket_id == uid, Device.is_active == True, Device.is_trashed == False)
     )).scalars().all()
 
     for device in devices:
@@ -1003,7 +1003,7 @@ async def release_bucket(
     except Exception:
         raise HTTPException(400, "Invalid bucket ID")
     devices = (await db.execute(
-        select(Device).where(Device.bucket_id == uid, Device.is_active == True)
+        select(Device).where(Device.bucket_id == uid, Device.is_active == True, Device.is_trashed == False)
     )).scalars().all()
     for device in devices:
         device.bucket_id = None
@@ -1033,7 +1033,7 @@ async def assign_bucket_to_engineer(
         raise HTTPException(404, "Bucket not found")
 
     devices = (await db.execute(
-        select(Device).where(Device.bucket_id == uid, Device.is_active == True)
+        select(Device).where(Device.bucket_id == uid, Device.is_active == True, Device.is_trashed == False)
     )).scalars().all()
 
     for device in devices:
@@ -1090,7 +1090,7 @@ async def release_bucket_from_repair_line(
         raise HTTPException(404, "Bucket not found")
 
     devices = (await db.execute(
-        select(Device).where(Device.bucket_id == uid, Device.is_active == True)
+        select(Device).where(Device.bucket_id == uid, Device.is_active == True, Device.is_trashed == False)
     )).scalars().all()
 
     for device in devices:

@@ -1056,7 +1056,8 @@ async def grn_as_is_lot(request: Request, grn_id: str, sub_lot_number: str = For
     if assign_uid:
         values["assigned_to_user_id"] = assign_uid
     result = await db.execute(
-        update(Device).where(Device.grn_number == g.grn_number, Device.is_active == True)
+        update(Device).where(Device.grn_number == g.grn_number, Device.is_active == True,
+                              Device.is_trashed == False)
         .values(**values)
     )
     await audit(db, user=current_user, action="GRN_AS_IS_LOT_SET",

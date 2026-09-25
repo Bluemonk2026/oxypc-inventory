@@ -285,13 +285,14 @@ async def deal_detail(
         if lot:
             reg_r = await db.execute(
                 select(func.count(Device.id))
-                .where(Device.lot_id == lot.id, Device.is_active == True)
+                .where(Device.lot_id == lot.id, Device.is_active == True, Device.is_trashed == False)
             )
             lot_registered = int(reg_r.scalar() or 0)
 
             sold_r = await db.execute(
                 select(func.count(Device.id))
-                .where(Device.lot_id == lot.id, Device.current_stage == DeviceStage.sold)
+                .where(Device.lot_id == lot.id, Device.current_stage == DeviceStage.sold,
+                       Device.is_trashed == False)
             )
             lot_sold = int(sold_r.scalar() or 0)
 

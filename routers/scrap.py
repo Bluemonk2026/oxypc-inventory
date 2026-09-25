@@ -27,7 +27,8 @@ async def scrap_products(request: Request, db: AsyncSession = Depends(get_db),
     rows = (await db.execute(
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id, isouter=True)
-        .where(Device.grade == DeviceGrade.scrap, Device.current_stage == DeviceStage.scrap_for_sale)
+        .where(Device.grade == DeviceGrade.scrap, Device.current_stage == DeviceStage.scrap_for_sale,
+               Device.is_trashed == False)
         .order_by(Device.updated_at.desc())
     )).all()
     device_ids = [d.id for d, _ in rows]

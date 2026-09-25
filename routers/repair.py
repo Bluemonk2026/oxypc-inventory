@@ -288,7 +288,8 @@ async def bulk_part_request(
     action is safe to press twice.
     """
     devices = (await db.execute(
-        select(Device).where(Device.current_stage == DeviceStage.l1, Device.is_active == True)
+        select(Device).where(Device.current_stage == DeviceStage.l1, Device.is_active == True,
+                              Device.is_trashed == False)
     )).scalars().all()
     if not devices:
         return RedirectResponse(url="/repair/l1?error=No+devices+in+the+queue", status_code=302)
@@ -663,7 +664,8 @@ async def l3l4_list(request: Request,
             .join(Device, WorkOrder.device_id == Device.id)
             .join(Lot, Device.lot_id == Lot.id, isouter=True)
             .where(WorkOrder.work_id.like("L3L4-%"),
-                   WorkOrder.status != "completed")
+                   WorkOrder.status != "completed",
+                   Device.is_trashed == False)
             .order_by(WorkOrder.assigned_at.desc()))
     if not full_queue:
         stmt = stmt.where(WorkOrder.assigned_user_id == current_user.id)
@@ -855,7 +857,8 @@ async def repair_list(stage: str, request: Request,
     result = await db.execute(
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id)
-        .where(Device.current_stage == device_stage, Device.is_active == True)
+        .where(Device.current_stage == device_stage, Device.is_active == True,
+               Device.is_trashed == False)
         .order_by(Device.updated_at.desc())
     )
     devices = result.all()
@@ -898,7 +901,8 @@ async def repair_list(stage: str, request: Request,
                # Only devices still physically in this stage — a job whose device
                # already moved (stress fail, transfer, scrap) must not be offered
                # in the Complete-Job dropdown or /repair/complete 409s on it.
-               Device.current_stage == device_stage, Device.is_active == True)
+               Device.current_stage == device_stage, Device.is_active == True,
+               Device.is_trashed == False)
         .order_by(RepairJob.started_at.desc())
     )
     open_jobs = jobs_result.all()

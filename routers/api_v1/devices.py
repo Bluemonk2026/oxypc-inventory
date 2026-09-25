@@ -34,7 +34,7 @@ async def list_devices(
     db: AsyncSession = Depends(get_db),
     _key: APIKey = Depends(require_scope("devices:read")),
 ):
-    query = select(Device)
+    query = select(Device).where(Device.is_trashed == False)
     if stage:
         try:
             query = query.where(Device.current_stage == DeviceStage(stage))

@@ -88,7 +88,7 @@ async def _build_lot_overview(db: AsyncSession) -> list:
                # max(type_counts) — and deterministic on ties, which the Python
                # version was not (it kept whichever type it happened to see first).
                func.mode().within_group(Device.device_type))
-        .where(Device.lot_id.in_(lot_ids), Device.is_active == True)
+        .where(Device.lot_id.in_(lot_ids), Device.is_active == True, Device.is_trashed == False)
         .group_by(Device.lot_id)
     )).all():
         stats[str(lot_id)] = {"count": count, "barcode": sample_barcode,
@@ -101,7 +101,7 @@ async def _build_lot_overview(db: AsyncSession) -> list:
         .select_from(TelecallerDispatchRequest)
         .join(Device, TelecallerDispatchRequest.device_id == Device.id)
         .where(TelecallerDispatchRequest.source == "lot",
-               Device.lot_id.in_(lot_ids), Device.is_active == True)
+               Device.lot_id.in_(lot_ids), Device.is_active == True, Device.is_trashed == False)
         .group_by(Device.lot_id)
     )).all()}
 
@@ -212,7 +212,8 @@ async def dispatch_list(request: Request, db: AsyncSession = Depends(get_db),
     rows = (await db.execute(
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id, isouter=True)
-        .where(Device.current_stage == DeviceStage.ready_to_sale, Device.is_active == True)
+        .where(Device.current_stage == DeviceStage.ready_to_sale, Device.is_active == True,
+               Device.is_trashed == False)
         .order_by(Device.updated_at.desc())
     )).all()
     device_ids = [d.id for d, _ in rows]
@@ -331,7 +332,7 @@ async def dispatch_list(request: Request, db: AsyncSession = Depends(get_db),
         select(Device, Sale, SaleReturn)
         .join(SaleReturn, SaleReturn.device_id == Device.id, isouter=True)
         .join(Sale, SaleReturn.sale_id == Sale.id, isouter=True)
-        .where(Device.return_status == True, Device.is_active == True)
+        .where(Device.return_status == True, Device.is_active == True, Device.is_trashed == False)
         .order_by(SaleReturn.return_date.desc())
     )).all()
 

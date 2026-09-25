@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, Form, Query, Request, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, update, text
+from sqlalchemy import select, func, or_, and_, update, text
 from datetime import datetime as _dt
 from utils.timezone import app_now
 from utils.master_data import master_values, entity_values
@@ -792,7 +792,8 @@ def _stock_filters(device_type, lot_number, date_from, date_to, entity=""):
     # list once it actually moves stage (Move to Production, scrap, etc.),
     # and only enters it once something (GRN mapping, Customise modal,
     # repair-complete, bucket assignment, ...) sets current_stage=stock_in.
-    w = [Device.current_stage == DeviceStage.stock_in, Device.is_active == True]
+    w = [Device.current_stage == DeviceStage.stock_in, Device.is_active == True,
+         Device.is_trashed == False]
     if device_type:
         w.append(Device.device_type == device_type)
     if lot_number:
@@ -976,7 +977,7 @@ async def stock_in_list(
     # ── Analytics count cards (#17) ──────────────────────────────────────────
     count_rows = (await db.execute(
         select(Device.current_stage, func.count(Device.id))
-        .where(Device.is_active == True)
+        .where(Device.is_active == True, Device.is_trashed == False)
         .group_by(Device.current_stage)
     )).all()
     stage_counts = {stage: cnt for stage, cnt in count_rows}
@@ -1560,7 +1561,7 @@ async def trc_production_list(
 ):
     from utils.date_filter import apply_date_range
     _trc_filters = [Device.current_stage == DeviceStage.trc_production,
-                    Device.is_active == True]
+                    Device.is_active == True, Device.is_trashed == False]
     apply_date_range(_trc_filters, Device.created_at, date_from, date_to)
     base_stmt = (
         select(Device, Lot.lot_number)
@@ -1685,7 +1686,7 @@ async def trc_production_list(
     # ── Summary card tiles ("Total Tags at You / L1/L2 / L3/L4 / PNA / Stress
     #    / Final QC") — simple stage-scoped counts, each is_active-filtered
     #    to match every other count on this page. ─────────────────────────
-    tiles_active = Device.is_active == True
+    tiles_active = and_(Device.is_active == True, Device.is_trashed == False)
     tags_at_you = (await db.execute(
         select(func.count(Device.id)).where(Device.current_stage == DeviceStage.trc_production, tiles_active)
     )).scalar() or 0

@@ -75,15 +75,16 @@
             </button>
             {# Superseded by Create Estimate below — kept in the DOM (not
                removed) in case the per-model/per-group matrix is needed
-               again, but disabled for everyone regardless of tag count. #}
-            <button type="button" class="btn btn-sm btn-primary py-0 px-2" disabled
+               again, but disabled for everyone regardless of tag count. Now
+               hidden too, same as Generate Estimate above. #}
+            <button type="button" class="btn btn-sm btn-primary py-0 px-2 d-none" disabled
                     title="Replaced by Create Estimate">
               <i class="bi bi-diagram-3 me-1"></i>Part Estimate
             </button>
             {# Field-by-field checklist matrix (Critical/Hardware/Display
-               Panel/etc.), one column per Model in the lot. Now the primary
-               estimating tool on this page. #}
-            <button type="button" class="btn btn-sm btn-primary py-0 px-2"
+               Panel/etc.), one column per Model in the lot. Hidden — kept in
+               the DOM in case it's needed again, same as Part Estimate above. #}
+            <button type="button" class="btn btn-sm btn-primary py-0 px-2 d-none"
                     onclick="openChecklistEstimateModal('{{ r.lot.id }}', '{{ r.lot.lot_number }}')"
                     {% if not r.total_products %}disabled title="This lot has no tags"{% endif %}>
               <i class="bi bi-clipboard2-data me-1"></i>Create Estimate

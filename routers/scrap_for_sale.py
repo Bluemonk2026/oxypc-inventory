@@ -16,7 +16,7 @@ from sqlalchemy import select
 from templates_config import templates
 from database import get_db
 from models.user import User, UserRole
-from models.device import Device
+from models.device import Device, DeviceStage
 from models.stock_transfer import StockTransfer
 from models.scrap_for_sale import ScrapForSale
 from auth.dependencies import get_current_user, require_roles, verify_csrf
@@ -79,8 +79,35 @@ async def scrap_for_sale_list(request: Request, db: AsyncSession = Depends(get_d
                 "assigned_to_name": user_name_map.get(b.assigned_to_user_id, "—"),
             })
 
+    # Devices sitting at the Scrap for Sale stage that never went through a
+    # /transfers batch — reached here via a bulk stage-move (Bulk Customise,
+    # IQC Customise, "Back to Inventory — Normal Scrap from repair line")
+    # instead of the formal Scrap for Sale transfer, so they have no
+    # ScrapForSale row and no StockTransfer link. Listed separately so they
+    # are visible/actionable instead of silently missing from this page,
+    # same fix pattern as the L3/L4 orphaned-WorkOrder issue fixed earlier.
+    batched_device_ids = {
+        t.device_id for t in (await db.execute(
+            select(StockTransfer.device_id).where(StockTransfer.scrap_for_sale_id.isnot(None))
+        )).scalars().all()
+    }
+    unbatched_result = await db.execute(
+        select(Device)
+        .where(Device.current_stage == DeviceStage.scrap_for_sale, Device.is_trashed == False)
+        .order_by(Device.updated_at.desc())
+    )
+    unbatched_devices = [
+        {
+            "barcode": d.barcode, "brand": d.brand, "model": d.model,
+            "grade": d.grade.value if d.grade else "—",
+            "updated_at": d.updated_at,
+        }
+        for d in unbatched_result.scalars().all() if d.id not in batched_device_ids
+    ]
+
     return templates.TemplateResponse("scrap/for_sale.html", {
         "request": request, "current_user": current_user, "rows": rows,
+        "unbatched_devices": unbatched_devices,
     })
 
 

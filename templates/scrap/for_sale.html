@@ -76,6 +76,34 @@
   </div>
 </div>
 
+<!-- Devices at this stage with no batch yet — reached Scrap for Sale via a
+     bulk stage-move instead of the /transfers workflow, so they have no
+     Scrap ID. Listed here so they stay visible/actionable. -->
+<div class="card border-0 shadow-sm mt-3">
+  <div class="card-header bg-transparent fw-semibold">
+    <i class="bi bi-exclamation-triangle text-warning me-2"></i>Devices Not Yet in a Batch
+    <span class="badge bg-secondary ms-1">{{ unbatched_devices | length }}</span>
+  </div>
+  <div class="card-body p-0">
+    <table id="scrapForSaleUnbatchedTable" class="table table-hover mb-0 small">
+      <thead class="table-dark">
+        <tr><th>Tag Number</th><th>Brand</th><th>Model</th><th>Grade</th><th>Moved</th></tr>
+      </thead>
+      <tbody>
+        {% for d in unbatched_devices %}
+        <tr>
+          <td><a href="/devices/{{ d.barcode }}" class="font-monospace text-decoration-none">{{ d.barcode }}</a></td>
+          <td>{{ d.brand or '—' }}</td>
+          <td>{{ d.model or '—' }}</td>
+          <td>{{ d.grade }}</td>
+          <td>{{ d.updated_at.strftime('%d-%m-%Y') if d.updated_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <!-- Edit modal — sets Min/Max Selling Price for this Scrap ID -->
 <div class="modal fade" id="scrapEditModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
@@ -147,6 +175,10 @@ initGlobalTable('#scrapForSaleTable', {
   order: [[0, 'desc']],
   language: { emptyTable: 'No Scrap for Sale batches yet — created from /transfers when Transfer Type is Scrap for Sale.' },
   columnDefs: [{ orderable: false, targets: [1, 6] }],
+});
+initGlobalTable('#scrapForSaleUnbatchedTable', {
+  order: [[4, 'desc']],
+  language: { emptyTable: 'No unbatched devices — every device at this stage came through a Scrap for Sale batch.' },
 });
 
 document.getElementById('scrapEditForm').addEventListener('submit', function(){

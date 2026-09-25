@@ -32,7 +32,7 @@ _log = logging.getLogger("oxypc.dashboard")
 
 router = APIRouter(tags=["dashboard"])
 
-CATEGORIES = ["Laptop", "Desktop", "TFT"]
+CATEGORIES = ["Laptop", "Desktop", "TFT Monitor", "Tablet", "Mini PC", "Server"]
 KEY_STAGES = [
     DeviceStage.iqc,
     DeviceStage.stock_in,
@@ -50,7 +50,7 @@ _OUTSTANDING_STATUSES = ("pending", "confirmed", "delivered")
 # These two GROUP-BY queries are the dashboard's most expensive and identical
 # for every logged-in user. Cache the result for 30 s to avoid hammering the DB
 # on every page refresh.
-_AGG_CACHE: dict = {"stage": None, "cat": None, "ts": 0.0}
+_AGG_CACHE: dict = {"stage": None, "cat": None, "pipeline": None, "lot_pl": None, "ts": 0.0, "lot_pl_ts": 0.0}
 _AGG_TTL = 30  # seconds
 
 
@@ -217,6 +217,14 @@ async def dashboard(
     EXCLUDED_STAGES = {DeviceStage.returned.value, DeviceStage.scrapped.value,
                         DeviceStage.scrap_for_sale.value}
 
+    # Category quick-view tiles (dashboard.html's category_quick_view_cards
+    # macro) additionally drop GRN Receipt — those tags haven't cleared IQC
+    # yet, so counting them under a device category overstates what's
+    # actually available in that category's working pipeline. Kept separate
+    # from EXCLUDED_STAGES so Total Inventory / Stage Pipeline totals above
+    # are unaffected.
+    CATEGORY_EXCLUDED_STAGES = EXCLUDED_STAGES | {DeviceStage.grn.value}
+
     # ── Stage + category counts ───────────────────────────────────────────────
     # Cached 30 s, but only when no Entity/Device Type/Location filter is
     # active — that cache is keyed on nothing, so serving it under an active
@@ -253,7 +261,7 @@ async def dashboard(
             category_counts: dict = {cat: {"total": 0} for cat in CATEGORIES}
             for sub_cat, stage, cnt in cat_stage_result.fetchall():
                 if sub_cat in category_counts and stage is not None:
-                    if stage.value not in EXCLUDED_STAGES:
+                    if stage.value not in CATEGORY_EXCLUDED_STAGES:
                         category_counts[sub_cat]["total"] += cnt
                     category_counts[sub_cat][stage.value] = cnt
         except Exception:
@@ -318,10 +326,6 @@ async def dashboard(
         .subquery()
     )
     _resolved_location_id = func.coalesce(_loc_latest.c.location_id, Device.location_id)
-    _loc_label_by_id = {
-        str(loc.id): f"{loc.unit_id} — {ZONE_LABELS.get(loc.zone, loc.zone.value)}"
-        for loc in (await db.execute(select(StorageLocation))).scalars().all()
-    }
 
     async def _pipe_count_by_location(*where):
         rows = (await db.execute(
@@ -363,19 +367,34 @@ async def dashboard(
         ("ready_to_sale", [Device.current_stage == DeviceStage.ready_to_sale]),
         ("sold", [Device.current_stage == DeviceStage.sold]),
     ]
-    try:
-        pipeline_counts = {}
-        pipeline_by_entity = {}
-        pipeline_by_location = {}
-        for key, where in PIPELINE_STEPS:
-            pipeline_counts[key] = await _pipe_count(*where)
-            pipeline_by_entity[key] = await _pipe_count_by_entity(*where)
-            pipeline_by_location[key] = await _pipe_count_by_location(*where)
-    except Exception:
-        _log.exception("pipeline_counts failed")
-        pipeline_counts = {k: 0 for k, _ in PIPELINE_STEPS}
-        pipeline_by_entity = {k: {} for k, _ in PIPELINE_STEPS}
-        pipeline_by_location = {k: {} for k, _ in PIPELINE_STEPS}
+    # Pipeline strip: 11 steps x 3 queries each = 33 round-trips. Cached
+    # under the same 30 s window/gate as stage_counts/category_counts above
+    # (reuses _now from that check) — this was previously recomputed on
+    # every single dashboard load regardless of the cache.
+    if (not _dash_filters_active and _AGG_CACHE["ts"]
+            and (_now - _AGG_CACHE["ts"]) < _AGG_TTL and _AGG_CACHE.get("pipeline")):
+        pipeline_counts, pipeline_by_entity, pipeline_by_location = _AGG_CACHE["pipeline"]
+    else:
+        try:
+            _loc_label_by_id = {
+                str(loc.id): f"{loc.unit_id} — {ZONE_LABELS.get(loc.zone, loc.zone.value)}"
+                for loc in (await db.execute(select(StorageLocation))).scalars().all()
+            }
+            pipeline_counts = {}
+            pipeline_by_entity = {}
+            pipeline_by_location = {}
+            for key, where in PIPELINE_STEPS:
+                pipeline_counts[key] = await _pipe_count(*where)
+                pipeline_by_entity[key] = await _pipe_count_by_entity(*where)
+                pipeline_by_location[key] = await _pipe_count_by_location(*where)
+        except Exception:
+            _log.exception("pipeline_counts failed")
+            pipeline_counts = {k: 0 for k, _ in PIPELINE_STEPS}
+            pipeline_by_entity = {k: {} for k, _ in PIPELINE_STEPS}
+            pipeline_by_location = {k: {} for k, _ in PIPELINE_STEPS}
+
+        if not _dash_filters_active:
+            _AGG_CACHE["pipeline"] = (pipeline_counts, pipeline_by_entity, pipeline_by_location)
 
     entity_choices = await entity_values(db)
     device_type_choices = await master_values(db, "device_type")
@@ -387,8 +406,10 @@ async def dashboard(
     total_devices = sum(v for k, v in stage_counts.items() if k not in EXCLUDED_STAGES)
     laptops_available = category_counts.get("Laptop", {}).get("ready_to_sale", 0)
     desktops_available = category_counts.get("Desktop", {}).get("ready_to_sale", 0)
-    tft_available = category_counts.get("TFT", {}).get("ready_to_sale", 0)
-    all_available = stage_counts.get("ready_to_sale", 0)
+    tft_available = category_counts.get("TFT Monitor", {}).get("ready_to_sale", 0)
+    tablets_available = category_counts.get("Tablet", {}).get("ready_to_sale", 0)
+    minipc_available = category_counts.get("Mini PC", {}).get("ready_to_sale", 0)
+    server_available = category_counts.get("Server", {}).get("ready_to_sale", 0)
 
     # ── Role-based user queue ─────────────────────────────────────────────────
     role = current_user.role
@@ -519,143 +540,156 @@ async def dashboard(
     for cat in CATEGORIES:
         chart_data[cat] = [category_counts[cat].get(s, 0) for s in chart_stages]
 
-    # ── Lot P&L (4 batch queries) ─────────────────────────────────────────────
-    lot_pl: list = []
-    try:
-        lots_result = await db.execute(select(Lot).order_by(Lot.created_at.desc()))
-        lots = lots_result.scalars().all()
+    # ── Lot P&L (10 queries; cached 30 s when no P&L From/To filter is
+    # active — the common case, and identical for every viewer) ───────────────
+    async def _compute_lot_pl():
+        lot_pl: list = []
+        try:
+            lots_result = await db.execute(select(Lot).order_by(Lot.created_at.desc()))
+            lots = lots_result.scalars().all()
 
-        # Load cost config rates (fallbacks when actual costs not recorded)
-        _cfg_result = await db.execute(select(CostConfig))
-        _cfg = {r.key: float(r.value) for r in _cfg_result.scalars().all()}
-        repair_labour_rate = _cfg.get("repair_labour_rate", 150.0)
-        cosmetic_rate      = _cfg.get("cosmetic_rate", 50.0)
+            # Load cost config rates (fallbacks when actual costs not recorded)
+            _cfg_result = await db.execute(select(CostConfig))
+            _cfg = {r.key: float(r.value) for r in _cfg_result.scalars().all()}
+            repair_labour_rate = _cfg.get("repair_labour_rate", 150.0)
+            cosmetic_rate      = _cfg.get("cosmetic_rate", 50.0)
 
-        # Batch 1: device count per lot (always the lot's full, all-time
-        # device count — never date-scoped, it's descriptive of the lot
-        # itself, not of P&L activity within a period)
-        lot_device_counts = dict((await db.execute(
-            select(Device.lot_id, func.count(Device.id)).group_by(Device.lot_id)
-        )).fetchall())
+            # Batch 1: device count per lot (always the lot's full, all-time
+            # device count — never date-scoped, it's descriptive of the lot
+            # itself, not of P&L activity within a period)
+            lot_device_counts = dict((await db.execute(
+                select(Device.lot_id, func.count(Device.id)).group_by(Device.lot_id)
+            )).fetchall())
 
-        # When P&L From/To is active, every cost/revenue batch below is
-        # additionally restricted to devices that actually completed (Sold /
-        # Scrapped / Scrap for Sale) within the selected range — see
-        # completed_device_ids above. With no filter set, these are the exact
-        # same all-time queries this table always ran.
-        _completed_filter = ([Device.id.in_(completed_device_ids)] if _pl_active else [])
-        _completed_filter_spc = ([SparePartConsumption.device_id.in_(completed_device_ids)] if _pl_active else [])
+            # When P&L From/To is active, every cost/revenue batch below is
+            # additionally restricted to devices that actually completed (Sold /
+            # Scrapped / Scrap for Sale) within the selected range — see
+            # completed_device_ids above. With no filter set, these are the exact
+            # same all-time queries this table always ran.
+            _completed_filter = ([Device.id.in_(completed_device_ids)] if _pl_active else [])
+            _completed_filter_spc = ([SparePartConsumption.device_id.in_(completed_device_ids)] if _pl_active else [])
 
-        # Batch 2: revenue per lot (join through Device)
-        lot_revenue = dict((await db.execute(
-            select(Device.lot_id, func.coalesce(func.sum(Sale.sale_price), 0))
-            .join(Sale, Sale.device_id == Device.id)
-            .where(*_completed_filter)
-            .group_by(Device.lot_id)
-        )).fetchall())
-
-        # Batch 3: parts cost per lot — attributed to the DEVICE the part was
-        # consumed on, not the consumption's own date (device_id, not lot_id,
-        # so the completed-devices restriction can apply directly).
-        lot_parts_cost = dict((await db.execute(
-            select(SparePartConsumption.lot_id, func.coalesce(func.sum(SparePartConsumption.total_cost), 0))
-            .where(SparePartConsumption.lot_id.isnot(None), *_completed_filter_spc)
-            .group_by(SparePartConsumption.lot_id)
-        )).fetchall())
-
-        # Batch 4: sold device count per lot
-        lot_sold_counts = dict((await db.execute(
-            select(Device.lot_id, func.count(Device.id))
-            .where(Device.current_stage == DeviceStage.sold, *_completed_filter)
-            .group_by(Device.lot_id)
-        )).fetchall())
-
-        # Batch 5: labour cost per lot (repair attempt costs via devices)
-        lot_labour_cost = dict((await db.execute(
-            select(Device.lot_id, func.coalesce(func.sum(RepairAttempt.cost), 0))
-            .join(RepairAttempt, RepairAttempt.device_id == Device.id)
-            .where(*_completed_filter)
-            .group_by(Device.lot_id)
-        )).fetchall())
-
-        # Batch 6: repair attempt count per lot (for labour rate fallback)
-        lot_attempt_count = dict((await db.execute(
-            select(Device.lot_id, func.count(RepairAttempt.id))
-            .join(RepairAttempt, RepairAttempt.device_id == Device.id)
-            .where(*_completed_filter)
-            .group_by(Device.lot_id)
-        )).fetchall())
-
-        # Batch 7: cosmetic rework count per lot (devices that entered cleaning stage)
-        lot_cosmetic_count = dict((await db.execute(
-            select(Device.lot_id, func.count(StageMovement.id))
-            .join(StageMovement, StageMovement.device_id == Device.id)
-            .where(StageMovement.to_stage == DeviceStage.cleaning, *_completed_filter)
-            .group_by(Device.lot_id)
-        )).fetchall())
-
-        # Batch 8: completed-device count per lot, for attributing each lot's
-        # buying_price per-unit (buying_price / qty) only to the devices that
-        # actually completed within the selected range — only run when the
-        # filter is active; otherwise the full lot buying_price is used as-is
-        # (all-time behavior, unchanged).
-        lot_completed_counts = {}
-        if _pl_active:
-            lot_completed_counts = dict((await db.execute(
-                select(Device.lot_id, func.count(Device.id))
+            # Batch 2: revenue per lot (join through Device)
+            lot_revenue = dict((await db.execute(
+                select(Device.lot_id, func.coalesce(func.sum(Sale.sale_price), 0))
+                .join(Sale, Sale.device_id == Device.id)
                 .where(*_completed_filter)
                 .group_by(Device.lot_id)
             )).fetchall())
 
-        for lot in lots:
-            revenue      = float(lot_revenue.get(lot.id, 0) or 0)
-            parts_cost   = float(lot_parts_cost.get(lot.id, 0) or 0)
+            # Batch 3: parts cost per lot — attributed to the DEVICE the part was
+            # consumed on, not the consumption's own date (device_id, not lot_id,
+            # so the completed-devices restriction can apply directly).
+            lot_parts_cost = dict((await db.execute(
+                select(SparePartConsumption.lot_id, func.coalesce(func.sum(SparePartConsumption.total_cost), 0))
+                .where(SparePartConsumption.lot_id.isnot(None), *_completed_filter_spc)
+                .group_by(SparePartConsumption.lot_id)
+            )).fetchall())
+
+            # Batch 4: sold device count per lot
+            lot_sold_counts = dict((await db.execute(
+                select(Device.lot_id, func.count(Device.id))
+                .where(Device.current_stage == DeviceStage.sold, *_completed_filter)
+                .group_by(Device.lot_id)
+            )).fetchall())
+
+            # Batch 5: labour cost per lot (repair attempt costs via devices)
+            lot_labour_cost = dict((await db.execute(
+                select(Device.lot_id, func.coalesce(func.sum(RepairAttempt.cost), 0))
+                .join(RepairAttempt, RepairAttempt.device_id == Device.id)
+                .where(*_completed_filter)
+                .group_by(Device.lot_id)
+            )).fetchall())
+
+            # Batch 6: repair attempt count per lot (for labour rate fallback)
+            lot_attempt_count = dict((await db.execute(
+                select(Device.lot_id, func.count(RepairAttempt.id))
+                .join(RepairAttempt, RepairAttempt.device_id == Device.id)
+                .where(*_completed_filter)
+                .group_by(Device.lot_id)
+            )).fetchall())
+
+            # Batch 7: cosmetic rework count per lot (devices that entered cleaning stage)
+            lot_cosmetic_count = dict((await db.execute(
+                select(Device.lot_id, func.count(StageMovement.id))
+                .join(StageMovement, StageMovement.device_id == Device.id)
+                .where(StageMovement.to_stage == DeviceStage.cleaning, *_completed_filter)
+                .group_by(Device.lot_id)
+            )).fetchall())
+
+            # Batch 8: completed-device count per lot, for attributing each lot's
+            # buying_price per-unit (buying_price / qty) only to the devices that
+            # actually completed within the selected range — only run when the
+            # filter is active; otherwise the full lot buying_price is used as-is
+            # (all-time behavior, unchanged).
+            lot_completed_counts = {}
             if _pl_active:
-                # Per-unit cost basis × only the devices that completed
-                # in-range — proper cost/revenue matching for a period,
-                # instead of the whole lot's purchase cost.
-                per_unit = (float(lot.buying_price or 0) / lot.qty) if lot.qty else 0.0
-                buying = per_unit * int(lot_completed_counts.get(lot.id, 0) or 0)
-            else:
-                buying = float(lot.buying_price or 0)
+                lot_completed_counts = dict((await db.execute(
+                    select(Device.lot_id, func.count(Device.id))
+                    .where(*_completed_filter)
+                    .group_by(Device.lot_id)
+                )).fetchall())
 
-            # Labour: use actual costs if recorded; otherwise rate × attempt count
-            labour_actual  = float(lot_labour_cost.get(lot.id, 0) or 0)
-            attempt_count  = int(lot_attempt_count.get(lot.id, 0) or 0)
-            labour_cost    = labour_actual if labour_actual > 0 else (attempt_count * repair_labour_rate)
+            for lot in lots:
+                revenue      = float(lot_revenue.get(lot.id, 0) or 0)
+                parts_cost   = float(lot_parts_cost.get(lot.id, 0) or 0)
+                if _pl_active:
+                    # Per-unit cost basis × only the devices that completed
+                    # in-range — proper cost/revenue matching for a period,
+                    # instead of the whole lot's purchase cost.
+                    per_unit = (float(lot.buying_price or 0) / lot.qty) if lot.qty else 0.0
+                    buying = per_unit * int(lot_completed_counts.get(lot.id, 0) or 0)
+                else:
+                    buying = float(lot.buying_price or 0)
 
-            # Cosmetic rework: count of cleaning-stage movements × rate
-            cosmetic_count = int(lot_cosmetic_count.get(lot.id, 0) or 0)
-            cosmetic_cost  = cosmetic_count * cosmetic_rate
+                # Labour: use actual costs if recorded; otherwise rate × attempt count
+                labour_actual  = float(lot_labour_cost.get(lot.id, 0) or 0)
+                attempt_count  = int(lot_attempt_count.get(lot.id, 0) or 0)
+                labour_cost    = labour_actual if labour_actual > 0 else (attempt_count * repair_labour_rate)
 
-            total_cost = buying + parts_cost + labour_cost + cosmetic_cost
-            profit     = revenue - total_cost
-            margin     = (profit / revenue * 100) if revenue > 0 else 0
+                # Cosmetic rework: count of cleaning-stage movements × rate
+                cosmetic_count = int(lot_cosmetic_count.get(lot.id, 0) or 0)
+                cosmetic_cost  = cosmetic_count * cosmetic_rate
 
-            # When the filter is active, a lot with nothing that completed
-            # in-range contributes nothing to the period's P&L — skip it
-            # rather than list a noisy all-zero row.
-            if _pl_active and not (revenue or parts_cost or labour_cost or cosmetic_cost or buying):
-                continue
+                total_cost = buying + parts_cost + labour_cost + cosmetic_cost
+                profit     = revenue - total_cost
+                margin     = (profit / revenue * 100) if revenue > 0 else 0
 
-            lot_pl.append({
-                "lot_number": lot.lot_number,
-                "supplier": lot.supplier_name,
-                "qty": lot.qty,
-                "devices_count": lot_device_counts.get(lot.id, 0),
-                "devices_sold": lot_sold_counts.get(lot.id, 0),
-                "buying_price": buying,
-                "parts_cost": parts_cost,
-                "labour_cost": labour_cost,
-                "cosmetic_cost": cosmetic_cost,
-                "total_cost": total_cost,
-                "revenue": revenue,
-                "profit": profit,
-                "margin": round(margin, 1),
-                "lot_id": str(lot.id),
-            })
-    except Exception:
-        _log.exception("lot_pl failed")
+                # When the filter is active, a lot with nothing that completed
+                # in-range contributes nothing to the period's P&L — skip it
+                # rather than list a noisy all-zero row.
+                if _pl_active and not (revenue or parts_cost or labour_cost or cosmetic_cost or buying):
+                    continue
+
+                lot_pl.append({
+                    "lot_number": lot.lot_number,
+                    "supplier": lot.supplier_name,
+                    "qty": lot.qty,
+                    "devices_count": lot_device_counts.get(lot.id, 0),
+                    "devices_sold": lot_sold_counts.get(lot.id, 0),
+                    "buying_price": buying,
+                    "parts_cost": parts_cost,
+                    "labour_cost": labour_cost,
+                    "cosmetic_cost": cosmetic_cost,
+                    "total_cost": total_cost,
+                    "revenue": revenue,
+                    "profit": profit,
+                    "margin": round(margin, 1),
+                    "lot_id": str(lot.id),
+                })
+        except Exception:
+            _log.exception("lot_pl failed")
+        return lot_pl
+
+    _lot_pl_now = _time.monotonic()
+    if (not _pl_active and _AGG_CACHE["lot_pl"] is not None
+            and (_lot_pl_now - _AGG_CACHE["lot_pl_ts"]) < _AGG_TTL):
+        lot_pl = _AGG_CACHE["lot_pl"]
+    else:
+        lot_pl = await _compute_lot_pl()
+        if not _pl_active:
+            _AGG_CACHE["lot_pl"] = lot_pl
+            _AGG_CACHE["lot_pl_ts"] = _lot_pl_now
 
     # ── Financial totals ───────────────────────────────────────────────────────
     month_revenue = 0.0
@@ -743,33 +777,55 @@ async def dashboard(
     # UserRole.admin, so everyone else got an empty analytics section.
     try:
         def _week_key(dt):
+            # ISO 8601 week (isocalendar()) already runs Monday-Sunday, so
+            # this is the grouping key — see _week_range_label below for the
+            # human-readable Monday-Sunday range shown on the chart axis.
             if not dt:
                 return None
             iso = dt.isocalendar()
             return f"{iso[0]}-W{iso[1]:02d}"
 
+        def _week_range_label(dt):
+            from datetime import timedelta
+            iso_weekday = dt.isocalendar()[2]
+            monday = dt - timedelta(days=iso_weekday - 1)
+            sunday = monday + timedelta(days=6)
+            if monday.month == sunday.month:
+                return f"{monday.day}-{sunday.day} {monday.strftime('%b')}"
+            return f"{monday.strftime('%d %b')} - {sunday.strftime('%d %b')}"
+
         def _last_n_week_keys(n=8):
             from datetime import timedelta
             keys = []
+            labels = []
             d = today
             seen = set()
             while len(seen) < n:
-                k = _week_key(datetime(d.year, d.month, d.day))
+                dd = datetime(d.year, d.month, d.day)
+                k = _week_key(dd)
                 if k not in seen:
                     seen.add(k)
                     keys.append(k)
+                    labels.append(_week_range_label(dd))
                 d -= timedelta(days=7)
-            return list(reversed(keys))
+            return list(reversed(keys)), list(reversed(labels))
 
-        week_labels = _last_n_week_keys(8)
+        week_keys, week_labels = _last_n_week_keys(8)
+
+        # Every weekly-chart query below only ever buckets into these 8 weeks
+        # (_weekly_series discards anything outside week_keys) — cutting each
+        # query off at 9 weeks back (1 week of safety margin) avoids pulling
+        # a table's entire history into Python just to plot 8 bars.
+        from datetime import timedelta as _td
+        _weekly_cutoff = datetime(today.year, today.month, today.day) - _td(days=63)
 
         def _weekly_series(rows, date_getter, value_getter=lambda r: 1):
-            buckets = {wk: 0 for wk in week_labels}
+            buckets = {wk: 0 for wk in week_keys}
             for r in rows:
                 wk = _week_key(date_getter(r))
                 if wk in buckets:
                     buckets[wk] += value_getter(r)
-            return [buckets[wk] for wk in week_labels]
+            return [buckets[wk] for wk in week_keys]
 
         # a. Total Products (Inventory / To be Sold / Mark Sold) — Inventory is
         # the total tag-number count across every stage, and is also what the
@@ -913,16 +969,22 @@ async def dashboard(
         # a. Weekly: Products in IQC / GRN / In Stock (via StageMovement into that stage)
         sm_rows = (await db.execute(
             select(StageMovement.to_stage, StageMovement.moved_at)
-            .where(StageMovement.to_stage.in_([DeviceStage.iqc, DeviceStage.grn, DeviceStage.stock_in]))
+            .where(StageMovement.to_stage.in_([DeviceStage.iqc, DeviceStage.grn, DeviceStage.stock_in]),
+                   StageMovement.moved_at >= _weekly_cutoff)
         )).all()
         admin_charts["products_iqc_weekly"] = _weekly_series([r for r in sm_rows if r[0] == DeviceStage.iqc], lambda r: r[1])
         admin_charts["products_grn_weekly"] = _weekly_series([r for r in sm_rows if r[0] == DeviceStage.grn], lambda r: r[1])
         admin_charts["products_stock_weekly"] = _weekly_series([r for r in sm_rows if r[0] == DeviceStage.stock_in], lambda r: r[1])
 
         # a2. Weekly: Spare Parts in Sourcing Request / GRN / Harvest
-        psr_rows = (await db.execute(select(PartSourcingRequest.created_at))).scalars().all()
+        psr_rows = (await db.execute(
+            select(PartSourcingRequest.created_at).where(PartSourcingRequest.created_at >= _weekly_cutoff)
+        )).scalars().all()
         admin_charts["parts_sourcing_weekly"] = _weekly_series(psr_rows, lambda r: r)
-        grn_li_rows = (await db.execute(select(PartsGRNLineItem.is_harvest, PartsGRNLineItem.created_at))).all()
+        grn_li_rows = (await db.execute(
+            select(PartsGRNLineItem.is_harvest, PartsGRNLineItem.created_at)
+            .where(PartsGRNLineItem.created_at >= _weekly_cutoff)
+        )).all()
         admin_charts["parts_grn_weekly"] = _weekly_series([r for r in grn_li_rows if not r[0]], lambda r: r[1])
         admin_charts["parts_harvest_weekly"] = _weekly_series([r for r in grn_li_rows if r[0]], lambda r: r[1])
 
@@ -941,15 +1003,19 @@ async def dashboard(
 
         # c. Weekly: Sales Price — Ready to Sale (moved-in value proxy via count) vs Product Sold (₹)
         rts_rows = (await db.execute(
-            select(StageMovement.moved_at).where(StageMovement.to_stage == DeviceStage.ready_to_sale)
+            select(StageMovement.moved_at).where(StageMovement.to_stage == DeviceStage.ready_to_sale,
+                                                  StageMovement.moved_at >= _weekly_cutoff)
         )).scalars().all()
         admin_charts["ready_to_sale_weekly"] = _weekly_series(rts_rows, lambda r: r)
-        sold_rows = (await db.execute(select(Sale.sold_at, Sale.sale_price))).all()
+        sold_rows = (await db.execute(
+            select(Sale.sold_at, Sale.sale_price).where(Sale.sold_at >= _weekly_cutoff)
+        )).all()
         admin_charts["product_sold_price_weekly"] = _weekly_series(sold_rows, lambda r: r[0], lambda r: float(r[1] or 0))
 
         # d. Weekly: Parts Price — As New vs As Harvest
         grn_li_price_rows = (await db.execute(
             select(PartsGRNLineItem.is_harvest, PartsGRNLineItem.created_at, PartsGRNLineItem.price)
+            .where(PartsGRNLineItem.created_at >= _weekly_cutoff)
         )).all()
         admin_charts["parts_new_price_weekly"] = _weekly_series(
             [r for r in grn_li_price_rows if not r[0]], lambda r: r[1], lambda r: float(r[2] or 0))
@@ -958,9 +1024,15 @@ async def dashboard(
 
         # e. Weekly: Sourcing Price — Buyer PO (DealerOrder, dealers buying from
         # OxyPC) vs Seller PO (CRMPurchaseOrder, OxyPC buying from suppliers)
-        buyer_po_rows = (await db.execute(select(DealerOrder.order_date, DealerOrder.total_amount))).all()
+        buyer_po_rows = (await db.execute(
+            select(DealerOrder.order_date, DealerOrder.total_amount)
+            .where(DealerOrder.order_date >= _weekly_cutoff)
+        )).all()
         admin_charts["buyer_po_weekly"] = _weekly_series(buyer_po_rows, lambda r: r[0], lambda r: float(r[1] or 0))
-        seller_po_rows = (await db.execute(select(CRMPurchaseOrder.created_at, CRMPurchaseOrder.total_amount))).all()
+        seller_po_rows = (await db.execute(
+            select(CRMPurchaseOrder.created_at, CRMPurchaseOrder.total_amount)
+            .where(CRMPurchaseOrder.created_at >= _weekly_cutoff)
+        )).all()
         admin_charts["seller_po_weekly"] = _weekly_series(seller_po_rows, lambda r: r[0], lambda r: float(r[1] or 0))
     except Exception:
         _log.exception("admin_analytics failed")
@@ -1064,7 +1136,9 @@ async def dashboard(
         "laptops_available": laptops_available,
         "desktops_available": desktops_available,
         "tft_available": tft_available,
-        "all_available": all_available,
+        "tablets_available": tablets_available,
+        "minipc_available": minipc_available,
+        "server_available": server_available,
         "user_queue": user_queue,
         "chart_stages": chart_stages,
         "chart_data": chart_data,

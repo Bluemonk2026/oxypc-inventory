@@ -169,8 +169,8 @@
       <div class="d-flex flex-wrap gap-3 align-items-center">
         <div><span class="fs-4 fw-bold text-success">{{ user_queue.get('ready_to_sale', 0) }}</span><span class="ms-1 text-muted small">ready to sell</span><a href="/devices?stage=ready_to_sale" class="btn btn-sm btn-outline-success ms-2">View</a></div>
         <div><span class="fs-4 fw-bold text-dark">{{ user_queue.get('today_sales', 0) }}</span><span class="ms-1 text-muted small">sold today</span></div>
-        <div><span class="fs-4 fw-bold text-success">₹{{ "{:,.0f}".format(user_queue.get('month_revenue', 0)) }}</span><span class="ms-1 text-muted small">month revenue</span></div>
-        <div><span class="fs-5 fw-bold {% if user_queue.get('dealer_outstanding_total',0) > 0 %}text-danger{% else %}text-muted{% endif %}">₹{{ "{:,.0f}".format(user_queue.get('dealer_outstanding_total', 0)) }}</span><span class="ms-1 text-muted small">dealer outstanding</span></div>
+        <div><span class="fs-4 fw-bold text-success">₹{{ user_queue.get('month_revenue', 0) | inr }}</span><span class="ms-1 text-muted small">month revenue</span></div>
+        <div><span class="fs-5 fw-bold {% if user_queue.get('dealer_outstanding_total',0) > 0 %}text-danger{% else %}text-muted{% endif %}">₹{{ user_queue.get('dealer_outstanding_total', 0) | inr }}</span><span class="ms-1 text-muted small">dealer outstanding</span></div>
         <div><span class="fs-5 fw-bold {% if user_queue.get('dealer_overdue_count',0) > 0 %}text-danger{% else %}text-muted{% endif %}">{{ user_queue.get('dealer_overdue_count', 0) }}</span><span class="ms-1 text-muted small">overdue orders</span></div>
         <a href="/dealers" class="btn btn-sm btn-success"><i class="bi bi-building me-1"></i>My Dealers</a>
         <a href="/telecalling" class="btn btn-sm btn-outline-success"><i class="bi bi-telephone me-1"></i>Calling List</a>
@@ -191,7 +191,7 @@
       <div class="d-flex flex-wrap gap-4">
         <div><span class="fs-4 fw-bold {% if user_queue.get('low_stock_count', 0) > 0 %}text-danger{% else %}text-success{% endif %}">{{ user_queue.get('low_stock_count', 0) }}</span><span class="ms-1 text-muted small">low stock alerts</span><a href="/spare-parts?filter=low" class="btn btn-sm btn-outline-danger ms-2">View</a></div>
         <div><span class="fs-4 fw-bold text-info">{{ user_queue.get('today_consumption', 0) }}</span><span class="ms-1 text-muted small">parts used today</span></div>
-        <div><span class="fs-4 fw-bold text-dark">₹{{ "{:,.0f}".format(user_queue.get('total_parts_value', 0)) }}</span><span class="ms-1 text-muted small">stock value</span></div>
+        <div><span class="fs-4 fw-bold text-dark">₹{{ user_queue.get('total_parts_value', 0) | inr }}</span><span class="ms-1 text-muted small">stock value</span></div>
       </div>
     </div>
   </div>
@@ -392,7 +392,7 @@
     {% endif %}
   </div>
   <div class="card-body">
-    <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Total Investment</span><span class="fw-semibold">₹{{ "{:,.0f}".format(total_investment) }}</span></div>
+    <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Total Investment</span><span class="fw-semibold">₹{{ total_investment | inr }}</span></div>
     {# Parts Spent / Labour Spent are scoped to the selected Year (dashboard
        filter) and pulled from the exact same computation as Business P&L's
        Monthly Breakdown table (Parts Cost / Labour Cost columns) — see
@@ -401,13 +401,13 @@
        Revenue/Net Profit stay all-time UNLESS P&L From/To is set, in which
        case they're scoped to each device's own stage-completed date (see
        routers/dashboard.py's completed_device_ids). #}
-    <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Parts Spent</span><span class="fw-semibold">₹{{ "{:,.0f}".format(yearly_parts_cost) }}</span></div>
-    <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Labour Spent</span><span class="fw-semibold">₹{{ "{:,.0f}".format(yearly_labour_cost) }}</span></div>
-    <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Total Revenue</span><span class="fw-semibold text-success">₹{{ "{:,.0f}".format(total_revenue) }}</span></div>
+    <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Parts Spent</span><span class="fw-semibold">₹{{ yearly_parts_cost | inr }}</span></div>
+    <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Labour Spent</span><span class="fw-semibold">₹{{ yearly_labour_cost | inr }}</span></div>
+    <div class="d-flex justify-content-between mb-2"><span class="text-muted small">Total Revenue</span><span class="fw-semibold text-success">₹{{ total_revenue | inr }}</span></div>
     <hr>
     <div class="d-flex justify-content-between">
       <span class="fw-semibold">Net Profit</span>
-      <span class="fw-bold fs-5 {% if overall_profit >= 0 %}text-success{% else %}text-danger{% endif %}">₹{{ "{:,.0f}".format(overall_profit) }}</span>
+      <span class="fw-bold fs-5 {% if overall_profit >= 0 %}text-success{% else %}text-danger{% endif %}">₹{{ overall_profit | inr }}</span>
     </div>
   </div>
 </div>
@@ -461,12 +461,12 @@
                 <td>{{ r.qty }}</td>
                 <td>{{ r.devices_count }}</td>
                 <td>{{ r.devices_sold }}</td>
-                <td>₹{{ "{:,.0f}".format(r.buying_price) }}</td>
-                <td>₹{{ "{:,.0f}".format(r.parts_cost) }}</td>
-                <td>₹{{ "{:,.0f}".format(r.labour_cost) }}</td>
-                <td>₹{{ "{:,.0f}".format(r.cosmetic_cost) }}</td>
-                <td class="text-success">₹{{ "{:,.0f}".format(r.revenue) }}</td>
-                <td class="fw-semibold {% if r.profit >= 0 %}text-success{% else %}text-danger{% endif %}">₹{{ "{:,.0f}".format(r.profit) }}</td>
+                <td>₹{{ r.buying_price | inr }}</td>
+                <td>₹{{ r.parts_cost | inr }}</td>
+                <td>₹{{ r.labour_cost | inr }}</td>
+                <td>₹{{ r.cosmetic_cost | inr }}</td>
+                <td class="text-success">₹{{ r.revenue | inr }}</td>
+                <td class="fw-semibold {% if r.profit >= 0 %}text-success{% else %}text-danger{% endif %}">₹{{ r.profit | inr }}</td>
                 <td>{{ r.margin }}%</td>
               </tr>
               {% else %}
@@ -485,19 +485,7 @@
 
 {% macro category_quick_view_cards() %}
 <div class="row g-3 mb-4">
-  <div class="col-6 col-xl-3">
-    <a href="/devices" class="text-decoration-none">
-      <div class="card border-0 shadow-sm h-100 cat-card cat-all">
-        <div class="card-body text-center py-4">
-          <i class="bi bi-grid-3x3-gap fs-1 mb-2 d-block" style="color:#6f42c1"></i>
-          <div class="fw-bold mb-1">All Devices</div>
-          <div class="display-6 fw-bold" style="color:#6f42c1">{{ total_devices }}</div>
-          <div class="small text-muted mt-1">Available: <strong>{{ all_available }}</strong></div>
-        </div>
-      </div>
-    </a>
-  </div>
-  <div class="col-6 col-xl-3">
+  <div class="col-6 col-xl-2">
     <a href="/devices?category=Laptop" class="text-decoration-none">
       <div class="card border-0 shadow-sm h-100 cat-card cat-laptop">
         <div class="card-body text-center py-4">
@@ -509,7 +497,7 @@
       </div>
     </a>
   </div>
-  <div class="col-6 col-xl-3">
+  <div class="col-6 col-xl-2">
     <a href="/devices?category=Desktop" class="text-decoration-none">
       <div class="card border-0 shadow-sm h-100 cat-card cat-desktop">
         <div class="card-body text-center py-4">
@@ -521,14 +509,50 @@
       </div>
     </a>
   </div>
-  <div class="col-6 col-xl-3">
-    <a href="/devices?category=TFT" class="text-decoration-none">
+  <div class="col-6 col-xl-2">
+    <a href="/devices?category={{ 'TFT Monitor' | urlencode }}" class="text-decoration-none">
       <div class="card border-0 shadow-sm h-100 cat-card cat-tft">
         <div class="card-body text-center py-4">
           <i class="bi bi-display fs-1 mb-2 d-block" style="color:#fd7e14"></i>
-          <div class="fw-bold mb-1">TFT / Monitors</div>
-          <div class="display-6 fw-bold" style="color:#fd7e14">{{ category_counts.get('TFT', {}).get('total', 0) }}</div>
+          <div class="fw-bold mb-1">TFT Monitor</div>
+          <div class="display-6 fw-bold" style="color:#fd7e14">{{ category_counts.get('TFT Monitor', {}).get('total', 0) }}</div>
           <div class="small text-muted mt-1">Available: <strong>{{ tft_available }}</strong></div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-xl-2">
+    <a href="/devices?category=Tablet" class="text-decoration-none">
+      <div class="card border-0 shadow-sm h-100 cat-card cat-tablet">
+        <div class="card-body text-center py-4">
+          <i class="bi bi-tablet fs-1 mb-2 d-block" style="color:#20c997"></i>
+          <div class="fw-bold mb-1">Tablet</div>
+          <div class="display-6 fw-bold" style="color:#20c997">{{ category_counts.get('Tablet', {}).get('total', 0) }}</div>
+          <div class="small text-muted mt-1">Available: <strong>{{ tablets_available }}</strong></div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-xl-2">
+    <a href="/devices?category={{ 'Mini PC' | urlencode }}" class="text-decoration-none">
+      <div class="card border-0 shadow-sm h-100 cat-card cat-minipc">
+        <div class="card-body text-center py-4">
+          <i class="bi bi-cpu fs-1 mb-2 d-block" style="color:#6f42c1"></i>
+          <div class="fw-bold mb-1">Mini PC</div>
+          <div class="display-6 fw-bold" style="color:#6f42c1">{{ category_counts.get('Mini PC', {}).get('total', 0) }}</div>
+          <div class="small text-muted mt-1">Available: <strong>{{ minipc_available }}</strong></div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-xl-2">
+    <a href="/devices?category=Server" class="text-decoration-none">
+      <div class="card border-0 shadow-sm h-100 cat-card cat-server">
+        <div class="card-body text-center py-4">
+          <i class="bi bi-hdd-network fs-1 mb-2 d-block" style="color:#0dcaf0"></i>
+          <div class="fw-bold mb-1">Server</div>
+          <div class="display-6 fw-bold" style="color:#0dcaf0">{{ category_counts.get('Server', {}).get('total', 0) }}</div>
+          <div class="small text-muted mt-1">Available: <strong>{{ server_available }}</strong></div>
         </div>
       </div>
     </a>
@@ -553,13 +577,13 @@
   <div class="col-sm-6 col-xl-3">
     <div class="card border-0 shadow-sm"><div class="card-body d-flex align-items-center gap-3">
       <div class="rounded-3 p-3 bg-success-subtle text-success"><i class="bi bi-currency-rupee fs-3"></i></div>
-      <div><div class="text-muted small">Revenue This Month</div><div class="fs-3 fw-bold">₹{{ "{:,.0f}".format(month_revenue) }}</div></div>
+      <div><div class="text-muted small">Revenue This Month</div><div class="fs-3 fw-bold">₹{{ month_revenue | inr }}</div></div>
     </div></div>
   </div>
   <div class="col-sm-6 col-xl-3">
     <div class="card border-0 shadow-sm"><div class="card-body d-flex align-items-center gap-3">
       <div class="rounded-3 p-3 {% if overall_profit >= 0 %}bg-success-subtle text-success{% else %}bg-danger-subtle text-danger{% endif %}"><i class="bi bi-graph-up-arrow fs-3"></i></div>
-      <div><div class="text-muted small">Overall Profit</div><div class="fs-3 fw-bold {% if overall_profit >= 0 %}text-success{% else %}text-danger{% endif %}">₹{{ "{:,.0f}".format(overall_profit) }}</div></div>
+      <div><div class="text-muted small">Overall Profit</div><div class="fs-3 fw-bold {% if overall_profit >= 0 %}text-success{% else %}text-danger{% endif %}">₹{{ overall_profit | inr }}</div></div>
     </div></div>
   </div>
 </div>
@@ -583,8 +607,6 @@
   </div>
 </div>
 
-{{ lot_pl_table() }}
-
 {{ category_quick_view_cards() }}
 {{ summary_stat_cards() }}
 
@@ -593,15 +615,30 @@
 <!-- LAST ROW: Weekly Sourcing Price + Inventory by Category & Stage, equally distributed -->
 <div class="row g-3 mb-4">
   <div class="col-xl-6">
-    <div class="card border-0 shadow-sm h-100">
+    <div class="card border-0 shadow-sm h-100 chart-card">
       <div class="card-header bg-transparent fw-semibold small">Weekly Sourcing Price — Buyer PO / Seller PO</div>
-      <div class="card-body"><canvas id="chartSourcingPriceWeekly" height="180"></canvas></div>
+      <div class="card-body"><div class="chart-box"><canvas id="chartSourcingPriceWeekly"></canvas></div></div>
     </div>
   </div>
   <div class="col-xl-6">
-    <div class="card border-0 shadow-sm h-100">
+    <div class="card border-0 shadow-sm h-100 chart-card">
       <div class="card-header bg-transparent fw-semibold"><i class="bi bi-bar-chart-line me-2"></i>Inventory by Category &amp; Stage</div>
-      <div class="card-body"><canvas id="categoryChart" height="90"></canvas></div>
+      <div class="card-body"><div class="chart-box"><canvas id="categoryChart"></canvas></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-xl-6">
+    <div class="card border-0 shadow-sm h-100 chart-card">
+      <div class="card-header bg-transparent fw-semibold small">Weekly: Products in IQC / GRN / In Stock</div>
+      <div class="card-body"><div class="chart-box"><canvas id="chartProductsWeekly"></canvas></div></div>
+    </div>
+  </div>
+  <div class="col-xl-6">
+    <div class="card border-0 shadow-sm h-100 chart-card">
+      <div class="card-header bg-transparent fw-semibold small">Weekly: Spare Parts — Sourcing Request / GRN / Harvest</div>
+      <div class="card-body"><div class="chart-box"><canvas id="chartPartsWeekly"></canvas></div></div>
     </div>
   </div>
 </div>
@@ -615,10 +652,20 @@
 <style>
 .cat-card { transition: transform .15s ease, box-shadow .15s ease; cursor: pointer; }
 .cat-card:hover { transform: translateY(-4px); box-shadow: 0 .5rem 1.5rem rgba(0,0,0,.15) !important; }
-.cat-all    { border-top: 4px solid #6f42c1 !important; }
 .cat-laptop { border-top: 4px solid #0d6efd !important; }
 .cat-desktop{ border-top: 4px solid #198754 !important; }
 .cat-tft    { border-top: 4px solid #fd7e14 !important; }
+.cat-tablet { border-top: 4px solid #20c997 !important; }
+.cat-minipc { border-top: 4px solid #6f42c1 !important; }
+.cat-server { border-top: 4px solid #0dcaf0 !important; }
+
+/* Chart cards: card-body stretches to fill the row's tallest card (h-100),
+   and the canvas fills that space exactly instead of sitting at its fixed
+   HTML height attribute and leaving blank space below/right of it. */
+.chart-card { display: flex; flex-direction: column; }
+.chart-card .card-body { flex: 1 1 auto; display: flex; }
+.chart-box { position: relative; flex: 1 1 auto; min-height: 220px; }
+.chart-box canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
 </style>
 
 <script src="/static/vendor/chartjs/chart.umd.min.js"></script>
@@ -630,13 +677,14 @@
     data: {
       labels: labels,
       datasets: [
-        { label: 'Laptops',  data: {{ chart_data.get('Laptop',  [0,0,0,0,0,0,0]) | tojson }}, backgroundColor: 'rgba(13,110,253,.75)',  borderColor: '#0d6efd', borderWidth:1, borderRadius:4 },
-        { label: 'Desktops', data: {{ chart_data.get('Desktop', [0,0,0,0,0,0,0]) | tojson }}, backgroundColor: 'rgba(25,135,84,.75)',   borderColor: '#198754', borderWidth:1, borderRadius:4 },
-        { label: 'TFT',      data: {{ chart_data.get('TFT',     [0,0,0,0,0,0,0]) | tojson }}, backgroundColor: 'rgba(253,126,20,.75)',  borderColor: '#fd7e14', borderWidth:1, borderRadius:4 },
+        { label: 'Laptops',     data: {{ chart_data.get('Laptop',      [0,0,0,0,0,0,0]) | tojson }}, backgroundColor: 'rgba(13,110,253,.75)',  borderColor: '#0d6efd', borderWidth:1, borderRadius:4 },
+        { label: 'Desktops',    data: {{ chart_data.get('Desktop',     [0,0,0,0,0,0,0]) | tojson }}, backgroundColor: 'rgba(25,135,84,.75)',   borderColor: '#198754', borderWidth:1, borderRadius:4 },
+        { label: 'TFT Monitor', data: {{ chart_data.get('TFT Monitor', [0,0,0,0,0,0,0]) | tojson }}, backgroundColor: 'rgba(253,126,20,.75)',  borderColor: '#fd7e14', borderWidth:1, borderRadius:4 },
       ]
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       plugins: { legend: { position: 'top' } },
       scales: { x: { stacked: false, grid: { display: false } }, y: { beginAtZero: true, ticks: { stepSize: 1 } } }
     }
@@ -659,7 +707,7 @@
         { label: 'In Stock',  data: {{ ac.get('products_stock_weekly', []) | tojson }}, backgroundColor: 'rgba(13,202,240,.75)' },
       ]
     },
-    options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
   });
 
   new Chart(document.getElementById('chartPartsWeekly'), {
@@ -672,7 +720,7 @@
         { label: 'Harvest',          data: {{ ac.get('parts_harvest_weekly', []) | tojson }},  backgroundColor: 'rgba(25,135,84,.75)' },
       ]
     },
-    options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
   });
 
   new Chart(document.getElementById('chartStagePie'), {
@@ -682,7 +730,7 @@
       datasets: [{ data: {{ ac.get('stage_pie_values', []) | tojson }},
         backgroundColor: ['#6c757d','#0dcaf0','#ffc107','#fd7e14','#dc3545','#6f42c1','#0d6efd','#198754'] }]
     },
-    options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
   });
 
   new Chart(document.getElementById('chartSalesPriceWeekly'), {
@@ -694,7 +742,7 @@
         { label: 'Product Sold (₹)',      data: {{ ac.get('product_sold_price_weekly', []) | tojson }}, backgroundColor: 'rgba(13,110,253,.75)', yAxisID: 'y' },
       ]
     },
-    options: { responsive: true, plugins: { legend: { position: 'top' } },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } },
       scales: { y: { beginAtZero: true, position: 'left' }, y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false } } } }
   });
 
@@ -707,7 +755,7 @@
         { label: 'As Harvest (₹)', data: {{ ac.get('parts_harvest_price_weekly', []) | tojson }}, backgroundColor: 'rgba(25,135,84,.75)' },
       ]
     },
-    options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
   });
 
   new Chart(document.getElementById('chartSourcingPriceWeekly'), {
@@ -719,7 +767,7 @@
         { label: 'Seller PO (₹)', data: {{ ac.get('seller_po_weekly', []) | tojson }}, backgroundColor: 'rgba(253,126,20,.75)' },
       ]
     },
-    options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } }
   });
 })();
 </script>

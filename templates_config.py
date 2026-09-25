@@ -74,6 +74,37 @@ templates.env.filters["ist_date"]     = ist_date      # {{ dt | ist_date }}
 templates.env.filters["ist_time"]     = ist_time      # {{ dt | ist_time }}
 templates.env.filters["ist_datetime"] = ist_datetime  # {{ dt | ist_datetime }}
 
+
+def inr(value, decimals=0):
+    """Jinja2 filter: Indian digit grouping (last 3 digits, then pairs) —
+    e.g. 166807419 -> "16,68,07,419" instead of the Western "166,807,419"."""
+    try:
+        value = float(value or 0)
+    except (TypeError, ValueError):
+        value = 0.0
+    negative = value < 0
+    value = abs(value)
+    if decimals:
+        int_part, _, dec_part = f"{value:.{decimals}f}".partition(".")
+    else:
+        int_part, dec_part = str(int(round(value))), ""
+    if len(int_part) <= 3:
+        grouped = int_part
+    else:
+        last3, rest = int_part[-3:], int_part[:-3]
+        parts = []
+        while len(rest) > 2:
+            parts.insert(0, rest[-2:])
+            rest = rest[:-2]
+        if rest:
+            parts.insert(0, rest)
+        grouped = ",".join(parts) + "," + last3
+    result = grouped + (f".{dec_part}" if dec_part else "")
+    return ("-" + result) if negative else result
+
+
+templates.env.filters["inr"] = inr  # {{ amount | inr }} -> Indian lakh/crore grouping
+
 # ── Permission helpers — usable in any template ──
 #   has_perm(role, module, action)  → single-module check (matrix-driven)
 #   any_perm(role, *modules)        → True if ANY listed module is enabled

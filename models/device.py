@@ -131,9 +131,9 @@ class Device(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     barcode = Column(String(100), unique=True, nullable=False, index=True)
-    lot_id = Column(UUID(as_uuid=True), ForeignKey("lots.id"), nullable=False)
+    lot_id = Column(UUID(as_uuid=True), ForeignKey("lots.id"), nullable=False, index=True)
     brand = Column(String(50), nullable=True, index=True)
-    entity = Column(String(30), nullable=True)  # OxyPC Computers / Renew Circuits — additive, auto-provisioned by db_validator
+    entity = Column(String(30), nullable=True, index=True)  # OxyPC Computers / Renew Circuits — additive, auto-provisioned by db_validator
     model = Column(String(100), nullable=True)
     device_type = Column(String(30), nullable=True, index=True)  # exact-match filter + sort column on /devices — see Global Table query optimization
     invoice_number = Column(String(100), nullable=True)  # bulk-set via Product IQC Customise modal
@@ -172,7 +172,7 @@ class Device(Base):
     floor = Column(String(50), nullable=True)          # holds the Zone value (ZoneType) selected on IQC/Edit
     warehouse = Column(String(100), nullable=True)     # legacy free-text; now best-effort mirrors location display_name
     location_id = Column(UUID(as_uuid=True), ForeignKey("storage_locations.id"), nullable=True)  # precise StorageLocation FK
-    grn_number = Column(String(50), nullable=True)     # Goods Receipt Note ref
+    grn_number = Column(String(50), nullable=True, index=True)     # Goods Receipt Note ref
     return_status = Column(Boolean, nullable=False, default=False, server_default=text("false"))  # True once returned via Process Return
     replaced = Column(String(120), nullable=True)      # "Replaced by <tag>" / "Replaced from <tag>" (L3 device swap)
     replace_with_barcode = Column(String(100), nullable=True)  # Scrap Products "Replace" modal — selected replacement tag (Replacement Scrap flow)
@@ -248,9 +248,9 @@ class StageMovement(Base):
     __tablename__ = "stage_movements"
 
     id         = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    device_id  = Column(UUID(as_uuid=True), ForeignKey("devices.id"), nullable=False)
+    device_id  = Column(UUID(as_uuid=True), ForeignKey("devices.id"), nullable=False, index=True)
     from_stage = Column(SAEnum(DeviceStage), nullable=True)
-    to_stage   = Column(SAEnum(DeviceStage), nullable=False)
+    to_stage   = Column(SAEnum(DeviceStage), nullable=False, index=True)
     moved_by   = Column(String(50), nullable=True)
     moved_at   = Column(DateTime, default=app_now)
     exited_at  = Column(DateTime, nullable=True)   # set when device leaves this stage

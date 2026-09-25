@@ -13,7 +13,7 @@ class Sale(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     sale_number = Column(String(20), unique=True, nullable=False, index=True)
-    device_id = Column(UUID(as_uuid=True), ForeignKey("devices.id"), nullable=False)
+    device_id = Column(UUID(as_uuid=True), ForeignKey("devices.id"), nullable=False, index=True)
     sale_price = Column(Numeric(12, 2), nullable=False)
     customer_name = Column(String(100), nullable=True)
     customer_phone = Column(String(20), nullable=True)

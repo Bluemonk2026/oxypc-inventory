@@ -50,8 +50,8 @@
           <span class="fw-semibold small">Total Product Profits</span>
         </div>
         <div class="d-flex flex-wrap gap-3">
-          <div><div class="fs-6 fw-bold">₹{{ "{:,.0f}".format(aa.get('product_buying',0)) }}</div><div class="text-muted" style="font-size:.7rem">Buying Price</div></div>
-          <div><div class="fs-6 fw-bold">₹{{ "{:,.0f}".format(aa.get('product_sale',0)) }}</div><div class="text-muted" style="font-size:.7rem">Sale Price</div></div>
+          <div><div class="fs-6 fw-bold">₹{{ aa.get('product_buying',0) | inr }}</div><div class="text-muted" style="font-size:.7rem">Buying Price</div></div>
+          <div><div class="fs-6 fw-bold">₹{{ aa.get('product_sale',0) | inr }}</div><div class="text-muted" style="font-size:.7rem">Sale Price</div></div>
           <div><div class="fs-6 fw-bold {% if aa.get('product_profit_pct',0) >= 0 %}text-success{% else %}text-danger{% endif %}">{{ aa.get('product_profit_pct',0) }}%</div><div class="text-muted" style="font-size:.7rem">Profit %</div></div>
         </div>
       </div>
@@ -65,8 +65,8 @@
           <span class="fw-semibold small">Total Parts Profits</span>
         </div>
         <div class="d-flex flex-wrap gap-3">
-          <div><div class="fs-6 fw-bold">₹{{ "{:,.0f}".format(aa.get('parts_buying',0)) }}</div><div class="text-muted" style="font-size:.7rem">Buying Price</div></div>
-          <div><div class="fs-6 fw-bold">₹{{ "{:,.0f}".format(aa.get('parts_used',0)) }}</div><div class="text-muted" style="font-size:.7rem">Used Price</div></div>
+          <div><div class="fs-6 fw-bold">₹{{ aa.get('parts_buying',0) | inr }}</div><div class="text-muted" style="font-size:.7rem">Buying Price</div></div>
+          <div><div class="fs-6 fw-bold">₹{{ aa.get('parts_used',0) | inr }}</div><div class="text-muted" style="font-size:.7rem">Used Price</div></div>
           <div><div class="fs-6 fw-bold {% if aa.get('parts_profit_pct',0) >= 0 %}text-success{% else %}text-danger{% endif %}">{{ aa.get('parts_profit_pct',0) }}%</div><div class="text-muted" style="font-size:.7rem">Profit %</div></div>
         </div>
       </div>
@@ -76,35 +76,23 @@
 </div>
 
 <div class="row g-3 mb-4">
-  <div class="col-xl-6">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-header bg-transparent fw-semibold small">Weekly: Products in IQC / GRN / In Stock</div>
-      <div class="card-body"><canvas id="chartProductsWeekly" height="110"></canvas></div>
-    </div>
-  </div>
-  <div class="col-xl-6">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-header bg-transparent fw-semibold small">Weekly: Spare Parts — Sourcing Request / GRN / Harvest</div>
-      <div class="card-body"><canvas id="chartPartsWeekly" height="110"></canvas></div>
-    </div>
-  </div>
   <div class="col-xl-4">
-    <div class="card border-0 shadow-sm h-100">
+    <div class="card border-0 shadow-sm h-100 chart-card">
       <div class="card-header bg-transparent fw-semibold small">Stage Distribution</div>
-      <div class="card-body"><canvas id="chartStagePie" height="200"></canvas></div>
+      <div class="card-body"><div class="chart-box"><canvas id="chartStagePie"></canvas></div></div>
     </div>
   </div>
   {% if can_view_pricing(current_user) %}
   <div class="col-xl-4">
-    <div class="card border-0 shadow-sm h-100">
+    <div class="card border-0 shadow-sm h-100 chart-card">
       <div class="card-header bg-transparent fw-semibold small">Weekly Sales Price — Ready to Sale / Sold</div>
-      <div class="card-body"><canvas id="chartSalesPriceWeekly" height="180"></canvas></div>
+      <div class="card-body"><div class="chart-box"><canvas id="chartSalesPriceWeekly"></canvas></div></div>
     </div>
   </div>
   <div class="col-xl-4">
-    <div class="card border-0 shadow-sm h-100">
+    <div class="card border-0 shadow-sm h-100 chart-card">
       <div class="card-header bg-transparent fw-semibold small">Weekly Parts Price — As New / As Harvest</div>
-      <div class="card-body"><canvas id="chartPartsPriceWeekly" height="180"></canvas></div>
+      <div class="card-body"><div class="chart-box"><canvas id="chartPartsPriceWeekly"></canvas></div></div>
     </div>
   </div>
   {% endif %}

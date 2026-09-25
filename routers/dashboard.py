@@ -190,7 +190,7 @@ async def dashboard(
         )).fetchall())
         _terminal_devices = (await db.execute(
             select(Device.id, Device.current_stage)
-            .where(Device.current_stage.in_(
+            .where(Device.is_trashed == False, Device.current_stage.in_(
                 [DeviceStage.sold, DeviceStage.scrapped, DeviceStage.scrap_for_sale]))
         )).all()
         for _did, _stage in _terminal_devices:
@@ -565,7 +565,9 @@ async def dashboard(
             # device count — never date-scoped, it's descriptive of the lot
             # itself, not of P&L activity within a period)
             lot_device_counts = dict((await db.execute(
-                select(Device.lot_id, func.count(Device.id)).group_by(Device.lot_id)
+                select(Device.lot_id, func.count(Device.id))
+                .where(Device.is_trashed == False)
+                .group_by(Device.lot_id)
             )).fetchall())
 
             # When P&L From/To is active, every cost/revenue batch below is
@@ -580,7 +582,7 @@ async def dashboard(
             lot_revenue = dict((await db.execute(
                 select(Device.lot_id, func.coalesce(func.sum(Sale.sale_price), 0))
                 .join(Sale, Sale.device_id == Device.id)
-                .where(*_completed_filter)
+                .where(Device.is_trashed == False, *_completed_filter)
                 .group_by(Device.lot_id)
             )).fetchall())
 
@@ -596,7 +598,7 @@ async def dashboard(
             # Batch 4: sold device count per lot
             lot_sold_counts = dict((await db.execute(
                 select(Device.lot_id, func.count(Device.id))
-                .where(Device.current_stage == DeviceStage.sold, *_completed_filter)
+                .where(Device.is_trashed == False, Device.current_stage == DeviceStage.sold, *_completed_filter)
                 .group_by(Device.lot_id)
             )).fetchall())
 
@@ -604,7 +606,7 @@ async def dashboard(
             lot_labour_cost = dict((await db.execute(
                 select(Device.lot_id, func.coalesce(func.sum(RepairAttempt.cost), 0))
                 .join(RepairAttempt, RepairAttempt.device_id == Device.id)
-                .where(*_completed_filter)
+                .where(Device.is_trashed == False, *_completed_filter)
                 .group_by(Device.lot_id)
             )).fetchall())
 
@@ -612,7 +614,7 @@ async def dashboard(
             lot_attempt_count = dict((await db.execute(
                 select(Device.lot_id, func.count(RepairAttempt.id))
                 .join(RepairAttempt, RepairAttempt.device_id == Device.id)
-                .where(*_completed_filter)
+                .where(Device.is_trashed == False, *_completed_filter)
                 .group_by(Device.lot_id)
             )).fetchall())
 
@@ -620,7 +622,7 @@ async def dashboard(
             lot_cosmetic_count = dict((await db.execute(
                 select(Device.lot_id, func.count(StageMovement.id))
                 .join(StageMovement, StageMovement.device_id == Device.id)
-                .where(StageMovement.to_stage == DeviceStage.cleaning, *_completed_filter)
+                .where(Device.is_trashed == False, StageMovement.to_stage == DeviceStage.cleaning, *_completed_filter)
                 .group_by(Device.lot_id)
             )).fetchall())
 
@@ -633,7 +635,7 @@ async def dashboard(
             if _pl_active:
                 lot_completed_counts = dict((await db.execute(
                     select(Device.lot_id, func.count(Device.id))
-                    .where(*_completed_filter)
+                    .where(Device.is_trashed == False, *_completed_filter)
                     .group_by(Device.lot_id)
                 )).fetchall())
 
@@ -1084,7 +1086,7 @@ async def dashboard(
         try:
             wq_result = await db.execute(
                 select(Device)
-                .where(Device.current_stage.in_(wq_stages))
+                .where(Device.is_trashed == False, Device.current_stage.in_(wq_stages))
                 .order_by(Device.updated_at.asc())
                 .limit(15)
             )

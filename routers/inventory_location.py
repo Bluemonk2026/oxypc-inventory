@@ -74,7 +74,8 @@ async def _devices_in_hand(db: AsyncSession):
             DeviceLocationLog.device_id == sub.c.device_id,
             DeviceLocationLog.logged_at == sub.c.latest,
         ))
-        .where(DeviceLocationLog.action == LocationAction.picked_up)
+        .join(Device, Device.id == DeviceLocationLog.device_id)
+        .where(DeviceLocationLog.action == LocationAction.picked_up, Device.is_trashed == False)
     )
     return result.scalars().all()
 
@@ -104,7 +105,7 @@ async def _gap_devices(db: AsyncSession, hours: int = 24):
     logged_ids = set(logged_ids_result.scalars().all())
 
     all_active_result = await db.execute(
-        select(Device.id).where(Device.current_stage.in_(active_stages))
+        select(Device.id).where(Device.is_trashed == False, Device.current_stage.in_(active_stages))
     )
     all_active_ids = set(all_active_result.scalars().all())
 

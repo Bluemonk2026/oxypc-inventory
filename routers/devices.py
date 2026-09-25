@@ -373,11 +373,22 @@ def _device_search_filters(q, stage, lot, grade, category, device_type, date_fro
         # `entity != X` alone silently drops every entity-less ("Unassigned")
         # device too, since SQL NULL != X evaluates to NULL, not TRUE.
         w.append(or_(Device.entity.is_(None), Device.entity != EXTERNAL_PARTNER_TEST_ENTITY))
-    # "Exclude Sold" filter — on by default so All Inventory shows live stock
-    # rather than the full historical device list. Skipped when the user has
-    # explicitly asked for the sold stage, which would otherwise return nothing.
-    if exclude_sold and DeviceStage.sold.value not in stage_vals:
-        w.append(Device.current_stage != DeviceStage.sold)
+    # "Active Stock Only" filter (form field name kept as exclude_sold for
+    # backward compatibility with saved links/bookmarks) — on by default so
+    # All Inventory shows live stock rather than the full historical device
+    # list. Excludes the same 5 stages as the Dashboard's category-tile
+    # "Total" and "Total Inventory" figures (GRN/Sold/Returned/Scrapped/
+    # Scrap for Sale), so the two pages agree. Any one of those 5 stages is
+    # skipped from this exclusion when the user has explicitly selected it
+    # in the Stage filter, which would otherwise return nothing.
+    if exclude_sold:
+        _active_stock_excluded = [
+            s for s in (DeviceStage.grn, DeviceStage.sold, DeviceStage.returned,
+                        DeviceStage.scrapped, DeviceStage.scrap_for_sale)
+            if s.value not in stage_vals
+        ]
+        if _active_stock_excluded:
+            w.append(Device.current_stage.notin_(_active_stock_excluded))
     iqc_filter = _iqc_date_filter(date_from, date_to)
     if iqc_filter is not None:
         w.append(iqc_filter)

@@ -403,7 +403,10 @@ async def dashboard(
         .order_by(StorageLocation.zone, StorageLocation.unit_id)
     )).scalars().all()
 
-    total_devices = sum(v for k, v in stage_counts.items() if k not in EXCLUDED_STAGES)
+    # Total Inventory now matches the category tiles' "Total" definition
+    # exactly (excludes GRN/Sold/Returned/Scrapped/Scrap for Sale) rather
+    # than the narrower EXCLUDED_STAGES, so the two numbers agree.
+    total_devices = sum(v for k, v in stage_counts.items() if k not in CATEGORY_EXCLUDED_STAGES)
     # "In Repair" summary card: everything past Production but not yet Ready
     # to Sale — QC Check, the 8 cosmetic-line stages, and Final QC (incl. its
     # pass/fail hold sub-stages). Reuses the already-cached pipeline_counts

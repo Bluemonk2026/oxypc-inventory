@@ -744,8 +744,13 @@ async def device_search(
         "request": request, "current_user": current_user,
         "lots": lots,
         "stages": DeviceStage, "stage_labels": STAGE_LABELS,
-        # (value, label) pairs for the multi-select filter dropdowns.
-        "stage_choices": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DROPDOWN_STAGES],
+        # (value, label) pairs for the multi-select filter dropdowns. All
+        # Inventory includes Sold here (unlike DROPDOWN_STAGES' shared
+        # default, used elsewhere) so "Active Stock Only" can be overridden
+        # per-stage — picking Stage=Sold while the checkbox stays checked
+        # needs Sold to actually be a selectable option.
+        "stage_choices": [(s.value, STAGE_LABELS.get(s, s.value))
+                           for s in DeviceStage if s != DeviceStage.l2],
         "lot_choices": [l.lot_number for l in lots if l.lot_number],
         "q": q, "stage": stage, "lot": lot, "grade": grade, "category": category,
         "device_type": device_type, "employee": employee, "entity": entity,

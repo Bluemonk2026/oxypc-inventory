@@ -665,11 +665,27 @@ async def l3l4_list(request: Request,
             .join(Lot, Device.lot_id == Lot.id, isouter=True)
             .where(WorkOrder.work_id.like("L3L4-%"),
                    WorkOrder.status != "completed",
-                   Device.is_trashed == False)
+                   Device.is_trashed == False,
+                   # A device whose WorkOrder is still open but has already
+                   # moved on (Ready to Sale, Scrap for Sale, ...) via some
+                   # other action path is stale here, not a real L3/L4 item —
+                   # only show devices genuinely still at this stage.
+                   Device.current_stage == DeviceStage.l3)
             .order_by(WorkOrder.assigned_at.desc()))
     if not full_queue:
         stmt = stmt.where(WorkOrder.assigned_user_id == current_user.id)
     rows = (await db.execute(stmt)).all()
+    # A device can end up with more than one open L3L4 WorkOrder (data drift,
+    # not intended) — dedupe to one row per device, keeping the most
+    # recently assigned one since rows are already ordered by assigned_at desc.
+    _seen_device_ids: set = set()
+    _deduped_rows = []
+    for wo, dev, lot_number in rows:
+        if dev.id in _seen_device_ids:
+            continue
+        _seen_device_ids.add(dev.id)
+        _deduped_rows.append((wo, dev, lot_number))
+    rows = _deduped_rows
 
     today = app_now().date()
     bucket_map: dict = {}

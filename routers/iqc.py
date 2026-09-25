@@ -14,6 +14,7 @@ from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS, DROP
 from models.lot import Lot, LotLineItem
 from models.iqc_inspection import IQCInspection
 from models.location import StorageLocation, DeviceLocationLog, LocationAction
+from models.work_order import WorkOrder
 from auth.dependencies import (get_current_user, require_roles, verify_csrf, require_module_perm,
                                require_any_module_perm, require_additional_perm, require_any_additional_perm)
 from services.audit_engine import audit
@@ -1056,6 +1057,29 @@ async def iqc_bulk_apply_grade_type(
             prev = device.current_stage
             device.current_stage = new_stage
             device.updated_at = app_now()
+            # A bulk move off L1/L2/L3 bypasses the dedicated Mark-Complete
+            # flows, which are otherwise the only places that ever close an
+            # open WorkOrder — without this the WorkOrder is orphaned: it
+            # keeps showing on /repair/l1, /repair/l3l4, and Production
+            # Manager's queue tiles, disagreeing with the device's real (now
+            # different) stage forever. Same fix already applied to the
+            # dedicated manual-move endpoint in routers/repair.py.
+            if prev in (DeviceStage.l1, DeviceStage.l2) and new_stage not in (DeviceStage.l1, DeviceStage.l2):
+                from sqlalchemy import update as sa_update
+                await db.execute(
+                    sa_update(WorkOrder)
+                    .where(WorkOrder.device_id == device.id, WorkOrder.work_id.like("L1L2-%"),
+                           WorkOrder.status != "completed")
+                    .values(status="completed", completed_at=app_now())
+                )
+            elif prev == DeviceStage.l3 and new_stage != DeviceStage.l3:
+                from sqlalchemy import update as sa_update
+                await db.execute(
+                    sa_update(WorkOrder)
+                    .where(WorkOrder.device_id == device.id, WorkOrder.work_id.like("L3L4-%"),
+                           WorkOrder.status != "completed")
+                    .values(status="completed", completed_at=app_now())
+                )
             db.add(StageMovement(device_id=device.id, from_stage=prev, to_stage=new_stage,
                                   moved_by=current_user.username, notes="Bulk Customise modal — bulk Move to Stage"))
 

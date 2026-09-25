@@ -370,7 +370,7 @@
   </div>
 </div>
 {% else %}
-<div class="alert alert-success border-0 shadow-sm mb-4 py-2 d-flex align-items-center gap-2">
+<div class="alert alert-success no-autohide border-0 shadow-sm mb-4 py-2 d-flex align-items-center gap-2">
   <i class="bi bi-geo-alt-fill text-success"></i>
   <span class="small">
     <strong>All Clear — Location Tracking:</strong> Every active device has a recorded location.
@@ -661,11 +661,16 @@
 
 /* Chart cards: card-body stretches to fill the row's tallest card (h-100),
    and the canvas fills that space exactly instead of sitting at its fixed
-   HTML height attribute and leaving blank space below/right of it. */
+   HTML height attribute and leaving blank space below/right of it.
+   Deliberately NOT forcing the canvas's own width/height via CSS (that
+   fights Chart.js's own inline-styled, devicePixelRatio-aware sizing of
+   the canvas, which is what its mouse-to-data coordinate math for
+   hover/tooltips relies on being accurate — forcing it via !important
+   broke hover). Chart.js sizes the canvas itself to fill this wrapper via
+   ResizeObserver, driven by responsive:true + maintainAspectRatio:false. */
 .chart-card { display: flex; flex-direction: column; }
 .chart-card .card-body { flex: 1 1 auto; display: flex; }
-.chart-box { position: relative; flex: 1 1 auto; min-height: 220px; }
-.chart-box canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
+.chart-box { position: relative; flex: 1 1 auto; min-height: 220px; width: 100%; }
 </style>
 
 <script src="/static/vendor/chartjs/chart.umd.min.js"></script>

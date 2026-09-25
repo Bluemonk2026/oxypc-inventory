@@ -404,6 +404,13 @@ async def dashboard(
     )).scalars().all()
 
     total_devices = sum(v for k, v in stage_counts.items() if k not in EXCLUDED_STAGES)
+    # "In Repair" summary card: everything past Production but not yet Ready
+    # to Sale — QC Check, the 8 cosmetic-line stages, and Final QC (incl. its
+    # pass/fail hold sub-stages). Reuses the already-cached pipeline_counts
+    # (qc_check/cosmetic/final_qc) rather than a fresh query.
+    in_repair_count = (pipeline_counts.get("qc_check", 0)
+                        + pipeline_counts.get("cosmetic", 0)
+                        + pipeline_counts.get("final_qc", 0))
     laptops_available = category_counts.get("Laptop", {}).get("ready_to_sale", 0)
     desktops_available = category_counts.get("Desktop", {}).get("ready_to_sale", 0)
     tft_available = category_counts.get("TFT Monitor", {}).get("ready_to_sale", 0)
@@ -1133,6 +1140,7 @@ async def dashboard(
         "stage_labels": STAGE_LABELS,
         "category_counts": category_counts,
         "total_devices": total_devices,
+        "in_repair_count": in_repair_count,
         "laptops_available": laptops_available,
         "desktops_available": desktops_available,
         "tft_available": tft_available,

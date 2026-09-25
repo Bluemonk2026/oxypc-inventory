@@ -251,7 +251,7 @@ async def ready_list_data(
             else:
                 if rejected_notes is not None:
                     action += f'<span class="badge bg-danger align-self-center ms-1" title="{esc(rejected_notes)}">Rejected</span>'
-                action += (f'<button class="btn btn-sm btn-outline-primary ms-1" data-bs-toggle="modal" data-bs-target="#dispatchModal" '
+                action += (f'<button class="btn btn-sm btn-outline-primary ms-1 d-none" data-bs-toggle="modal" data-bs-target="#dispatchModal" '
                           f'data-barcode="{esc(d.barcode)}" data-model="{esc((d.brand or "") + " " + (d.model or ""))}">Request</button>')
         action += (f'<button type="button" class="btn btn-sm btn-outline-dark ms-1 tag-set-price-btn" '
                   f'data-barcode="{esc(d.barcode)}" '

@@ -45,7 +45,7 @@
          out of the dom string. #}
       <input type="text" id="readyScanInput" class="d-none form-control form-control-sm font-monospace"
              style="max-width:280px" autocomplete="off" placeholder="Scan Tag/Serial, or search…">
-      <button type="button" id="multiRequestBtn" class="btn btn-sm btn-outline-primary" disabled>
+      <button type="button" id="multiRequestBtn" class="btn btn-sm btn-outline-primary d-none" disabled>
         <i class="bi bi-telephone-outbound me-1"></i>Multi-Request with selected (<span id="readySelCount">0</span>)
       </button>
       <button type="button" id="multiSellBtn" class="btn btn-sm btn-outline-success" disabled>
@@ -220,7 +220,7 @@
 <div class="card border-0 shadow-sm mt-3">
   <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span><i class="bi bi-collection me-2"></i>Model Summary for Ready to Sale</span>
-    <button type="button" id="modelSumRequestBtn" class="btn btn-sm btn-outline-primary" disabled>
+    <button type="button" id="modelSumRequestBtn" class="btn btn-sm btn-outline-primary d-none" disabled>
       <i class="bi bi-telephone-outbound me-1"></i>Request Selected (<span id="modelSumSelCount">0</span>)
     </button>
   </div>
@@ -249,7 +249,7 @@
           <td class="small">{{ g.total_sold }}</td>
           <td class="small">
             <div class="d-flex gap-1">
-              <button type="button" class="btn btn-sm btn-outline-primary modelReqBtn"
+              <button type="button" class="btn btn-sm btn-outline-primary modelReqBtn d-none"
                       data-model="{{ g.model }}" data-make="{{ g.make }}"
                       data-barcodes='{{ g.barcodes | tojson }}' data-max="{{ g.total_count }}">Request</button>
               {% if g.barcodes %}

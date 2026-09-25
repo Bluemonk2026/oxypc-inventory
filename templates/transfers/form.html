@@ -146,7 +146,9 @@
               <h6 class="fw-bold text-primary mb-3"><i class="bi bi-upc-scan me-2"></i>Tag Number Lookup</h6>
               <div class="row g-2 align-items-end">
                 <div class="col-md-6">
-                  <label class="form-label fw-semibold">Tag Number</label>
+                  <label class="form-label fw-semibold">Tag Number
+                    <span id="deviceTagCountBadge" class="badge bg-primary ms-1 d-none">0 selected</span>
+                  </label>
                   <input type="text" id="deviceScanInput" class="form-control font-monospace"
                          placeholder="Scan or type tag number, Enter to add" autofocus>
                 </div>
@@ -330,8 +332,14 @@
     var lots = Object.keys(deviceLots).map(function(bc){ return deviceLots[bc]; }).filter(Boolean);
     var uniq = lots.filter(function(v, i){ return lots.indexOf(v) === i; });
     var lbl = document.getElementById('asIsLotCurrentLotNumber');
-    if (!lbl) return;
-    lbl.textContent = uniq.length === 1 ? uniq[0] : (uniq.length > 1 ? '(varies per tag)' : '—');
+    if (lbl) lbl.textContent = uniq.length === 1 ? uniq[0] : (uniq.length > 1 ? '(varies per tag)' : '—');
+
+    var badge = document.getElementById('deviceTagCountBadge');
+    if (badge) {
+      var n = deviceList.count();
+      badge.textContent = n + ' selected';
+      badge.classList.toggle('d-none', n === 0);
+    }
   }
   function addDeviceScan(){
     var input = document.getElementById('deviceScanInput');

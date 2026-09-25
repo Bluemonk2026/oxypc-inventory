@@ -78,12 +78,6 @@
     </a>
   </div>
 </div>
-{# Moved into the table's own DataTables toolbar (top right) by JS below. It is
-   the only search box on this table; DataTables' 'f' box is left out of the
-   dom string. #}
-<input type="text" id="iqcTagScan" class="d-none form-control form-control-sm font-monospace"
-       style="max-width:420px" autocomplete="off"
-       placeholder="Scan Tag Number, search, or paste a comma-separated list">
 <!-- Tag Number / Model Summary / Lot Numbers tabs. Each table keeps its own
      card and toolbar — only the container changed. -->
 <ul class="nav nav-tabs mb-3" id="iqcTabs" role="tablist">
@@ -139,10 +133,8 @@
 <div class="tab-pane fade" id="iqc-tab-models" role="tabpanel">
 <!-- Model Based Summary — scoped to the currently-filtered IQC device set. -->
 <div class="card border-0 shadow-sm mt-3">
-  <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center gap-2">
+  <div class="card-header bg-transparent py-2 d-flex justify-content-between align-items-center gap-2">
     <strong class="small text-nowrap"><i class="bi bi-collection me-1"></i>Model Based Summary</strong>
-    <input type="text" id="iqcModelSearchBox" class="form-control form-control-sm" style="width:220px"
-           placeholder="Search Model Names…">
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -168,9 +160,6 @@
             <td class="small">{{ g.repaired_count }}</td>
           </tr>
           {% endfor %}
-          {% if not model_summary %}
-          <tr><td colspan="6" class="text-center text-muted small py-3">No models found.</td></tr>
-          {% endif %}
         </tbody>
       </table>
     </div>
@@ -183,10 +172,8 @@
 <!-- Product Lots — the Lot Management table, surfaced here so a lot can be
      created or imported without leaving IQC. Same rows, same counts. -->
 <div class="card border-0 shadow-sm mt-3">
-  <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
-    <strong class="small text-nowrap"><i class="bi bi-box-seam me-1"></i>Product Lots
-      <span class="text-muted fw-normal">({{ lot_stats|length }})</span>
-    </strong>
+  <div class="card-header bg-transparent py-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <strong class="small text-nowrap"><i class="bi bi-box-seam me-1"></i>Product Lots</strong>
     <div class="d-flex gap-2 flex-wrap">
       <a href="/bulk-upload/template/lots" class="btn btn-outline-secondary btn-sm text-nowrap"
          title="Download a sample CSV with the exact column headers">
@@ -247,9 +234,6 @@
             </td>
           </tr>
           {% endfor %}
-          {% if not lot_stats %}
-          <tr><td colspan="12" class="text-center text-muted small py-3">No lots yet.</td></tr>
-          {% endif %}
         </tbody>
       </table>
     </div>
@@ -333,18 +317,20 @@
 var iqcSelected = new Set();
 
 $(document).ready(function(){
-  var dt = $('#iqcTable').DataTable({
+  function updateSel(){
+    var n = iqcSelected.size;
+    $('#createLotCount').text(n);
+    $('#createLotBtn').toggleClass('d-none', n === 0);
+    $('#exportSelectedCount').text(n);
+    $('#exportSelectedBtn').toggleClass('d-none', n === 0);
+  }
+  window._iqcUpdateSel = updateSel;
+
+  var dt = initGlobalTable('#iqcTable', {
     serverSide: true,
     processing: true,
-    pageLength: 12,
     order: [[13, 'desc']],
     searchDelay: 400,
-    // App-wide default is 'lf' — the 'f' is dropped so the table does not render
-    // a second search box, and #iqcScanArea gives the scan box a slot on the
-    // right of this toolbar, inside the table wrapper.
-    dom: '<"d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"l<"#iqcScanArea">>' +
-         'rt' +
-         '<"d-flex justify-content-end align-items-center flex-wrap gap-3 mt-3"<"small text-muted"i>p>',
     ajax: {
       url: '/iqc/data',
       data: function (d) {
@@ -363,45 +349,33 @@ $(document).ready(function(){
       document.querySelectorAll('#iqcTable tbody .iqcRowChk').forEach(function (c) {
         c.checked = iqcSelected.has(c.value);
       });
-      $('#iqcSelectAllChk').prop('checked', false);
       updateSel();
+    },
+  }, {
+    scan: {
+      inputId: 'iqcTagScan', selection: iqcSelected, checkboxSelector: '.iqcRowChk',
+      onChange: updateSel, placeholder: 'Scan Tag Number, search, or paste a comma-separated list',
+    },
+    // "Select all" stays page-scoped here, as it always has on this page.
+    // onChange re-syncs iqcSelected from the current page's checkbox state
+    // (covers both an individual row click and the header's bulk toggle,
+    // which sets .prop('checked') directly without firing 'change' per row)
+    // rather than adding/removing one value — a plain per-row listener would
+    // otherwise miss the bulk case, since opts.selectAll's own toggle never
+    // dispatches individual change events.
+    selectAll: {
+      headerSelector: '#iqcSelectAllChk', rowSelector: '.iqcRowChk',
+      onChange: function () {
+        document.querySelectorAll('#iqcTable tbody .iqcRowChk').forEach(function (c) {
+          if (c.checked) iqcSelected.add(c.value); else iqcSelected.delete(c.value);
+        });
+        updateSel();
+      },
+      resetOnDraw: true,
     },
   });
   window._dtIqc = dt;
-  // Scan box lives in the table's own toolbar, top right.
-  $('#iqcScanArea').append($('#iqcTagScan').removeClass('d-none'));
 
-  function updateSel(){
-    var n = iqcSelected.size;
-    $('#createLotCount').text(n);
-    $('#createLotBtn').toggleClass('d-none', n === 0);
-    $('#exportSelectedCount').text(n);
-    $('#exportSelectedBtn').toggleClass('d-none', n === 0);
-  }
-  window._iqcUpdateSel = updateSel;
-
-  // Scan a tag to select it: the search narrows the table server-side, the
-  // match is ticked, and the input re-highlights so the gun's next value
-  // replaces this one. Selections accumulate in `iqcSelected`.
-  initScanSelect({
-    inputId: 'iqcTagScan', dt: dt,
-    tableSelector: '#iqcTable', checkboxSelector: '.iqcRowChk',
-    selection: iqcSelected, onChange: updateSel,
-  });
-
-  // "Select all" stays page-scoped here, as it always has on this page.
-  $('#iqcTable').on('change', '#iqcSelectAllChk', function(){
-    var checked = this.checked;
-    document.querySelectorAll('#iqcTable tbody .iqcRowChk').forEach(function(c){
-      c.checked = checked;
-      if (checked) iqcSelected.add(c.value); else iqcSelected.delete(c.value);
-    });
-    updateSel();
-  });
-  $('#iqcTable').on('change', '.iqcRowChk', function(){
-    if (this.checked) iqcSelected.add(this.value); else iqcSelected.delete(this.value);
-    updateSel();
-  });
   $('#iqcTable').on('click', '.trash-one-btn', function () {
     var bc = $(this).data('barcode');
     if (!confirm('Move ' + bc + ' to Trash?')) return;
@@ -409,28 +383,19 @@ $(document).ready(function(){
     f.action = '/trash/devices/' + encodeURIComponent(bc);
     f.submit();
   });
-  // Select-all reset + updateSel() now run from drawCallback in the init above.
 
-  initTagScanAutocheck({ inputId: 'iqcTagScan', tableSelector: '#iqcTable', rowCheckboxSelector: '.iqcRowChk' });
-
-  // Model Based Summary — paginated + search box
-  var dtModel = $('#iqcModelSummaryTable').DataTable({
-    pageLength: 12,
+  // Model Based Summary
+  var dtModel = initGlobalTable('#iqcModelSummaryTable', {
     order: [],
-    dom: '<"d-flex justify-content-between align-items-center mb-2"lf>t<"d-flex justify-content-end align-items-center gap-3 mt-2"ip>',
+    language: { emptyTable: 'No models found.' },
   });
   window._dtIqcModel = dtModel;
-  $('#iqcModelSearchBox').on('keyup', function(){
-    dtModel.column(0).search(this.value).draw();
-  });
 
-  // Product Lots — client-side pagination + search, same as the tables above
-  var dtLots = $('#iqcProductLotsTable').DataTable({
-    pageLength: 12,
+  // Product Lots
+  var dtLots = initGlobalTable('#iqcProductLotsTable', {
     order: [],
     columnDefs: [{ orderable: false, targets: -1 }],
-    dom: '<"d-flex justify-content-between align-items-center mb-2"lf>t<"d-flex justify-content-end align-items-center gap-3 mt-2"ip>',
-    language: { search: '', searchPlaceholder: 'Search lots…' },
+    language: { emptyTable: 'No lots yet.' },
   });
 
   // A DataTable laid out while its tab is hidden measures every column as zero

@@ -238,6 +238,10 @@ async def ready_list_data(
             if w else '<span class="text-muted">—</span>'
         )
         cells.append(esc(assigned_name) if assigned_name else '<span class="text-muted">—</span>')
+        cells.append(f'₹{float(d.min_selling_price):,.0f}' if d.min_selling_price is not None
+                    else '<span class="text-muted">—</span>')
+        cells.append(f'₹{float(d.max_selling_price):,.0f}' if d.max_selling_price is not None
+                    else '<span class="text-muted">—</span>')
         if approved:
             action = f'<a href="/sales/new?barcodes={esc(d.barcode)}&qty=1" class="btn btn-sm btn-success">Sell</a><span class="badge bg-success align-self-center ms-1">Approved</span>'
         else:
@@ -249,6 +253,10 @@ async def ready_list_data(
                     action += f'<span class="badge bg-danger align-self-center ms-1" title="{esc(rejected_notes)}">Rejected</span>'
                 action += (f'<button class="btn btn-sm btn-outline-primary ms-1" data-bs-toggle="modal" data-bs-target="#dispatchModal" '
                           f'data-barcode="{esc(d.barcode)}" data-model="{esc((d.brand or "") + " " + (d.model or ""))}">Request</button>')
+        action += (f'<button type="button" class="btn btn-sm btn-outline-dark ms-1 tag-set-price-btn" '
+                  f'data-barcode="{esc(d.barcode)}" '
+                  f'data-min="{d.min_selling_price if d.min_selling_price is not None else ""}" '
+                  f'data-max="{d.max_selling_price if d.max_selling_price is not None else ""}">Set price</button>')
         cells.append(f'<div class="d-flex gap-1 flex-wrap">{action}</div>')
         data.append(cells)
 
@@ -467,6 +475,78 @@ async def set_as_is_lot_price(
                 request=request)
     await db.commit()
     return RedirectResponse(url="/sales/ready?success=Selling+price+updated", status_code=302)
+
+
+@router.post("/sales/ready/set-price")
+async def set_ready_tag_price(
+    request: Request,
+    barcode: str = Form(...),
+    min_selling_price: str = Form(""),
+    max_selling_price: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Ready to Sale Tag table's Set price modal — writes Min/Max Selling
+    Price on a single Tag Number."""
+    device = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
+    if not device:
+        return JSONResponse({"ok": False, "error": "Tag Number not found"}, status_code=404)
+    try:
+        min_val = Decimal(min_selling_price) if min_selling_price.strip() else None
+        max_val = Decimal(max_selling_price) if max_selling_price.strip() else None
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid price"}, status_code=400)
+
+    old_value = {
+        "min_selling_price": str(device.min_selling_price) if device.min_selling_price is not None else None,
+        "max_selling_price": str(device.max_selling_price) if device.max_selling_price is not None else None,
+    }
+    device.min_selling_price = min_val
+    device.max_selling_price = max_val
+    await audit(db, user=current_user, action="TAG_PRICE_SET",
+                table_name="devices", record_id=str(device.id),
+                old_value=old_value,
+                new_value={"min_selling_price": str(min_val) if min_val is not None else None,
+                           "max_selling_price": str(max_val) if max_val is not None else None},
+                request=request)
+    await db.commit()
+    return JSONResponse({"ok": True})
+
+
+@router.post("/sales/ready/bulk-set-price")
+async def bulk_set_ready_tag_price(
+    request: Request,
+    barcodes: str = Form(...),
+    min_selling_price: str = Form(""),
+    max_selling_price: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Ready to Sale Tag table's Bulk Set price modal — writes Min/Max Selling
+    Price across every selected Tag Number at once, same one-write-across-many
+    shape as the As-Is Lot Edit modal, just keyed by an explicit barcode list
+    instead of (Lot, Sub-Lot)."""
+    bcs = [b.strip() for b in barcodes.split(",") if b.strip()]
+    if not bcs:
+        return JSONResponse({"ok": False, "error": "No tags selected"}, status_code=400)
+    try:
+        min_val = Decimal(min_selling_price) if min_selling_price.strip() else None
+        max_val = Decimal(max_selling_price) if max_selling_price.strip() else None
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid price"}, status_code=400)
+
+    result = await db.execute(
+        update(Device).where(Device.barcode.in_(bcs))
+        .values(min_selling_price=min_val, max_selling_price=max_val)
+    )
+    await audit(db, user=current_user, action="TAG_PRICE_BULK_SET",
+                table_name="devices", record_id=f"bulk:{len(bcs)}_tags",
+                new_value={"min_selling_price": str(min_val) if min_val is not None else None,
+                           "max_selling_price": str(max_val) if max_val is not None else None,
+                           "tags_updated": result.rowcount},
+                request=request)
+    await db.commit()
+    return JSONResponse({"ok": True, "updated": result.rowcount})
 
 
 @router.post("/sales/ready/upload-tags")

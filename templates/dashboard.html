@@ -421,50 +421,64 @@
    date falls in range (see completed_device_ids in routers/dashboard.py),
    and lots with nothing completed in-range are left out. #}
 {% macro lot_pl_table() %}
-<div class="card border-0 shadow-sm mb-4">
-  <div class="card-header bg-transparent d-flex align-items-center gap-2">
-    <i class="bi bi-clipboard-data text-primary"></i>
-    <span class="fw-semibold">Lot P&amp;L</span>
-    {% if pl_active %}
-    <span class="badge bg-info-subtle text-info-emphasis border">
-      <i class="bi bi-funnel me-1"></i>Completed {{ pl_from }}{% if pl_from and pl_to %} to {% endif %}{{ pl_to }}
-    </span>
-    {% else %}
-    <span class="text-muted small">All-time — set P&amp;L From/To above to scope by completed date</span>
-    {% endif %}
-  </div>
-  <div class="table-responsive">
-    <table id="lotPlTable" class="table table-hover table-sm mb-0 small">
-      <thead class="table-dark">
-        <tr>
-          <th>Lot Number</th><th>Supplier</th><th>Qty</th><th>Devices</th><th>Sold</th>
-          <th>Buying Price</th><th>Parts Cost</th><th>Labour Cost</th><th>Cosmetic Cost</th>
-          <th>Revenue</th><th>Profit</th><th>Margin</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in lot_pl %}
-        <tr>
-          <td class="font-monospace"><a href="/lots?q={{ r.lot_number | urlencode }}">{{ r.lot_number }}</a></td>
-          <td>{{ r.supplier or '—' }}</td>
-          <td>{{ r.qty }}</td>
-          <td>{{ r.devices_count }}</td>
-          <td>{{ r.devices_sold }}</td>
-          <td>₹{{ "{:,.0f}".format(r.buying_price) }}</td>
-          <td>₹{{ "{:,.0f}".format(r.parts_cost) }}</td>
-          <td>₹{{ "{:,.0f}".format(r.labour_cost) }}</td>
-          <td>₹{{ "{:,.0f}".format(r.cosmetic_cost) }}</td>
-          <td class="text-success">₹{{ "{:,.0f}".format(r.revenue) }}</td>
-          <td class="fw-semibold {% if r.profit >= 0 %}text-success{% else %}text-danger{% endif %}">₹{{ "{:,.0f}".format(r.profit) }}</td>
-          <td>{{ r.margin }}%</td>
-        </tr>
+{# Collapsed by default — this table can run to hundreds of lot rows, and
+   most dashboard visits don't need it open. initGlobalTable() below still
+   runs on page load same as always; the shown.bs.collapse listener in the
+   scripts block re-fits its columns the first time the panel opens, same
+   fix already used for the accordion tables on Dispatch. #}
+<div class="accordion mb-4" id="lotPlAccordion">
+  <div class="accordion-item border-0 shadow-sm">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed bg-transparent" type="button"
+              data-bs-toggle="collapse" data-bs-target="#lotPlCollapse">
+        <i class="bi bi-clipboard-data text-primary me-2"></i>
+        <span class="fw-semibold">Lot P&amp;L</span>
+        {% if pl_active %}
+        <span class="badge bg-info-subtle text-info-emphasis border ms-2">
+          <i class="bi bi-funnel me-1"></i>Completed {{ pl_from }}{% if pl_from and pl_to %} to {% endif %}{{ pl_to }}
+        </span>
         {% else %}
-        <tr><td colspan="12" class="text-center text-muted py-4">
-          {% if pl_active %}No lots had anything complete in this date range.{% else %}No lots yet.{% endif %}
-        </td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        <span class="text-muted small ms-2">All-time — set P&amp;L From/To above to scope by completed date</span>
+        {% endif %}
+      </button>
+    </h2>
+    <div id="lotPlCollapse" class="accordion-collapse collapse">
+      <div class="accordion-body p-0">
+        <div class="table-responsive">
+          <table id="lotPlTable" class="table table-hover table-sm mb-0 small">
+            <thead class="table-dark">
+              <tr>
+                <th>Lot Number</th><th>Supplier</th><th>Qty</th><th>Devices</th><th>Sold</th>
+                <th>Buying Price</th><th>Parts Cost</th><th>Labour Cost</th><th>Cosmetic Cost</th>
+                <th>Revenue</th><th>Profit</th><th>Margin</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in lot_pl %}
+              <tr>
+                <td class="font-monospace"><a href="/lots?q={{ r.lot_number | urlencode }}">{{ r.lot_number }}</a></td>
+                <td>{{ r.supplier or '—' }}</td>
+                <td>{{ r.qty }}</td>
+                <td>{{ r.devices_count }}</td>
+                <td>{{ r.devices_sold }}</td>
+                <td>₹{{ "{:,.0f}".format(r.buying_price) }}</td>
+                <td>₹{{ "{:,.0f}".format(r.parts_cost) }}</td>
+                <td>₹{{ "{:,.0f}".format(r.labour_cost) }}</td>
+                <td>₹{{ "{:,.0f}".format(r.cosmetic_cost) }}</td>
+                <td class="text-success">₹{{ "{:,.0f}".format(r.revenue) }}</td>
+                <td class="fw-semibold {% if r.profit >= 0 %}text-success{% else %}text-danger{% endif %}">₹{{ "{:,.0f}".format(r.profit) }}</td>
+                <td>{{ r.margin }}%</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="12" class="text-center text-muted py-4">
+                {% if pl_active %}No lots had anything complete in this date range.{% else %}No lots yet.{% endif %}
+              </td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 {% endmacro %}
@@ -717,6 +731,16 @@
 if (document.getElementById('lotPlTable')) {
   initGlobalTable('#lotPlTable', { order: [] });
 }
+// Lot P&L now sits in a collapsed-by-default accordion — DataTables computed
+// its column widths while the panel was hidden (0px), so re-fit them the
+// first time it opens. Same fix already used on Dispatch's accordion tables.
+document.querySelectorAll('.accordion-collapse').forEach(function (el) {
+  el.addEventListener('shown.bs.collapse', function () {
+    $(this).find('table').each(function () {
+      if ($.fn.dataTable.isDataTable(this)) $(this).DataTable().columns.adjust();
+    });
+  });
+});
 
 // Multi-select filter dropdowns — same contract as All Inventory: each writes
 // a comma-separated value into its hidden input so the GET form still submits

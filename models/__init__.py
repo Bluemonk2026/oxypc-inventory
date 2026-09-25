@@ -23,7 +23,7 @@ from .work_order import WorkOrder
 from .part_request import PartRequest, PartSourcingRequest
 from .pna_part import DevicePNAPart
 from .cosmetic_flow import CosmeticFlowRow
-from .part_estimate import PartEstimate, PartEstimateLine
+from .part_estimate import PartEstimate, PartEstimateLine, PartEstimateOpenLine
 from .dispatch_request import TelecallerDispatchRequest
 from .stock_validation import StockValidation
 from .grn_import import GRNImport

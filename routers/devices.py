@@ -1651,6 +1651,8 @@ async def device_edit_save(
     notes: str = Form(""),
     qty: str = Form(""),
     device_price_input: str = Form(""),
+    min_selling_price_input: str = Form(""),
+    max_selling_price_input: str = Form(""),
     barcode_new: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(edit_allowed),
@@ -1746,6 +1748,20 @@ async def device_edit_save(
             device.device_price = float(device_price_input)
         except ValueError:
             pass
+    if min_selling_price_input.strip():
+        try:
+            device.min_selling_price = float(min_selling_price_input)
+        except ValueError:
+            pass
+    else:
+        device.min_selling_price = None
+    if max_selling_price_input.strip():
+        try:
+            device.max_selling_price = float(max_selling_price_input)
+        except ValueError:
+            pass
+    else:
+        device.max_selling_price = None
     device.updated_at = app_now()
 
     # ── IQC condition fields → update (or create) the device's IQC inspection. ──

@@ -42,9 +42,9 @@ class PartEstimate(Base):
     file_name = Column(String(255), nullable=True)           # human-facing download name
 
     # 'flat' = Generate Estimate, 'model_matrix' = Part Estimate,
-    # 'checklist' = Create Estimate. Lets the lot row's Download list and any
-    # future filtering tell the three output types apart without re-deriving
-    # it from which of PartEstimateLine / PartEstimateChecklistLine got rows.
+    # 'checklist' = Create Estimate, 'open' = Open Estimate. Lets the lot
+    # row's Download list and any future filtering tell the output types
+    # apart without re-deriving it from which lines table got rows.
     estimate_type = Column(String(20), nullable=False, default="flat")
 
     created_by = Column(String(50), nullable=True)
@@ -54,6 +54,8 @@ class PartEstimate(Base):
                          lazy="select", cascade="all, delete-orphan")
     checklist_lines = relationship("PartEstimateChecklistLine", back_populates="estimate",
                                    lazy="select", cascade="all, delete-orphan")
+    open_lines = relationship("PartEstimateOpenLine", back_populates="estimate",
+                              lazy="select", cascade="all, delete-orphan")
 
 
 class PartEstimateLine(Base):
@@ -97,3 +99,29 @@ class PartEstimateChecklistLine(Base):
     line_total = Column(Numeric(14, 2), nullable=False, default=0)
 
     estimate = relationship("PartEstimate", back_populates="checklist_lines", lazy="select")
+
+
+class PartEstimateOpenLine(Base):
+    """One row per (part, model) cell filled on Open Estimate — the free-form
+    parts x models grid (Part Estimation -> "Open Estimate"). Unlike the other
+    matrices, cell values are never derived from IQC; the operator types
+    directly into the grid, so only cells actually filled are stored. Model
+    count and Repair Charge are repeated on every line for that model rather
+    than kept in a second table, so a re-open can prefill both the grid and
+    the per-model Repair Charge row from the lot's last Open Estimate with one
+    query."""
+    __tablename__ = "part_estimate_open_lines"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    estimate_id = Column(UUID(as_uuid=True), ForeignKey("part_estimates.id"),
+                         nullable=False, index=True)
+
+    part_name = Column(String(150), nullable=False)
+    model_key = Column(String(255), nullable=False)
+    model_name = Column(String(150), nullable=False)
+    model_count = Column(Integer, nullable=False, default=0)
+
+    qty = Column(Numeric(12, 2), nullable=False, default=0)
+    repair_charge = Column(Numeric(12, 2), nullable=False, default=0)
+
+    estimate = relationship("PartEstimate", back_populates="open_lines", lazy="select")

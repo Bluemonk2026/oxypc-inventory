@@ -246,6 +246,34 @@ async def lot_model_matrix(db: AsyncSession, lot_id) -> list[dict]:
     return out
 
 
+async def lot_model_counts(db: AsyncSession, lot_id) -> list[dict]:
+    """[{key, model, qty}] — just the Model Summary identity + tag count,
+    without the per-part status breakdown lot_model_matrix computes. Cheaper
+    for Open Estimate, which only needs column headers and the multiplier
+    behind Total Parts / Total Estimate Value, not a full IQC breakdown."""
+    rows = (await db.execute(
+        select(Device.model, Device.brand, Device.device_type, Device.sub_category)
+        .where(Device.lot_id == lot_id,
+               Device.is_active == True, Device.is_trashed == False)  # noqa: E712
+    )).all()
+
+    merged: dict = {}
+    for model, make, dtype, sub in rows:
+        dtype = dtype or sub
+        key = model_key(model, make, dtype)
+        entry = merged.setdefault(key, {"key": key, "qty": 0, "spellings": {}})
+        entry["qty"] += 1
+        spell = ((model or "").strip(), (make or "").strip(), (dtype or "").strip())
+        entry["spellings"][spell] = entry["spellings"].get(spell, 0) + 1
+
+    out = []
+    for entry in merged.values():
+        model, _make, _dtype = max(entry["spellings"].items(), key=lambda kv: kv[1])[0]
+        out.append({"key": entry["key"], "model": model or "—", "qty": entry["qty"]})
+    out.sort(key=lambda r: (-r["qty"], r["model"]))
+    return out
+
+
 def quantities_for(matrix: list[dict], selections: dict) -> dict:
     """Server-side re-derivation of every quantity the modal displayed.
 

@@ -367,6 +367,16 @@
                 <label class="form-check-label" for="biosPwd">BIOS Password Set?</label>
               </div>
             </div>
+            <div class="col-md-3">
+              <label class="form-label">Min Selling Price (₹)</label>
+              <input type="number" name="min_selling_price_input" class="form-control" step="0.01" min="0"
+                     value="{{ device.min_selling_price or '' }}" placeholder="e.g. 5000.00">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Max Selling Price (₹)</label>
+              <input type="number" name="max_selling_price_input" class="form-control" step="0.01" min="0"
+                     value="{{ device.max_selling_price or '' }}" placeholder="e.g. 6500.00">
+            </div>
 
             <!-- Tracked storage location (new system) -->
             <div class="col-md-6">

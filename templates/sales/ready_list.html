@@ -54,6 +54,9 @@
       <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#bulkTagModal">
         <i class="bi bi-upload me-1"></i>Bulk Upload Tags
       </button>
+      <button type="button" id="bulkSetPriceBtn" class="btn btn-sm btn-outline-dark" disabled>
+        <i class="bi bi-tag me-1"></i>Bulk Set price (<span id="readySelCount3">0</span>)
+      </button>
     </div>
   </div>
   <div class="card-body p-0">
@@ -68,6 +71,7 @@
           {% endif %}
           <th>Warranty</th>
           <th>Assigned To</th>
+          <th>Min Selling Price</th><th>Max Selling Price</th>
           <th>Action</th>
         </tr>
       </thead>
@@ -129,7 +133,7 @@
                     data-lot-number="{{ r.lot_number or '' }}"
                     data-min="{{ r.min_price if r.min_price is not none else '' }}"
                     data-max="{{ r.max_price if r.max_price is not none else '' }}">
-              <i class="bi bi-pencil"></i> Edit
+              <i class="bi bi-tag"></i> Set price
             </button>
             <a href="/sales/new?barcodes={{ r.barcodes|join(',') }}&qty={{ r.barcodes|length }}"
                class="btn btn-sm btn-outline-success py-0 px-2">Sell</a>
@@ -350,6 +354,67 @@
     </div>
   </div>
 </div>
+
+<!-- Set price modal — one Tag Number -->
+<div class="modal fade" id="tagSetPriceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" action="/sales/ready/set-price" class="modal-content" id="tagSetPriceForm">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="barcode" id="tsp_barcode">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-tag me-2"></i>Set Selling Price
+          <span id="tsp_label" class="fw-normal small text-muted ms-2"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="tsp_error" class="alert alert-danger d-none small"></div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Min Selling Price</label>
+          <input type="number" step="0.01" min="0" name="min_selling_price" id="tsp_min" class="form-control">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Max Selling Price</label>
+          <input type="number" step="0.01" min="0" name="max_selling_price" id="tsp_max" class="form-control">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Bulk Set price modal — every currently-selected Tag Number -->
+<div class="modal fade" id="bulkSetPriceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" action="/sales/ready/bulk-set-price" class="modal-content" id="bulkSetPriceForm">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="barcodes" id="bsp_barcodes">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-tag me-2"></i>Bulk Set Selling Price
+          <span id="bsp_label" class="fw-normal small text-muted ms-2"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="bsp_error" class="alert alert-danger d-none small"></div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Min Selling Price</label>
+          <input type="number" step="0.01" min="0" name="min_selling_price" id="bsp_min" class="form-control">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Max Selling Price</label>
+          <input type="number" step="0.01" min="0" name="max_selling_price" id="bsp_max" class="form-control">
+        </div>
+        <div class="form-text">Applied to every selected Tag Number.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Save</button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script src="/static/js/tag-scan-autocheck.js?v={{ ASSET_VERSION }}"></script>
@@ -412,6 +477,55 @@ if (_dm) {
   });
 }
 
+// ── Set price (one Tag Number) — button is inside DataTables-rendered rows,
+// so this is a delegated handler, not a per-element .forEach() wire-up. ──────
+$('#readyTable').on('click', '.tag-set-price-btn', function () {
+  document.getElementById('tsp_barcode').value = this.getAttribute('data-barcode');
+  document.getElementById('tsp_min').value = this.getAttribute('data-min') || '';
+  document.getElementById('tsp_max').value = this.getAttribute('data-max') || '';
+  document.getElementById('tsp_label').textContent = this.getAttribute('data-barcode') || '';
+  document.getElementById('tsp_error').classList.add('d-none');
+  new bootstrap.Modal(document.getElementById('tagSetPriceModal')).show();
+});
+document.getElementById('tagSetPriceForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var form = this, err = document.getElementById('tsp_error');
+  err.classList.add('d-none');
+  fetch(form.action, { method: 'POST', body: new FormData(form), credentials: 'same-origin' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.ok) { err.textContent = d.error || 'Could not save the price.'; err.classList.remove('d-none'); return; }
+      bootstrap.Modal.getInstance(document.getElementById('tagSetPriceModal')).hide();
+      readyDt.ajax.reload(null, false);
+    })
+    .catch(function () { err.textContent = 'Could not save the price.'; err.classList.remove('d-none'); });
+});
+
+// ── Bulk Set price (every currently-selected Tag Number) ────────────────────
+document.getElementById('bulkSetPriceBtn').addEventListener('click', function () {
+  var bcs = selectedReadyBarcodes();
+  if (!bcs.length) return;
+  document.getElementById('bsp_barcodes').value = bcs.join(',');
+  document.getElementById('bsp_label').textContent = bcs.length + ' tag(s) selected';
+  document.getElementById('bsp_min').value = '';
+  document.getElementById('bsp_max').value = '';
+  document.getElementById('bsp_error').classList.add('d-none');
+  new bootstrap.Modal(document.getElementById('bulkSetPriceModal')).show();
+});
+document.getElementById('bulkSetPriceForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var form = this, err = document.getElementById('bsp_error');
+  err.classList.add('d-none');
+  fetch(form.action, { method: 'POST', body: new FormData(form), credentials: 'same-origin' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.ok) { err.textContent = d.error || 'Could not save the price.'; err.classList.remove('d-none'); return; }
+      bootstrap.Modal.getInstance(document.getElementById('bulkSetPriceModal')).hide();
+      readyDt.ajax.reload(null, false);
+    })
+    .catch(function () { err.textContent = 'Could not save the price.'; err.classList.remove('d-none'); });
+});
+
 // ── Multi-select + Multi-Request ──
 // selectedReadyBarcodes() reads the persistent Set, not DOM checkbox state —
 // see readySelected above.
@@ -420,8 +534,10 @@ function updateReadySel(){
   var n = readySelected.size;
   $('#readySelCount').text(n);
   $('#readySelCount2').text(n);
+  $('#readySelCount3').text(n);
   $('#multiRequestBtn').prop('disabled', n === 0);
   $('#multiSellBtn').prop('disabled', n === 0);
+  $('#bulkSetPriceBtn').prop('disabled', n === 0);
 }
 
 // ── Selling — always goes to the full New Sale page ──

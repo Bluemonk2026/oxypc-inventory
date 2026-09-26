@@ -295,6 +295,39 @@ async def list_transfers(
     })
 
 
+@router.post("/transfers/bulk-delete")
+async def bulk_delete_transfers(
+    request: Request,
+    transfer_id: list[str] = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_module_perm("transfers", "edit")),
+):
+    """Transfers list's checkbox-driven Bulk Delete — permanent delete (same
+    semantics as Credit Note's own Bulk Delete), audit-logged per row before
+    removal so the record survives in audit_logs even though the row itself
+    doesn't."""
+    ids = []
+    for tid in transfer_id:
+        try:
+            ids.append(uuid.UUID(tid))
+        except ValueError:
+            continue
+    if not ids:
+        return RedirectResponse(url="/transfers?error=Select+at+least+one+row", status_code=302)
+
+    rows = (await db.execute(select(StockTransfer).where(StockTransfer.id.in_(ids)))).scalars().all()
+    for row in rows:
+        await audit(db, user=current_user, action="STOCK_TRANSFER_DELETED",
+                    table_name="stock_transfers", record_id=str(row.id),
+                    old_value={"barcode": row.barcode, "transfer_type": row.transfer_type,
+                               "transfer_date": row.transfer_date.isoformat() if row.transfer_date else None},
+                    request=request)
+        await db.delete(row)
+    await db.commit()
+
+    return RedirectResponse(url=f"/transfers?success=Deleted+{len(rows)}+transfer+record(s)", status_code=302)
+
+
 @router.get("/transfers/export")
 async def export_transfers(
     q: str = "",
@@ -548,10 +581,11 @@ async def create_transfer(
     if not barcodes:
         return RedirectResponse(url="/transfers/new?error=No+tag+numbers+scanned", status_code=302)
 
-    try:
-        t_date = datetime.strptime(transfer_date, "%Y-%m-%d") if transfer_date else app_now()
-    except Exception:
-        t_date = app_now()
+    # transfer_date only ever carries a plain "%Y-%m-%d" date — the form's
+    # own input is readonly and pre-filled with today's date, no time
+    # component, so parsing it always produced midnight. Timestamp precision
+    # only ever came from app_now(); use it unconditionally.
+    t_date = app_now()
 
     assign_uid = None
     if assigned_user_id:
@@ -606,7 +640,7 @@ async def create_transfer(
             from_warehouse=_from_wh,
             to_warehouse=_to_wh,
             transferred_by=transferred_by or current_user.username,
-            received_by=received_by or None,
+            received_by=received_by or assigned_user.full_name or assigned_user.username,
             department=department or None,
             barcode=device.barcode,
             serial_no=device.serial_no,
@@ -718,10 +752,7 @@ async def create_parts_transfer(
     if quantity < 1:
         return RedirectResponse(url="/transfers/new?error=Quantity+must+be+at+least+1", status_code=302)
 
-    try:
-        t_date = datetime.strptime(transfer_date, "%Y-%m-%d") if transfer_date else app_now()
-    except Exception:
-        t_date = app_now()
+    t_date = app_now()
 
     assign_uid = None
     if assigned_user_id:
@@ -786,10 +817,7 @@ async def _move_devices_bulk(
     """Shared bulk-assign logic for Move Bucket / Move Lot tabs — creates one
     StockTransfer row per member device and a WorkOrder recording the device
     against the chosen employee. No device stage move, no repair-stage logic."""
-    try:
-        t_date = datetime.strptime(transfer_date, "%Y-%m-%d") if transfer_date else app_now()
-    except Exception:
-        t_date = app_now()
+    t_date = app_now()
 
     loc = None
     if loc_uuid:
@@ -820,7 +848,7 @@ async def _move_devices_bulk(
             from_warehouse=_from_wh,
             to_warehouse=_from_wh,
             transferred_by=transferred_by or current_user.username,
-            received_by=received_by or None,
+            received_by=received_by or assigned_user.full_name or assigned_user.username,
             department=None,
             barcode=device.barcode,
             serial_no=device.serial_no,

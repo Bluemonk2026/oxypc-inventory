@@ -76,14 +76,27 @@
 
 <!-- Table -->
 <div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center py-2">
+    <span class="fw-semibold"><i class="bi bi-arrow-left-right me-2"></i>Floor Movements done so far</span>
+    {% if has_perm(current_user.role.value, 'transfers', 'edit') %}
+    <form method="post" action="/transfers/bulk-delete" id="transfersBulkDeleteForm" class="mb-0">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+      <button type="button" id="transfersBulkDeleteBtn" class="btn btn-sm btn-outline-danger d-none">
+        <i class="bi bi-trash me-1"></i>Delete Selected (<span id="transfersDeleteSelCount">0</span>)
+      </button>
+    </form>
+    {% endif %}
+  </div>
   <div class="card-body p-0">
       <table id="transfersTable" class="table table-hover mb-0 small">
         <thead class="table-dark">
           <tr>
+            {% if has_perm(current_user.role.value, 'transfers', 'edit') %}
+            <th class="ps-3"><input type="checkbox" id="transfersSelectAll" class="form-check-input"></th>
+            {% endif %}
             <th>Date</th>
-            <th>Location ID</th>
-            <th>Type</th>
             <th>Tag Number</th>
+            <th>Location ID</th>
             <th>Make / Model</th>
             <th class="d-none">Quantity</th>
             <th>Lot</th>
@@ -92,29 +105,28 @@
             <th class="d-none">Dept.</th>
             <th>Transferred By</th>
             <th>Received By</th>
+            <th>Type</th>
             <th>Stage</th>
           </tr>
         </thead>
         <tbody>
           {% for t in transfers %}
           <tr>
-            <td class="text-nowrap">{{ t.transfer_date.strftime('%d-%m-%Y %H:%M') }}</td>
-            <td class="font-monospace text-muted">
-              {{ location_by_id[t.to_location_id | string].unit_id if t.to_location_id and (t.to_location_id | string) in location_by_id else '—' }}
-            </td>
-            <td>
-              {% if t.transfer_type == 'trc_to_showroom' %}
-                <span class="badge bg-info">TRC → Showroom</span>
-              {% elif t.transfer_type == 'showroom_to_trc' %}
-                <span class="badge bg-warning text-dark">Showroom → TRC</span>
-              {% else %}
-                <span class="badge bg-secondary">{{ t.transfer_type | replace('_', ' ') | title }}</span>
-              {% endif %}
-            </td>
+            {% if has_perm(current_user.role.value, 'transfers', 'edit') %}
+            <td class="ps-3"><input type="checkbox" class="form-check-input transfers-row-chk" value="{{ t.id }}"></td>
+            {% endif %}
+            {# data-order carries the sortable ISO value; DataTables reads it
+               natively, so the visible date can stay DD-MM-YYYY without the
+               default string sort putting "30-06" ahead of "26-09" (comparing
+               "30" > "26" as text, not as a date). #}
+            <td class="text-nowrap" data-order="{{ t.transfer_date.isoformat() }}">{{ t.transfer_date.strftime('%d-%m-%Y %H:%M') }}</td>
             <td>
               {% if t.barcode %}
               <a href="/devices/{{ t.barcode }}" class="font-monospace fw-semibold text-decoration-none">{{ t.barcode }}</a>
               {% else %}—{% endif %}
+            </td>
+            <td class="font-monospace text-muted">
+              {{ location_by_id[t.to_location_id | string].unit_id if t.to_location_id and (t.to_location_id | string) in location_by_id else '—' }}
             </td>
             <td>{{ (t.make or '') ~ ' ' ~ (t.model or '') | trim or '—' }}</td>
             <td class="d-none">{{ t.quantity if t.quantity is not none else '—' }}</td>
@@ -124,6 +136,15 @@
             <td class="d-none">{{ t.department or '—' }}</td>
             <td>{{ t._display_transferred_by or '—' }}</td>
             <td>{{ t._display_received_by or '—' }}</td>
+            <td>
+              {% if t.transfer_type == 'trc_to_showroom' %}
+                <span class="badge bg-info">TRC → Showroom</span>
+              {% elif t.transfer_type == 'showroom_to_trc' %}
+                <span class="badge bg-warning text-dark">Showroom → TRC</span>
+              {% else %}
+                <span class="badge bg-secondary">{{ t.transfer_type | replace('_', ' ') | title }}</span>
+              {% endif %}
+            </td>
             <td><span class="badge bg-secondary">{{ t._display_stage }}</span></td>
           </tr>
           {% endfor %}
@@ -138,7 +159,57 @@ $(document).ready(function(){
   // Global Table module (static/js/global-table.js) — skipped when the table
   // is empty, same guard used on /workid-status.
   if ($('#transfersTable tbody tr td').length > 1) {
-    initGlobalTable('#transfersTable', { pageLength: 12, order: [[0, 'desc']] });
+    var hasCheckboxCol = !!document.getElementById('transfersSelectAll');
+    var off = hasCheckboxCol ? 1 : 0;
+    initGlobalTable('#transfersTable', {
+      pageLength: 12,
+      order: [[0 + off, 'desc']],
+      columnDefs: hasCheckboxCol ? [{ orderable: false, targets: [0] }] : [],
+    });
+  }
+
+  // Row selection + Bulk Delete — button stays hidden until at least one row
+  // is checked (rather than merely disabled), per explicit request.
+  var selectAll = document.getElementById('transfersSelectAll');
+  var deleteBtn = document.getElementById('transfersBulkDeleteBtn');
+  if (selectAll && deleteBtn) {
+    var deleteCount = document.getElementById('transfersDeleteSelCount');
+    var deleteForm = document.getElementById('transfersBulkDeleteForm');
+
+    function rowChks() { return document.querySelectorAll('.transfers-row-chk'); }
+    function selectedIds() {
+      return Array.from(document.querySelectorAll('.transfers-row-chk:checked')).map(function (c) { return c.value; });
+    }
+    function updateSel() {
+      var n = selectedIds().length;
+      deleteCount.textContent = n;
+      deleteBtn.classList.toggle('d-none', n === 0);
+      selectAll.checked = rowChks().length > 0 && n === rowChks().length;
+    }
+
+    selectAll.addEventListener('change', function () {
+      rowChks().forEach(function (c) { c.checked = selectAll.checked; });
+      updateSel();
+    });
+    // DataTables paginates by hiding rows, not removing them, but a fresh
+    // page draw can still introduce rows whose checkbox has no listener yet
+    // if this ran once at load — delegate on the table body instead.
+    document.querySelector('#transfersTable tbody').addEventListener('change', function (e) {
+      if (e.target.classList.contains('transfers-row-chk')) updateSel();
+    });
+
+    deleteBtn.addEventListener('click', function () {
+      var ids = selectedIds();
+      if (!ids.length) return;
+      if (!confirm('Permanently delete ' + ids.length + ' selected transfer record(s)? This cannot be undone.')) return;
+      deleteForm.querySelectorAll('input[name="transfer_id"]').forEach(function (i) { i.remove(); });
+      ids.forEach(function (id) {
+        var inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = 'transfer_id'; inp.value = id;
+        deleteForm.appendChild(inp);
+      });
+      deleteForm.submit();
+    });
   }
 });
 </script>

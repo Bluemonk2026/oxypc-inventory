@@ -5,7 +5,7 @@
 <!-- Slim entity total cards — one per entity, whole-inventory count (same
      unfiltered scope as the analytics cards below), sitting above them. -->
 {% if entity_totals is defined %}
-<div class="row g-2 mb-2">
+<div class="row g-2 mb-2 d-none">
   {% for e, c in entity_totals %}
   <div class="col-4">
     <div class="card border-0 shadow-sm px-3 py-2 d-flex flex-row justify-content-between align-items-center">
@@ -111,9 +111,9 @@
   <span class="badge bg-light text-dark border">{{ e }}: <strong>{{ c }}</strong></span>
   {% endfor %}
 </div>
-<button type="button" id="assignBucketBtn" class="d-none btn btn-sm btn-success" disabled
+<button type="button" id="assignBucketBtn" class="d-none btn btn-sm btn-success me-2" disabled
         data-bs-toggle="modal" data-bs-target="#addToBucketModal">
-  <i class="bi bi-box me-1"></i>Assign Bucket/Carton (<span id="bktSelCount">0</span>)
+  <i class="bi bi-box me-1"></i>Assign Bucket (<span id="bktSelCount">0</span>)
 </button>
 <div class="card border-0 shadow-sm">
   <div class="card-header bg-transparent d-flex justify-content-between align-items-center flex-wrap gap-2">

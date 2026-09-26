@@ -245,22 +245,21 @@ async def ready_list_data(
                     else '<span class="text-muted">—</span>')
         cells.append(f'₹{float(d.max_selling_price):,.0f}' if d.max_selling_price is not None
                     else '<span class="text-muted">—</span>')
+        action = f'<a href="/sales/new?barcodes={esc(d.barcode)}&qty=1" class="btn btn-sm btn-success">Sell</a>'
         if approved:
-            action = f'<a href="/sales/new?barcodes={esc(d.barcode)}&qty=1" class="btn btn-sm btn-success">Sell</a><span class="badge bg-success align-self-center ms-1">Approved</span>'
+            action += '<span class="badge bg-success align-self-center ms-1">Approved</span>'
+        elif requested:
+            action += '<span class="badge bg-warning text-dark align-self-center ms-1">Requested</span>'
         else:
-            action = '<button class="btn btn-sm btn-success" disabled title="Needs telecaller request approval">Sell</button>'
-            if requested:
-                action += '<span class="badge bg-warning text-dark align-self-center ms-1">Requested</span>'
-            else:
-                if rejected_notes is not None:
-                    action += f'<span class="badge bg-danger align-self-center ms-1" title="{esc(rejected_notes)}">Rejected</span>'
-                action += (f'<button class="btn btn-sm btn-outline-primary ms-1 d-none" data-bs-toggle="modal" data-bs-target="#dispatchModal" '
-                          f'data-barcode="{esc(d.barcode)}" data-model="{esc((d.brand or "") + " " + (d.model or ""))}">Request</button>')
+            if rejected_notes is not None:
+                action += f'<span class="badge bg-danger align-self-center ms-1" title="{esc(rejected_notes)}">Rejected</span>'
+            action += (f'<button class="btn btn-sm btn-outline-primary ms-1 d-none" data-bs-toggle="modal" data-bs-target="#dispatchModal" '
+                      f'data-barcode="{esc(d.barcode)}" data-model="{esc((d.brand or "") + " " + (d.model or ""))}">Request</button>')
         action += (f'<button type="button" class="btn btn-sm btn-outline-dark ms-1 tag-set-price-btn" '
                   f'data-barcode="{esc(d.barcode)}" '
                   f'data-min="{d.min_selling_price if d.min_selling_price is not None else ""}" '
                   f'data-max="{d.max_selling_price if d.max_selling_price is not None else ""}">Set price</button>')
-        cells.append(f'<div class="d-flex gap-1 flex-wrap">{action}</div>')
+        cells.append(f'<div class="d-flex gap-1 flex-nowrap text-nowrap">{action}</div>')
         data.append(cells)
 
     return {"draw": draw, "recordsTotal": total, "recordsFiltered": filtered, "data": data}

@@ -446,7 +446,13 @@ $(document).ready(function(){
       url: '/sales/ready/data',
       dataSrc: function (json) { return json.data; },
     },
-    columnDefs: [{ orderable: false, targets: [0, -1] }],
+    // Warranty column index shifts by 1 depending on whether Unit Cost
+    // (pricing-gated) rendered before it — computed server-side since Jinja
+    // already knows can_view_pricing at render time.
+    columnDefs: [
+      { orderable: false, targets: [0, -1] },
+      { visible: false, targets: [{{ 10 if can_view_pricing(current_user) else 9 }}] },
+    ],
     drawCallback: function () {
       document.querySelectorAll('#readyTable tbody .readyChk').forEach(function (c) {
         c.checked = readySelected.has(c.value);

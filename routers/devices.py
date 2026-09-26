@@ -134,7 +134,7 @@ async def search_tags(q: str = "", db: AsyncSession = Depends(get_db),
     rows = (await db.execute(
         select(Device, Lot.lot_number)
         .join(Lot, Device.lot_id == Lot.id, isouter=True)
-        .where(Device.barcode.ilike(f"%{q}%"), Device.is_active == True)
+        .where(Device.barcode.ilike(f"%{q}%"), Device.is_active == True, Device.is_trashed == False)
         .order_by(Device.updated_at.desc())
         .limit(10)
     )).all()

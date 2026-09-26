@@ -2,6 +2,7 @@
 {% block title %}CRM Contacts — OxyPC{% endblock %}
 {% block page_title %}CRM Contacts{% endblock %}
 {% block content %}
+{% import "_multiselect_filter.html" as ms %}
 
 <div class="mb-3">
   <form method="get" class="d-flex gap-2 flex-wrap">
@@ -41,8 +42,12 @@
       {% endfor %}
     </select>
     {% endif %}
+    {{ ms.multiselect('f_vp_avp', 'VP/AVP', bucket_options['vp_avp'], f_vp_avp, width='col-auto') }}
+    {{ ms.multiselect('f_manager', 'Manager', bucket_options['manager'], f_manager, width='col-auto') }}
+    {{ ms.multiselect('f_am_dm_gm', 'AM/DM/GM', bucket_options['am_dm_gm'], f_am_dm_gm, width='col-auto') }}
+    {{ ms.multiselect('f_executive', 'Executive/Sr Exec', bucket_options['executive'], f_executive, width='col-auto') }}
     <button class="btn btn-sm btn-outline-primary">Filter</button>
-    {% if q or contact_type or source_type or buyer_type or contacted or created_by_filter %}
+    {% if q or contact_type or source_type or buyer_type or contacted or created_by_filter or f_vp_avp or f_manager or f_am_dm_gm or f_executive %}
     <a href="/crm/contacts" class="btn btn-sm btn-outline-secondary">Clear</a>
     {% endif %}
   </form>
@@ -69,6 +74,14 @@
          primary button: the new one accepts its columns unchanged AND handles
          call records, so it supersedes it. #}
       <a href="/crm/contacts/upload" class="btn btn-sm btn-outline-secondary"><i class="bi bi-cloud-upload me-1"></i>Bulk Upload CSV</a>
+      <a href="/crm/contacts/team-mapping/upload" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-people me-1"></i>Team Mapping CSV
+      </a>
+      {% if has_perm(current_user.role.value, 'crm_contacts', 'edit') %}
+      <button type="button" id="bulkTeamMappingBtn" class="btn btn-sm btn-outline-dark" disabled>
+        <i class="bi bi-person-badge me-1"></i>Bulk Team Mapping (<span id="teamSelCount">0</span>)
+      </button>
+      {% endif %}
       {# Hidden for now — reuse later. Modal (#accountBulkUploadModal) and its
          route are left intact below, only the trigger button is hidden.
       <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#accountBulkUploadModal">
@@ -98,16 +111,20 @@
         'neutral':        'secondary',
         'pending':        'warning',
       } %}
-      {# Column order: Company | Type | Category | Locations | Contacts | KYC | Notes (hidden) | Created By | Status | Actions #}
+      {# Column order (when edit perm grants the checkbox column): Checkbox | Company | Type | Category | Locations | Contacts | KYC | Team | Notes (hidden) | Created By | Status | Actions #}
       <table class="table table-hover mb-0 small" id="contactsTable">
         <thead class="table-light">
           <tr>
+            {% if has_perm(current_user.role.value, 'crm_contacts', 'edit') %}
+            <th class="ps-3"><input type="checkbox" id="teamSelectAll" class="form-check-input"></th>
+            {% endif %}
             <th>Company</th>
             <th>Type</th>
             <th>Category</th>
             <th>Locations</th>
             <th>Contacts</th>
             <th>KYC</th>
+            <th>Team</th>
             <th class="d-none">Notes</th>
             <th>Created By</th>
             <th>Status</th>
@@ -122,6 +139,9 @@
           {% set last_outcome = act.get('outcome', '') if act else '' %}
           {% set last_act_date = act.get('date', none) if act else none %}
           <tr>
+            {% if has_perm(current_user.role.value, 'crm_contacts', 'edit') %}
+            <td class="ps-3"><input type="checkbox" class="form-check-input team-row-chk" value="{{ c.id }}"></td>
+            {% endif %}
             {# 1. Company + Contacted badge #}
             <td style="max-width:160px">
               <a href="/crm/contacts/{{ c.id }}" class="fw-semibold text-decoration-none"
@@ -202,6 +222,20 @@
               <span class="badge bg-warning text-dark">Not Verified</span>
               {% endif %}
             </td>
+            {# 5b. Team — mapped account team by seniority bucket #}
+            <td>
+              {% set tm = team_map.get(cid, {}) %}
+              {% set team_total = (tm.get('vp_avp', []) | length) + (tm.get('manager', []) | length) + (tm.get('am_dm_gm', []) | length) + (tm.get('executive', []) | length) %}
+              {% if team_total %}
+              <button type="button" class="btn btn-sm btn-outline-dark py-0 px-2 team-view-btn"
+                      data-company="{{ c.company_name }}"
+                      data-team='{{ tm|tojson }}'>
+                <i class="bi bi-person-badge me-1"></i>{{ team_total }}
+              </button>
+              {% else %}
+              <span class="text-muted">0</span>
+              {% endif %}
+            </td>
             {# 10. Notes (hidden) #}
             <td class="d-none" style="max-width:160px">
               {% if c.notes %}
@@ -240,6 +274,13 @@
                 <a href="/crm/sourcing/new?contact_id={{ c.id }}" class="btn btn-sm btn-outline-secondary" title="New Sourcing Deal"><i class="bi bi-box-arrow-in-down"></i></a>
                 <a href="/crm/sales/new?contact_id={{ c.id }}"    class="btn btn-sm btn-outline-info"      title="New Sales Opp"><i class="bi bi-graph-up"></i></a>
                 <a href="/crm/contacts/{{ c.id }}/edit"  class="btn btn-sm btn-outline-secondary" title="Edit"><i class="bi bi-pencil"></i></a>
+                {% if has_perm(current_user.role.value, 'crm_contacts', 'edit') %}
+                <button type="button" class="btn btn-sm btn-outline-dark map-team-btn" title="Map Team"
+                        data-contact-id="{{ c.id }}" data-company="{{ c.company_name }}"
+                        data-team='{{ team_map.get(cid, {})|tojson }}'>
+                  <i class="bi bi-person-badge"></i>
+                </button>
+                {% endif %}
                 <form method="post" action="/crm/contacts/{{ c.id }}/trash" class="d-inline"
                       onsubmit="return confirm('Move {{ c.company_name }} to trash?')">
                   <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
@@ -355,6 +396,26 @@
   </div>
 </div>
 
+<!-- Team View modal (read-only — opened from the Team column badge) -->
+<div class="modal fade" id="teamViewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title"><i class="bi bi-person-badge me-2"></i><span id="teamViewCompany"></span> — Team</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-0">
+        <table class="table table-sm mb-0">
+          <thead class="table-light"><tr><th>Name</th><th>Bucket</th></tr></thead>
+          <tbody id="teamViewBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% include "crm/contacts/_map_team_modal.html" %}
+
 <!-- Bulk Upload Accounts & Calls modal -->
 <div class="modal fade" id="accountBulkUploadModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
@@ -395,8 +456,14 @@
 
 {% endblock %}
 {% block scripts %}
+{# _multiselect_filter.html's checkboxes need this to actually sync into
+   their hidden input — it's not a global include (base.html doesn't load
+   it), each page using the macro must include it itself. Used here for
+   both the header filter bar and the Map Team modal's bucket pickers. #}
+<script src="/static/js/multiselect-filter.js?v={{ ASSET_VERSION }}"></script>
 <script>
-// col index: 0=Company,1=Type,2=Category,3=Locations,4=Contacts,5=KYC,6=Notes(hidden),7=Created By,8=Status,9=Actions
+// col index (edit perm): 0=Checkbox,1=Company,2=Type,3=Category,4=Locations,5=Contacts,6=KYC,7=Team,8=Notes(hidden),9=Created By,10=Status,11=Actions
+// col index (no edit perm, no checkbox column): 0=Company,1=Type,2=Category,3=Locations,4=Contacts,5=KYC,6=Team,7=Notes(hidden),8=Created By,9=Status,10=Actions
 $(document).ready(function(){
   // Global Table module (static/js/global-table.js) — always initialized,
   // even with zero rows: DataTables reads its columns from <thead>, not from
@@ -405,14 +472,25 @@ $(document).ready(function(){
   // <td colspan> row that columnDefs' targets would misread as real data) —
   // with it removed, letting DataTables run is what makes its own built-in
   // empty-state illustration (language.emptyTable) render at all.
+  var hasCheckboxCol = !!document.getElementById('teamSelectAll');
+  var off = hasCheckboxCol ? 1 : 0;
   initGlobalTable('#contactsTable', {
-    order: [[0, 'asc']],  // default sort by Company
-    columnDefs: [{ orderable: false, targets: [3, 4, 9] }],  // Locations + Contacts + Actions not sortable
+    order: [[0 + off, 'asc']],  // default sort by Company
+    columnDefs: [{ orderable: false, targets: hasCheckboxCol ? [0, 4, 5, 7, 11] : [3, 4, 6, 10] }],
     language: { emptyTable: 'No contacts found. Use the Add Account button above to create one.' }
   });
+  // DataTables' initial draw (applying the sort above + odd/even striping)
+  // runs synchronously inside the DataTable() constructor initGlobalTable
+  // just called, and it REPLACES the original server-rendered <tr> nodes
+  // with new ones — so wiring click handlers before this point attaches
+  // them to nodes that are about to be discarded (confirmed via inspection:
+  // the "clicked" row after init is a different DOM node than the one
+  // present at page-parse time). Wiring must run after this call, not in a
+  // separate top-level IIFE that races the deferred jQuery ready callback.
+  wireContactsPageModals();
 });
 
-(function () {
+function wireContactsPageModals() {
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
@@ -464,6 +542,124 @@ $(document).ready(function(){
       });
     });
   }
-})();
+
+  var BUCKET_LABELS = {
+    vp_avp: 'VP/AVP', manager: 'Manager', am_dm_gm: 'AM/DM/GM', executive: 'Executive/Sr Executive'
+  };
+
+  // Team column badge → read-only Team View modal
+  var teamViewModalEl = document.getElementById('teamViewModal');
+  if (teamViewModalEl) {
+    var teamViewModal = new bootstrap.Modal(teamViewModalEl);
+    document.querySelectorAll('.team-view-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var company = this.getAttribute('data-company') || '';
+        var tm = {};
+        try { tm = JSON.parse(this.getAttribute('data-team') || '{}'); } catch (e) {}
+        document.getElementById('teamViewCompany').textContent = company;
+        var rows = [];
+        Object.keys(BUCKET_LABELS).forEach(function (bucket) {
+          (tm[bucket] || []).forEach(function (m) {
+            rows.push('<tr><td>' + esc(m.name) + '</td><td>' + esc(BUCKET_LABELS[bucket]) + '</td></tr>');
+          });
+        });
+        document.getElementById('teamViewBody').innerHTML = rows.join('') ||
+          '<tr><td colspan="2" class="text-muted text-center py-3">No team mapped.</td></tr>';
+        teamViewModal.show();
+      });
+    });
+  }
+
+  // Map Team modal — shared between the per-row "Map Team" button (single
+  // mode, pre-filled) and the toolbar "Bulk Team Mapping" button (bulk mode,
+  // starts empty). setBucketSelection() dispatches a native 'change' event
+  // on a checkbox after setting it, so it reuses the existing sync() logic
+  // in static/js/multiselect-filter.js (hidden-input + label text) instead
+  // of duplicating it.
+  var mapTeamModalEl = document.getElementById('mapTeamModal');
+  if (mapTeamModalEl) {
+    var mapTeamModal = new bootstrap.Modal(mapTeamModalEl);
+
+    function setBucketSelection(fieldName, ids) {
+      var wrap = document.querySelector('.ms-filter[data-ms="' + fieldName + '"]');
+      if (!wrap) return;
+      var menu = wrap.querySelector('.dropdown-menu');
+      var boxes = menu.querySelectorAll('.ms-opt');
+      boxes.forEach(function (cb) { cb.checked = ids.indexOf(cb.value) !== -1; });
+      if (boxes.length) {
+        boxes[0].dispatchEvent(new Event('change', { bubbles: true }));
+      } else {
+        var hidden = document.getElementById('ms_val_' + fieldName);
+        if (hidden) hidden.value = '';
+      }
+    }
+
+    function fillContactIds(ids) {
+      var container = document.getElementById('mapTeamContactIds');
+      container.innerHTML = '';
+      ids.forEach(function (id) {
+        var input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'contact_ids';
+        input.value = id;
+        container.appendChild(input);
+      });
+    }
+
+    function openMapTeamModal(mode, ids, headerText, teamData) {
+      document.getElementById('mapTeamMode').value = mode;
+      fillContactIds(ids);
+      document.getElementById('mapTeamHeader').textContent = headerText;
+      document.getElementById('mapTeamHint').textContent = mode === 'single'
+        ? 'Leaving a bucket blank clears it for this account.'
+        : 'Only buckets where you select at least one person are changed — untouched buckets are left as-is for every selected account.';
+      var td = teamData || {};
+      setBucketSelection('bucket_vp_avp', (td.vp_avp || []).map(function (m) { return m.id; }));
+      setBucketSelection('bucket_manager', (td.manager || []).map(function (m) { return m.id; }));
+      setBucketSelection('bucket_am_dm_gm', (td.am_dm_gm || []).map(function (m) { return m.id; }));
+      setBucketSelection('bucket_executive', (td.executive || []).map(function (m) { return m.id; }));
+      mapTeamModal.show();
+    }
+
+    document.querySelectorAll('.map-team-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var contactId = this.getAttribute('data-contact-id');
+        var company = this.getAttribute('data-company') || '';
+        var teamData = {};
+        try { teamData = JSON.parse(this.getAttribute('data-team') || '{}'); } catch (e) {}
+        openMapTeamModal('single', [contactId], company, teamData);
+      });
+    });
+
+    var bulkBtn = document.getElementById('bulkTeamMappingBtn');
+    if (bulkBtn) {
+      bulkBtn.addEventListener('click', function () {
+        var ids = [];
+        document.querySelectorAll('.team-row-chk:checked').forEach(function (cb) { ids.push(cb.value); });
+        if (!ids.length) return;
+        openMapTeamModal('bulk', ids, ids.length + ' companies selected', {});
+      });
+    }
+  }
+
+  // Row checkbox select-all + toolbar button enable/disable + count
+  var selectAllChk = document.getElementById('teamSelectAll');
+  var bulkTeamBtn = document.getElementById('bulkTeamMappingBtn');
+  var teamSelCountEl = document.getElementById('teamSelCount');
+  function updateTeamSelUI() {
+    var checked = document.querySelectorAll('.team-row-chk:checked').length;
+    if (teamSelCountEl) teamSelCountEl.textContent = String(checked);
+    if (bulkTeamBtn) bulkTeamBtn.disabled = checked === 0;
+  }
+  if (selectAllChk) {
+    selectAllChk.addEventListener('change', function () {
+      document.querySelectorAll('.team-row-chk').forEach(function (cb) { cb.checked = selectAllChk.checked; });
+      updateTeamSelUI();
+    });
+  }
+  document.querySelectorAll('.team-row-chk').forEach(function (cb) {
+    cb.addEventListener('change', updateTeamSelUI);
+  });
+}
 </script>
 {% endblock %}

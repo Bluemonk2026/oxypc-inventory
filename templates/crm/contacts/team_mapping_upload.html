@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Team Mapping Upload — OxyPC{% endblock %}
+{% block page_title %}Account Team Mapping — Bulk Upload{% endblock %}
+{% block content %}
+
+{% if result %}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-success">{{ result.applied }}</div>
+      <div class="small text-muted">Rows Applied</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-warning">{{ result.skipped }}</div>
+      <div class="small text-muted">Rows Skipped</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fs-4 fw-bold text-danger">{{ result.errors | length }}</div>
+      <div class="small text-muted">Row Errors</div>
+    </div>
+  </div>
+</div>
+{% if result.errors %}
+<div class="alert alert-warning py-2 small mb-3">
+  <strong>Row errors:</strong>
+  <ul class="mb-0 mt-1">
+    {% for e in result.errors %}<li>{{ e }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-transparent fw-semibold">Upload CSV</div>
+      <div class="card-body">
+        <p class="small text-muted">
+          Match key is <code>gstin</code> — rows without a GSTIN are skipped.
+          Each role column accepts one or more names, comma-separated,
+          matched exactly against the Reference panel on the right. A blank
+          role column leaves that bucket unchanged for the matched account.
+        </p>
+        <a href="/crm/contacts/team-mapping/sample-csv" class="btn btn-sm btn-outline-secondary mb-3">
+          <i class="bi bi-download me-1"></i>Download Sample CSV (all accounts)
+        </a>
+        <form action="/crm/contacts/team-mapping/upload" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+          <div class="mb-3">
+            <input type="file" name="file" class="form-control form-control-sm" accept=".csv" required>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-upload me-1"></i>Upload &amp; Apply</button>
+            <a href="/crm/contacts" class="btn btn-outline-secondary">Back to Accounts</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-transparent fw-semibold">Reference — Eligible Users</div>
+      <div class="card-body p-0" style="max-height:420px; overflow-y:auto;">
+        <table class="table table-sm mb-0">
+          <thead class="table-light"><tr><th>Name</th><th>Role</th><th>Designation</th></tr></thead>
+          <tbody>
+            {% for u in reference %}
+            <tr><td>{{ u.full_name }}</td><td>{{ u.role }}</td><td>{{ u.designation or '—' }}</td></tr>
+            {% else %}
+            <tr><td colspan="3" class="text-muted text-center py-3">
+              No users currently match a role bucket. Set a sales-style
+              designation (containing VP, AVP, Manager, AM, DM, GM, or
+              Executive) via Admin &gt; User Management.
+            </td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

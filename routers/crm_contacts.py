@@ -24,6 +24,8 @@ from models.crm import (
     CRMContact, CRMContactNumber, CRMContactLocation, CRMSourcingDeal, CRMSalesOpportunity,
     CRMActivity, CRMPurchaseOrder, SOURCE_TYPES, BUYER_TYPES,
 )
+from models.crm_team import CRMContactTeamMember
+from services.crm_team import ROLE_BUCKETS, BUCKET_LABELS, eligible_users_for_bucket
 
 PERSON_ROLES = ["Directors", "Finance", "Manager", "Other"]
 
@@ -113,6 +115,10 @@ async def list_contacts(
     buyer_type: str = Query(default=""),
     contacted: str = Query(default=""),        # "yes" | "no" | ""
     created_by_filter: str = Query(default=""),  # admin-only: filter by who added the contact
+    f_vp_avp: str = Query(default=""),
+    f_manager: str = Query(default=""),
+    f_am_dm_gm: str = Query(default=""),
+    f_executive: str = Query(default=""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -157,8 +163,50 @@ async def list_contacts(
     if created_by_filter and current_user.role == UserRole.admin:
         query = query.where(CRMContact.created_by == created_by_filter)
 
+    _bucket_filter_params = {
+        "vp_avp": f_vp_avp, "manager": f_manager,
+        "am_dm_gm": f_am_dm_gm, "executive": f_executive,
+    }
+    for _bucket, _raw in _bucket_filter_params.items():
+        _ids = []
+        for _v in _raw.split(","):
+            _v = _v.strip()
+            if not _v:
+                continue
+            try:
+                _ids.append(_uuid.UUID(_v))
+            except ValueError:
+                continue
+        if _ids:
+            _subq = select(CRMContactTeamMember.contact_id).where(
+                CRMContactTeamMember.role_bucket == _bucket,
+                CRMContactTeamMember.user_id.in_(_ids),
+            )
+            query = query.where(CRMContact.id.in_(_subq))
+
     result = await db.execute(query.order_by(CRMContact.company_name))
     contacts = result.scalars().all()
+
+    # Team mapping — bucket dropdown options (all active users, once) and the
+    # current mapping per contact (one JOIN, no N+1), same pattern as the
+    # existing locations_map/numbers_map below.
+    users_result = await db.execute(select(User).where(User.status == True).order_by(User.full_name))
+    all_users = users_result.scalars().all()
+    bucket_options = {b: [(str(u.id), u.full_name) for u in eligible_users_for_bucket(all_users, b)]
+                       for b in ROLE_BUCKETS}
+
+    team_map: dict = {}
+    _contact_ids_scope = [c.id for c in contacts]
+    if _contact_ids_scope:
+        team_rows = (await db.execute(
+            select(CRMContactTeamMember, User.full_name)
+            .join(User, CRMContactTeamMember.user_id == User.id)
+            .where(CRMContactTeamMember.contact_id.in_(_contact_ids_scope))
+        )).all()
+        for member, full_name in team_rows:
+            _cid = str(member.contact_id)
+            team_map.setdefault(_cid, {b: [] for b in ROLE_BUCKETS})
+            team_map[_cid][member.role_bucket].append({"id": str(member.user_id), "name": full_name})
 
     # Trashed contacts (always full list, no filters)
     trashed_result = await db.execute(
@@ -244,6 +292,11 @@ async def list_contacts(
         "activity_map": activity_map,
         "locations_map": locations_map,
         "numbers_map": numbers_map,
+        "team_map": team_map,
+        "bucket_options": bucket_options,
+        "bucket_labels": BUCKET_LABELS,
+        "f_vp_avp": f_vp_avp, "f_manager": f_manager,
+        "f_am_dm_gm": f_am_dm_gm, "f_executive": f_executive,
         "contacted_set": contacted_set,
         "q": q, "contact_type": contact_type,
         "source_type": source_type, "buyer_type": buyer_type,
@@ -516,6 +569,207 @@ async def upload_contacts_csv(
             "errors": errors,
         },
         "error": None,
+    })
+
+
+# ── ACCOUNT TEAM MAPPING ─────────────────────────────────────────────────────
+
+@router.post("/team-mapping")
+async def save_team_mapping(
+    request: Request,
+    contact_ids: list[str] = Form(...),
+    mode: str = Form(...),
+    bucket_vp_avp: str = Form(default=""),
+    bucket_manager: str = Form(default=""),
+    bucket_am_dm_gm: str = Form(default=""),
+    bucket_executive: str = Form(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_module_perm("crm_contacts", "edit")),
+):
+    from services.crm_team import replace_team_buckets
+
+    def _parse_ids(s: str) -> list:
+        out = []
+        for part in s.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                out.append(_uuid.UUID(part))
+            except ValueError:
+                continue
+        return out
+
+    raw_buckets = {
+        "vp_avp": bucket_vp_avp, "manager": bucket_manager,
+        "am_dm_gm": bucket_am_dm_gm, "executive": bucket_executive,
+    }
+    if mode == "single":
+        bucket_user_ids = {b: _parse_ids(v) for b, v in raw_buckets.items()}
+    else:
+        bucket_user_ids = {b: _parse_ids(v) for b, v in raw_buckets.items() if v.strip()}
+
+    cids = []
+    for c in contact_ids:
+        try:
+            cids.append(_uuid.UUID(c))
+        except ValueError:
+            continue
+    if not cids:
+        return RedirectResponse(url="/crm/contacts?error=No+accounts+selected", status_code=302)
+
+    contacts = (await db.execute(select(CRMContact).where(CRMContact.id.in_(cids)))).scalars().all()
+
+    for contact in contacts:
+        old_rows = (await db.execute(
+            select(CRMContactTeamMember).where(CRMContactTeamMember.contact_id == contact.id)
+        )).scalars().all()
+        old_value: dict = {}
+        for r in old_rows:
+            old_value.setdefault(r.role_bucket, []).append(str(r.user_id))
+
+        await replace_team_buckets(
+            db, contact_id=contact.id, bucket_user_ids=bucket_user_ids,
+            created_by=current_user.username,
+        )
+
+        new_value = {b: [str(u) for u in ids] for b, ids in bucket_user_ids.items()}
+        await audit(db, user=current_user, action="TEAM_MAPPING_UPDATED",
+                    table_name="crm_contact_team_members", record_id=str(contact.id),
+                    old_value=old_value, new_value=new_value, request=request)
+
+    await db.commit()
+    return RedirectResponse(url="/crm/contacts?success=Team+mapping+updated", status_code=302)
+
+
+@router.get("/team-mapping/sample-csv")
+async def team_mapping_sample_csv(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    contacts = (await db.execute(
+        select(CRMContact).where(CRMContact.is_trashed == False).order_by(CRMContact.company_name)
+    )).scalars().all()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["gstin", "company_name", "vp_avp", "manager", "am_dm_gm", "executive"])
+    for c in contacts:
+        writer.writerow([c.gstin or "", c.company_name, "", "", "", ""])
+
+    return StreamingResponse(
+        iter([buf.getvalue().encode("utf-8-sig")]),
+        media_type="text/csv; charset=utf-8-sig",
+        headers={"Content-Disposition": "attachment; filename=team_mapping_sample.csv"},
+    )
+
+
+async def _team_mapping_reference_rows(db: AsyncSession) -> list:
+    users = (await db.execute(select(User).where(User.status == True).order_by(User.full_name))).scalars().all()
+    reference = []
+    seen = set()
+    for bucket in ROLE_BUCKETS:
+        for u in eligible_users_for_bucket(users, bucket):
+            if u.id in seen:
+                continue
+            seen.add(u.id)
+            role_val = u.role.value if hasattr(u.role, "value") else str(u.role)
+            reference.append({"full_name": u.full_name, "role": role_val, "designation": u.designation or ""})
+    return reference
+
+
+@router.get("/team-mapping/upload", response_class=HTMLResponse)
+async def team_mapping_upload_page(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    reference = await _team_mapping_reference_rows(db)
+    return templates.TemplateResponse("crm/contacts/team_mapping_upload.html", {
+        "request": request, "current_user": current_user,
+        "reference": reference, "result": None,
+    })
+
+
+@router.post("/team-mapping/upload", response_class=HTMLResponse)
+async def team_mapping_upload_apply(
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_module_perm("crm_contacts", "edit")),
+):
+    from services.crm_team import replace_team_buckets
+
+    raw = decode_csv_bytes(await file.read())
+    reader = csv.DictReader(io.StringIO(raw))
+
+    all_users = (await db.execute(select(User).where(User.status == True))).scalars().all()
+    by_name: dict = {}
+    for u in all_users:
+        by_name.setdefault(u.full_name, []).append(u)
+
+    applied = 0
+    skipped = 0
+    errors: list = []
+
+    for i, row in enumerate(reader, start=2):
+        gstin = (row.get("gstin") or "").strip().upper()
+        if not gstin:
+            skipped += 1
+            errors.append(f"Row {i}: missing GSTIN, skipped")
+            continue
+
+        contact = (await db.execute(
+            select(CRMContact).where(func.upper(CRMContact.gstin) == gstin)
+        )).scalars().first()
+        if not contact:
+            skipped += 1
+            errors.append(f"Row {i}: no account found for GSTIN {gstin}, skipped")
+            continue
+
+        bucket_user_ids: dict = {}
+        for bucket in ROLE_BUCKETS:
+            cell = (row.get(bucket) or "").strip()
+            if not cell:
+                continue
+            resolved = []
+            for name in [n.strip() for n in cell.split(",") if n.strip()]:
+                matches = by_name.get(name, [])
+                if len(matches) != 1:
+                    reason = "not found" if not matches else "matches multiple users"
+                    errors.append(f"Row {i}: '{name}' in {bucket} {reason}, skipped")
+                    continue
+                resolved.append(matches[0].id)
+            bucket_user_ids[bucket] = resolved
+
+        if not bucket_user_ids:
+            skipped += 1
+            continue
+
+        old_rows = (await db.execute(
+            select(CRMContactTeamMember).where(CRMContactTeamMember.contact_id == contact.id)
+        )).scalars().all()
+        old_value: dict = {}
+        for r in old_rows:
+            old_value.setdefault(r.role_bucket, []).append(str(r.user_id))
+
+        await replace_team_buckets(
+            db, contact_id=contact.id, bucket_user_ids=bucket_user_ids,
+            created_by=current_user.username,
+        )
+        new_value = {b: [str(u) for u in ids] for b, ids in bucket_user_ids.items()}
+        await audit(db, user=current_user, action="TEAM_MAPPING_UPDATED",
+                    table_name="crm_contact_team_members", record_id=str(contact.id),
+                    old_value=old_value, new_value=new_value, request=request)
+        applied += 1
+
+    await db.commit()
+
+    reference = await _team_mapping_reference_rows(db)
+    return templates.TemplateResponse("crm/contacts/team_mapping_upload.html", {
+        "request": request, "current_user": current_user,
+        "reference": reference,
+        "result": {"applied": applied, "skipped": skipped, "errors": errors},
     })
 
 

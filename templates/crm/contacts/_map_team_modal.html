@@ -1,0 +1,36 @@
+{# templates/crm/contacts/_map_team_modal.html
+   Shared single/bulk edit modal for Account Team Mapping. Included once
+   from list.html; scope (single company vs bulk) is switched by JS before
+   opening — same convention as other shared modals in this codebase.
+   Field names (bucket_vp_avp etc.) are distinct from the filter bar's
+   f_vp_avp etc. so the two sets of checkbox-dropdown macro instances don't
+   collide on element id. #}
+{% import "_multiselect_filter.html" as ms %}
+<div class="modal fade" id="mapTeamModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <form method="post" action="/crm/contacts/team-mapping" class="modal-content" id="mapTeamForm">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+      <input type="hidden" name="mode" id="mapTeamMode" value="single">
+      <div id="mapTeamContactIds"></div>
+      <div class="modal-header py-2">
+        <h5 class="modal-title"><i class="bi bi-people-fill me-2"></i><span id="mapTeamHeader">Map Team</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6">{{ ms.multiselect('bucket_vp_avp', 'VP/AVP', bucket_options['vp_avp'], '', width='') }}</div>
+          <div class="col-md-6">{{ ms.multiselect('bucket_manager', 'Manager', bucket_options['manager'], '', width='') }}</div>
+          <div class="col-md-6">{{ ms.multiselect('bucket_am_dm_gm', 'AM/DM/GM', bucket_options['am_dm_gm'], '', width='') }}</div>
+          <div class="col-md-6">{{ ms.multiselect('bucket_executive', 'Executive/Sr Executive', bucket_options['executive'], '', width='') }}</div>
+        </div>
+        <p class="small text-muted mt-3 mb-0" id="mapTeamHint">
+          Leaving a bucket blank clears it for this account.
+        </p>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>Save Team Mapping</button>
+      </div>
+    </form>
+  </div>
+</div>

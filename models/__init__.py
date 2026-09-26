@@ -40,6 +40,8 @@ from .crm import (
     CRMPurchaseOrder, CRMPOLineItem,
     SupplierPayment, CustomerReceipt,
 )
+from .crm_team import CRMContactTeamMember
+from .scrap_for_sale import ScrapForSale
 from .settings import AppSetting
 from .api_key import APIKey
 from .webhook import Webhook

@@ -1750,8 +1750,16 @@ async def trc_production_list(
 CHANGE_ENGINEER_STAGES = [
     (DeviceStage.l1, STAGE_LABELS[DeviceStage.l1]),
     (DeviceStage.l3, STAGE_LABELS[DeviceStage.l3]),
-    (DeviceStage.trc_production, "TRC Production"),
     (DeviceStage.qc_check, "Stress Test"),
+    # "Cosmetic" targets the first of the 8 combined cosmetic stages
+    # (cosmetic_received) — same simplification already used for L1/L2 (->
+    # DeviceStage.l1) and L3/L4 (-> DeviceStage.l3): one concrete DeviceStage
+    # stands in for the whole grouped phase, since a device's current_stage
+    # is always exactly one enum value, never a bucket.
+    (DeviceStage.cosmetic_received, "Cosmetic"),
+    (DeviceStage.final_qc, STAGE_LABELS[DeviceStage.final_qc]),
+    (DeviceStage.stock_in, STAGE_LABELS[DeviceStage.stock_in]),
+    (DeviceStage.trc_production, "TRC Production"),
 ]
 CHANGE_ENGINEER_STAGE_CODE = {stage: stage.value[:5] for stage, _ in CHANGE_ENGINEER_STAGES}
 

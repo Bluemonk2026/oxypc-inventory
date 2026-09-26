@@ -5,42 +5,60 @@
 {% import "_multiselect_filter.html" as ms %}
 
 <div class="mb-3">
-  <form method="get" class="d-flex gap-2 flex-wrap">
-    <input type="text" name="q" value="{{ q }}" placeholder="Search name, phone, city, state, GST…" class="form-control form-control-sm" style="width:220px">
-    <select name="contact_type" class="form-select form-select-sm" style="width:130px">
-      <option value="">All Types</option>
-      <option value="supplier" {% if contact_type=='supplier' %}selected{% endif %}>Supplier</option>
-      <option value="buyer"    {% if contact_type=='buyer'    %}selected{% endif %}>Buyer</option>
-      <option value="both"     {% if contact_type=='both'     %}selected{% endif %}>Both</option>
-    </select>
-    <select name="source_type" class="form-select form-select-sm" style="width:150px">
-      <option value="">All Source Types</option>
-      {% for val, label in source_types %}
-      <option value="{{ val }}" {% if source_type==val %}selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
-    <select name="buyer_type" class="form-select form-select-sm" style="width:150px">
-      <option value="">All Buyer Types</option>
-      {% for val, label in buyer_types %}
-      <option value="{{ val }}" {% if buyer_type==val %}selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
-    <select name="contacted" class="form-select form-select-sm" style="width:135px">
-      <option value="">All Contacts</option>
-      <option value="yes" {% if contacted=='yes' %}selected{% endif %}>
-        ✅ Contacted
-      </option>
-      <option value="no"  {% if contacted=='no'  %}selected{% endif %}>
-        🕐 Not Yet
-      </option>
-    </select>
+  <form method="get" class="d-flex gap-2 flex-wrap align-items-end">
+    <div class="col-auto">
+      <label class="form-label small fw-semibold mb-1">Search</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="Search name, phone, city, state, GST…" class="form-control form-control-sm" style="width:220px">
+    </div>
+    <div class="col-auto">
+      <label class="form-label small fw-semibold mb-1">Account Type</label>
+      <select name="contact_type" class="form-select form-select-sm" style="width:130px">
+        <option value="">All Types</option>
+        <option value="supplier" {% if contact_type=='supplier' %}selected{% endif %}>Supplier</option>
+        <option value="buyer"    {% if contact_type=='buyer'    %}selected{% endif %}>Buyer</option>
+        <option value="both"     {% if contact_type=='both'     %}selected{% endif %}>Both</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label small fw-semibold mb-1">Source Type</label>
+      <select name="source_type" class="form-select form-select-sm" style="width:150px">
+        <option value="">All Source Types</option>
+        {% for val, label in source_types %}
+        <option value="{{ val }}" {% if source_type==val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label small fw-semibold mb-1">Buyer Type</label>
+      <select name="buyer_type" class="form-select form-select-sm" style="width:150px">
+        <option value="">All Buyer Types</option>
+        {% for val, label in buyer_types %}
+        <option value="{{ val }}" {% if buyer_type==val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label small fw-semibold mb-1">Contacted</label>
+      <select name="contacted" class="form-select form-select-sm" style="width:135px">
+        <option value="">All Contacts</option>
+        <option value="yes" {% if contacted=='yes' %}selected{% endif %}>
+          ✅ Contacted
+        </option>
+        <option value="no"  {% if contacted=='no'  %}selected{% endif %}>
+          🕐 Not Yet
+        </option>
+      </select>
+    </div>
     {% if current_user.role.value == 'admin' %}
-    <select name="created_by_filter" class="form-select form-select-sm" style="width:160px" title="Filter by agent who added contact">
-      <option value="">All Agents</option>
-      {% for uname, fname in crm_users %}
-      <option value="{{ uname }}" {% if created_by_filter == uname %}selected{% endif %}>{{ fname }}</option>
-      {% endfor %}
-    </select>
+    <div class="col-auto">
+      <label class="form-label small fw-semibold mb-1">Agent</label>
+      <select name="created_by_filter" class="form-select form-select-sm" style="width:160px" title="Filter by agent who added contact">
+        <option value="">All Agents</option>
+        {% for uname, fname in crm_users %}
+        <option value="{{ uname }}" {% if created_by_filter == uname %}selected{% endif %}>{{ fname }}</option>
+        {% endfor %}
+      </select>
+    </div>
     {% endif %}
     {{ ms.multiselect('f_vp_avp', 'VP/AVP', bucket_options['vp_avp'], f_vp_avp, width='col-auto') }}
     {{ ms.multiselect('f_manager', 'Manager', bucket_options['manager'], f_manager, width='col-auto') }}
@@ -398,7 +416,7 @@
 
 <!-- Team View modal (read-only — opened from the Team column badge) -->
 <div class="modal fade" id="teamViewModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content">
       <div class="modal-header py-2">
         <h6 class="modal-title"><i class="bi bi-person-badge me-2"></i><span id="teamViewCompany"></span> — Team</h6>
@@ -406,7 +424,7 @@
       </div>
       <div class="modal-body p-0">
         <table class="table table-sm mb-0">
-          <thead class="table-light"><tr><th>Name</th><th>Bucket</th></tr></thead>
+          <thead class="table-light"><tr><th>Name</th><th>Designation</th><th>Role</th><th>Bucket</th></tr></thead>
           <tbody id="teamViewBody"></tbody>
         </table>
       </div>
@@ -456,11 +474,58 @@
 
 {% endblock %}
 {% block scripts %}
-{# _multiselect_filter.html's checkboxes need this to actually sync into
-   their hidden input — it's not a global include (base.html doesn't load
-   it), each page using the macro must include it itself. Used here for
-   both the header filter bar and the Map Team modal's bucket pickers. #}
-<script src="/static/js/multiselect-filter.js?v={{ ASSET_VERSION }}"></script>
+<script>
+// _multiselect_filter.html's checkboxes need JS to actually sync into their
+// hidden input — it's not a global include, each page using the macro wires
+// it itself. This page's filter bar wraps (flex-wrap, no overflow-auto), so
+// unlike workid_status/list.html it never clips a normally-positioned
+// dropdown-menu — it can use the same plain approach as devices/list.html
+// (Bootstrap's own default dropdown positioning, no position:fixed/body
+// reparenting) instead of static/js/multiselect-filter.js's escape hatch.
+// That escape hatch computes left/top from getBoundingClientRect() and
+// applies them to an element appended into <body>, but body has `zoom:
+// var(--app-zoom)` (0.9, see app.css) applied — since the appended menu is
+// also inside that zoomed body, the zoom gets compounded a second time and
+// the menu renders offset from (and can overlap) neighboring dropdowns.
+// Letting Bootstrap position the menu in its normal DOM location avoids the
+// double-zoom entirely, same reason devices/list.html's filters never had
+// this problem.
+(function () {
+  function sync(wrap) {
+    var name = wrap.getAttribute('data-ms');
+    var boxes = wrap.querySelectorAll('.ms-opt');
+    var picked = [];
+    boxes.forEach(function (b) { if (b.checked) picked.push(b.value); });
+    document.getElementById('ms_val_' + name).value = picked.join(',');
+    var label = wrap.querySelector('.ms-label');
+    label.textContent = picked.length
+      ? picked.length + ' selected'
+      : label.getAttribute('data-all') || label.textContent;
+  }
+  document.querySelectorAll('.ms-filter').forEach(function (wrap) {
+    var label = wrap.querySelector('.ms-label');
+    if (!label.getAttribute('data-all') && !wrap.querySelectorAll('.ms-opt:checked').length) {
+      label.setAttribute('data-all', label.textContent.trim());
+    } else if (!label.getAttribute('data-all')) {
+      label.setAttribute('data-all', 'All');
+    }
+    wrap.addEventListener('change', function (e) {
+      if (e.target.classList.contains('ms-opt')) sync(wrap);
+    });
+    wrap.querySelector('.ms-all').addEventListener('click', function () {
+      wrap.querySelectorAll('.ms-opt').forEach(function (b) { b.checked = true; });
+      sync(wrap);
+    });
+    wrap.querySelector('.ms-none').addEventListener('click', function () {
+      wrap.querySelectorAll('.ms-opt').forEach(function (b) { b.checked = false; });
+      sync(wrap);
+    });
+    wrap.querySelector('.dropdown-menu').addEventListener('click', function (e) {
+      e.stopPropagation();
+    });
+  });
+})();
+</script>
 <script>
 // col index (edit perm): 0=Checkbox,1=Company,2=Type,3=Category,4=Locations,5=Contacts,6=KYC,7=Team,8=Notes(hidden),9=Created By,10=Status,11=Actions
 // col index (no edit perm, no checkbox column): 0=Company,1=Type,2=Category,3=Locations,4=Contacts,5=KYC,6=Team,7=Notes(hidden),8=Created By,9=Status,10=Actions
@@ -560,11 +625,12 @@ function wireContactsPageModals() {
         var rows = [];
         Object.keys(BUCKET_LABELS).forEach(function (bucket) {
           (tm[bucket] || []).forEach(function (m) {
-            rows.push('<tr><td>' + esc(m.name) + '</td><td>' + esc(BUCKET_LABELS[bucket]) + '</td></tr>');
+            rows.push('<tr><td>' + esc(m.name) + '</td><td>' + esc(m.designation || '—') + '</td><td>' +
+                       esc(m.role || '—') + '</td><td>' + esc(BUCKET_LABELS[bucket]) + '</td></tr>');
           });
         });
         document.getElementById('teamViewBody').innerHTML = rows.join('') ||
-          '<tr><td colspan="2" class="text-muted text-center py-3">No team mapped.</td></tr>';
+          '<tr><td colspan="4" class="text-muted text-center py-3">No team mapped.</td></tr>';
         teamViewModal.show();
       });
     });

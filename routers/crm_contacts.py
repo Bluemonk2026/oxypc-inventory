@@ -19,7 +19,7 @@ from utils.csv_decode import decode_csv_bytes
 from utils.timezone import app_now
 from services.audit_engine import audit
 from auth.dependencies import get_current_user, verify_csrf, require_module_perm
-from models.user import User, UserRole
+from models.user import User, UserRole, ROLE_LABELS
 from models.crm import (
     CRMContact, CRMContactNumber, CRMContactLocation, CRMSourcingDeal, CRMSalesOpportunity,
     CRMActivity, CRMPurchaseOrder, SOURCE_TYPES, BUYER_TYPES,
@@ -199,14 +199,17 @@ async def list_contacts(
     _contact_ids_scope = [c.id for c in contacts]
     if _contact_ids_scope:
         team_rows = (await db.execute(
-            select(CRMContactTeamMember, User.full_name)
+            select(CRMContactTeamMember, User.full_name, User.designation, User.role)
             .join(User, CRMContactTeamMember.user_id == User.id)
             .where(CRMContactTeamMember.contact_id.in_(_contact_ids_scope))
         )).all()
-        for member, full_name in team_rows:
+        for member, full_name, designation, role in team_rows:
             _cid = str(member.contact_id)
             team_map.setdefault(_cid, {b: [] for b in ROLE_BUCKETS})
-            team_map[_cid][member.role_bucket].append({"id": str(member.user_id), "name": full_name})
+            team_map[_cid][member.role_bucket].append({
+                "id": str(member.user_id), "name": full_name,
+                "designation": designation or "—", "role": ROLE_LABELS.get(role, role),
+            })
 
     # Trashed contacts (always full list, no filters)
     trashed_result = await db.execute(
@@ -673,8 +676,7 @@ async def _team_mapping_reference_rows(db: AsyncSession) -> list:
             if u.id in seen:
                 continue
             seen.add(u.id)
-            role_val = u.role.value if hasattr(u.role, "value") else str(u.role)
-            reference.append({"full_name": u.full_name, "role": role_val, "designation": u.designation or ""})
+            reference.append({"full_name": u.full_name, "role": u.role_label, "designation": u.designation or ""})
     return reference
 
 

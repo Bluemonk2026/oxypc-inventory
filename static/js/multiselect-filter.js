@@ -5,6 +5,20 @@
 // signature. Clicking inside the menu must not close it — the whole point
 // is ticking several boxes before searching.
 (function () {
+  // app.css sets `zoom: var(--app-zoom)` (0.9) on <body> for its compact-UI
+  // scale. getBoundingClientRect() on the toggle already returns the final,
+  // post-zoom viewport position — but the menu we're about to position is
+  // ALSO appended into that same zoomed <body>, so Chromium re-applies the
+  // zoom to its own left/top a second time (e.g. left:439px renders at
+  // 439*0.9=395px). Dividing by the zoom factor before assigning left/top
+  // cancels that second application out. Confirmed empirically: with zoom
+  // active, an unadjusted menu opened ~10% up-and-left of its own toggle —
+  // "flying onto another dropdown" for filter bars with several toggles in
+  // a row, since 10% of the row width lands roughly on the neighboring one.
+  function zoomFactor() {
+    var v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-zoom'));
+    return v > 0 ? v : 1;
+  }
   function sync(wrap, menu) {
     var name = wrap.getAttribute('data-ms');
     var boxes = menu.querySelectorAll('.ms-opt');
@@ -33,12 +47,13 @@
       window.bootstrap.Dropdown.getOrCreateInstance(toggle, { display: 'static' });
       toggle.addEventListener('show.bs.dropdown', function () {
         var r = toggle.getBoundingClientRect();
+        var z = zoomFactor();
         menu.style.position = 'fixed';
         menu.style.margin = '0';
-        menu.style.left = r.left + 'px';
-        menu.style.top = (r.bottom + 2) + 'px';
-        menu.style.width = r.width + 'px';
-        menu.style.minWidth = r.width + 'px';
+        menu.style.left = (r.left / z) + 'px';
+        menu.style.top = ((r.bottom + 2) / z) + 'px';
+        menu.style.width = (r.width / z) + 'px';
+        menu.style.minWidth = (r.width / z) + 'px';
         document.body.appendChild(menu);
       });
       toggle.addEventListener('hidden.bs.dropdown', function () {

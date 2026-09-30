@@ -207,7 +207,13 @@ async def device_asset_history(barcode: str, db: AsyncSession = Depends(get_db),
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 async def _build_location_map(db: AsyncSession, device_ids: list) -> dict:
-    """Return {str(device_id): {unit_id, action, actor_name}} for a batch of devices."""
+    """Return {str(device_id): {unit_id, zone, slot, action, actor_name}} for a batch of devices.
+
+    `zone` and `slot` are carried alongside `unit_id` (rather than a separate
+    map) so every existing caller that only reads `unit_id` keeps working
+    unchanged, while callers that also need the bin (`slot`) or zone — the
+    Zone export column and the All Inventory Bin badge — can read them off
+    the same dict without a second query."""
     if not device_ids:
         return {}
     try:
@@ -227,6 +233,8 @@ async def _build_location_map(db: AsyncSession, device_ids: list) -> dict:
             DeviceLocationLog.device_id,
             StorageLocation.id,
             StorageLocation.unit_id,
+            StorageLocation.zone,
+            StorageLocation.slot,
             DeviceLocationLog.action,
             DeviceLocationLog.actor_name,
         )
@@ -238,10 +246,12 @@ async def _build_location_map(db: AsyncSession, device_ids: list) -> dict:
         .where(DeviceLocationLog.device_id.in_(uuid_ids))
     )
     loc_map = {}
-    for device_id, location_id, unit_id, action, actor_name in rows.all():
+    for device_id, location_id, unit_id, zone, slot, action, actor_name in rows.all():
         loc_map[str(device_id)] = {
             "location_id": location_id,
             "unit_id": unit_id,
+            "zone": zone,
+            "slot": slot,
             "action": action.value if action else None,
             "actor_name": actor_name,
         }
@@ -496,18 +506,21 @@ async def device_search_data(
     # device.location_id as a fallback for a device assigned only via Edit
     # Device's dropdown and never through that flow. Reading device.location_id
     # alone here previously showed nothing for the normal-path assignment.
+    # Each value is (unit_id, slot) so the Bin badge below can render the
+    # StorageLocation's bin (slot) alongside the Location ID without a
+    # second per-row lookup.
     location_map = {}
     if device_ids:
         log_map = await _build_location_map(db, device_ids)
-        location_map = {did: v["unit_id"] for did, v in log_map.items() if v.get("unit_id")}
+        location_map = {did: (v["unit_id"], v.get("slot")) for did, v in log_map.items() if v.get("unit_id")}
         missing = [d for d in device_ids if str(d) not in location_map]
         if missing:
-            for did, unit_id in (await db.execute(
-                select(Device.id, StorageLocation.unit_id)
+            for did, unit_id, slot in (await db.execute(
+                select(Device.id, StorageLocation.unit_id, StorageLocation.slot)
                 .join(StorageLocation, Device.location_id == StorageLocation.id)
                 .where(Device.id.in_(missing))
             )).all():
-                location_map[str(did)] = unit_id
+                location_map[str(did)] = (unit_id, slot)
 
     stock_price_map, sale_price_map = {}, {}
     if show_pricing and device_ids:
@@ -541,7 +554,10 @@ async def device_search_data(
              f'<div><span class="badge bg-light text-dark border">{esc(d.entity) if d.entity else "—"}</span></div>'),
             (f'<a href="/devices?lot={esc(lot_number)}" class="btn btn-sm py-0 px-2 small text-decoration-none" '
              f'style="background-color:#ffffff;border:1px solid #6C757D;color:#6C757D;">{esc(lot_number)}</a>'),
-            (f'<span class="badge bg-light text-dark border font-monospace">{esc(location_map[str(d.id)])}</span>'
+            (f'<div><span class="badge bg-light text-dark border font-monospace">{esc(location_map[str(d.id)][0])}</span>'
+             + (f'<div><span class="badge bg-secondary-subtle text-secondary border small">Bin: {esc(location_map[str(d.id)][1])}</span></div>'
+                if location_map[str(d.id)][1] else '')
+             + '</div>'
              if str(d.id) in location_map else
              f'<a href="/locations/device/{d.id}" class="btn btn-sm btn-outline-primary py-0 px-2">Assign</a>'),
             esc(d.brand or "—"), esc(d.model or "—"), esc(d.device_type or "—"), esc(d.cpu or "—"),
@@ -1004,7 +1020,7 @@ _EXPORT_HEADER = [
     "Display Panel Cosmetic", "Bezel Frame Cosmetic", "Screen Cosmetic", "Hinge Cosmetic",
     "Touchpad Cosmetic", "Bottom Base Cosmetic", "Palmrest Cosmetic",
     "Device Price", "Grade", "Stage", "Final QC Status", "Stage History",
-    "Location ID", "Warehouse", "Notes", "Created", "Updated",
+    "Location ID", "Zone", "Warehouse", "Notes", "Created", "Updated",
 ]
 
 
@@ -1095,6 +1111,7 @@ async def _export_rows(db: AsyncSession, rows) -> StreamingResponse:
         # most-recent DeviceLocationLog entry, falling back to the legacy
         # free-text fields when a device has no logged location yet.
         location_display = loc_info.get("unit_id") or device.warehouse or device.floor or ""
+        zone_display = ZONE_LABELS.get(loc_info.get("zone"), "") if loc_info.get("zone") else ""
         row = [
             device.barcode, lot_number, device.grn_number, device.invoice_number, device.entity,
             device.sub_category, device.brand, device.model, device.device_type, device.serial_no,
@@ -1111,7 +1128,7 @@ async def _export_rows(db: AsyncSession, rows) -> StreamingResponse:
             STAGE_LABELS.get(device.current_stage, device.current_stage),
             device.final_qc_status or "",
             _stage_history(device),
-            location_display, device.warehouse, device.notes,
+            location_display, zone_display, device.warehouse, device.notes,
             device.created_at.strftime("%d-%m-%Y %H:%M") if device.created_at else "",
             device.updated_at.strftime("%d-%m-%Y %H:%M") if device.updated_at else "",
         ]

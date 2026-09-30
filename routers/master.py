@@ -50,7 +50,8 @@ ACCORDION_SECTIONS = [
     {
         "id": "inventory", "label": "Inventory & Logistics", "icon": "bi-box-seam",
         "cat_keys": [
-            "floor", "warehouse", "supplier", "data_destruction_method",
+            "floor", "warehouse", "location_zone", "location_unit_type", "supplier",
+            "data_destruction_method",
             "transfer_type", "po_category", "spare_parts_ram_action", "spare_parts_ram_gb",
             "spare_parts_consume_stage", "report_year",
         ],
@@ -207,10 +208,11 @@ PERM_MODULES = [
     ("finance",              "Accounts"),
     ("finance_supplier",     "Supplier Payments"),
     ("finance_customer",     "Customer Receipts"),
+    ("physical_audits",      "Physical Audits"),
     # ── INVENTORY LOCATIONS ────────────────────────────────────────
     ("locations",            "Location Map"),
     ("location_gaps",        "Gap Alerts"),
-    ("location_audit",       "Physical Audit"),
+    ("location_audit",       "Zone Audit"),
     ("location_master",      "Manage Locations"),
     ("location_trash",       "Trash"),
     # ── REPORTS ────────────────────────────────────────────────────
@@ -350,6 +352,8 @@ CATEGORIES = [
     # ── Inventory / Logistics ─────────────────────────────────────
     ("floor",               "Floors / Locations",           "inventory"),
     ("warehouse",           "Warehouses / Zones",           "inventory"),
+    ("location_zone",       "Storage Locations: Zone",      "inventory"),
+    ("location_unit_type",  "Storage Locations: Unit Type", "inventory"),
     ("supplier",            "Suppliers",                    "inventory"),
     ("data_destruction_method", "Data Destruction Methods", "inventory"),
     ("transfer_type",       "Transfers: Transfer Type",     "inventory"),

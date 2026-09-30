@@ -71,7 +71,7 @@
               <input type="text" name="grn_number" class="form-control form-control-sm" placeholder="Leave blank to leave unchanged">
             </div>
           </div>
-          <div class="row g-2 mb-1">
+          <div class="row g-2 mb-2">
             <div class="col-6">
               <label class="form-label small">Location ID</label>
               <select name="location_id" class="form-select form-select-sm">
@@ -82,8 +82,23 @@
               </select>
             </div>
             <div class="col-6">
+              <label class="form-label small">Bin Location</label>
+              <select name="bin_location" class="form-select form-select-sm">
+                <option value="">— Leave unchanged —</option>
+                {% for slot in storage_locations | map(attribute='slot') | select | unique | sort %}
+                <option value="{{ slot }}">{{ slot }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="row g-2 mb-1">
+            <div class="col-6">
               <label class="form-label small">Device Price</label>
               <input type="number" step="0.01" name="device_price" class="form-control form-control-sm" placeholder="Leave blank to leave unchanged">
+            </div>
+            <div class="col-6">
+              <label class="form-label small">Min Selling Price</label>
+              <input type="number" step="0.01" name="min_selling_price" class="form-control form-control-sm" placeholder="Leave blank to leave unchanged">
             </div>
           </div>
           <div class="form-text">Move to Stage moves all selected items to that stage (subject to allowed transitions).</div>

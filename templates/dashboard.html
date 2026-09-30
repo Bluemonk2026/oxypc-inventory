@@ -53,14 +53,16 @@
      filter uses). Narrows the stage breakdown section below, same scope
      Entity already narrows. #}
   {{ ms.multiselect('device_type', 'Device Type', device_type_choices, f_device_type, 'flex-shrink-0 dash-filter-md') }}
-  {# Location ID — same StorageLocation source/pattern as the Change Floor
-     tabs and /transfers list's own Location ID filter. #}
+  {# Zone — narrows to any device whose resolved current location (same
+     DeviceLocationLog-first / Device.location_id-fallback resolution as
+     the Change Floor tabs and /transfers list) sits in a StorageLocation
+     belonging to this zone (models/location.py ZoneType/ZONE_LABELS). #}
   <div class="flex-shrink-0 dash-filter-md">
-    <label class="form-label small fw-semibold mb-1">Location ID</label>
-    <select name="location_id" class="form-select form-select-sm">
-      <option value="">All Locations</option>
-      {% for loc in storage_locations %}
-      <option value="{{ loc.id }}" {% if f_location_id == loc.id | string %}selected{% endif %}>{{ loc.unit_id }} — {{ zone_labels[loc.zone] }}</option>
+    <label class="form-label small fw-semibold mb-1">Zone</label>
+    <select name="zone" class="form-select form-select-sm">
+      <option value="">All Zones</option>
+      {% for z in zone_choices %}
+      <option value="{{ z.value }}" {% if f_zone == z.value %}selected{% endif %}>{{ zone_labels[z] }}</option>
       {% endfor %}
     </select>
   </div>
@@ -230,7 +232,7 @@
       <i class="bi bi-diagram-2 me-1"></i>Split Entity
     </button>
     <button type="button" id="splitLocationToggle" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-geo-alt me-1"></i>Split Location
+      <i class="bi bi-geo-alt me-1"></i>Split Zone
     </button>
     <span class="text-muted small ms-auto">Live counts — click to filter devices</span>
   </div>
@@ -326,8 +328,8 @@
       });
       updateRowWidth();
       locBtn.innerHTML = on
-        ? '<i class="bi bi-geo-alt me-1"></i>Split Location: On'
-        : '<i class="bi bi-geo-alt me-1"></i>Split Location';
+        ? '<i class="bi bi-geo-alt me-1"></i>Split Zone: On'
+        : '<i class="bi bi-geo-alt me-1"></i>Split Zone';
     });
   }
 })();

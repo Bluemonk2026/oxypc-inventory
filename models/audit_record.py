@@ -1,0 +1,99 @@
+import uuid
+from utils.timezone import app_now
+from sqlalchemy import Column, String, DateTime, Date, Integer, ForeignKey, Text, Enum as SAEnum
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from database import Base
+from models.device import DeviceStage, STAGE_LABELS
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Physical Audits — deliberately separate from the older InventoryAudit /
+#  AuditScanItem models (models/location.py), which back the zone/scan-batch
+#  "Physical Audit" tool under Inventory Locations (relabelled "Zone Audit" in
+#  the sidebar so the two features don't read as duplicates). Do not merge.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class AuditRecord(Base):
+    """One row per unique (Report Date, System Stage, System Location)
+    combination. `current_count` is a snapshot — computed live from the
+    Device table — of how many devices matched that stage+location the last
+    time this row was touched; `physical_count` increments by 1 every time a
+    tag audit (AuditRecordItem) is submitted against it."""
+    __tablename__ = "audit_records"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    report_date = Column(Date, nullable=False, index=True)
+    system_stage = Column(SAEnum(DeviceStage, name="devicestage"), nullable=False, index=True)
+    system_location_id = Column(UUID(as_uuid=True), ForeignKey("storage_locations.id"), nullable=True, index=True)
+    current_count = Column(Integer, nullable=False, default=0)
+    physical_count = Column(Integer, nullable=False, default=0)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=app_now)
+    updated_at = Column(DateTime, default=app_now, onupdate=app_now)
+
+    system_location = relationship("StorageLocation", foreign_keys=[system_location_id])
+    items = relationship("AuditRecordItem", back_populates="audit_record", lazy="select")
+
+    @property
+    def difference(self):
+        """current_count - physical_count, computed on read rather than
+        stored — always accurate, never denormalised/stale."""
+        return (self.current_count or 0) - (self.physical_count or 0)
+
+    @property
+    def system_stage_label(self):
+        return STAGE_LABELS.get(self.system_stage, self.system_stage)
+
+
+class AuditRecordItem(Base):
+    """One row per individual Tag Number audited (the "Done" submission),
+    child of AuditRecord. Device fields are denormalised snapshots taken at
+    audit time — Device data can change later and the audit should reflect
+    what was true when it was performed."""
+    __tablename__ = "audit_record_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    audit_record_id = Column(UUID(as_uuid=True), ForeignKey("audit_records.id", ondelete="CASCADE"),
+                              nullable=False, index=True)
+    device_id = Column(UUID(as_uuid=True), ForeignKey("devices.id"), nullable=False, index=True)
+
+    # ── Snapshot at audit time ────────────────────────────────────────────
+    barcode = Column(String(100), nullable=False)
+    lot_number = Column(String(50), nullable=True)
+    brand = Column(String(50), nullable=True)
+    model = Column(String(100), nullable=True)
+    serial_no = Column(String(100), nullable=True)
+
+    system_stage = Column(SAEnum(DeviceStage, name="devicestage"), nullable=False)
+    system_location_id = Column(UUID(as_uuid=True), ForeignKey("storage_locations.id"), nullable=True)
+    my_stage = Column(SAEnum(DeviceStage, name="devicestage"), nullable=False)
+    my_location_id = Column(UUID(as_uuid=True), ForeignKey("storage_locations.id"), nullable=True)
+
+    # Who this tag was assigned to/by at audit time. `assigned_by_user_id` is
+    # currently always NULL — see routers/physical_audits.py's module
+    # docstring for why no reliable "who performed the assignment" source
+    # exists on Device today. Column kept per spec for forward compatibility.
+    assigned_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    assigned_to_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
+    notes = Column(Text, nullable=True)
+    audited_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=app_now)
+
+    audit_record = relationship("AuditRecord", back_populates="items")
+    device = relationship("Device", foreign_keys=[device_id])
+    system_location = relationship("StorageLocation", foreign_keys=[system_location_id])
+    my_location = relationship("StorageLocation", foreign_keys=[my_location_id])
+    assigned_by = relationship("User", foreign_keys=[assigned_by_user_id])
+    assigned_to = relationship("User", foreign_keys=[assigned_to_user_id])
+    auditor = relationship("User", foreign_keys=[audited_by_user_id])
+
+    @property
+    def system_stage_label(self):
+        return STAGE_LABELS.get(self.system_stage, self.system_stage)
+
+    @property
+    def my_stage_label(self):
+        return STAGE_LABELS.get(self.my_stage, self.my_stage)

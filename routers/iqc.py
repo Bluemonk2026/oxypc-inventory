@@ -887,6 +887,8 @@ async def iqc_bulk_apply_grade_type(
     grn_number: str = Form(""),
     location_id: str = Form(""),
     device_price: str = Form(""),
+    bin_location: str = Form(""),
+    min_selling_price: str = Form(""),
     cpu: str = Form(""),
     cpu_make: str = Form(""),
     generation: str = Form(""),
@@ -911,7 +913,8 @@ async def iqc_bulk_apply_grade_type(
     _perm2: User = Depends(require_any_additional_perm("edit_devices", "edit_iqc")),
 ):
     """Bulk-apply Device Type, Entity, Grade, Invoice Number, GRN Number,
-    Location ID, Device Price and/or a stage move to a set of devices. Powers
+    Location ID, Device Price, Min Selling Price and/or a stage move to a set
+    of devices. Powers
     the shared Customise modal (_customise_modal.html) on Overall Inventory's
     Tag Number + Lot Based Summary tables (barcodes[] or lot_numbers[]) and
     the Model Based Summary tables on both All Inventory and Inventory
@@ -919,7 +922,14 @@ async def iqc_bulk_apply_grade_type(
     that group). The stage move reuses the same validated-transition engine
     as every other move-device flow in the app (services/control_engine) — a
     barcode whose current stage has no allowed transition to the requested
-    stage is skipped and reported, not silently dropped or force-moved."""
+    stage is skipped and reported, not silently dropped or force-moved.
+
+    `bin_location` refines `location_id`: Location ID picks a rack/unit and
+    Bin Location picks the specific slot within it — together they resolve to
+    one exact StorageLocation row (matched on unit_id + slot), which is what
+    every selected device is reassigned to. Bin Location alone (no Location
+    ID chosen) is rejected rather than guessed at, since a bin/slot value can
+    repeat across different units."""
     return_to = return_to if return_to in _CUSTOMISE_RETURN_PATHS else "/iqc"
 
     barcode_set = {b.strip() for b in barcodes if b and b.strip()}
@@ -954,8 +964,15 @@ async def iqc_bulk_apply_grade_type(
     grn_number = grn_number.strip()
     location_id = location_id.strip()
     device_price = device_price.strip()
+    # bin_location is intentionally excluded from this "is anything selected"
+    # check — it only ever does anything paired with location_id, which is
+    # already covered below, so a submission with bin_location as the only
+    # field set correctly falls through to "select a field to apply".
+    bin_location = bin_location.strip()
+    min_selling_price = min_selling_price.strip()
     if (not device_type.strip() and not entity.strip() and not grade.strip() and not invoice_number.strip()
             and not po_number.strip() and not grn_number and not location_id and not device_price
+            and not min_selling_price
             and not cpu.strip() and not cpu_make.strip()
             and not generation.strip() and not ram_gb.strip() and not storage_gb.strip()
             and not total_ram_count.strip() and not total_ram_size.strip()
@@ -994,6 +1011,15 @@ async def iqc_bulk_apply_grade_type(
             return RedirectResponse(url=f"{return_to}?error=Invalid+device+price+{device_price}",
                                     status_code=302)
 
+    # min_selling_price is a Numeric column — same up-front validation as device_price.
+    new_min_selling_price = None
+    if min_selling_price:
+        try:
+            new_min_selling_price = Decimal(min_selling_price)
+        except InvalidOperation:
+            return RedirectResponse(url=f"{return_to}?error=Invalid+min+selling+price+{min_selling_price}",
+                                    status_code=302)
+
     # location_id is a StorageLocation FK — validate it resolves to a real,
     # active location before touching any device.
     new_location = None
@@ -1004,6 +1030,28 @@ async def iqc_bulk_apply_grade_type(
         new_location = loc_result.scalar_one_or_none()
         if new_location is None:
             return RedirectResponse(url=f"{return_to}?error=Invalid+location", status_code=302)
+
+        if bin_location:
+            # Refine down to the exact bin (StorageLocation row) sharing the
+            # chosen unit_id — Location ID picks the rack, Bin Location picks
+            # the slot within it.
+            bin_result = await db.execute(
+                select(StorageLocation).where(
+                    StorageLocation.unit_id == new_location.unit_id,
+                    StorageLocation.slot == bin_location,
+                )
+            )
+            bin_match = bin_result.scalar_one_or_none()
+            if bin_match is None:
+                return RedirectResponse(
+                    url=f"{return_to}?error=No+bin+{bin_location}+found+under+{new_location.unit_id}",
+                    status_code=302,
+                )
+            new_location = bin_match
+    elif bin_location:
+        return RedirectResponse(
+            url=f"{return_to}?error=Select+a+Location+ID+to+choose+a+Bin", status_code=302
+        )
 
     is_admin = current_user.role.value == "admin"
     for device in devices:
@@ -1021,6 +1069,8 @@ async def iqc_bulk_apply_grade_type(
             device.grn_number = grn_number
         if new_device_price is not None:
             device.device_price = new_device_price
+        if new_min_selling_price is not None:
+            device.min_selling_price = new_min_selling_price
         if new_location is not None:
             db.add(DeviceLocationLog(
                 device_id=device.id, location_id=new_location.id,
@@ -1089,6 +1139,8 @@ async def iqc_bulk_apply_grade_type(
                            "invoice_number": invoice_number or None, "po_number": po_number or None,
                            "grn_number": grn_number or None, "location_id": location_id or None,
                            "device_price": device_price or None,
+                           "min_selling_price": min_selling_price or None,
+                           "bin_location": bin_location or None,
                            "cpu": cpu or None, "cpu_make": cpu_make or None,
                            "generation": generation or None,
                            "ram_gb": ram_gb or None, "storage_gb": storage_gb or None,

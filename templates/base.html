@@ -251,6 +251,16 @@
       {% endif %}
       {% endif %}
 
+      {# ── PHYSICAL AUDITS (new, top-level; distinct from the "Zone Audit"
+         zone/scan-batch tool nested under Inventory Locations below) ────── #}
+      {% if has_perm(role,'physical_audits','enable') and not module_hidden('physical_audits') %}
+      <li class="nav-item">
+        <a href="/audits" class="nav-link {% if request.url.path.startswith('/audits') %}active{% endif %}">
+          <i class="bi bi-clipboard2-check me-2"></i> {{ sidebar_label('physical_audits', 'Physical Audits') }}
+        </a>
+      </li>
+      {% endif %}
+
       {# ── INVENTORY LOCATIONS ──────────────────────────────────────────── #}
       {% set inv_loc_active = '/locations/' in request.url.path or request.url.path.startswith('/trash') %}
       {% if has_perm(role,'locations','enable') and not module_hidden('locations') or has_perm(role,'location_gaps','enable') and not module_hidden('location_gaps') or has_perm(role,'location_audit','enable') and not module_hidden('location_audit') or has_perm(role,'location_master','enable') and not module_hidden('location_master') or has_perm(role,'location_trash','enable') and not module_hidden('location_trash') %}
@@ -275,7 +285,7 @@
             {% endif %}
             {% if has_perm(role,'location_audit','enable') and not module_hidden('location_audit') %}
             <li><a href="/locations/audit" class="nav-link py-1 small {% if '/locations/audit' in request.url.path %}active{% endif %}">
-              <i class="bi bi-clipboard-check me-2"></i> {{ sidebar_label('location_audit', 'Physical Audit') }}
+              <i class="bi bi-clipboard-check me-2"></i> {{ sidebar_label('location_audit', 'Zone Audit') }}
             </a></li>
             {% endif %}
             {% if has_perm(role,'location_master','enable') and not module_hidden('location_master') %}

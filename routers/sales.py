@@ -74,8 +74,11 @@ async def ready_list_barcodes(
     full row HTML per device.
     """
     barcodes = (await db.execute(
-        select(Device.barcode).where(Device.current_stage == DeviceStage.ready_to_sale,
-                                      Device.is_trashed == False)
+        select(Device.barcode).where(
+            Device.current_stage == DeviceStage.ready_to_sale,
+            Device.is_trashed == False,
+            or_(Device.sub_lot_number.is_(None), Device.sub_lot_number == ""),
+        )
     )).scalars().all()
     return {"barcodes": [b for b in barcodes if b]}
 
@@ -105,13 +108,18 @@ async def ready_list_data(
     role = getattr(current_user.role, "value", current_user.role)
     show_pricing = _cvp(role)
 
+    # As-Is sub-lot devices (non-empty sub_lot_number) are locked to the As-Is
+    # Lot table until released via "Open Tag" — excluded here so they never
+    # also show in the Tag Table while still grouped.
+    not_as_is = or_(Device.sub_lot_number.is_(None), Device.sub_lot_number == "")
+
     base = (
         select(Device, Lot.lot_number, Lot.buying_price, Lot.qty, Lot.selling_price)
         .join(Lot, Device.lot_id == Lot.id)
-        .where(Device.current_stage == DeviceStage.ready_to_sale, Device.is_trashed == False)
+        .where(Device.current_stage == DeviceStage.ready_to_sale, Device.is_trashed == False, not_as_is)
     )
     count_q = select(func.count()).select_from(Device).where(
-        Device.current_stage == DeviceStage.ready_to_sale, Device.is_trashed == False)
+        Device.current_stage == DeviceStage.ready_to_sale, Device.is_trashed == False, not_as_is)
     total = (await db.execute(count_q)).scalar() or 0
 
     search = (request.query_params.get("search[value]") or "").strip()
@@ -127,7 +135,7 @@ async def ready_list_data(
         filtered_q = (
             select(func.count()).select_from(Device).join(Lot, Device.lot_id == Lot.id)
             .where(Device.current_stage == DeviceStage.ready_to_sale, Device.is_trashed == False,
-                   *search_filters)
+                   not_as_is, *search_filters)
         )
         filtered = (await db.execute(filtered_q)).scalar() or 0
     else:
@@ -477,6 +485,43 @@ async def set_as_is_lot_price(
                 request=request)
     await db.commit()
     return RedirectResponse(url="/sales/ready?success=Selling+price+updated", status_code=302)
+
+
+@router.post("/sales/ready/as-is-lot/open")
+async def open_as_is_lot(
+    request: Request,
+    lot_id: str = Form(...),
+    sub_lot_number: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Ready to Sale As-Is Lot table's Open Tag action — releases every device
+    sharing this (Lot, Sub-Lot) pair back into the plain Tag Table by clearing
+    Device.sub_lot_number. Cleared for the WHOLE sub-lot group regardless of
+    current_stage (not just ready_to_sale), same scope as
+    set_as_is_lot_price's bulk write, so nothing is left half-released."""
+    try:
+        lid = _uuid.UUID(lot_id)
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "Invalid lot"}, status_code=400)
+    sub_lot = sub_lot_number.strip()
+    if not sub_lot:
+        return JSONResponse({"ok": False, "error": "Missing Sub-Lot Number"}, status_code=400)
+
+    result = await db.execute(
+        update(Device).where(Device.lot_id == lid, Device.sub_lot_number == sub_lot,
+                              Device.is_trashed == False)
+        .values(sub_lot_number=None)
+    )
+    if not result.rowcount:
+        return JSONResponse({"ok": False, "error": "No tags found for this Sub-Lot"}, status_code=404)
+
+    await audit(db, user=current_user, action="AS_IS_LOT_OPENED",
+                table_name="devices", record_id=f"{lot_id}:{sub_lot}",
+                new_value={"sub_lot_number": None, "tags_released": result.rowcount},
+                request=request)
+    await db.commit()
+    return JSONResponse({"ok": True, "tags_released": result.rowcount})
 
 
 @router.post("/sales/ready/set-price")

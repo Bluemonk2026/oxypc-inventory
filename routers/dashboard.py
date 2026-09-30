@@ -20,7 +20,7 @@ from models.sales import Sale
 from models.spare_parts import SparePart, SparePartConsumption
 from models.dealers import Dealer, DealerOrder, DealerCreditNote, DealerCall
 from models.crm import CRMActivity, CRMContact, CRMPurchaseOrder, CRMSourcingDeal
-from models.location import StorageLocation, ZONE_LABELS, DeviceLocationLog
+from models.location import StorageLocation, ZoneType, ZONE_LABELS, DeviceLocationLog
 from models.parts_grn import PartsGRN, PartsGRNLineItem
 from models.part_request import PartSourcingRequest
 from models.cost_config import CostConfig
@@ -87,9 +87,12 @@ async def dashboard(
     # separate Form Factor concept, see routers/devices.py's own device_type
     # filter for the same source).
     device_type: str = Query(default=""),
-    # Location ID filter — same StorageLocation source/pattern as the
-    # Change Floor tabs (templates/transfers/form.html) and /transfers list.
-    location_id: str = Query(default=""),
+    # Zone filter — narrows to any device whose resolved current location
+    # (see the DeviceLocationLog-first / Device.location_id-fallback
+    # resolution below) sits in a StorageLocation belonging to this zone
+    # (models.location.ZoneType). Replaces the old single-location "Location
+    # ID" filter, which was too granular for a dashboard-level view.
+    zone: str = Query(default=""),
     year: int = Query(default=None),
 ):
     today = app_now().date()
@@ -116,12 +119,12 @@ async def dashboard(
     device_type_vals = [d.strip() for d in (device_type or "").split(",") if d.strip()]
     _dtype = [Device.device_type.in_(device_type_vals)] if device_type_vals else []
 
-    loc_uuid = None
-    if location_id:
+    zone_val = None
+    if zone:
         try:
-            loc_uuid = uuid.UUID(location_id)
+            zone_val = ZoneType(zone)
         except ValueError:
-            loc_uuid = None
+            zone_val = None
     # Device.location_id is essentially unpopulated for real devices (only a
     # handful of records ever get it set directly) — every page that shows a
     # device's actual current Location ID reads it from the LATEST
@@ -129,9 +132,12 @@ async def dashboard(
     # when no log exists at all (see _build_location_map in routers/devices.py
     # and the same fix applied to Transfers). Filtering on the raw column
     # alone is why this filter looked like it did nothing — it matched almost
-    # no rows regardless of which location was picked.
+    # no rows regardless of which location was picked. Same resolution
+    # approach here, just matched against any StorageLocation belonging to
+    # the selected zone rather than one specific location id.
     _loc = []
-    if loc_uuid:
+    if zone_val:
+        _zone_location_ids = select(StorageLocation.id).where(StorageLocation.zone == zone_val)
         _latest_log_ts = (
             select(DeviceLocationLog.device_id,
                    func.max(DeviceLocationLog.logged_at).label("latest"))
@@ -148,10 +154,10 @@ async def dashboard(
         )
         _loc = [or_(
             Device.id.in_(select(_latest_log.c.device_id)
-                          .where(_latest_log.c.location_id == loc_uuid)),
+                          .where(_latest_log.c.location_id.in_(_zone_location_ids))),
             and_(
                 ~Device.id.in_(select(_latest_log.c.device_id)),
-                Device.location_id == loc_uuid,
+                Device.location_id.in_(_zone_location_ids),
             ),
         )]
     # Keyed off the raw parsed inputs, not _ent (which is now never empty —
@@ -307,10 +313,10 @@ async def dashboard(
         return ordered
 
     # Same "latest DeviceLocationLog row, falling back to Device.location_id
-    # only when no log exists at all" resolution as the Location ID filter
-    # (_loc) above, but unconditional/unfiltered by any specific location —
-    # a separate subquery so this doesn't disturb that already-working filter.
-    # Used only for the Split Location per-stage breakdown below.
+    # only when no log exists at all" resolution as the Zone filter (_loc)
+    # above, but unconditional/unfiltered by any specific zone — a separate
+    # subquery so this doesn't disturb that already-working filter.
+    # Used only for the Split Zone per-stage breakdown below.
     _loc_latest_ts = (
         select(DeviceLocationLog.device_id,
                func.max(DeviceLocationLog.logged_at).label("latest"))
@@ -327,6 +333,13 @@ async def dashboard(
     )
     _resolved_location_id = func.coalesce(_loc_latest.c.location_id, Device.location_id)
 
+    # Split Zone breakdown — the SQL still groups by resolved location id
+    # (cheapest way to reuse the DeviceLocationLog-first/Device.location_id-
+    # fallback resolution above), then the per-location counts are rolled up
+    # into per-zone counts in Python via _zone_by_location_id (built just
+    # below, inside the pipeline try block). Now that the primary filter
+    # (_loc) is zone-based rather than location-based, this breakdown
+    # matches it.
     async def _pipe_count_by_location(*where):
         rows = (await db.execute(
             select(_resolved_location_id, func.count(Device.id))
@@ -339,7 +352,8 @@ async def dashboard(
         for loc_id, cnt in rows:
             if not cnt:
                 continue
-            label = _loc_label_by_id.get(str(loc_id), "Unassigned") if loc_id else "Unassigned"
+            zone_of_loc = _zone_by_location_id.get(str(loc_id)) if loc_id else None
+            label = ZONE_LABELS.get(zone_of_loc, getattr(zone_of_loc, "value", zone_of_loc)) if zone_of_loc else "Unassigned"
             counts[label] = counts.get(label, 0) + cnt
         return dict(sorted(counts.items()))
 
@@ -350,6 +364,37 @@ async def dashboard(
     # Order follows DeviceStage's own declaration order (grn, iqc, ..., l3,
     # trc_production, qc_check, ...) — IQC and Production are new additions
     # slotted into that same sequence rather than tacked on at the end.
+    #
+    # 2026-09-30 count-sync verification: each tile's link in dashboard.html
+    # (~line 244) is the actual destination page whose own count this
+    # _pipe_count() should match. Checked every one of them against this
+    # module's own filter (is_trashed==False, *_ent, *_dtype, *_loc, plus the
+    # step's own stage clause):
+    #   - iqc / stock_in / production / l1l2 / qc_check / cosmetic /
+    #     final_qc / ready_to_sale / sold all link to `/devices?stage=...`
+    #     (routers/devices.py's Inventory Search list, via _device_search_filters
+    #     + the /data DataTables feed's `total`). That page applies the exact
+    #     same is_trashed==False and default EXTERNAL_PARTNER_TEST_ENTITY
+    #     exclusion (byte-for-byte identical NULL-safe `or_` clause) as _ent
+    #     above, has NO is_active check at all, and its "Active Stock Only"
+    #     default-on exclusion (grn/sold/returned/scrapped/scrap_for_sale)
+    #     never actually removes anything for these queries — the stage each
+    #     tile requests is either outside that excluded set already, or (for
+    #     "sold") is explicitly selected and therefore carved back out of the
+    #     exclusion. Net result: _pipe_count() already matches these 9 tiles'
+    #     destination pages exactly. No per-step filter override was needed
+    #     or added.
+    #   - "grn" links to /grn/post-iqc and is intentionally a different kind
+    #     of count (has-a-GRN, not current_stage==grn) — left as-is per
+    #     design, not touched.
+    #   - "l3l4" links to /repair/l3l4, which counts open `L3L4-%` WorkOrders
+    #     joined to Device (not a plain current_stage==l3 match), has no
+    #     entity/is_active filtering of its own, and — for non-admin/non-
+    #     "full queue" roles — further restricts to WorkOrder.assigned_user_id
+    #     == the *viewing* user. That last part makes it impossible for a
+    #     single dashboard-wide count to replicate exactly (it depends on who
+    #     is looking, not just device state). Left unchanged and flagged
+    #     here rather than guessed at.
     PIPELINE_STEPS = [
         ("grn", [Device.grn_number.isnot(None), Device.grn_number != "",
                  Device.is_active == True]),
@@ -376,8 +421,10 @@ async def dashboard(
         pipeline_counts, pipeline_by_entity, pipeline_by_location = _AGG_CACHE["pipeline"]
     else:
         try:
-            _loc_label_by_id = {
-                str(loc.id): f"{loc.unit_id} — {ZONE_LABELS.get(loc.zone, loc.zone.value)}"
+            # Maps a resolved location id -> its ZoneType, for the Split Zone
+            # breakdown in _pipe_count_by_location above.
+            _zone_by_location_id = {
+                str(loc.id): loc.zone
                 for loc in (await db.execute(select(StorageLocation))).scalars().all()
             }
             pipeline_counts = {}
@@ -1156,8 +1203,9 @@ async def dashboard(
         "device_type_choices": device_type_choices,
         "f_device_type": device_type,
         "storage_locations": storage_locations,
+        "zone_choices": list(ZoneType),
         "zone_labels": ZONE_LABELS,
-        "f_location_id": location_id,
+        "f_zone": zone,
         "stage_filter": stage_filter,
         "pl_from": pl_from,
         "pl_to": pl_to,

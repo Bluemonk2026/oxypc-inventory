@@ -1,0 +1,348 @@
+{% extends "base.html" %}
+{% block title %}Physical Audits — OxyPC{% endblock %}
+{% block page_title %}Physical Audits{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+
+  <!-- Perform Audit -->
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">
+        <i class="bi bi-clipboard2-check me-2"></i>Perform Audit
+      </div>
+      <div class="card-body">
+        <div id="auditSuccessMsg" class="alert alert-success py-2 small d-none">
+          <i class="bi bi-check-circle me-1"></i>Tag audited. Ready for the next one.
+        </div>
+        <div id="auditLookupError" class="alert alert-danger py-2 small d-none"></div>
+
+        <div class="row g-3 align-items-end">
+          <div class="col-md-2">
+            <label class="form-label fw-semibold small">Report Date</label>
+            <input type="date" id="auditReportDate" class="form-control" value="{{ today }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold small">Tag Number</label>
+            <input type="text" id="auditBarcodeInput" class="form-control" placeholder="Scan or type a tag number">
+          </div>
+          <div class="col-md-2">
+            <button type="button" id="auditLookupBtn" class="btn btn-outline-primary w-100">
+              <i class="bi bi-search me-1"></i>Lookup
+            </button>
+          </div>
+        </div>
+
+        <!-- Apply panel: shown once a tag is found -->
+        <div id="auditApplyPanel" class="d-none mt-4">
+          <div class="fw-semibold mb-2" id="auditDeviceLabel"></div>
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label small text-muted">System Stage</label>
+              <div class="fw-semibold" id="auditSysStage">—</div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small text-muted">System Location</label>
+              <div class="fw-semibold" id="auditSysLocation">—</div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small text-muted">Assigned To</label>
+              <div class="fw-semibold" id="auditAssignedTo">—</div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small text-muted">Assigned By</label>
+              <div class="fw-semibold" id="auditAssignedBy">—</div>
+            </div>
+          </div>
+          <hr>
+          <div class="row g-3 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold small">My Stage</label>
+              <select id="auditMyStage" class="form-select">
+                {% for val, label in stage_options %}
+                <option value="{{ val }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold small">My Location</label>
+              <select id="auditMyLocation" class="form-select">
+                <option value="">— No Location —</option>
+                {% for loc in location_options %}
+                <option value="{{ loc.id }}">{{ loc.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <button type="button" id="auditApplyBtn" class="btn btn-primary w-100">
+                <i class="bi bi-check2-square me-1"></i>Apply
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Confirmation panel: shown after Apply -->
+        <div id="auditConfirmPanel" class="d-none mt-4">
+          <div class="card bg-light border-0">
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-md-3">
+                  <div class="text-muted small">My Stage</div>
+                  <div class="fw-semibold" id="cf_my_stage">—</div>
+                </div>
+                <div class="col-md-3">
+                  <div class="text-muted small">My Location</div>
+                  <div class="fw-semibold" id="cf_my_location">—</div>
+                </div>
+                <div class="col-md-3">
+                  <div class="text-muted small">System Stage</div>
+                  <div class="fw-semibold" id="cf_sys_stage">—</div>
+                </div>
+                <div class="col-md-3">
+                  <div class="text-muted small">System Location</div>
+                  <div class="fw-semibold" id="cf_sys_location">—</div>
+                </div>
+                <div class="col-md-3">
+                  <div class="text-muted small">Assigned By</div>
+                  <div class="fw-semibold" id="cf_assigned_by">—</div>
+                </div>
+                <div class="col-md-3">
+                  <div class="text-muted small">Assigned To</div>
+                  <div class="fw-semibold" id="cf_assigned_to">—</div>
+                </div>
+                <div class="col-md-3">
+                  <div class="text-muted small">Report Date</div>
+                  <div class="fw-semibold" id="cf_report_date">—</div>
+                </div>
+              </div>
+              <div class="mt-3">
+                <button type="button" id="auditDoneBtn" class="btn btn-success">
+                  <i class="bi bi-check-lg me-1"></i>Done
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Audit Records -->
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <span class="fw-semibold"><i class="bi bi-table me-2"></i>Audit Records</span>
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+          <input type="date" id="auditRecordsDateFilter" class="form-control form-control-sm" style="width:auto">
+          <button type="button" id="auditExportStageBtn" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-download me-1"></i>Stage Summary
+          </button>
+          <button type="button" id="auditExportLocationBtn" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-download me-1"></i>Location Summary
+          </button>
+          <button type="button" id="auditExportTagsBtn" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-download me-1"></i>Tags Summary
+          </button>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover table-sm mb-0" id="auditRecordsTable">
+            <thead class="table-light">
+              <tr>
+                <th>Report Date</th>
+                <th>System Stage</th>
+                <th>System Location</th>
+                <th>Current Count</th>
+                <th>Physical Count</th>
+                <th>Difference</th>
+                <th>Notes</th>
+                <th>Download</th>
+                <th>Delete</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function auditCsrfToken() {
+  var m = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
+var auditCurrentLookup = null;
+
+function auditDoLookup() {
+  var bc = document.getElementById('auditBarcodeInput').value.trim();
+  var err = document.getElementById('auditLookupError');
+  err.classList.add('d-none');
+  document.getElementById('auditApplyPanel').classList.add('d-none');
+  document.getElementById('auditConfirmPanel').classList.add('d-none');
+  if (!bc) return;
+  fetch('/audits/lookup?barcode=' + encodeURIComponent(bc), { credentials: 'same-origin' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.found) {
+        err.textContent = d.error || 'Tag not found.';
+        err.classList.remove('d-none');
+        auditCurrentLookup = null;
+        return;
+      }
+      auditCurrentLookup = d;
+      document.getElementById('auditDeviceLabel').textContent =
+        d.barcode + ' — ' + d.brand + ' ' + d.model + (d.serial_no && d.serial_no !== '—' ? ' (' + d.serial_no + ')' : '');
+      document.getElementById('auditSysStage').textContent = d.system_stage_label || '—';
+      document.getElementById('auditSysLocation').textContent = d.system_location_label || '—';
+      document.getElementById('auditAssignedTo').textContent = d.assigned_to_label || '—';
+      document.getElementById('auditAssignedBy').textContent = d.assigned_by_label || '—';
+      var stageSel = document.getElementById('auditMyStage');
+      if (d.system_stage) stageSel.value = d.system_stage;
+      document.getElementById('auditMyLocation').value = d.system_location_id || '';
+      document.getElementById('auditApplyPanel').classList.remove('d-none');
+    })
+    .catch(function () {
+      err.textContent = 'Lookup failed — please try again.';
+      err.classList.remove('d-none');
+    });
+}
+document.getElementById('auditLookupBtn').addEventListener('click', auditDoLookup);
+document.getElementById('auditBarcodeInput').addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') { e.preventDefault(); auditDoLookup(); }
+});
+
+document.getElementById('auditApplyBtn').addEventListener('click', function () {
+  if (!auditCurrentLookup) return;
+  var stageSel = document.getElementById('auditMyStage');
+  var locSel = document.getElementById('auditMyLocation');
+  if (!stageSel.value) { alert('Select My Stage.'); return; }
+  document.getElementById('cf_my_stage').textContent = stageSel.options[stageSel.selectedIndex].text;
+  document.getElementById('cf_my_location').textContent = locSel.value ? locSel.options[locSel.selectedIndex].text : '—';
+  document.getElementById('cf_sys_stage').textContent = auditCurrentLookup.system_stage_label || '—';
+  document.getElementById('cf_sys_location').textContent = auditCurrentLookup.system_location_label || '—';
+  document.getElementById('cf_assigned_by').textContent = auditCurrentLookup.assigned_by_label || '—';
+  document.getElementById('cf_assigned_to').textContent = auditCurrentLookup.assigned_to_label || '—';
+  document.getElementById('cf_report_date').textContent = document.getElementById('auditReportDate').value;
+  document.getElementById('auditConfirmPanel').classList.remove('d-none');
+});
+
+document.getElementById('auditDoneBtn').addEventListener('click', function () {
+  if (!auditCurrentLookup) return;
+  var btn = this;
+  var fd = new FormData();
+  fd.append('csrf_token', auditCsrfToken());
+  fd.append('report_date', document.getElementById('auditReportDate').value);
+  fd.append('barcode', auditCurrentLookup.barcode);
+  fd.append('my_stage', document.getElementById('auditMyStage').value);
+  fd.append('my_location_id', document.getElementById('auditMyLocation').value);
+  btn.disabled = true;
+  fetch('/audits/submit', { method: 'POST', body: fd, credentials: 'same-origin' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      btn.disabled = false;
+      if (!d.ok) { alert(d.error || 'Could not submit audit.'); return; }
+      document.getElementById('auditBarcodeInput').value = '';
+      document.getElementById('auditApplyPanel').classList.add('d-none');
+      document.getElementById('auditConfirmPanel').classList.add('d-none');
+      auditCurrentLookup = null;
+      var msg = document.getElementById('auditSuccessMsg');
+      msg.classList.remove('d-none');
+      setTimeout(function () { msg.classList.add('d-none'); }, 2500);
+      document.getElementById('auditBarcodeInput').focus();
+      if (window.auditRecordsDt) window.auditRecordsDt.ajax.reload(null, false);
+    })
+    .catch(function () { btn.disabled = false; alert('Could not submit audit.'); });
+});
+
+// ── Audit Records table ─────────────────────────────────────────────────────
+$(function () {
+  window.auditRecordsDt = $('#auditRecordsTable').DataTable({
+    pageLength: 15,
+    order: [[0, 'desc']],
+    ajax: {
+      url: '/audits/records',
+      data: function (d) { d.report_date = document.getElementById('auditRecordsDateFilter').value; },
+      dataSrc: 'data',
+    },
+    columns: [
+      { data: 'report_date' },
+      { data: 'system_stage' },
+      { data: 'system_location' },
+      { data: 'current_count' },
+      { data: 'physical_count' },
+      { data: 'difference' },
+      {
+        data: 'notes', orderable: false,
+        render: function (data, type, row) {
+          if (type !== 'display') return data;
+          var val = (data || '').replace(/"/g, '&quot;');
+          return '<input type="text" class="form-control form-control-sm audit-notes-input" ' +
+                 'data-id="' + row.id + '" value="' + val + '">';
+        },
+      },
+      {
+        data: null, orderable: false,
+        render: function (data, type, row) {
+          return '<a class="btn btn-sm btn-outline-secondary" href="/audits/records/' + row.id + '/download">' +
+                 '<i class="bi bi-download"></i></a>';
+        },
+      },
+      {
+        data: null, orderable: false,
+        render: function (data, type, row) {
+          return '<button type="button" class="btn btn-sm btn-outline-danger audit-delete-btn" data-id="' + row.id + '">' +
+                 '<i class="bi bi-trash3"></i></button>';
+        },
+      },
+    ],
+  });
+
+  document.getElementById('auditRecordsDateFilter').addEventListener('change', function () {
+    window.auditRecordsDt.ajax.reload();
+  });
+
+  $('#auditRecordsTable').on('change', '.audit-notes-input', function () {
+    var id = $(this).data('id'), val = $(this).val();
+    var fd = new FormData();
+    fd.append('csrf_token', auditCsrfToken());
+    fd.append('notes', val);
+    fetch('/audits/records/' + id + '/notes', { method: 'POST', body: fd, credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { if (!d.ok) alert(d.error || 'Could not save the note.'); })
+      .catch(function () { alert('Could not save the note.'); });
+  });
+
+  $('#auditRecordsTable').on('click', '.audit-delete-btn', function () {
+    if (!confirm('Delete this audit record and all its tag items? This cannot be undone.')) return;
+    var id = $(this).data('id');
+    var fd = new FormData();
+    fd.append('csrf_token', auditCsrfToken());
+    fetch('/audits/records/' + id + '/delete', { method: 'POST', body: fd, credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.ok) window.auditRecordsDt.ajax.reload(null, false);
+        else alert(d.error || 'Could not delete.');
+      })
+      .catch(function () { alert('Could not delete.'); });
+  });
+
+  document.getElementById('auditExportStageBtn').addEventListener('click', function () {
+    window.location = '/audits/export/stage-summary';
+  });
+  document.getElementById('auditExportLocationBtn').addEventListener('click', function () {
+    window.location = '/audits/export/location-summary';
+  });
+  document.getElementById('auditExportTagsBtn').addEventListener('click', function () {
+    var d = document.getElementById('auditRecordsDateFilter').value;
+    window.location = '/audits/export/tags-summary' + (d ? ('?report_date=' + encodeURIComponent(d)) : '');
+  });
+});
+</script>
+{% endblock %}

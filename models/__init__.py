@@ -62,3 +62,6 @@ from .care import (
     CareDiagnosticSnapshot, CareOffer, CareOfferDelivery, CareAgentEvent,
     CareAuditLog, CareDispatchException,
 )
+# Physical Audits (Report Date x System Stage x System Location tag audits) —
+# distinct from InventoryAudit/AuditScanItem above (the zone/scan-batch tool)
+from .audit_record import AuditRecord, AuditRecordItem

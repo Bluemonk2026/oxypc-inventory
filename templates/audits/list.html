@@ -12,7 +12,15 @@
         <i class="bi bi-clipboard2-check me-2"></i>Perform Audit
       </div>
       <div class="card-body">
-        <div id="auditSuccessMsg" class="alert alert-success py-2 small d-none">
+        {# no-autohide: this is reused on every Submit (shown + hidden via its
+           own JS, not a one-time flash message) — without it, app.js's global
+           4-second auto-dismiss removes this element from the DOM entirely
+           (bootstrap Alert.close(), not just a hide) before the user ever
+           gets a chance to Submit, so the success handler's own
+           getElementById(...).classList.remove('d-none') throws on a null
+           reference — surfacing as "Could not submit audit." even though the
+           submit itself fully succeeded. #}
+        <div id="auditSuccessMsg" class="alert alert-success py-2 small d-none no-autohide">
           <i class="bi bi-check-circle me-1"></i>Tag audited. Ready for the next one.
         </div>
         <div id="auditLookupError" class="alert alert-danger py-2 small d-none"></div>
@@ -220,8 +228,10 @@ document.getElementById('auditSubmitBtn').addEventListener('click', function () 
       document.getElementById('auditConfirmPanel').classList.add('d-none');
       auditCurrentLookup = null;
       var msg = document.getElementById('auditSuccessMsg');
-      msg.classList.remove('d-none');
-      setTimeout(function () { msg.classList.add('d-none'); }, 2500);
+      if (msg) {
+        msg.classList.remove('d-none');
+        setTimeout(function () { msg.classList.add('d-none'); }, 2500);
+      }
       document.getElementById('auditBarcodeInput').focus();
       if (window.auditRecordsDt) window.auditRecordsDt.ajax.reload(null, false);
     })

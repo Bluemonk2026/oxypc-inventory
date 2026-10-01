@@ -1,0 +1,511 @@
+{% extends "base.html" %}
+{% block title %}Block Tags — OxyPC{% endblock %}
+{% block page_title %}Block Tags{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <span class="fw-semibold"><i class="bi bi-lock me-2"></i>Tags Blocked</span>
+        <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newBlockModal">
+          <i class="bi bi-plus-lg me-1"></i>New Block Tags
+        </button>
+      </div>
+      <div class="card-body">
+        <div id="blockAlert" class="alert alert-success py-2 small d-none no-autohide"></div>
+        <div id="blockErrorAlert" class="alert alert-danger py-2 small d-none"></div>
+
+        {# ── Filter Bar ── #}
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+          <input type="text" id="bfSearch" placeholder="Search Block ID / Tag / Lot / Customer"
+                 class="form-control form-control-sm" style="width:240px">
+          <input type="date" id="bfDate" class="form-control form-control-sm" style="width:150px">
+          <select id="bfContainer" class="form-select form-select-sm" style="width:140px">
+            <option value="">All Containers</option>
+            {% for val, label in container_options %}
+            <option value="{{ val }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+          <select id="bfBlockFor" class="form-select form-select-sm" style="width:170px">
+            <option value="">All Block For</option>
+            {% for u in block_for_options %}
+            <option value="{{ u.id }}">{{ u.label }}</option>
+            {% endfor %}
+          </select>
+          <select id="bfLocation" class="form-select form-select-sm" style="width:150px">
+            <option value="">All Locations</option>
+            {% for val, label in location_options %}
+            <option value="{{ val }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="bfClear">Clear</button>
+        </div>
+
+        {# Moved into the table's own toolbar (before pagination) once the
+           DataTable initializes below — see the $('.gtable-right-toolbar')
+           .prepend(...) call in the script block. Kept server-rendered here
+           rather than JS-authored from scratch, just relocated. #}
+        <div id="blockActionButtons" class="d-flex gap-2 d-none">
+          <button type="button" id="blockExportSelectedBtn" class="btn btn-sm btn-outline-warning" disabled>
+            <i class="bi bi-download me-1"></i>Export Selected
+          </button>
+          <a href="/block-tags/export/all" class="btn btn-sm btn-outline-success">
+            <i class="bi bi-download me-1"></i>Export All CSV
+          </a>
+          <button type="button" id="blockBulkReleaseBtn" class="btn btn-sm btn-outline-primary" disabled>
+            <i class="bi bi-unlock me-1"></i>Bulk Release
+          </button>
+        </div>
+
+        <div class="table-responsive">
+          <table id="blockTable" class="table table-hover mb-0 small">
+            <thead class="table-dark">
+              <tr>
+                <th style="width:36px"><input type="checkbox" id="blockSelectAll" title="Select all matching rows"></th>
+                <th>Block ID</th><th>Block Date</th><th>Container</th><th>Block For</th>
+                <th>Location</th><th>Customer Name</th><th>Tag Number</th><th>Lot Number</th>
+                <th>Model</th><th>CPU</th><th>RAM</th><th>Storage</th><th>Download</th><th>Action</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── New Block Tags modal ── #}
+<div class="modal fade" id="newBlockModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">New Block Tags</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="newBlockError" class="alert alert-danger py-2 small d-none"></div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Search + Select Tags (multiple allowed)</label>
+          <input type="text" id="nbTagSearch" class="form-control" placeholder="Scan or search Tag Number / Model">
+          <div id="nbTagResults" class="list-group mt-1" style="max-height:160px;overflow-y:auto;"></div>
+          <div id="nbTagSelected" class="d-flex flex-wrap gap-1 mt-2"></div>
+        </div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Location</label>
+            <select id="nbLocation" class="form-select">
+              <option value="">— Select —</option>
+              {% for val, label in location_options %}
+              <option value="{{ val }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Container</label>
+            <select id="nbContainer" class="form-select">
+              <option value="">— Select —</option>
+              {% for val, label in container_options %}
+              <option value="{{ val }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Block For</label>
+            <select id="nbBlockFor" class="form-select">
+              <option value="">— Select —</option>
+              {% for u in block_for_options %}
+              <option value="{{ u.id }}">{{ u.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Customer Name</label>
+            <input type="text" id="nbCustomer" class="form-control">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="nbSubmitBtn" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Edit Block modal ── #}
+<div class="modal fade" id="editBlockModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Block</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="editBlockError" class="alert alert-danger py-2 small d-none"></div>
+        <input type="hidden" id="ebRecordId">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Block Date</label>
+            <input type="date" id="ebDate" class="form-control">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Container</label>
+            <select id="ebContainer" class="form-select">
+              {% for val, label in container_options %}
+              <option value="{{ val }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Location</label>
+            <select id="ebLocation" class="form-select">
+              <option value="">— Select —</option>
+              {% for val, label in location_options %}
+              <option value="{{ val }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold small">Block For</label>
+            <select id="ebBlockFor" class="form-select">
+              <option value="">— Select —</option>
+              {% for u in block_for_options %}
+              <option value="{{ u.id }}">{{ u.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label fw-semibold small">Customer Name</label>
+            <input type="text" id="ebCustomer" class="form-control">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="ebSubmitBtn" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Barcode Preview modal ── #}
+<div class="modal fade" id="barcodePreviewModal" tabindex="-1">
+  <div class="modal-dialog" style="max-width:420px;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Block Barcode — <span id="bpBlockId"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center p-0">
+        {# 4x2in landscape label; the real PDF (reportlab, see
+           utils/block_barcode.py) is the source of truth for Print/
+           Download — this iframe just renders it in place instead of
+           triggering a save dialog (Content-Disposition: inline, via the
+           ?inline=1 param). #}
+        <iframe id="bpFrame" src="" style="width:100%;height:260px;border:0;"></iframe>
+      </div>
+      <div class="modal-footer justify-content-center">
+        <a id="bpDownloadBtn" href="#" class="btn btn-outline-success btn-sm">
+          <i class="bi bi-download me-1"></i>Download
+        </a>
+        <button type="button" id="bpPrintBtn" class="btn btn-primary btn-sm">
+          <i class="bi bi-printer me-1"></i>Print
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+function blockCsrf() { return (document.cookie.match(/csrf_token=([^;]+)/) || [,''])[1]; }
+function showBlockAlert(msg) {
+  var el = document.getElementById('blockAlert');
+  el.textContent = msg; el.classList.remove('d-none');
+  setTimeout(function () { el.classList.add('d-none'); }, 4000);
+}
+function showBlockError(msg) {
+  var el = document.getElementById('blockErrorAlert');
+  el.textContent = msg; el.classList.remove('d-none');
+  setTimeout(function () { el.classList.add('d-none'); }, 5000);
+}
+
+// ── Select All / row checkboxes (cross-page, same fix pattern as /sales) ────
+const selectedBlockIds = new Set();
+function updateBlockExportBtn() {
+  var n = selectedBlockIds.size;
+  var exp = document.getElementById('blockExportSelectedBtn');
+  var rel = document.getElementById('blockBulkReleaseBtn');
+  exp.disabled = rel.disabled = n === 0;
+  exp.innerHTML = '<i class="bi bi-download me-1"></i>Export Selected' + (n ? ' (' + n + ')' : '');
+}
+
+function blockFilterParams() {
+  return {
+    q: document.getElementById('bfSearch').value,
+    block_date: document.getElementById('bfDate').value,
+    container: document.getElementById('bfContainer').value,
+    block_for: document.getElementById('bfBlockFor').value,
+    location_zone: document.getElementById('bfLocation').value,
+  };
+}
+
+var blockDt;
+$(document).ready(function () {
+  // initGlobalTable (static/js/global-table.js) layers the standard OxyPC
+  // heavy-table UX on top: sticky frozen checkbox+Block ID columns under
+  // scrollX, the shared pagination/empty-state/cell-clamp behavior every
+  // other DataTable in this app uses. Its own 'f' (native search box) is
+  // dropped from `dom` since the filter bar above the table already drives
+  // search via bfSearch/blockFilterParams — a second search box would just
+  // duplicate it. Select All stays hand-rolled (selectedBlockIds, below)
+  // rather than opts.selectAll: it has to reach every row matching the
+  // filter bar across every page, including pages never loaded into the
+  // DOM — exactly the case the module's own doc comment says stays
+  // hand-rolled rather than using 'page'/'search' scope.
+  blockDt = initGlobalTable('#blockTable', {
+    serverSide: true, processing: true, pageLength: 12, order: [],
+    searchDelay: 400,
+    dom: '<"gtable-top d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"' +
+           '<"d-flex align-items-center flex-wrap gap-2"li>' +
+           '<"d-flex align-items-center flex-wrap gap-2 gtable-right-toolbar"p>' +
+         '>rt',
+    ajax: {
+      url: '/block-tags/data',
+      data: function (d) { Object.assign(d, blockFilterParams()); },
+    },
+    columnDefs: [{ orderable: false, targets: [0, 13, 14] }],
+    language: { emptyTable: 'No tags currently blocked.' },
+    drawCallback: function () {
+      document.querySelectorAll('.row-check').forEach(function (cb) {
+        cb.checked = selectedBlockIds.has(cb.value);
+      });
+      updateBlockExportBtn();
+      wireRowActions();
+    },
+  });
+
+  // Relocate the Export/Bulk Release buttons into the table's own toolbar,
+  // right before the pagination control — saves the filter bar's own row
+  // from also having to carry them.
+  $('.gtable-right-toolbar').prepend($('#blockActionButtons').removeClass('d-none'));
+
+  ['bfDate', 'bfContainer', 'bfBlockFor', 'bfLocation'].forEach(function (id) {
+    document.getElementById(id).addEventListener('change', function () { blockDt.ajax.reload(); });
+  });
+  var searchTimer;
+  document.getElementById('bfSearch').addEventListener('input', function () {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () { blockDt.ajax.reload(); }, 400);
+  });
+  document.getElementById('bfClear').addEventListener('click', function () {
+    document.getElementById('bfSearch').value = '';
+    document.getElementById('bfDate').value = '';
+    document.getElementById('bfContainer').value = '';
+    document.getElementById('bfBlockFor').value = '';
+    document.getElementById('bfLocation').value = '';
+    blockDt.ajax.reload();
+  });
+});
+
+document.addEventListener('change', function (e) {
+  if (e.target.classList.contains('row-check')) {
+    if (e.target.checked) selectedBlockIds.add(e.target.value); else selectedBlockIds.delete(e.target.value);
+    updateBlockExportBtn();
+  }
+});
+
+document.getElementById('blockSelectAll').addEventListener('change', async function () {
+  var ck = this.checked;
+  if (ck) {
+    var params = new URLSearchParams(blockFilterParams());
+    var r = await fetch('/block-tags/ids?' + params.toString());
+    var d = await r.json();
+    (d.ids || []).forEach(function (id) { selectedBlockIds.add(id); });
+    if (d.truncated) alert('Selected the first ' + d.ids.length + ' matching rows (capped at that size).');
+  } else {
+    selectedBlockIds.clear();
+  }
+  document.querySelectorAll('.row-check').forEach(function (cb) { cb.checked = ck; });
+  updateBlockExportBtn();
+});
+
+document.getElementById('blockExportSelectedBtn').addEventListener('click', function () {
+  var ids = Array.from(selectedBlockIds);
+  if (!ids.length) return;
+  var form = document.createElement('form');
+  form.method = 'POST'; form.action = '/block-tags/export/selected';
+  form.innerHTML = '<input type="hidden" name="csrf_token" value="' + blockCsrf() + '">' +
+    '<input type="hidden" name="item_ids" value="' + ids.join(',') + '">';
+  document.body.appendChild(form); form.submit(); form.remove();
+});
+
+async function blockBulkRelease() {
+  var ids = Array.from(selectedBlockIds);
+  if (!ids.length) return;
+  var fd = new FormData();
+  fd.append('csrf_token', blockCsrf());
+  fd.append('item_ids', ids.join(','));
+  var r = await fetch('/block-tags/bulk-release', { method: 'POST', body: fd, credentials: 'same-origin' });
+  var d = await r.json();
+  if (d.ok) {
+    showBlockAlert(d.count + ' tag(s) released.');
+    selectedBlockIds.clear(); updateBlockExportBtn(); blockDt.ajax.reload(null, false);
+  } else {
+    showBlockError(d.error || 'Action failed.');
+  }
+}
+document.getElementById('blockBulkReleaseBtn').addEventListener('click', blockBulkRelease);
+
+// ── Per-row Release / Edit ───────────────────────────────────────────────────
+function wireRowActions() {
+  document.querySelectorAll('.block-release-btn').forEach(function (btn) {
+    btn.onclick = async function (e) {
+      e.preventDefault();
+      var fd = new FormData(); fd.append('csrf_token', blockCsrf());
+      var r = await fetch('/block-tags/' + btn.dataset.id + '/release', { method: 'POST', body: fd, credentials: 'same-origin' });
+      var d = await r.json();
+      if (d.ok) { showBlockAlert('Released — tag is sellable again.'); blockDt.ajax.reload(null, false); }
+      else showBlockError(d.error || 'Could not update.');
+    };
+  });
+  document.querySelectorAll('.block-edit-btn').forEach(function (btn) {
+    btn.onclick = async function (e) {
+      e.preventDefault();
+      document.getElementById('ebRecordId').value = btn.dataset.id;
+      var r = await fetch('/block-tags/' + btn.dataset.id);
+      var d = await r.json();
+      if (d.ok) {
+        document.getElementById('ebDate').value = d.record.block_date;
+        document.getElementById('ebContainer').value = d.record.container;
+        document.getElementById('ebLocation').value = d.record.location_zone;
+        document.getElementById('ebBlockFor').value = d.record.block_for_user_id;
+        document.getElementById('ebCustomer').value = d.record.customer_name;
+      }
+      new bootstrap.Modal(document.getElementById('editBlockModal')).show();
+    };
+  });
+  document.querySelectorAll('.block-barcode-btn').forEach(function (btn) {
+    btn.onclick = function (e) {
+      e.preventDefault();
+      document.getElementById('bpBlockId').textContent = btn.dataset.blockid;
+      document.getElementById('bpFrame').src = '/block-tags/' + btn.dataset.id + '/barcode?inline=1';
+      document.getElementById('bpDownloadBtn').href = '/block-tags/' + btn.dataset.id + '/barcode';
+      new bootstrap.Modal(document.getElementById('barcodePreviewModal')).show();
+    };
+  });
+}
+
+document.getElementById('bpPrintBtn').addEventListener('click', function () {
+  var frame = document.getElementById('bpFrame');
+  // The PDF renders through the browser's own built-in viewer inside the
+  // iframe (Chrome/Edge/Firefox all support this) — contentWindow.print()
+  // hands off to that viewer's print flow, same as clicking its own print
+  // icon, rather than printing the surrounding page chrome.
+  try {
+    frame.contentWindow.focus();
+    frame.contentWindow.print();
+  } catch (err) {
+    window.open(frame.src, '_blank');
+  }
+});
+
+// Clear the iframe src on close so a cached/stale PDF never flashes before
+// the next barcode's src finishes loading.
+document.getElementById('barcodePreviewModal').addEventListener('hidden.bs.modal', function () {
+  document.getElementById('bpFrame').src = '';
+});
+
+document.getElementById('ebSubmitBtn').addEventListener('click', async function () {
+  var err = document.getElementById('editBlockError'); err.classList.add('d-none');
+  var fd = new FormData();
+  fd.append('csrf_token', blockCsrf());
+  fd.append('block_date', document.getElementById('ebDate').value);
+  fd.append('container', document.getElementById('ebContainer').value);
+  fd.append('location_zone', document.getElementById('ebLocation').value);
+  fd.append('block_for_user_id', document.getElementById('ebBlockFor').value);
+  fd.append('customer_name', document.getElementById('ebCustomer').value);
+  var recId = document.getElementById('ebRecordId').value;
+  var r = await fetch('/block-tags/' + recId + '/edit', { method: 'POST', body: fd, credentials: 'same-origin' });
+  var d = await r.json();
+  if (d.ok) {
+    bootstrap.Modal.getInstance(document.getElementById('editBlockModal')).hide();
+    showBlockAlert('Block updated.'); blockDt.ajax.reload(null, false);
+  } else {
+    err.textContent = d.error || 'Could not save.'; err.classList.remove('d-none');
+  }
+});
+
+// ── New Block Tags modal: tag search + multi-select ─────────────────────────
+var nbSelectedTags = new Map(); // device_id -> {barcode, model}
+var nbSearchTimer;
+document.getElementById('nbTagSearch').addEventListener('input', function () {
+  clearTimeout(nbSearchTimer);
+  var q = this.value;
+  nbSearchTimer = setTimeout(async function () {
+    if (!q.trim()) { document.getElementById('nbTagResults').innerHTML = ''; return; }
+    var r = await fetch('/block-tags/search-tags?q=' + encodeURIComponent(q));
+    var d = await r.json();
+    var box = document.getElementById('nbTagResults');
+    box.innerHTML = '';
+    (d.data || []).forEach(function (t) {
+      if (nbSelectedTags.has(t.id)) return;
+      var a = document.createElement('a');
+      a.href = '#'; a.className = 'list-group-item list-group-item-action py-1 small';
+      a.textContent = t.barcode + ' — ' + (t.model || '');
+      a.onclick = function (e) {
+        e.preventDefault();
+        nbSelectedTags.set(t.id, t);
+        renderNbSelected();
+        document.getElementById('nbTagSearch').value = '';
+        box.innerHTML = '';
+      };
+      box.appendChild(a);
+    });
+  }, 300);
+});
+function renderNbSelected() {
+  var box = document.getElementById('nbTagSelected');
+  box.innerHTML = '';
+  nbSelectedTags.forEach(function (t, id) {
+    var span = document.createElement('span');
+    span.className = 'badge bg-secondary';
+    span.innerHTML = t.barcode + ' <i class="bi bi-x ms-1" style="cursor:pointer"></i>';
+    span.querySelector('i').onclick = function () { nbSelectedTags.delete(id); renderNbSelected(); };
+    box.appendChild(span);
+  });
+}
+
+document.getElementById('nbSubmitBtn').addEventListener('click', async function () {
+  var err = document.getElementById('newBlockError'); err.classList.add('d-none');
+  if (!nbSelectedTags.size) { err.textContent = 'Select at least one tag.'; err.classList.remove('d-none'); return; }
+  if (!document.getElementById('nbContainer').value) { err.textContent = 'Select a Container.'; err.classList.remove('d-none'); return; }
+  var fd = new FormData();
+  fd.append('csrf_token', blockCsrf());
+  fd.append('block_date', '{{ today }}');
+  fd.append('container', document.getElementById('nbContainer').value);
+  fd.append('location_zone', document.getElementById('nbLocation').value);
+  fd.append('block_for_user_id', document.getElementById('nbBlockFor').value);
+  fd.append('customer_name', document.getElementById('nbCustomer').value);
+  fd.append('device_ids', Array.from(nbSelectedTags.keys()).join(','));
+  var r = await fetch('/block-tags/create', { method: 'POST', body: fd, credentials: 'same-origin' });
+  var d = await r.json();
+  if (d.ok) {
+    bootstrap.Modal.getInstance(document.getElementById('newBlockModal')).hide();
+    nbSelectedTags.clear(); renderNbSelected();
+    document.getElementById('nbLocation').value = '';
+    document.getElementById('nbContainer').value = '';
+    document.getElementById('nbBlockFor').value = '';
+    document.getElementById('nbCustomer').value = '';
+    showBlockAlert('Block ' + d.block_id + ' created (' + d.count + ' tag(s)).');
+    blockDt.ajax.reload();
+  } else {
+    err.textContent = d.error || 'Could not create block.'; err.classList.remove('d-none');
+  }
+});
+</script>
+{% endblock %}

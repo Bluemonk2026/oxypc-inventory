@@ -185,6 +185,7 @@ from routers.stage_control import router as stage_control_router
 from routers.market import router as market_router
 from routers.inventory_location import router as inventory_location_router
 from routers.physical_audits import router as physical_audits_router
+from routers.block_tags import router as block_tags_router
 from routers.stress_api import router as stress_api_router
 from routers.iqc_api import router as iqc_api_router
 from routers.qa_uat import router as qa_uat_router
@@ -270,6 +271,7 @@ app.include_router(stage_control_router)
 app.include_router(market_router)
 app.include_router(inventory_location_router)
 app.include_router(physical_audits_router)
+app.include_router(block_tags_router)
 app.include_router(iqc_api_router)
 app.include_router(qa_uat_router)
 app.include_router(crm_dashboard_router)

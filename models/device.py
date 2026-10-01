@@ -222,6 +222,11 @@ class Device(Base):
     deleted_at = Column(DateTime, nullable=True)
     is_trashed = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     trashed_at = Column(DateTime, nullable=True)
+    # True while this device has an open (not Done/Released) Block Tags hold —
+    # see models/block_tags.py. Stays visible on Ready to Sale (stock levels
+    # still read correctly) but services/control_engine.validate_sale_allowed()
+    # refuses the actual Sell action while this is True.
+    is_blocked = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     bucket_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     partner_listed = Column(Boolean, nullable=False, default=False, server_default=text("false"))  # backing a live Trade Partner listing
     created_at = Column(DateTime, default=app_now)

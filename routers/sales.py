@@ -248,7 +248,17 @@ async def ready_list_data(
             f'<span class="badge bg-{"success" if w["status"] == "active" else "secondary"}">{esc(w["label"])}</span>'
             if w else '<span class="text-muted">—</span>'
         )
-        cells.append(esc(assigned_name) if assigned_name else '<span class="text-muted">—</span>')
+        # Open/Blocked badge reflects Device.is_blocked directly — Blocked
+        # while a Block Tags hold is open (see models/block_tags.py), Open
+        # otherwise. The Name above it is Device.assigned_to_user_id, which
+        # Block Tags' New Block Tags / Edit modals set to the Block For user
+        # on top of however this page's own Assign action already sets it.
+        assign_badge = ('<span class="badge bg-danger">Blocked</span>' if d.is_blocked
+                         else '<span class="badge bg-success">Open</span>')
+        cells.append(
+            (esc(assigned_name) if assigned_name else '<span class="text-muted">—</span>')
+            + f'<br>{assign_badge}'
+        )
         cells.append(f'₹{float(d.min_selling_price):,.0f}' if d.min_selling_price is not None
                     else '<span class="text-muted">—</span>')
         cells.append(f'₹{float(d.max_selling_price):,.0f}' if d.max_selling_price is not None
@@ -1032,33 +1042,40 @@ async def export_selected_sales(
     current_user: User = Depends(allowed),
 ):
     """Export selected sales rows as CSV. Receives comma-separated Sale UUIDs."""
+    from routers.reports import _latest_transfer_type_by_device
+
     ids = [sid.strip() for sid in sale_ids.split(",") if sid.strip()]
     if not ids:
         return RedirectResponse(url="/sales", status_code=302)
 
     result = await db.execute(
-        select(Sale, Device.barcode, Device.brand, Device.model, Device.grade, Lot.lot_number)
+        select(Sale, Device.id.label("device_id"), Device.barcode, Device.brand, Device.model,
+               Device.grade, Device.sub_category, Lot.lot_number)
         .join(Device, Sale.device_id == Device.id)
         .join(Lot, Device.lot_id == Lot.id)
         .where(Sale.id.in_(ids))
         .order_by(Sale.sold_at.desc())
     )
     rows = result.all()
+    stage_by_device = await _latest_transfer_type_by_device(db, [row.device_id for row in rows])
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Sale#", "Date", "Barcode", "Brand", "Model", "Lot", "Grade",
-                     "Price", "Customer", "Phone", "Payment", "Sold By"])
+    writer.writerow(["Sale#", "Invoice Number", "Date", "Barcode", "Brand", "Model", "Lot", "Grade",
+                     "Price", "Customer", "Phone", "Payment", "Sold By", "Sales Person", "Category", "Stage", "Remarks"])
     for row in rows:
         s = row.Sale
+        transfer_type = stage_by_device.get(row.device_id)
         writer.writerow([
             s.sale_number,
+            s.invoice_no or "",
             s.sold_at.strftime("%d-%m-%Y"),
             row.barcode, row.brand, row.model, row.lot_number,
             row.grade.value if row.grade else "",
             float(s.sale_price or 0),
             s.customer_name or "", s.customer_phone or "",
-            s.payment_mode or "", s.sold_by or "",
+            s.payment_mode or "", s.sold_by or "", s.sales_person or "", row.sub_category or "",
+            (transfer_type or "").replace("_", " ").title(), s.notes or "",
         ])
     output.seek(0)
     return StreamingResponse(
@@ -1152,6 +1169,21 @@ def _sales_filters(q, sale_no, sold_by_filter, customer, grade, lot_id, date_fro
     return w
 
 
+def _sales_search_filter(search: str):
+    """DataTables' own search-box clause, factored out of /sales/data so
+    /sales/ids (Select All) can never disagree with it about what the live
+    search box matches."""
+    if not search:
+        return []
+    like = f"%{search}%"
+    return [or_(
+        Device.barcode.ilike(like), Device.brand.ilike(like),
+        Device.model.ilike(like), Sale.sale_number.ilike(like),
+        Sale.customer_name.ilike(like), Sale.sales_person.ilike(like),
+        Sale.sold_by.ilike(like), Lot.lot_number.ilike(like),
+    )]
+
+
 @router.get("/sales/data")
 async def sales_list_data(
     request: Request,
@@ -1181,7 +1213,7 @@ async def sales_list_data(
     search and paging drive this endpoint, so every record is still reachable
     from the table — the difference is only how much travels per request.
     """
-    from sqlalchemy import or_ as _or, desc as _desc, asc as _asc
+    from sqlalchemy import desc as _desc, asc as _asc
     from models.role_permissions import can_view_pricing as _cvp
 
     role = getattr(current_user.role, "value", current_user.role)
@@ -1210,15 +1242,7 @@ async def sales_list_data(
 
     # DataTables' own search box, on top of the page's filter bar.
     search = (request.query_params.get("search[value]") or "").strip()
-    search_filters = []
-    if search:
-        like = f"%{search}%"
-        search_filters.append(_or(
-            Device.barcode.ilike(like), Device.brand.ilike(like),
-            Device.model.ilike(like), Sale.sale_number.ilike(like),
-            Sale.customer_name.ilike(like), Sale.sales_person.ilike(like),
-            Sale.sold_by.ilike(like), Lot.lot_number.ilike(like),
-        ))
+    search_filters = _sales_search_filter(search)
 
     total = (await db.execute(count_join.where(*page_filters))).scalar() or 0
     filtered = (await db.execute(
@@ -1329,39 +1353,83 @@ async def export_sales_filtered(
     drift from the filtered view. Distinct from /reports/export/sales
     ("Export All CSV", always unfiltered) and POST /sales/export-selected
     (only the checked rows)."""
+    from routers.reports import _latest_transfer_type_by_device
+
     MAX_EXPORT_ROWS = 5000
     rows = (await db.execute(
-        select(Sale, Device.barcode, Device.brand, Device.model, Device.grade, Lot.lot_number)
+        select(Sale, Device.id.label("device_id"), Device.barcode, Device.brand, Device.model,
+               Device.grade, Device.sub_category, Lot.lot_number)
         .join(Device, Sale.device_id == Device.id)
         .join(Lot, Device.lot_id == Lot.id)
         .where(*_sales_filters(q, sale_no, sold_by_filter, customer, grade, lot_id, date_from, date_to))
         .order_by(Sale.sold_at.desc())
         .limit(MAX_EXPORT_ROWS)
     )).all()
+    stage_by_device = await _latest_transfer_type_by_device(db, [row.device_id for row in rows])
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Sale#", "Date", "Barcode", "Brand", "Model", "Lot", "Grade",
-                     "Price", "Customer", "Phone", "Payment", "Sold By"])
+    writer.writerow(["Sale#", "Invoice Number", "Date", "Barcode", "Brand", "Model", "Lot", "Grade",
+                     "Price", "Customer", "Phone", "Payment", "Sold By", "Sales Person", "Category", "Stage", "Remarks"])
     for row in rows:
         s = row.Sale
+        transfer_type = stage_by_device.get(row.device_id)
         writer.writerow([
-            s.sale_number, s.sold_at.strftime("%d-%m-%Y") if s.sold_at else "",
+            s.sale_number, s.invoice_no or "", s.sold_at.strftime("%d-%m-%Y") if s.sold_at else "",
             row.barcode, row.brand, row.model, row.lot_number,
             row.grade.value if row.grade else "",
             float(s.sale_price or 0),
             s.customer_name or "", s.customer_phone or "",
-            s.payment_mode or "", s.sold_by or "",
+            s.payment_mode or "", s.sold_by or "", s.sales_person or "", row.sub_category or "",
+            (transfer_type or "").replace("_", " ").title(), s.notes or "",
         ])
     if len(rows) == MAX_EXPORT_ROWS:
         writer.writerow(["# TRUNCATED", f"Export capped at {MAX_EXPORT_ROWS} rows",
-                         "", "", "", "", "", "", "", "", "", ""])
+                         "", "", "", "", "", "", "", "", "", "", "", "", "", ""])
     output.seek(0)
     return StreamingResponse(
         io.BytesIO(output.getvalue().encode()),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=sales_filtered.csv"},
     )
+
+
+# NOTE: /sales/ids MUST also stay above /sales/{sale_id}, same reason as
+# /sales/data and /sales/export above.
+@router.get("/sales/ids")
+async def sales_list_ids(
+    search: str = Query(default=""),
+    q: str = Query(default=""),
+    sale_no: str = Query(default=""),
+    sold_by_filter: str = Query(default=""),
+    customer: str = Query(default=""),
+    grade: str = Query(default=""),
+    lot_id: str = Query(default=""),
+    date_from: str = Query(default=""),
+    date_to: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Every Sale id matching the filter bar + DataTables search box, for
+    "Select All" on the Sales list. Mirrors the fix already in place for the
+    Ready to Sale table (/sales/ready/barcodes): with server-side paging only
+    the current page's checkboxes exist in the DOM, so a plain
+    querySelectorAll-based Select All only ever reached the page in view.
+    Capped the same as the filtered CSV export so an unfiltered Select All on
+    a huge table can't pull in an unbounded result set."""
+    MAX_SELECT_ALL = 5000
+    ids = (await db.execute(
+        select(Sale.id)
+        .join(Device, Sale.device_id == Device.id)
+        .join(Lot, Device.lot_id == Lot.id)
+        .where(
+            *_sales_filters(q, sale_no, sold_by_filter, customer, grade, lot_id, date_from, date_to),
+            *_sales_search_filter(search.strip()),
+        )
+        .order_by(Sale.sold_at.desc())
+        .limit(MAX_SELECT_ALL)
+    )).scalars().all()
+    return JSONResponse({"ids": [str(i) for i in ids], "truncated": len(ids) == MAX_SELECT_ALL})
 
 
 @router.get("/sales/{sale_id}", response_class=HTMLResponse)

@@ -462,6 +462,11 @@
         <i class="bi bi-clipboard-plus me-2"></i> {{ sidebar_label('model_requests', 'Model Requests') }}
       </a></li>
       {% endif %}
+      {% if has_perm(role,'block_tags','enable') and not module_hidden('block_tags') %}
+      <li><a href="/block-tags" class="nav-link {% if request.url.path.startswith('/block-tags') %}active{% endif %}">
+        <i class="bi bi-lock me-2"></i> {{ sidebar_label('block_tags', 'Block Tags') }}
+      </a></li>
+      {% endif %}
       {% if has_perm(role,'sales','enable') and not module_hidden('sales') %}
       <li><a href="/sales/ready" class="nav-link {% if '/sales/ready' in request.url.path %}active{% endif %}">
         <i class="bi bi-check-circle me-2"></i> {{ sidebar_label('sales', 'Ready to Sale') }}

@@ -29,4 +29,5 @@ pypdf
 pdfplumber
 fpdf2>=2.7.9
 reportlab>=4.0.0
+python-barcode>=0.15.1
 python-pptx>=1.0.0

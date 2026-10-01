@@ -147,22 +147,48 @@
 {% block scripts %}
 <script>
 // ── Select All / individual checkboxes ──────────────────────────────────────
+// With server-side paging only the current page's checkboxes exist in the
+// DOM — a plain querySelectorAll-based Select All only ever reached the page
+// in view, not every sale matching the filters. A Set survives page changes
+// and redraws; drawCallback (in the DataTable init below) re-checks boxes
+// against it, same fix already in place on the Ready to Sale table.
+const selectedSaleIds = new Set();
 const selectAll = document.getElementById('selectAll');
 const exportBtn = document.getElementById('exportSelectedBtn');
 
-selectAll.addEventListener('change', function() {
-  document.querySelectorAll('.row-check').forEach(cb => cb.checked = this.checked);
+document.addEventListener('change', function(e) {
+  if (e.target.classList.contains('row-check')) {
+    if (e.target.checked) selectedSaleIds.add(e.target.value);
+    else selectedSaleIds.delete(e.target.value);
+    updateExportBtn();
+  }
+});
+
+selectAll.addEventListener('change', async function() {
+  const ck = this.checked;
+  if (ck) {
+    const p = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams();
+    ['q', 'sale_no', 'sold_by_filter', 'customer', 'grade', 'lot_id', 'date_from', 'date_to']
+      .forEach(function (k) { params.set(k, p.get(k) || ''); });
+    const dt = $('#salesTable').DataTable();
+    params.set('search', dt.search() || '');
+    const r = await fetch('/sales/ids?' + params.toString());
+    const d = await r.json();
+    (d.ids || []).forEach(function (id) { selectedSaleIds.add(id); });
+    if (d.truncated) {
+      alert('Selected the first ' + d.ids.length + ' matching sales (the list is capped at that size).');
+    }
+  } else {
+    selectedSaleIds.clear();
+  }
+  document.querySelectorAll('.row-check').forEach(function (cb) { cb.checked = ck; });
   updateExportBtn();
 });
 
-document.addEventListener('change', function(e) {
-  if (e.target.classList.contains('row-check')) updateExportBtn();
-});
-
 function updateExportBtn() {
-  const checked = document.querySelectorAll('.row-check:checked').length;
+  const checked = selectedSaleIds.size;
   exportBtn.disabled = checked === 0;
-  exportBtn.textContent = checked > 0 ? `Export Selected (${checked})` : 'Export Selected';
   if (checked > 0) {
     exportBtn.innerHTML = `<i class="bi bi-download me-1"></i>Export Selected (${checked})`;
   } else {
@@ -171,7 +197,7 @@ function updateExportBtn() {
 }
 
 function exportSelected() {
-  const ids = Array.from(document.querySelectorAll('.row-check:checked')).map(cb => cb.value);
+  const ids = Array.from(selectedSaleIds);
   if (!ids.length) return;
   document.getElementById('selectedIds').value = ids.join(',');
   document.getElementById('exportForm').submit();
@@ -217,11 +243,12 @@ $(document).ready(function() {
       { orderable: false, targets: showPricing ? [7, 9] : [] },  // cost & margin are computed
       { visible: false, targets: hiddenCols },
     ],
-    // Re-apply the header checkbox state after every draw: server-side paging
-    // replaces the rows, so anything ticked on the previous page is gone.
+    // Re-apply row checkbox state after every draw: server-side paging
+    // replaces the rows, so re-check whichever ones are in selectedSaleIds.
     drawCallback: function () {
-      var sa = document.getElementById('selectAll');
-      if (sa) sa.checked = false;
+      document.querySelectorAll('.row-check').forEach(function (cb) {
+        cb.checked = selectedSaleIds.has(cb.value);
+      });
       if (typeof updateExportBtn === 'function') updateExportBtn();
     },
   });

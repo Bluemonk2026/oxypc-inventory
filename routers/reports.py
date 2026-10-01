@@ -335,17 +335,18 @@ async def export_sales(db: AsyncSession = Depends(get_db), current_user: User = 
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Sale#", "Date", "Barcode", "Brand", "Model", "Lot", "Price", "Customer", "Phone", "Payment", "Sold By",
-                      "Invoice Number", "Sales Person", "Category", "Stage", "Remarks"])
+    writer.writerow(["Sale#", "Invoice Number", "Date", "Barcode", "Brand", "Model", "Lot", "Price", "Customer", "Phone", "Payment", "Sold By",
+                      "Sales Person", "Category", "Stage", "Remarks"])
     for r in rows:
         transfer_type = stage_by_device.get(r["device_id"])
         writer.writerow([
             r["sale_number"] or "NO SALE RECORD",
+            r["invoice_no"] or "",
             r["sold_at"].strftime("%d-%m-%Y") if r["sold_at"] else "",
             r["barcode"], r["brand"], r["model"], r["lot_number"],
             float(r["sale_price"]) if r["sale_price"] is not None else "",
             r["customer_name"] or "", r["customer_phone"] or "", r["payment_mode"] or "", r["sold_by"] or "",
-            r["invoice_no"] or "", r["sales_person"] or "", r["sub_category"] or "",
+            r["sales_person"] or "", r["sub_category"] or "",
             (transfer_type or "").replace("_", " ").title(), r["notes"] or "",
         ])
     if truncated:

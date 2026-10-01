@@ -120,6 +120,14 @@ async def validate_sale_allowed(device: Device) -> None:
                 f"Device must be in 'ready_to_sale' before a sale can be created."
             ),
         )
+    if device.is_blocked:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"CONTROL ENGINE: Sale blocked — tag {device.barcode} is held under "
+                f"Block Tags. Release it from the Block Tags page before it can be sold."
+            ),
+        )
 
 
 async def validate_repair_level(device: Device, requested_level: int, db: AsyncSession) -> None:

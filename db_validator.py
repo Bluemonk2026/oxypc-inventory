@@ -151,6 +151,15 @@ def _sql_type(col) -> str:
     # emitting the right type here stops it recurring on the next UUID column.
     if isinstance(t, PG_UUID) or getattr(t, "__visit_name__", "") == "uuid":
         return "UUID"
+    # Enum must be tested before String: sa.Enum subclasses sa.String (same
+    # pitfall as Text below), so the String branch would otherwise silently
+    # claim every Enum column too — producing VARCHAR(<n>) instead of the
+    # real Postgres enum type, which then fails at query time with
+    # "operator does not exist: character varying = <enumtype>" the first
+    # time that column is ever filtered on (ADD COLUMN itself succeeds, so
+    # this was invisible until the column was actually queried against).
+    if isinstance(t, sa.Enum):
+        return t.name
     # Text must be tested before String: sa.Text subclasses sa.String, so the String
     # branch would otherwise claim every Text column and, finding no .length, cap it
     # at VARCHAR(255) — silently truncating long free-text on insert.

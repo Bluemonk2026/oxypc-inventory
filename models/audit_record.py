@@ -16,24 +16,39 @@ from models.device import DeviceStage, STAGE_LABELS
 
 
 class AuditRecord(Base):
-    """One row per unique (Report Date, System Stage, System Location)
-    combination. `current_count` is a snapshot — computed live from the
-    Device table — of how many devices matched that stage+location the last
+    """One row per unique (Report Date, My Stage, My Location, Category)
+    combination — the auditor's claimed stage/location plus the scanned
+    device's own category, not the device's actual system stage/location
+    (that comparison still happens per-tag, see AuditRecordItem below).
+    `current_count` is a snapshot — computed live from the Device table — of
+    how many devices actually match that stage+location+category the last
     time this row was touched; `physical_count` increments by 1 every time a
-    tag audit (AuditRecordItem) is submitted against it."""
+    tag audit (AuditRecordItem) is submitted against it.
+
+    Originally grouped by System Stage/System Location instead (columns of
+    the same name still sit unused in the DB — additive-only schema, nothing
+    dropped). Changed because grouping by what the auditor actually claimed
+    is what a physical count reconciliation needs; System Stage/System
+    Location are still captured and compared per-tag on AuditRecordItem."""
     __tablename__ = "audit_records"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     report_date = Column(Date, nullable=False, index=True)
-    system_stage = Column(SAEnum(DeviceStage, name="devicestage"), nullable=False, index=True)
-    system_location_id = Column(UUID(as_uuid=True), ForeignKey("storage_locations.id"), nullable=True, index=True)
+    # Nullable at the DB level (unlike AuditRecordItem.my_stage) only so this
+    # new column can be ADD COLUMN'd onto a table that may already have rows
+    # from before this field existed, without a backfill — always required
+    # at the application layer (routers/physical_audits.py validates it via
+    # Form(...) before ever constructing a row).
+    my_stage = Column(SAEnum(DeviceStage, name="devicestage"), nullable=True, index=True)
+    my_location_id = Column(UUID(as_uuid=True), ForeignKey("storage_locations.id"), nullable=True, index=True)
+    category = Column(String(100), nullable=True, index=True)
     current_count = Column(Integer, nullable=False, default=0)
     physical_count = Column(Integer, nullable=False, default=0)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=app_now)
     updated_at = Column(DateTime, default=app_now, onupdate=app_now)
 
-    system_location = relationship("StorageLocation", foreign_keys=[system_location_id])
+    my_location = relationship("StorageLocation", foreign_keys=[my_location_id])
     items = relationship("AuditRecordItem", back_populates="audit_record", lazy="select")
 
     @property
@@ -43,8 +58,8 @@ class AuditRecord(Base):
         return (self.current_count or 0) - (self.physical_count or 0)
 
     @property
-    def system_stage_label(self):
-        return STAGE_LABELS.get(self.system_stage, self.system_stage)
+    def my_stage_label(self):
+        return STAGE_LABELS.get(self.my_stage, self.my_stage)
 
 
 class AuditRecordItem(Base):
@@ -65,6 +80,7 @@ class AuditRecordItem(Base):
     brand = Column(String(50), nullable=True)
     model = Column(String(100), nullable=True)
     serial_no = Column(String(100), nullable=True)
+    category = Column(String(100), nullable=True)
 
     system_stage = Column(SAEnum(DeviceStage, name="devicestage"), nullable=False)
     system_location_id = Column(UUID(as_uuid=True), ForeignKey("storage_locations.id"), nullable=True)

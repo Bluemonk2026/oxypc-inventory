@@ -31,7 +31,7 @@
             <input type="date" id="auditReportDate" class="form-control" value="{{ today }}">
           </div>
           <div class="col-md-2">
-            <label class="form-label fw-semibold small">My Stage</label>
+            <label class="form-label fw-semibold small">Audit Stage</label>
             <select id="auditMyStage" class="form-select">
               {% for val, label in stage_options %}
               <option value="{{ val }}">{{ label }}</option>
@@ -39,7 +39,7 @@
             </select>
           </div>
           <div class="col-md-3">
-            <label class="form-label fw-semibold small">My Location</label>
+            <label class="form-label fw-semibold small">Audit Location</label>
             <select id="auditMyLocation" class="form-select">
               <option value="">— No Location —</option>
               {% for loc in location_options %}
@@ -53,24 +53,26 @@
           </div>
           <div class="col-md-2">
             <button type="button" id="auditLookupBtn" class="btn btn-outline-primary w-100">
-              <i class="bi bi-search me-1"></i>Lookup
+              <i class="bi bi-search me-1"></i>Validate
             </button>
           </div>
         </div>
 
-        <!-- Brief info: shown after a successful Lookup, My Stage/My Location
-             already carry what was picked above the Lookup button. -->
+        <!-- Receipt: Lookup now performs the lookup AND the submit in one
+             click (one interaction instead of two) — this panel shows what
+             was just recorded, after the fact, rather than a preview to
+             confirm. -->
         <div id="auditConfirmPanel" class="d-none mt-4">
           <div class="fw-semibold mb-2" id="auditDeviceLabel"></div>
           <div class="card bg-light border-0">
             <div class="card-body">
               <div class="row g-3">
                 <div class="col-md-3">
-                  <div class="text-muted small">My Stage</div>
+                  <div class="text-muted small">Audit Stage</div>
                   <div class="fw-semibold" id="cf_my_stage">—</div>
                 </div>
                 <div class="col-md-3">
-                  <div class="text-muted small">My Location</div>
+                  <div class="text-muted small">Audit Location</div>
                   <div class="fw-semibold" id="cf_my_location">—</div>
                 </div>
                 <div class="col-md-3">
@@ -83,22 +85,21 @@
                 </div>
               </div>
               <div class="row g-3 mt-1 align-items-end">
-                <div class="col-md-3">
+                <div class="col">
                   <div class="text-muted small">Assigned By</div>
                   <div class="fw-semibold" id="cf_assigned_by">—</div>
                 </div>
-                <div class="col-md-3">
+                <div class="col">
                   <div class="text-muted small">Assigned To</div>
                   <div class="fw-semibold" id="cf_assigned_to">—</div>
                 </div>
-                <div class="col-md-3">
+                <div class="col">
+                  <div class="text-muted small">Category</div>
+                  <div class="fw-semibold" id="cf_category">—</div>
+                </div>
+                <div class="col">
                   <div class="text-muted small">Report Date</div>
                   <div class="fw-semibold" id="cf_report_date">—</div>
-                </div>
-                <div class="col-md-3">
-                  <button type="button" id="auditSubmitBtn" class="btn btn-success">
-                    <i class="bi bi-check-lg me-1"></i>Submit
-                  </button>
                 </div>
               </div>
             </div>
@@ -132,8 +133,9 @@
             <thead class="table-light">
               <tr>
                 <th>Report Date</th>
-                <th>System Stage</th>
-                <th>System Location</th>
+                <th>Audit Stage</th>
+                <th>Audit Location</th>
+                <th>Category</th>
                 <th>Current Count</th>
                 <th>Physical Count</th>
                 <th>Difference</th>
@@ -161,45 +163,104 @@ function auditCsrfToken() {
 
 var auditCurrentLookup = null;
 
+// Lookup now performs the lookup AND the submit in a single click — one
+// user interaction instead of two (Lookup, review, Submit). If the lookup
+// itself fails (not found / already audited today) nothing is submitted;
+// if the lookup succeeds the submit follows immediately in the same chain.
 function auditDoLookup() {
   var bc = document.getElementById('auditBarcodeInput').value.trim();
   var err = document.getElementById('auditLookupError');
   err.classList.add('d-none');
   document.getElementById('auditConfirmPanel').classList.add('d-none');
-  if (!bc) return;
   var stageSel = document.getElementById('auditMyStage');
   var locSel = document.getElementById('auditMyLocation');
-  if (!stageSel.value) {
-    err.textContent = 'Select My Stage first.';
+  var reportDateVal = document.getElementById('auditReportDate').value;
+  // All four Perform Audit fields are mandatory before a Lookup — Report
+  // Date, Audit Stage, Audit Location (no "No Location" allowed here) and Tag
+  // Number — checked in form order so the first missing one is what's
+  // reported.
+  if (!reportDateVal) {
+    err.textContent = 'Select a Report Date first.';
     err.classList.remove('d-none');
     return;
   }
-  fetch('/audits/lookup?barcode=' + encodeURIComponent(bc), { credentials: 'same-origin' })
+  if (!stageSel.value) {
+    err.textContent = 'Select Audit Stage first.';
+    err.classList.remove('d-none');
+    return;
+  }
+  if (!locSel.value) {
+    err.textContent = 'Select Audit Location first.';
+    err.classList.remove('d-none');
+    return;
+  }
+  if (!bc) {
+    err.textContent = 'Enter a Tag Number first.';
+    err.classList.remove('d-none');
+    return;
+  }
+  var btn = document.getElementById('auditLookupBtn');
+  btn.disabled = true;
+  fetch('/audits/lookup?barcode=' + encodeURIComponent(bc) + '&report_date=' + encodeURIComponent(reportDateVal),
+        { credentials: 'same-origin' })
     .then(function (r) { return r.json(); })
     .then(function (d) {
       if (!d.found) {
+        // Covers both "tag not found" and "you already audited this tag
+        // today" — the backend returns the same {found:false, error} shape
+        // for the duplicate-tag rule as for a genuine not-found.
+        btn.disabled = false;
         err.textContent = d.error || 'Tag not found.';
         err.classList.remove('d-none');
         auditCurrentLookup = null;
         return;
       }
       auditCurrentLookup = d;
-      document.getElementById('auditDeviceLabel').textContent =
-        d.barcode + ' — ' + d.brand + ' ' + d.model + (d.serial_no && d.serial_no !== '—' ? ' (' + d.serial_no + ')' : '');
-      // My Stage/My Location are the auditor's own pick, made above before
-      // Lookup — unlike the previous batch, they are NOT overwritten with the
-      // system's values here, so the same pick stays in place while the
-      // auditor scans the next tag in the same physical spot.
-      document.getElementById('cf_my_stage').textContent = stageSel.options[stageSel.selectedIndex].text;
-      document.getElementById('cf_my_location').textContent = locSel.value ? locSel.options[locSel.selectedIndex].text : '—';
-      document.getElementById('cf_sys_stage').textContent = d.system_stage_label || '—';
-      document.getElementById('cf_sys_location').textContent = d.system_location_label || '—';
-      document.getElementById('cf_assigned_by').textContent = d.assigned_by_label || '—';
-      document.getElementById('cf_assigned_to').textContent = d.assigned_to_label || '—';
-      document.getElementById('cf_report_date').textContent = document.getElementById('auditReportDate').value;
-      document.getElementById('auditConfirmPanel').classList.remove('d-none');
+      var fd = new FormData();
+      fd.append('csrf_token', auditCsrfToken());
+      fd.append('report_date', reportDateVal);
+      fd.append('barcode', d.barcode);
+      fd.append('my_stage', stageSel.value);
+      fd.append('my_location_id', locSel.value);
+      return fetch('/audits/submit', { method: 'POST', body: fd, credentials: 'same-origin' })
+        .then(function (r2) { return r2.json(); })
+        .then(function (sd) {
+          btn.disabled = false;
+          if (!sd.ok) {
+            err.textContent = sd.error || 'Could not submit audit.';
+            err.classList.remove('d-none');
+            return;
+          }
+          // Receipt — what was just recorded, not a preview to confirm.
+          // Audit Stage/Audit Location are the auditor's own pick, made
+          // above before Lookup — they are NOT overwritten with the
+          // system's values here, so the same pick stays in place while the
+          // auditor scans the next tag in the same physical spot.
+          document.getElementById('auditDeviceLabel').textContent =
+            d.barcode + ' — ' + d.brand + ' ' + d.model + (d.serial_no && d.serial_no !== '—' ? ' (' + d.serial_no + ')' : '');
+          document.getElementById('cf_my_stage').textContent = stageSel.options[stageSel.selectedIndex].text;
+          document.getElementById('cf_my_location').textContent = locSel.value ? locSel.options[locSel.selectedIndex].text : '—';
+          document.getElementById('cf_sys_stage').textContent = d.system_stage_label || '—';
+          document.getElementById('cf_sys_location').textContent = d.system_location_label || '—';
+          document.getElementById('cf_assigned_by').textContent = d.assigned_by_label || '—';
+          document.getElementById('cf_assigned_to').textContent = d.assigned_to_label || '—';
+          document.getElementById('cf_category').textContent = d.category || '—';
+          document.getElementById('cf_report_date').textContent = reportDateVal;
+          document.getElementById('auditConfirmPanel').classList.remove('d-none');
+
+          document.getElementById('auditBarcodeInput').value = '';
+          auditCurrentLookup = null;
+          var msg = document.getElementById('auditSuccessMsg');
+          if (msg) {
+            msg.classList.remove('d-none');
+            setTimeout(function () { msg.classList.add('d-none'); }, 2500);
+          }
+          document.getElementById('auditBarcodeInput').focus();
+          if (window.auditRecordsDt) window.auditRecordsDt.ajax.reload(null, false);
+        });
     })
     .catch(function () {
+      btn.disabled = false;
       err.textContent = 'Lookup failed — please try again.';
       err.classList.remove('d-none');
     });
@@ -207,35 +268,6 @@ function auditDoLookup() {
 document.getElementById('auditLookupBtn').addEventListener('click', auditDoLookup);
 document.getElementById('auditBarcodeInput').addEventListener('keydown', function (e) {
   if (e.key === 'Enter') { e.preventDefault(); auditDoLookup(); }
-});
-
-document.getElementById('auditSubmitBtn').addEventListener('click', function () {
-  if (!auditCurrentLookup) return;
-  var btn = this;
-  var fd = new FormData();
-  fd.append('csrf_token', auditCsrfToken());
-  fd.append('report_date', document.getElementById('auditReportDate').value);
-  fd.append('barcode', auditCurrentLookup.barcode);
-  fd.append('my_stage', document.getElementById('auditMyStage').value);
-  fd.append('my_location_id', document.getElementById('auditMyLocation').value);
-  btn.disabled = true;
-  fetch('/audits/submit', { method: 'POST', body: fd, credentials: 'same-origin' })
-    .then(function (r) { return r.json(); })
-    .then(function (d) {
-      btn.disabled = false;
-      if (!d.ok) { alert(d.error || 'Could not submit audit.'); return; }
-      document.getElementById('auditBarcodeInput').value = '';
-      document.getElementById('auditConfirmPanel').classList.add('d-none');
-      auditCurrentLookup = null;
-      var msg = document.getElementById('auditSuccessMsg');
-      if (msg) {
-        msg.classList.remove('d-none');
-        setTimeout(function () { msg.classList.add('d-none'); }, 2500);
-      }
-      document.getElementById('auditBarcodeInput').focus();
-      if (window.auditRecordsDt) window.auditRecordsDt.ajax.reload(null, false);
-    })
-    .catch(function () { btn.disabled = false; alert('Could not submit audit.'); });
 });
 
 // ── Audit Records table ─────────────────────────────────────────────────────
@@ -250,8 +282,9 @@ $(function () {
     },
     columns: [
       { data: 'report_date' },
-      { data: 'system_stage' },
-      { data: 'system_location' },
+      { data: 'my_stage' },
+      { data: 'my_location' },
+      { data: 'category' },
       { data: 'current_count' },
       { data: 'physical_count' },
       { data: 'difference' },

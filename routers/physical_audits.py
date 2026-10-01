@@ -1,5 +1,5 @@
 """
-Physical Audits — Report Date x System Stage x System Location tag audits.
+Physical Audits — Report Date x Audit Stage x Audit Location x Category tag audits.
 
 Deliberately a brand-new feature, separate from the older "Physical Audit"
 zone/scan-batch tool (InventoryAudit/AuditScanItem in models/location.py,
@@ -74,11 +74,13 @@ async def _resolve_device_system_location_id(db: AsyncSession, device: Device):
     return device.location_id
 
 
-async def _count_devices_at(db: AsyncSession, stage, location_id) -> int:
-    """Live count of Devices (is_trashed=False) whose current_stage == stage
-    and whose resolved system location == location_id, using the same
-    latest-log precedence as _resolve_device_system_location_id but batched
-    into one query instead of one-per-device."""
+async def _count_devices_at(db: AsyncSession, stage, location_id, category) -> int:
+    """Live count of Devices (is_trashed=False) whose current_stage == stage,
+    whose resolved system location == location_id, and whose sub_category ==
+    category — using the same latest-log precedence as
+    _resolve_device_system_location_id but batched into one query instead of
+    one-per-device. This is "how many does the system say should be here",
+    compared against physical_count ("how many were actually found")."""
     latest_sub = (
         select(
             DeviceLocationLog.device_id,
@@ -109,7 +111,25 @@ async def _count_devices_at(db: AsyncSession, stage, location_id) -> int:
         q = q.where(resolved_loc.is_(None))
     else:
         q = q.where(resolved_loc == location_id)
+    if category is None:
+        q = q.where(Device.sub_category.is_(None))
+    else:
+        q = q.where(Device.sub_category == category)
     return (await db.execute(q)).scalar() or 0
+
+
+async def _already_audited(db: AsyncSession, barcode: str, r_date) -> bool:
+    """True if this exact tag already has an AuditRecordItem for this report
+    date — the "no duplicate tags for the same date" rule. Checked at both
+    Lookup (immediate feedback before the auditor picks anything) and Submit
+    (authoritative gate)."""
+    exists = (await db.execute(
+        select(AuditRecordItem.id)
+        .join(AuditRecord, AuditRecordItem.audit_record_id == AuditRecord.id)
+        .where(AuditRecord.report_date == r_date, AuditRecordItem.barcode == barcode)
+        .limit(1)
+    )).scalar_one_or_none()
+    return exists is not None
 
 
 def _csv_response(header: list, rows: list, filename: str) -> StreamingResponse:
@@ -158,6 +178,7 @@ async def audits_home(
 @router.get("/lookup")
 async def lookup_device(
     barcode: str = "",
+    report_date: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -169,6 +190,14 @@ async def lookup_device(
     )).scalars().first()
     if not device:
         return JSONResponse({"found": False, "error": f"No device found for tag {bc}."})
+
+    r_date = None
+    try:
+        r_date = datetime.strptime(report_date.strip(), "%Y-%m-%d").date()
+    except (ValueError, AttributeError):
+        pass
+    if r_date and await _already_audited(db, device.barcode, r_date):
+        return JSONResponse({"found": False, "error": "You already audited this tag."})
 
     lot_number = None
     if device.lot_id:
@@ -201,6 +230,7 @@ async def lookup_device(
         "system_stage_label": STAGE_LABELS.get(device.current_stage, device.current_stage),
         "system_location_id": str(system_location_id) if system_location_id else "",
         "system_location_label": _loc_short(system_location),
+        "category": device.sub_category or "—",
         # "Assigned By" is intentionally not returned — see module docstring.
         "assigned_by_label": "—",
         "assigned_to_label": assigned_to_name or "—",
@@ -228,6 +258,9 @@ async def submit_audit(
     if not device:
         return JSONResponse({"ok": False, "error": f"No device found for tag {bc}."})
 
+    if await _already_audited(db, device.barcode, r_date):
+        return JSONResponse({"ok": False, "error": "You already audited this tag."})
+
     try:
         my_stage_enum = DeviceStage(my_stage)
     except ValueError:
@@ -242,6 +275,7 @@ async def submit_audit(
 
     system_stage = device.current_stage
     system_location_id = await _resolve_device_system_location_id(db, device)
+    category = device.sub_category
 
     lot_number = None
     if device.lot_id:
@@ -249,14 +283,18 @@ async def submit_audit(
             select(Lot.lot_number).where(Lot.id == device.lot_id)
         )).scalar()
 
-    # ── Find or create the parent AuditRecord for (report_date, system_stage, system_location_id) ──
+    # ── Find or create the parent AuditRecord for (report_date, my_stage, my_location_id, category) ──
     parent_q = select(AuditRecord).where(
         AuditRecord.report_date == r_date,
-        AuditRecord.system_stage == system_stage,
+        AuditRecord.my_stage == my_stage_enum,
     )
     parent_q = parent_q.where(
-        AuditRecord.system_location_id.is_(None) if system_location_id is None
-        else AuditRecord.system_location_id == system_location_id
+        AuditRecord.my_location_id.is_(None) if my_loc_uuid is None
+        else AuditRecord.my_location_id == my_loc_uuid
+    )
+    parent_q = parent_q.where(
+        AuditRecord.category.is_(None) if category is None
+        else AuditRecord.category == category
     )
     audit_record = (await db.execute(parent_q)).scalars().first()
 
@@ -264,11 +302,12 @@ async def submit_audit(
         audit_record.physical_count = (audit_record.physical_count or 0) + 1
         audit_record.updated_at = app_now()
     else:
-        current_count = await _count_devices_at(db, system_stage, system_location_id)
+        current_count = await _count_devices_at(db, my_stage_enum, my_loc_uuid, category)
         audit_record = AuditRecord(
             report_date=r_date,
-            system_stage=system_stage,
-            system_location_id=system_location_id,
+            my_stage=my_stage_enum,
+            my_location_id=my_loc_uuid,
+            category=category,
             current_count=current_count,
             physical_count=1,
         )
@@ -283,6 +322,7 @@ async def submit_audit(
         brand=device.brand,
         model=device.model,
         serial_no=device.serial_no,
+        category=category,
         system_stage=system_stage,
         system_location_id=system_location_id,
         my_stage=my_stage_enum,
@@ -320,7 +360,7 @@ async def list_records(
             pass
     records = (await db.execute(q)).scalars().all()
 
-    loc_ids = {r.system_location_id for r in records if r.system_location_id}
+    loc_ids = {r.my_location_id for r in records if r.my_location_id}
     loc_map = {}
     if loc_ids:
         locs = (await db.execute(select(StorageLocation).where(StorageLocation.id.in_(loc_ids)))).scalars().all()
@@ -331,8 +371,9 @@ async def list_records(
         data.append({
             "id": str(r.id),
             "report_date": r.report_date.isoformat() if r.report_date else "",
-            "system_stage": STAGE_LABELS.get(r.system_stage, r.system_stage),
-            "system_location": _loc_display(loc_map.get(r.system_location_id)),
+            "my_stage": STAGE_LABELS.get(r.my_stage, r.my_stage),
+            "my_location": _loc_short(loc_map.get(r.my_location_id)),
+            "category": r.category or "—",
             "current_count": r.current_count,
             "physical_count": r.physical_count,
             "difference": r.difference,
@@ -402,8 +443,8 @@ async def download_record(
         loc_map = {loc.id: loc for loc in locs}
 
     header = [
-        "Tag Number", "Lot Number", "Model", "Serial", "Current Stage", "Current Location",
-        "Physical Stage", "Physical Location", "Difference", "Notes",
+        "Tag Number", "Lot Number", "Model", "Serial", "Category", "Current Stage", "Current Location",
+        "Audit Stage", "Audit Location", "Difference", "Notes",
     ]
     rows = []
     for it in items:
@@ -417,11 +458,11 @@ async def download_record(
         # than leaving it blank.)
         difference = "No" if (stage_match and loc_match) else "Yes"
         rows.append([
-            it.barcode, it.lot_number or "", it.model or "", it.serial_no or "",
+            it.barcode, it.lot_number or "", it.model or "", it.serial_no or "", it.category or "",
             STAGE_LABELS.get(it.system_stage, it.system_stage),
-            _loc_display(loc_map.get(it.system_location_id)),
+            _loc_short(loc_map.get(it.system_location_id)),
             STAGE_LABELS.get(it.my_stage, it.my_stage),
-            _loc_display(loc_map.get(it.my_location_id)),
+            _loc_short(loc_map.get(it.my_location_id)),
             difference,
             it.notes or "",
         ])
@@ -439,11 +480,11 @@ async def export_stage_summary(
     records = (await db.execute(select(AuditRecord))).scalars().all()
     totals = {}
     for r in records:
-        key = r.system_stage
+        key = r.my_stage
         t = totals.setdefault(key, {"current": 0, "physical": 0})
         t["current"] += r.current_count or 0
         t["physical"] += r.physical_count or 0
-    header = ["System Stage", "Current Count", "Physical Count", "Difference"]
+    header = ["Audit Stage", "Current Count", "Audit Count", "Difference"]
     rows = [
         [STAGE_LABELS.get(stage, stage), t["current"], t["physical"], t["current"] - t["physical"]]
         for stage, t in totals.items()
@@ -457,7 +498,7 @@ async def export_location_summary(
     current_user: User = Depends(get_current_user),
 ):
     records = (await db.execute(select(AuditRecord))).scalars().all()
-    loc_ids = {r.system_location_id for r in records if r.system_location_id}
+    loc_ids = {r.my_location_id for r in records if r.my_location_id}
     loc_map = {}
     if loc_ids:
         locs = (await db.execute(select(StorageLocation).where(StorageLocation.id.in_(loc_ids)))).scalars().all()
@@ -465,13 +506,13 @@ async def export_location_summary(
 
     totals = {}
     for r in records:
-        key = r.system_location_id
+        key = r.my_location_id
         t = totals.setdefault(key, {"current": 0, "physical": 0})
         t["current"] += r.current_count or 0
         t["physical"] += r.physical_count or 0
-    header = ["System Location", "Current Count", "Physical Count", "Difference"]
+    header = ["Audit Location", "Current Count", "Audit Count", "Difference"]
     rows = [
-        [_loc_display(loc_map.get(loc_id)), t["current"], t["physical"], t["current"] - t["physical"]]
+        [_loc_short(loc_map.get(loc_id)), t["current"], t["physical"], t["current"] - t["physical"]]
         for loc_id, t in totals.items()
     ]
     return _csv_response(header, rows, "audit_location_summary.csv")
@@ -504,18 +545,18 @@ async def export_tags_summary(
         loc_map = {loc.id: loc for loc in locs}
 
     header = [
-        "Report Date", "Tag Number", "Lot Number", "Model", "Serial",
-        "Current Stage", "Current Location", "Physical Stage", "Physical Location", "Notes",
+        "Report Date", "Tag Number", "Lot Number", "Model", "Serial", "Category",
+        "Current Stage", "Current Location", "Audit Stage", "Audit Location", "Notes",
     ]
     rows = []
     for it, rdate in rows_raw:
         rows.append([
             rdate.isoformat() if rdate else "",
-            it.barcode, it.lot_number or "", it.model or "", it.serial_no or "",
+            it.barcode, it.lot_number or "", it.model or "", it.serial_no or "", it.category or "",
             STAGE_LABELS.get(it.system_stage, it.system_stage),
-            _loc_display(loc_map.get(it.system_location_id)),
+            _loc_short(loc_map.get(it.system_location_id)),
             STAGE_LABELS.get(it.my_stage, it.my_stage),
-            _loc_display(loc_map.get(it.my_location_id)),
+            _loc_short(loc_map.get(it.my_location_id)),
             it.notes or "",
         ])
     return _csv_response(header, rows, "audit_tags_summary.csv")

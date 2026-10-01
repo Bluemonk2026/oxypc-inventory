@@ -351,8 +351,17 @@ async def export_sales(db: AsyncSession = Depends(get_db), current_user: User = 
     if truncated:
         writer.writerow(["# TRUNCATED", f"Export capped at {MAX_EXPORT_ROWS} rows", "", "", "", "", "", "", "", "", "", "", "", "", "", ""])
     output.seek(0)
-    return StreamingResponse(io.BytesIO(output.getvalue().encode()), media_type="text/csv",
-                             headers={"Content-Disposition": "attachment; filename=sales.csv"})
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode()), media_type="text/csv",
+        headers={
+            "Content-Disposition": "attachment; filename=sales.csv",
+            # No explicit cache headers previously — a browser could serve a
+            # stale cached copy of this exact URL (no query params change
+            # between downloads) from before a column was added here.
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @router.get("/business-pl", response_class=HTMLResponse)

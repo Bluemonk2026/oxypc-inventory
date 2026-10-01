@@ -45,37 +45,32 @@ git log --oneline "$LOCAL..$REMOTE" | sed 's/^/  incoming: /'
 # would flap every poll and mask the real fault. Fail loudly instead.
 echo "$LOCAL" > /var/lib/oxypc-last-good-sha 2>/dev/null || true
 
-CHANGED=$(git diff --name-only "$LOCAL" "$REMOTE")
-
 git merge --ff-only origin/main --quiet || { echo "FATAL: fast-forward failed"; exit 1; }
 
-# Only reinstall dependencies when they actually changed — pip is slow and
-# running it on every deploy would turn a 15s restart into minutes.
-if echo "$CHANGED" | grep -qx 'requirements.txt'; then
-    echo "requirements.txt changed — installing"
-    "$APP/venv/bin/pip" install --quiet -r requirements.txt || { echo "FATAL: pip install failed"; exit 1; }
-fi
+# No separate pip-install or schema-reconcile step here (the bare-metal
+# version of this script had both). Both are handled automatically now:
+#  - dependency changes: `docker compose build` COPYs requirements.txt before
+#    RUN pip install, so Docker's own layer cache already skips the reinstall
+#    when it's unchanged and redoes it when it is — no manual diffing needed.
+#  - schema reconciliation (db_validator.validate_and_fix): runs on every
+#    app startup inside the container itself (see main.py), so it happens
+#    automatically whenever the new container starts below.
+#
+# chown is also gone. The bare-metal version chowned the whole tree to
+# www-data because that's who ran the process. The container runs as its own
+# appuser (uid 1000) baked into the image — code files are COPYd in at build
+# time regardless of host ownership. The only host ownership that matters is
+# on the bind-mounted uploads/backups/static/stress_reports dirs, and those
+# only need to be uid 1000 once, not on every deploy (set during the Docker
+# cutover on 2026-10-01 — see docs/superpowers/specs/2026-10-01-docker-containerization-design.md).
 
-# This project evolves its schema through the additive auto-provisioner rather
-# than hand-written migrations (see .github/workflows/deploy.yml). Run it so a
-# new model column exists in the DB before code that reads it starts serving —
-# otherwise every page touching that column 500s.
-if echo "$CHANGED" | grep -qE '^(models/|alembic/)'; then
-    echo "models changed — reconciling schema"
-    "$APP/venv/bin/python" -c "
-import asyncio
-from database import engine
-from db_validator import validate_and_fix
-s = asyncio.run(validate_and_fix(engine, auto_fix=True))
-print('  schema: fixed', s['issues_fixed'], 'issue(s)')
-" || echo "  WARNING: schema reconcile failed — check before trusting this deploy"
-fi
+echo "building image"
+docker compose build || { echo "FATAL: docker build failed"; exit 1; }
 
-chown -R www-data:www-data "$APP"
-chmod 600 "$APP/.env"
+echo "starting container"
+docker compose up -d || { echo "FATAL: docker compose up failed"; exit 1; }
 
-systemctl restart oxypc
-sleep 12
+sleep 8
 
 CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 http://127.0.0.1:8000/health || echo 000)
 if [ "$CODE" = "200" ]; then
@@ -83,7 +78,7 @@ if [ "$CODE" = "200" ]; then
 else
     echo "DEPLOY UNHEALTHY: /health returned $CODE after restart"
     echo "Last known-good commit: $LOCAL"
-    echo "Roll back with:  cd $APP && git reset --hard $LOCAL && systemctl restart oxypc"
-    journalctl -u oxypc -n 20 --no-pager | tail -20
+    echo "Roll back with:  cd $APP && git reset --hard $LOCAL && docker compose up -d --build"
+    docker compose logs --tail=20 oxypc-app
     exit 1
 fi

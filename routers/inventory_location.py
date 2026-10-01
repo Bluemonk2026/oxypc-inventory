@@ -29,6 +29,52 @@ from models.location import (
     LocationAction, AuditStatus, ScanStatus, ZoneType, UnitType,
     ZONE_LABELS, UNIT_TYPE_LABELS,
 )
+from models.audit_record import AuditRecord, AuditRecordItem
+from models.bucket import Bucket
+from models.stock_transfer import StockTransfer
+from models.master import MasterData
+from sqlalchemy.exc import IntegrityError
+
+
+# Fallback when the "location_zone" Master Data category is empty (nothing
+# seeded yet, or every row deactivated) — the exact curated list the Add/Edit
+# Location modal has always shown, so that required dropdown is never left
+# empty. _zone_dropdown_options() below is the normal path once that
+# category has rows.
+_DEFAULT_ZONE_DROPDOWN_OPTIONS = [
+    ZoneType.workshop, ZoneType.holding, ZoneType.dispatch, ZoneType.showroom, ZoneType.warehouse,
+]
+
+
+async def _zone_dropdown_options(db: AsyncSession) -> list:
+    """Zones offered in the Add/Edit Location modal — sourced from the
+    admin-editable Master Data "location_zone" category (Admin > Master Data
+    > Dropdown Configuration > Storage Locations: Zone) instead of a
+    hardcoded list, so which zones are offered there — and their order — is
+    no longer a code change.
+
+    StorageLocation.zone is still a strongly-typed Postgres enum column
+    underneath (ZoneType), and every other place that reads it (Dashboard
+    filter, All Inventory export, Stock Inward) still keys off that same
+    enum + the existing ZONE_LABELS display text — none of that changed. So
+    each Master Data row's `value` must itself be a valid ZoneType code
+    (e.g. "workshop", not "TRC Floor") for a location saved through it to
+    keep working everywhere else. Rows that don't parse to a known ZoneType
+    are skipped rather than crashing the page (a bad admin edit shouldn't
+    break Location Master), and if nothing parses at all this falls back to
+    _DEFAULT_ZONE_DROPDOWN_OPTIONS."""
+    rows = (await db.execute(
+        select(MasterData.value)
+        .where(MasterData.category == "location_zone", MasterData.is_active == True)
+        .order_by(MasterData.display_order, MasterData.created_at)
+    )).scalars().all()
+    options = []
+    for raw in rows:
+        try:
+            options.append(ZoneType(raw))
+        except ValueError:
+            continue
+    return options or _DEFAULT_ZONE_DROPDOWN_OPTIONS
 
 router = APIRouter(prefix="/locations", tags=["locations"], dependencies=[Depends(verify_csrf)])
 
@@ -172,9 +218,7 @@ async def location_master(
         "unit_types": list(UnitType),
         "zone_labels": ZONE_LABELS,
         "unit_type_labels": UNIT_TYPE_LABELS,
-        "add_location_zone_types": [
-            ZoneType.workshop, ZoneType.holding, ZoneType.dispatch, ZoneType.showroom, ZoneType.warehouse,
-        ],
+        "add_location_zone_types": await _zone_dropdown_options(db),
     })
 
 
@@ -318,6 +362,61 @@ async def toggle_location(
     loc.is_active = not loc.is_active
     await db.flush()
     return RedirectResponse("/locations/master?success=Location+updated", status_code=303)
+
+
+@router.post("/master/{loc_id}/delete", response_class=HTMLResponse)
+async def delete_location(
+    loc_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.admin, UserRole.inventory_manager)),
+):
+    """Hard-delete a StorageLocation — only when nothing references it.
+    Every FK to storage_locations.id (devices, device_location_log,
+    audit_records, audit_record_items x2, audit_scan_item, buckets,
+    stock_transfers) is nullable with no ON DELETE rule, so a DELETE on a
+    referenced row would otherwise fail with an opaque IntegrityError (or
+    worse, silently orphan history if a cascade were ever added later).
+    Checked explicitly up front so the error is a clear, specific message —
+    "Deactivate" (toggle_location above) is the right tool for a location
+    that still has history; this is only for genuinely unused entries."""
+    result = await db.execute(select(StorageLocation).where(StorageLocation.id == loc_id))
+    loc = result.scalar_one_or_none()
+    if not loc:
+        raise HTTPException(status_code=404)
+    unit_id = loc.unit_id  # captured now — rollback below would expire `loc`,
+                            # and an expired attribute can't be lazily reloaded
+                            # on an async session outside an await context.
+
+    reference_checks = (
+        (Device, Device.location_id, "device(s)"),
+        (DeviceLocationLog, DeviceLocationLog.location_id, "location log entries"),
+        (AuditRecord, AuditRecord.system_location_id, "Physical Audit record(s)"),
+        (AuditRecordItem, AuditRecordItem.system_location_id, "Physical Audit item(s) (system location)"),
+        (AuditRecordItem, AuditRecordItem.my_location_id, "Physical Audit item(s) (my location)"),
+        (AuditScanItem, AuditScanItem.location_id, "Zone Audit scan item(s)"),
+        (Bucket, Bucket.location_id, "bucket(s)"),
+        (StockTransfer, StockTransfer.to_location_id, "transfer record(s)"),
+    )
+    for model, column, label in reference_checks:
+        in_use = (await db.execute(
+            select(model.id).where(column == loc_id).limit(1)
+        )).scalar_one_or_none()
+        if in_use is not None:
+            return RedirectResponse(
+                f"/locations/master?error=Cannot+delete+{unit_id}+%E2%80%94+still+referenced+by+{label.replace(' ', '+')}.+Deactivate+it+instead.",
+                status_code=303,
+            )
+
+    try:
+        await db.delete(loc)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        return RedirectResponse(
+            f"/locations/master?error=Cannot+delete+{unit_id}+%E2%80%94+still+referenced+elsewhere.+Deactivate+it+instead.",
+            status_code=303,
+        )
+    return RedirectResponse(f"/locations/master?success={unit_id}+deleted", status_code=303)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

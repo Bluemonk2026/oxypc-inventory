@@ -47,7 +47,17 @@ router = APIRouter(prefix="/audits", tags=["physical-audits"], dependencies=[Dep
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _active_location_options(locations):
-    return [{"id": str(loc.id), "label": loc.display_name} for loc in locations]
+    return [{"id": str(loc.id), "label": _loc_short(loc)} for loc in locations]
+
+
+def _loc_short(loc) -> str:
+    """Shorter location label for the Perform Audit form/brief info only —
+    just the unit id (+ slot), dropping the "Zone -> Unit Type" prefix that
+    StorageLocation.display_name adds. The Audit Records table and exports
+    keep the full display_name/_loc_display for record-keeping clarity."""
+    if not loc:
+        return "—"
+    return f"{loc.unit_id} [{loc.slot}]" if loc.slot else loc.unit_id
 
 
 def _stage_options():
@@ -190,7 +200,7 @@ async def lookup_device(
         "system_stage": device.current_stage.value if device.current_stage else None,
         "system_stage_label": STAGE_LABELS.get(device.current_stage, device.current_stage),
         "system_location_id": str(system_location_id) if system_location_id else "",
-        "system_location_label": _loc_display(system_location),
+        "system_location_label": _loc_short(system_location),
         # "Assigned By" is intentionally not returned — see module docstring.
         "assigned_by_label": "—",
         "assigned_to_label": assigned_to_name or "—",

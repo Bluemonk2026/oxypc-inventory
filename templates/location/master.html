@@ -115,6 +115,13 @@
                 {% if loc.is_active %}Deactivate{% else %}Activate{% endif %}
               </button>
             </form>
+            <form action="/locations/master/{{ loc.id }}/delete" method="post" class="d-inline"
+                  onsubmit="return confirm('Permanently delete {{ loc.unit_id }}? This only works if it has never been used — otherwise it will be rejected. This cannot be undone.');">
+              <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+              <button class="btn btn-outline-danger btn-sm py-0 ms-1" title="Delete">
+                <i class="bi bi-trash3"></i>
+              </button>
+            </form>
           </td>
         </tr>
         {% endfor %}

@@ -91,4 +91,5 @@ Output: `dist/OxyPC_Inventory.exe`
 Edit `config.ini` next to the EXE to change DB URL or port.
 
 <!-- autodeploy-e2e-test-2026-10-01T19:33 -->
+<!-- autodeploy-e2e-retest-2026-10-01T19:38 (health-check polling fix) -->
 

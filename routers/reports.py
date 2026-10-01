@@ -15,6 +15,7 @@ from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS, DROP
 from models.engines import RepairAttempt
 from models.lot import Lot
 from models.sales import Sale
+from models.stock_transfer import StockTransfer
 from models.spare_parts import SparePartConsumption
 from models.business_pl_override import BusinessPLOverride
 from services.audit_engine import audit
@@ -167,13 +168,14 @@ async def _sold_orphan_rows(db: AsyncSession, from_dt: datetime | None = None, t
         )).all()
     }
     orphan_result = await db.execute(
-        select(Device.id, Device.barcode, Device.brand, Device.model, Device.grade, Lot.lot_number)
+        select(Device.id, Device.barcode, Device.brand, Device.model, Device.grade,
+               Device.sub_category, Lot.lot_number)
         .outerjoin(Lot, Device.lot_id == Lot.id)
         .where(Device.current_stage == DeviceStage.sold,
                ~Device.id.in_(select(Sale.device_id)))
     )
     rows = []
-    for device_id, barcode, brand, model, grade, lot_number in orphan_result.all():
+    for device_id, barcode, brand, model, grade, sub_category, lot_number in orphan_result.all():
         moved_at = sold_moved_at.get(device_id)
         if moved_at is not None and from_dt is not None and not (from_dt <= moved_at <= to_dt):
             continue
@@ -182,8 +184,30 @@ async def _sold_orphan_rows(db: AsyncSession, from_dt: datetime | None = None, t
             "brand": brand, "model": model, "lot_number": lot_number, "grade": grade,
             "sale_price": None, "customer_name": None, "customer_phone": None,
             "payment_mode": None, "sold_by": None, "has_sale": False,
+            "device_id": device_id, "sub_category": sub_category,
+            "invoice_no": None, "sales_person": None, "notes": None,
         })
     return rows
+
+
+async def _latest_transfer_type_by_device(db: AsyncSession, device_ids: list) -> dict:
+    """Most recent StockTransfer.transfer_type per device_id — the "Stage" the
+    Sales Report export shows (e.g. "Ready For Sale" / "As Is Lot"), so sales
+    ops can see which move flow last placed the device before it sold. Mirrors
+    the latest-row-per-device pattern already used for location resolution
+    elsewhere (e.g. routers/devices.py's _build_location_map)."""
+    if not device_ids:
+        return {}
+    result = await db.execute(
+        select(StockTransfer.device_id, StockTransfer.transfer_type, StockTransfer.created_at)
+        .where(StockTransfer.device_id.in_(device_ids))
+        .order_by(StockTransfer.created_at.desc())
+    )
+    latest: dict = {}
+    for device_id, transfer_type, _created_at in result.all():
+        if device_id not in latest:
+            latest[device_id] = transfer_type
+    return latest
 
 
 @router.get("/sales", response_class=HTMLResponse)
@@ -281,7 +305,8 @@ async def export_sales(db: AsyncSession = Depends(get_db), current_user: User = 
     # bounding just the real-Sale query here is enough to keep this endpoint
     # from ever pulling an unbounded result set into memory.
     result = await db.execute(
-        select(Sale, Device.barcode, Device.brand, Device.model, Lot.lot_number)
+        select(Sale, Device.id, Device.barcode, Device.brand, Device.model,
+               Device.sub_category, Lot.lot_number)
         .join(Device, Sale.device_id == Device.id)
         .join(Lot, Device.lot_id == Lot.id)
         .order_by(Sale.sold_at.desc())
@@ -293,6 +318,9 @@ async def export_sales(db: AsyncSession = Depends(get_db), current_user: User = 
         "sale_price": s.Sale.sale_price, "customer_name": s.Sale.customer_name,
         "customer_phone": s.Sale.customer_phone, "payment_mode": s.Sale.payment_mode,
         "sold_by": s.Sale.sold_by,
+        "device_id": s.id, "sub_category": s.sub_category,
+        "invoice_no": s.Sale.invoice_no, "sales_person": s.Sale.sales_person,
+        "notes": s.Sale.notes,
     } for s in result.all()]
 
     # Same "sold with no Sale row" devices the Sales Report page shows (see
@@ -303,19 +331,25 @@ async def export_sales(db: AsyncSession = Depends(get_db), current_user: User = 
     truncated = len(rows) > MAX_EXPORT_ROWS
     rows = rows[:MAX_EXPORT_ROWS]
 
+    stage_by_device = await _latest_transfer_type_by_device(db, [r["device_id"] for r in rows if r["device_id"]])
+
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Sale#", "Date", "Barcode", "Brand", "Model", "Lot", "Price", "Customer", "Phone", "Payment", "Sold By"])
+    writer.writerow(["Sale#", "Date", "Barcode", "Brand", "Model", "Lot", "Price", "Customer", "Phone", "Payment", "Sold By",
+                      "Invoice Number", "Sales Person", "Category", "Stage", "Remarks"])
     for r in rows:
+        transfer_type = stage_by_device.get(r["device_id"])
         writer.writerow([
             r["sale_number"] or "NO SALE RECORD",
             r["sold_at"].strftime("%d-%m-%Y") if r["sold_at"] else "",
             r["barcode"], r["brand"], r["model"], r["lot_number"],
             float(r["sale_price"]) if r["sale_price"] is not None else "",
             r["customer_name"] or "", r["customer_phone"] or "", r["payment_mode"] or "", r["sold_by"] or "",
+            r["invoice_no"] or "", r["sales_person"] or "", r["sub_category"] or "",
+            (transfer_type or "").replace("_", " ").title(), r["notes"] or "",
         ])
     if truncated:
-        writer.writerow(["# TRUNCATED", f"Export capped at {MAX_EXPORT_ROWS} rows", "", "", "", "", "", "", "", "", ""])
+        writer.writerow(["# TRUNCATED", f"Export capped at {MAX_EXPORT_ROWS} rows", "", "", "", "", "", "", "", "", "", "", "", "", "", ""])
     output.seek(0)
     return StreamingResponse(io.BytesIO(output.getvalue().encode()), media_type="text/csv",
                              headers={"Content-Disposition": "attachment; filename=sales.csv"})

@@ -219,6 +219,7 @@ PERM_MODULES = [
     # ── REPORTS ────────────────────────────────────────────────────
     ("reports",              "Lot P&L"),
     ("report_sales",         "Sales Report"),
+    ("report_daily_stock",   "Daily Stock"),
     ("report_stage",         "Stage Log"),
     ("report_bizpl",         "Business P&L"),
     ("report_aging",         "Stock Aging"),

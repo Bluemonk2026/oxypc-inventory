@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% import "_multiselect_filter.html" as ms %}
+{% block title %}Daily Stock — OxyPC{% endblock %}
+{% block page_title %}Daily Stock{% endblock %}
+{% block content %}
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-3">
+    <form class="d-flex flex-wrap gap-2 align-items-end" method="get" action="/reports/daily-stock" id="dsFilterForm">
+      {{ ms.multiselect('entity', 'Entity', entity_options, selected_entity, 'flex-shrink-0') }}
+      <div>
+        <label class="form-label small fw-semibold mb-1">Date</label>
+        <input type="date" name="date" value="{{ selected_date }}" class="form-control form-control-sm" style="width:160px">
+      </div>
+      <div class="form-check pb-1">
+        <input type="checkbox" name="exclude_admin" value="1" id="dsExcludeAdmin" class="form-check-input" {% if exclude_admin %}checked{% endif %}>
+        <label class="form-check-label small" for="dsExcludeAdmin">Exclude Admin User</label>
+      </div>
+      <button type="submit" class="btn btn-sm btn-primary">View</button>
+      <a href="/reports/daily-stock" class="btn btn-sm btn-outline-secondary">Today</a>
+      <div class="ms-auto d-flex gap-2">
+        <a id="dsExportOverall" href="#" class="btn btn-sm btn-outline-success">
+          <i class="bi bi-download me-1"></i>Overall Export
+        </a>
+        <a id="dsExportTags" href="#" class="btn btn-sm btn-outline-success">
+          <i class="bi bi-download me-1"></i>Tag Based Export
+        </a>
+        <a id="dsExportLocation" href="#" class="btn btn-sm btn-outline-success">
+          <i class="bi bi-download me-1"></i>Location Export
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <span class="fw-semibold"><i class="bi bi-box-seam me-2"></i>Stock on {{ selected_date }}</span>
+    <div class="d-flex align-items-center gap-2">
+      {% if not is_today %}
+      <span class="badge bg-warning text-dark">Historical — reconstructed from the Stage Movement log</span>
+      {% endif %}
+      <span class="text-muted small">Opening = stock at 00:00 this day · Closing = stock at 00:00 the next day</span>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0 small">
+      <thead class="table-dark">
+        <tr>
+          <th>Stage</th>
+          <th class="text-end">Opening Stock</th>
+          <th class="text-end">Closing Stock</th>
+          <th class="text-end">Net Change</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.label }}</td>
+          <td class="text-end font-monospace">{{ r.opening }}</td>
+          <td class="text-end font-monospace">{{ r.closing }}</td>
+          <td class="text-end font-monospace {{ 'text-success' if r.net > 0 else 'text-danger' if r.net < 0 else 'text-muted' }}">
+            {{ '+' if r.net > 0 else '' }}{{ r.net }}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center text-muted py-4">No stock movement recorded up to this date.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if rows %}
+      <tfoot class="table-light fw-semibold">
+        <tr>
+          <td>Total</td>
+          <td class="text-end font-monospace">{{ total_open }}</td>
+          <td class="text-end font-monospace">{{ total_close }}</td>
+          <td class="text-end font-monospace {{ 'text-success' if total_net > 0 else 'text-danger' if total_net < 0 else 'text-muted' }}">
+            {{ '+' if total_net > 0 else '' }}{{ total_net }}
+          </td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/multiselect-filter.js?v={{ ASSET_VERSION }}"></script>
+<script>
+// Export links are built fresh at click time, not kept live on the href —
+// the Entity dropdown's menu gets reparented to <body> while open
+// (multiselect-filter.js), so a change event on its checkboxes no longer
+// bubbles through #dsFilterForm and a pre-computed href would go stale the
+// moment someone ticks a box. Reading ms_val_entity directly on click
+// sidesteps that entirely.
+function dsExportUrl(path) {
+  var dateVal = document.querySelector('#dsFilterForm input[name="date"]').value;
+  var excl = document.getElementById('dsExcludeAdmin').checked ? '1' : '0';
+  var entityVal = document.getElementById('ms_val_entity').value;
+  return path + '?date=' + encodeURIComponent(dateVal) + '&exclude_admin=' + excl
+       + '&entity=' + encodeURIComponent(entityVal);
+}
+document.getElementById('dsExportOverall').addEventListener('click', function (e) {
+  e.preventDefault();
+  window.location.href = dsExportUrl('/reports/daily-stock/export/overall');
+});
+document.getElementById('dsExportTags').addEventListener('click', function (e) {
+  e.preventDefault();
+  window.location.href = dsExportUrl('/reports/daily-stock/export/tags');
+});
+document.getElementById('dsExportLocation').addEventListener('click', function (e) {
+  e.preventDefault();
+  window.location.href = dsExportUrl('/reports/daily-stock/export/location');
+});
+</script>
+{% endblock %}

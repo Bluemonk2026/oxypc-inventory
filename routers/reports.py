@@ -8,10 +8,11 @@ from utils.timezone import app_now
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import extract, select, func
+from sqlalchemy import extract, select, func, text as sa_text
 from database import get_db
 from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS, DROPDOWN_STAGES
+from models.location import ZONE_LABELS, ZoneType
 from models.engines import RepairAttempt
 from models.lot import Lot
 from models.sales import Sale
@@ -20,7 +21,7 @@ from models.spare_parts import SparePartConsumption
 from models.business_pl_override import BusinessPLOverride
 from services.audit_engine import audit
 from services.business_pl import compute_year_parts_labour_cogs
-from utils.master_data import report_year_values
+from utils.master_data import report_year_values, master_options
 from auth.dependencies import get_current_user, require_roles, verify_csrf
 
 # Maximum rows returned by any CSV export endpoint — prevents OOM on large datasets
@@ -130,6 +131,299 @@ async def lot_pl_report(request: Request, db: AsyncSession = Depends(get_db), cu
     return templates.TemplateResponse("reports/lot_pl.html", {
         "request": request, "lot_pl": lot_pl, "current_user": current_user
     })
+
+
+# Named QA/test accounts to drop whenever "Exclude Admin User" is checked,
+# on top of anyone with role='admin' — test_user/test_man aren't admin-role
+# (l1_engineer/cosmetic_manager respectively) so the role filter alone
+# wouldn't catch them. Fixed constant list, not user input — safe to inline
+# into the SQL below.
+_EXCLUDED_DAILY_STOCK_USERNAMES = ("admin", "test_user", "test_man")
+
+
+def _stock_reconstruction_sql(exclude_admin: bool) -> str:
+    """Shared DISTINCT ON reconstruction — see _stock_as_of's docstring.
+    `exclude_admin` drops any StageMovement performed by an admin-role user,
+    or by one of _EXCLUDED_DAILY_STOCK_USERNAMES, from consideration
+    entirely (as if it never happened), so a device whose only history
+    before `as_of` was an admin/test action is reconstructed as
+    not-yet-existing at that point rather than sitting in whatever stage
+    that action left it in. Added for exactly that case: QA/test movements
+    skewing the real operational numbers."""
+    admin_join = "LEFT JOIN users u ON u.username = sm.moved_by" if exclude_admin else ""
+    if exclude_admin:
+        excluded_list = ", ".join(f"'{u}'" for u in _EXCLUDED_DAILY_STOCK_USERNAMES)
+        admin_filter = f"AND COALESCE(u.role, '') != 'admin' AND sm.moved_by NOT IN ({excluded_list})"
+    else:
+        admin_filter = ""
+    return f"""
+        SELECT DISTINCT ON (sm.device_id) sm.device_id, sm.to_stage
+        FROM stage_movements sm
+        {admin_join}
+        WHERE sm.moved_at <= :as_of
+        {admin_filter}
+        ORDER BY sm.device_id, sm.moved_at DESC
+    """
+
+
+def _entity_filter_clause(entities: list | None) -> str:
+    """Appended to any query already aliasing devices as `d` — `entities`
+    comes from a server-rendered multi-select (master_options('entity')),
+    never free text, so inlining the escaped values is safe the same way
+    _EXCLUDED_DAILY_STOCK_USERNAMES is."""
+    if not entities:
+        return ""
+    quoted = ", ".join("'" + e.replace("'", "''") + "'" for e in entities)
+    return f"AND d.entity IN ({quoted})"
+
+
+async def _stock_as_of(db: AsyncSession, as_of: datetime, exclude_admin: bool = False,
+                        entities: list | None = None) -> dict:
+    """Count of devices by stage, reconstructed as of a point in time —
+    the most recent StageMovement.to_stage at or before `as_of` per device
+    (SQL DISTINCT ON, Postgres-only like the rest of this app). This reads
+    what was actually recorded rather than relying on StageMovement.exited_at
+    intervals, so it stays correct even where some stage-change code path
+    left exited_at unset on the previous row.
+
+    A device trashed by `as_of` is excluded — same "don't count trashed
+    stock" rule every other count in this app follows — but one trashed
+    *after* `as_of` still counts, since it genuinely held that stage at the
+    time being reconstructed. `entities` optionally restricts to one or more
+    Device.entity values (the Entity multi-select on the page)."""
+    rows = (await db.execute(sa_text(f"""
+        SELECT latest.to_stage, count(*)
+        FROM ({_stock_reconstruction_sql(exclude_admin)}) latest
+        JOIN devices d ON d.id = latest.device_id
+        WHERE (d.trashed_at IS NULL OR d.trashed_at > :as_of)
+        {_entity_filter_clause(entities)}
+        GROUP BY latest.to_stage
+    """), {"as_of": as_of})).all()
+    return {r[0]: r[1] for r in rows}
+
+
+async def _stock_tags_as_of(db: AsyncSession, as_of: datetime, exclude_admin: bool = False,
+                             entities: list | None = None) -> list:
+    """Same reconstruction as _stock_as_of, but returns the actual (stage,
+    barcode) pairs instead of a count per stage — powers the Tag Based
+    export, which lists every tag making up each number instead of just the
+    number."""
+    rows = (await db.execute(sa_text(f"""
+        SELECT latest.to_stage, d.barcode
+        FROM ({_stock_reconstruction_sql(exclude_admin)}) latest
+        JOIN devices d ON d.id = latest.device_id
+        WHERE (d.trashed_at IS NULL OR d.trashed_at > :as_of)
+        {_entity_filter_clause(entities)}
+        ORDER BY latest.to_stage, d.barcode
+    """), {"as_of": as_of})).all()
+    return [(r[0], r[1]) for r in rows]
+
+
+async def _stock_by_zone_as_of(db: AsyncSession, as_of: datetime, exclude_admin: bool = False,
+                                entities: list | None = None) -> dict:
+    """Count of devices by (stage, zone), reconstructed as of a point in
+    time — powers the Location Export. Zone comes from the same latest-
+    log-at-or-before-`as_of` pattern as stage (DISTINCT ON over
+    device_location_logs, not a correlated subquery — device_location_logs
+    has no per-device index, so a LATERAL join per device would be far
+    slower than one sorted pass here). A device with no location log at all
+    before `as_of` falls back to its *current* StorageLocation — same
+    fallback routers/devices.py's _build_location_map uses for "current"
+    lookups, just reached for a historical cutoff too since most devices
+    are only ever placed once; 'Unassigned' if even that is empty."""
+    rows = (await db.execute(sa_text(f"""
+        WITH latest_loc AS (
+            SELECT DISTINCT ON (dll.device_id) dll.device_id, sl.zone
+            FROM device_location_logs dll
+            JOIN storage_locations sl ON sl.id = dll.location_id
+            WHERE dll.logged_at <= :as_of AND dll.location_id IS NOT NULL
+            ORDER BY dll.device_id, dll.logged_at DESC
+        )
+        SELECT latest.to_stage, COALESCE(latest_loc.zone::text, cur_sl.zone::text, 'unassigned') AS zone, count(*)
+        FROM ({_stock_reconstruction_sql(exclude_admin)}) latest
+        JOIN devices d ON d.id = latest.device_id
+        LEFT JOIN latest_loc ON latest_loc.device_id = d.id
+        LEFT JOIN storage_locations cur_sl ON cur_sl.id = d.location_id
+        WHERE (d.trashed_at IS NULL OR d.trashed_at > :as_of)
+        {_entity_filter_clause(entities)}
+        GROUP BY latest.to_stage, COALESCE(latest_loc.zone::text, cur_sl.zone::text, 'unassigned')
+    """), {"as_of": as_of})).all()
+    return {(r[0], r[1]): r[2] for r in rows}
+
+
+def _parse_daily_stock_date(date: str) -> "datetime.date":
+    try:
+        return datetime.strptime(date.strip(), "%Y-%m-%d").date() if date.strip() else app_now().date()
+    except ValueError:
+        return app_now().date()
+
+
+def _parse_multi(value: str) -> list:
+    """Same convention as routers/devices.py's _multi(): the shared
+    checkbox multiselect dropdown (_multiselect_filter.html) posts one
+    comma-separated value per field rather than repeating the parameter."""
+    if not value:
+        return []
+    return [v.strip() for v in value.split(",") if v.strip()]
+
+
+@router.get("/daily-stock", response_class=HTMLResponse)
+async def daily_stock_report(
+    request: Request,
+    date: str = Query(default=""),
+    exclude_admin: bool = Query(default=False),
+    entity: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Opening Stock (reconstructed as of 00:00 the selected day) vs Closing
+    Stock (as of 00:00 the next day) per stage — answers "how much inventory
+    did we have at the start vs end of day X", which nothing else in this app
+    shows (Stock Aging and the Dashboard pipeline are both current-moment-only
+    snapshots, not a historical day boundary)."""
+    day = _parse_daily_stock_date(date)
+    day_start = datetime.combine(day, datetime.min.time())
+    day_end = day_start + timedelta(days=1)  # exclusive boundary == start of next day
+    entities = _parse_multi(entity)
+
+    opening_counts = await _stock_as_of(db, day_start, exclude_admin, entities)
+    closing_counts = await _stock_as_of(db, day_end, exclude_admin, entities)
+
+    rows = []
+    total_open = total_close = 0
+    for s in DeviceStage:
+        if s == DeviceStage.l2:
+            continue  # legacy stage, see DROPDOWN_STAGES comment in models/device.py
+        o = opening_counts.get(s.value, 0)
+        c = closing_counts.get(s.value, 0)
+        if o == 0 and c == 0:
+            continue  # keeps the table to stages that actually had stock that day
+        total_open += o
+        total_close += c
+        rows.append({
+            "stage": s.value, "label": STAGE_LABELS.get(s, s.value),
+            "opening": o, "closing": c, "net": c - o,
+        })
+
+    return templates.TemplateResponse("reports/daily_stock.html", {
+        "request": request, "current_user": current_user,
+        "selected_date": day.isoformat(),
+        "exclude_admin": exclude_admin,
+        "selected_entity": entity,
+        "entity_options": master_options("entity"),
+        "rows": rows,
+        "total_open": total_open, "total_close": total_close, "total_net": total_close - total_open,
+        "is_today": day == app_now().date(),
+    })
+
+
+@router.get("/daily-stock/export/overall")
+async def daily_stock_export_overall(
+    date: str = Query(default=""),
+    exclude_admin: bool = Query(default=False),
+    entity: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The on-screen table as-is (Stage/Opening/Closing/Net), with the
+    Report Date repeated on every row — same convention as every other
+    export in this app (e.g. Block Tags), so the file is self-describing
+    even once detached from the page it came from."""
+    day = _parse_daily_stock_date(date)
+    day_start = datetime.combine(day, datetime.min.time())
+    day_end = day_start + timedelta(days=1)
+    entities = _parse_multi(entity)
+
+    opening_counts = await _stock_as_of(db, day_start, exclude_admin, entities)
+    closing_counts = await _stock_as_of(db, day_end, exclude_admin, entities)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Report Date", "Stage", "Opening Stock", "Closing Stock", "Net Change"])
+    for s in DeviceStage:
+        if s == DeviceStage.l2:
+            continue
+        o = opening_counts.get(s.value, 0)
+        c = closing_counts.get(s.value, 0)
+        if o == 0 and c == 0:
+            continue
+        writer.writerow([day.isoformat(), STAGE_LABELS.get(s, s.value), o, c, c - o])
+    output.seek(0)
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode()), media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=daily_stock_overall_{day.isoformat()}.csv"},
+    )
+
+
+@router.get("/daily-stock/export/tags")
+async def daily_stock_export_tags(
+    date: str = Query(default=""),
+    exclude_admin: bool = Query(default=False),
+    entity: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Same Opening/Closing reconstruction as the page, but one row per tag
+    instead of a count per stage — the actual Tag Numbers behind each
+    number in the Overall export."""
+    day = _parse_daily_stock_date(date)
+    day_start = datetime.combine(day, datetime.min.time())
+    day_end = day_start + timedelta(days=1)
+    entities = _parse_multi(entity)
+
+    opening_tags = await _stock_tags_as_of(db, day_start, exclude_admin, entities)
+    closing_tags = await _stock_tags_as_of(db, day_end, exclude_admin, entities)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Report Date", "Snapshot", "Stage", "Tag Number"])
+    for stage, barcode in opening_tags:
+        writer.writerow([day.isoformat(), "Opening", STAGE_LABELS.get(DeviceStage(stage), stage), barcode])
+    for stage, barcode in closing_tags:
+        writer.writerow([day.isoformat(), "Closing", STAGE_LABELS.get(DeviceStage(stage), stage), barcode])
+    output.seek(0)
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode()), media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=daily_stock_tags_{day.isoformat()}.csv"},
+    )
+
+
+@router.get("/daily-stock/export/location")
+async def daily_stock_export_location(
+    date: str = Query(default=""),
+    exclude_admin: bool = Query(default=False),
+    entity: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The on-screen table split out by Zone — one row per (Stage, Zone)
+    that held any stock that day, instead of one row per Stage. See
+    _stock_by_zone_as_of for how Zone is resolved at a historical cutoff."""
+    day = _parse_daily_stock_date(date)
+    day_start = datetime.combine(day, datetime.min.time())
+    day_end = day_start + timedelta(days=1)
+    entities = _parse_multi(entity)
+
+    opening_counts = await _stock_by_zone_as_of(db, day_start, exclude_admin, entities)
+    closing_counts = await _stock_by_zone_as_of(db, day_end, exclude_admin, entities)
+
+    keys = sorted(set(opening_counts) | set(closing_counts))
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Report Date", "Stage", "Zone", "Opening Stock", "Closing Stock", "Net Change"])
+    for stage, zone in keys:
+        if stage == DeviceStage.l2.value:
+            continue
+        o = opening_counts.get((stage, zone), 0)
+        c = closing_counts.get((stage, zone), 0)
+        zone_label = "Unassigned" if zone == "unassigned" else ZONE_LABELS.get(ZoneType(zone), zone)
+        stage_label = STAGE_LABELS.get(DeviceStage(stage), stage)
+        writer.writerow([day.isoformat(), stage_label, zone_label, o, c, c - o])
+    output.seek(0)
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode()), media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=daily_stock_location_{day.isoformat()}.csv"},
+    )
 
 
 @router.get("/stage-movement", response_class=HTMLResponse)

@@ -564,7 +564,7 @@
       {# ── REPORTS ─────────────────────────────────────────────────────── #}
       {# Stock Aging / Overdue Devices / Receivables / Market Intel were moved
          out of this section into the Application Settings accordion below. #}
-      {% if has_perm(role,'reports','enable') and not module_hidden('reports') or has_perm(role,'report_sales','enable') and not module_hidden('report_sales') or has_perm(role,'report_stage','enable') and not module_hidden('report_stage') or has_perm(role,'report_bizpl','enable') and not module_hidden('report_bizpl') %}
+      {% if has_perm(role,'reports','enable') and not module_hidden('reports') or has_perm(role,'report_sales','enable') and not module_hidden('report_sales') or has_perm(role,'report_daily_stock','enable') and not module_hidden('report_daily_stock') or has_perm(role,'report_stage','enable') and not module_hidden('report_stage') or has_perm(role,'report_bizpl','enable') and not module_hidden('report_bizpl') %}
       <li class="nav-section">REPORTS</li>
       {% endif %}
       {% if has_perm(role,'report_bizpl','enable') and not module_hidden('report_bizpl') %}
@@ -580,6 +580,11 @@
       {% if has_perm(role,'report_sales','enable') and not module_hidden('report_sales') %}
       <li><a href="/reports/sales" class="nav-link {% if '/reports/sales' in request.url.path %}active{% endif %}">
         <i class="bi bi-bar-chart me-2"></i> {{ sidebar_label('report_sales', 'Sales Report') }}
+      </a></li>
+      {% endif %}
+      {% if has_perm(role,'report_daily_stock','enable') and not module_hidden('report_daily_stock') %}
+      <li><a href="/reports/daily-stock" class="nav-link {% if '/reports/daily-stock' in request.url.path %}active{% endif %}">
+        <i class="bi bi-box-seam me-2"></i> {{ sidebar_label('report_daily_stock', 'Daily Stock') }}
       </a></li>
       {% endif %}
       {% if has_perm(role,'report_stage','enable') and not module_hidden('report_stage') %}

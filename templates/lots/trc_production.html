@@ -66,6 +66,13 @@
         <i class="bi bi-exclamation-triangle prod-tile-icon mb-1 d-block" style="color:#dc3545"></i>
         <div class="prod-tile-label text-muted mb-1">Total Tags in PNA</div>
         <div class="prod-tile-count fw-bold" style="color:#dc3545">{{ tags_pna }}</div>
+        {# PNA parts for L1/L2 + L3/L4 tags — broader than the tile's own
+           count above (L1/L2 only), by design; see the router's docstring
+           on this export. #}
+        <a href="/trc-production/pna-summary" class="btn btn-outline-danger btn-sm mt-1 py-0 px-1"
+           style="font-size:.65rem" title="Download PNA parts summary (L1/L2 + L3/L4 tags)">
+          <i class="bi bi-file-earmark-arrow-down"></i> Summary
+        </a>
       </div>
     </div>
   </div>

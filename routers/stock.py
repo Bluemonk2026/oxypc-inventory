@@ -1741,6 +1741,48 @@ async def trc_production_list(
     })
 
 
+@router.get("/trc-production/pna-summary")
+async def trc_production_pna_summary(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """CSV for the Production Manager PNA tile's "Summary" button — every
+    active PNA-marked part for devices currently in L1/L2 or L3/L4 Repair,
+    one row per (tag, part). Deliberately broader than the tile's own count
+    above (tags_pna is L1/L2 only) since L3/L4 was explicitly asked for
+    here — the tile's number and this export's tag count won't match 1:1,
+    that's intended scope, not a bug."""
+    result = await db.execute(
+        select(DevicePNAPart, Device.barcode, Device.brand, Device.model,
+               Device.current_stage, Lot.lot_number)
+        .join(Device, DevicePNAPart.device_id == Device.id)
+        .outerjoin(Lot, Device.lot_id == Lot.id)
+        .where(
+            Device.current_stage.in_([DeviceStage.l1, DeviceStage.l2, DeviceStage.l3]),
+            Device.is_active == True, Device.is_trashed == False,
+            DevicePNAPart.is_active == True,
+        )
+        .order_by(Device.barcode, DevicePNAPart.part_name)
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Tag Number", "Brand", "Model", "Lot Number", "Stage",
+                      "Part Name", "Part Category", "Marked By", "Marked At"])
+    for pna, barcode, brand, model, stage, lot_number in result.all():
+        writer.writerow([
+            barcode or pna.barcode or "", brand or "", model or "", lot_number or "",
+            STAGE_LABELS.get(stage, stage.value if stage else ""),
+            pna.part_name, pna.part_category or "",
+            pna.marked_by or "", pna.marked_at.strftime("%d-%m-%Y %H:%M") if pna.marked_at else "",
+        ])
+    output.seek(0)
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode()), media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=pna_tag_summary.csv"},
+    )
+
+
 # Production Manager's "Change Engineer" modal — target stages it can move a
 # tag into. Scoped to the repair pipeline this page is about (not every
 # DeviceStage — moving a tag straight to e.g. "sold" via a reassignment tool

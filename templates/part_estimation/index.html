@@ -6,6 +6,17 @@
 {% if success %}<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>{{ success }}</div>{% endif %}
 {% if error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ error }}</div>{% endif %}
 
+<div class="d-flex justify-content-end mb-2">
+  {# Same export as Production Manager's PNA tile (/trc-production/pna-summary)
+     — distinct-tag count across L1/L2 + L3/L4 only, matching pna_tag_count
+     below so the number on the button is never stale relative to the file
+     it downloads. #}
+  <a href="/trc-production/pna-summary" class="btn btn-outline-danger btn-sm"
+     title="Download PNA parts summary for tags currently in L1/L2 or L3/L4 Repair">
+    <i class="bi bi-file-earmark-arrow-down me-1"></i>Recent PNA under L1/L2/L3/L4 {{ pna_tag_count }}
+  </a>
+</div>
+
 <div class="card border-0 shadow-sm">
   <div class="card-header bg-transparent fw-semibold">
     <i class="bi bi-calculator me-2"></i>Lots Summary

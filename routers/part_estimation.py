@@ -13,20 +13,21 @@ from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from templates_config import templates
 from utils.timezone import app_now
 from models.user import User
-from models.device import Device
+from models.device import Device, DeviceStage
 from models.lot import Lot
 from models.iqc_inspection import IQCInspection
 from models.part_estimate import (
     PartEstimate, PartEstimateLine, PartEstimateChecklistLine, PartEstimateOpenLine,
 )
 from models.part_request import PartSourcingRequest
+from models.pna_part import DevicePNAPart
 from auth.dependencies import require_module_perm, verify_csrf
 from services.audit_engine import audit
 from services.part_estimation import (
@@ -93,11 +94,25 @@ async def part_estimation_page(
         "estimates": estimates_by_lot.get(lot.id, []),
     } for lot in lots]
 
+    # Same scope as Production Manager's PNA "Summary" export
+    # (/trc-production/pna-summary) — distinct tags, not part rows, so a tag
+    # with 3 PNA parts still counts once, matching "Total Tags in PNA".
+    pna_tag_count = (await db.execute(
+        select(func.count(func.distinct(Device.id)))
+        .join(DevicePNAPart, DevicePNAPart.device_id == Device.id)
+        .where(
+            Device.current_stage.in_([DeviceStage.l1, DeviceStage.l2, DeviceStage.l3]),
+            Device.is_active == True, Device.is_trashed == False,
+            DevicePNAPart.is_active == True,
+        )
+    )).scalar() or 0
+
     return templates.TemplateResponse("part_estimation/index.html", {
         "request": request, "current_user": current_user, "rows": rows,
         "grade_options": grade_options(),
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
+        "pna_tag_count": pna_tag_count,
     })
 
 

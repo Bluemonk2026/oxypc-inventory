@@ -22,6 +22,23 @@
             <label class="form-label fw-semibold small">Report Date</label>
             <input type="date" id="auditReportDate" class="form-control" value="{{ today }}">
           </div>
+          <div class="col-md-2">
+            <label class="form-label fw-semibold small">My Stage</label>
+            <select id="auditMyStage" class="form-select">
+              {% for val, label in stage_options %}
+              <option value="{{ val }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold small">My Location</label>
+            <select id="auditMyLocation" class="form-select">
+              <option value="">— No Location —</option>
+              {% for loc in location_options %}
+              <option value="{{ loc.id }}">{{ loc.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
           <div class="col-md-3">
             <label class="form-label fw-semibold small">Tag Number</label>
             <input type="text" id="auditBarcodeInput" class="form-control" placeholder="Scan or type a tag number">
@@ -33,56 +50,10 @@
           </div>
         </div>
 
-        <!-- Apply panel: shown once a tag is found -->
-        <div id="auditApplyPanel" class="d-none mt-4">
-          <div class="fw-semibold mb-2" id="auditDeviceLabel"></div>
-          <div class="row g-3">
-            <div class="col-md-3">
-              <label class="form-label small text-muted">System Stage</label>
-              <div class="fw-semibold" id="auditSysStage">—</div>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small text-muted">System Location</label>
-              <div class="fw-semibold" id="auditSysLocation">—</div>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small text-muted">Assigned To</label>
-              <div class="fw-semibold" id="auditAssignedTo">—</div>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small text-muted">Assigned By</label>
-              <div class="fw-semibold" id="auditAssignedBy">—</div>
-            </div>
-          </div>
-          <hr>
-          <div class="row g-3 align-items-end">
-            <div class="col-md-4">
-              <label class="form-label fw-semibold small">My Stage</label>
-              <select id="auditMyStage" class="form-select">
-                {% for val, label in stage_options %}
-                <option value="{{ val }}">{{ label }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label fw-semibold small">My Location</label>
-              <select id="auditMyLocation" class="form-select">
-                <option value="">— No Location —</option>
-                {% for loc in location_options %}
-                <option value="{{ loc.id }}">{{ loc.label }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-md-4">
-              <button type="button" id="auditApplyBtn" class="btn btn-primary w-100">
-                <i class="bi bi-check2-square me-1"></i>Apply
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Confirmation panel: shown after Apply -->
+        <!-- Brief info: shown after a successful Lookup, My Stage/My Location
+             already carry what was picked above the Lookup button. -->
         <div id="auditConfirmPanel" class="d-none mt-4">
+          <div class="fw-semibold mb-2" id="auditDeviceLabel"></div>
           <div class="card bg-light border-0">
             <div class="card-body">
               <div class="row g-3">
@@ -102,6 +73,8 @@
                   <div class="text-muted small">System Location</div>
                   <div class="fw-semibold" id="cf_sys_location">—</div>
                 </div>
+              </div>
+              <div class="row g-3 mt-1 align-items-end">
                 <div class="col-md-3">
                   <div class="text-muted small">Assigned By</div>
                   <div class="fw-semibold" id="cf_assigned_by">—</div>
@@ -114,11 +87,11 @@
                   <div class="text-muted small">Report Date</div>
                   <div class="fw-semibold" id="cf_report_date">—</div>
                 </div>
-              </div>
-              <div class="mt-3">
-                <button type="button" id="auditDoneBtn" class="btn btn-success">
-                  <i class="bi bi-check-lg me-1"></i>Done
-                </button>
+                <div class="col-md-3">
+                  <button type="button" id="auditSubmitBtn" class="btn btn-success">
+                    <i class="bi bi-check-lg me-1"></i>Submit
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -184,9 +157,15 @@ function auditDoLookup() {
   var bc = document.getElementById('auditBarcodeInput').value.trim();
   var err = document.getElementById('auditLookupError');
   err.classList.add('d-none');
-  document.getElementById('auditApplyPanel').classList.add('d-none');
   document.getElementById('auditConfirmPanel').classList.add('d-none');
   if (!bc) return;
+  var stageSel = document.getElementById('auditMyStage');
+  var locSel = document.getElementById('auditMyLocation');
+  if (!stageSel.value) {
+    err.textContent = 'Select My Stage first.';
+    err.classList.remove('d-none');
+    return;
+  }
   fetch('/audits/lookup?barcode=' + encodeURIComponent(bc), { credentials: 'same-origin' })
     .then(function (r) { return r.json(); })
     .then(function (d) {
@@ -199,14 +178,18 @@ function auditDoLookup() {
       auditCurrentLookup = d;
       document.getElementById('auditDeviceLabel').textContent =
         d.barcode + ' — ' + d.brand + ' ' + d.model + (d.serial_no && d.serial_no !== '—' ? ' (' + d.serial_no + ')' : '');
-      document.getElementById('auditSysStage').textContent = d.system_stage_label || '—';
-      document.getElementById('auditSysLocation').textContent = d.system_location_label || '—';
-      document.getElementById('auditAssignedTo').textContent = d.assigned_to_label || '—';
-      document.getElementById('auditAssignedBy').textContent = d.assigned_by_label || '—';
-      var stageSel = document.getElementById('auditMyStage');
-      if (d.system_stage) stageSel.value = d.system_stage;
-      document.getElementById('auditMyLocation').value = d.system_location_id || '';
-      document.getElementById('auditApplyPanel').classList.remove('d-none');
+      // My Stage/My Location are the auditor's own pick, made above before
+      // Lookup — unlike the previous batch, they are NOT overwritten with the
+      // system's values here, so the same pick stays in place while the
+      // auditor scans the next tag in the same physical spot.
+      document.getElementById('cf_my_stage').textContent = stageSel.options[stageSel.selectedIndex].text;
+      document.getElementById('cf_my_location').textContent = locSel.value ? locSel.options[locSel.selectedIndex].text : '—';
+      document.getElementById('cf_sys_stage').textContent = d.system_stage_label || '—';
+      document.getElementById('cf_sys_location').textContent = d.system_location_label || '—';
+      document.getElementById('cf_assigned_by').textContent = d.assigned_by_label || '—';
+      document.getElementById('cf_assigned_to').textContent = d.assigned_to_label || '—';
+      document.getElementById('cf_report_date').textContent = document.getElementById('auditReportDate').value;
+      document.getElementById('auditConfirmPanel').classList.remove('d-none');
     })
     .catch(function () {
       err.textContent = 'Lookup failed — please try again.';
@@ -218,22 +201,7 @@ document.getElementById('auditBarcodeInput').addEventListener('keydown', functio
   if (e.key === 'Enter') { e.preventDefault(); auditDoLookup(); }
 });
 
-document.getElementById('auditApplyBtn').addEventListener('click', function () {
-  if (!auditCurrentLookup) return;
-  var stageSel = document.getElementById('auditMyStage');
-  var locSel = document.getElementById('auditMyLocation');
-  if (!stageSel.value) { alert('Select My Stage.'); return; }
-  document.getElementById('cf_my_stage').textContent = stageSel.options[stageSel.selectedIndex].text;
-  document.getElementById('cf_my_location').textContent = locSel.value ? locSel.options[locSel.selectedIndex].text : '—';
-  document.getElementById('cf_sys_stage').textContent = auditCurrentLookup.system_stage_label || '—';
-  document.getElementById('cf_sys_location').textContent = auditCurrentLookup.system_location_label || '—';
-  document.getElementById('cf_assigned_by').textContent = auditCurrentLookup.assigned_by_label || '—';
-  document.getElementById('cf_assigned_to').textContent = auditCurrentLookup.assigned_to_label || '—';
-  document.getElementById('cf_report_date').textContent = document.getElementById('auditReportDate').value;
-  document.getElementById('auditConfirmPanel').classList.remove('d-none');
-});
-
-document.getElementById('auditDoneBtn').addEventListener('click', function () {
+document.getElementById('auditSubmitBtn').addEventListener('click', function () {
   if (!auditCurrentLookup) return;
   var btn = this;
   var fd = new FormData();
@@ -249,7 +217,6 @@ document.getElementById('auditDoneBtn').addEventListener('click', function () {
       btn.disabled = false;
       if (!d.ok) { alert(d.error || 'Could not submit audit.'); return; }
       document.getElementById('auditBarcodeInput').value = '';
-      document.getElementById('auditApplyPanel').classList.add('d-none');
       document.getElementById('auditConfirmPanel').classList.add('d-none');
       auditCurrentLookup = null;
       var msg = document.getElementById('auditSuccessMsg');

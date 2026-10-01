@@ -70,9 +70,19 @@ docker compose build || { echo "FATAL: docker build failed"; exit 1; }
 echo "starting container"
 docker compose up -d || { echo "FATAL: docker compose up failed"; exit 1; }
 
-sleep 8
+# Poll instead of a single flat sleep+check — a fresh container (image export/
+# unpack, cgroup setup, app cache warm-up) is slower to answer than the old
+# bare-metal process restart this replaced, and a single early check races
+# the app's own startup. 20 x 1s covers every cold start seen in testing
+# (worst case observed: ~9s) with headroom, while still failing fast on a
+# genuinely broken deploy instead of waiting the full budget every time.
+CODE=000
+for i in $(seq 1 20); do
+    sleep 1
+    CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8000/health || echo 000)
+    [ "$CODE" = "200" ] && break
+done
 
-CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 http://127.0.0.1:8000/health || echo 000)
 if [ "$CODE" = "200" ]; then
     echo "DEPLOYED OK: now at $(git log -1 --format='%h %s')"
 else

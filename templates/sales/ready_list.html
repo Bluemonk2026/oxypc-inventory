@@ -141,8 +141,8 @@
                     data-availability="{{ r.availability }}">
               <i class="bi bi-unlock"></i> Open Tag
             </button>
-            <a href="/sales/new?barcodes={{ r.barcodes|join(',') }}&qty={{ r.barcodes|length }}"
-               class="btn btn-sm btn-outline-success py-0 px-2">Sell</a>
+            <button type="button" class="btn btn-sm btn-outline-success py-0 px-2 as-is-lot-sell-btn"
+                    data-barcodes='{{ r.barcodes | tojson }}'>Sell</button>
           </td>
           <td class="d-none">{{ r.cpu }}</td>
           <td class="d-none">{{ r.ram }}</td>
@@ -288,7 +288,8 @@
                       data-model="{{ g.model }}" data-make="{{ g.make }}"
                       data-barcodes='{{ g.barcodes | tojson }}' data-max="{{ g.total_count }}">Request</button>
               {% if g.barcodes %}
-              <a href="/sales/new?barcodes={{ g.barcodes|join(',') }}&qty={{ g.barcodes|length }}" class="btn btn-sm btn-outline-success">Sell</a>
+              <button type="button" class="btn btn-sm btn-outline-success model-sum-sell-btn"
+                      data-barcodes='{{ g.barcodes | tojson }}'>Sell</button>
               {% endif %}
             </div>
           </td>
@@ -592,12 +593,23 @@ function updateReadySel(){
 // all of them crammed into the URL risked a 414 Request-URI Too Large from
 // the web server/proxy — POSTs the selection instead (POST /sales/new/prefill,
 // same prefilled New Sale page, no URL length limit).
-document.getElementById('multiSellBtn').addEventListener('click', function(){
-  var bcs = selectedReadyBarcodes();
-  if (!bcs.length) return;
+function sellBarcodesList(bcs){
+  if (!bcs || !bcs.length) return;
   document.getElementById('multiSellBarcodes').value = bcs.join(',');
   document.getElementById('multiSellQty').value = bcs.length;
   document.getElementById('multiSellForm').submit();
+}
+document.getElementById('multiSellBtn').addEventListener('click', function(){
+  sellBarcodesList(selectedReadyBarcodes());
+});
+// As-Is Lot / Model Summary "Sell" buttons carry a potentially large
+// barcode list too (a whole sub-lot or an entire model's stock) — same 414
+// risk as Multi-Sell above, so they submit through the same hidden POST
+// form instead of a GET link.
+document.querySelectorAll('.model-sum-sell-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    sellBarcodesList(JSON.parse(this.getAttribute('data-barcodes') || '[]'));
+  });
 });
 
 $('#readyTable').on('change', '.readyChk', function(){
@@ -677,6 +689,11 @@ function wireAsIsLotButtons(){
   });
   wireBreakdownModal('.as-is-lot-devtype-btn', 'asIsLotDevTypeModal', 'devTypeModalLabel', 'devTypeModalBody');
   wireBreakdownModal('.as-is-lot-model-btn', 'asIsLotModelModal', 'modelModalLabel', 'modelModalBody');
+  document.querySelectorAll('.as-is-lot-sell-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      sellBarcodesList(JSON.parse(this.getAttribute('data-barcodes') || '[]'));
+    });
+  });
 }
 buildAsIsLotTable();
 wireAsIsLotButtons();

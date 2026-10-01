@@ -1,0 +1,37 @@
+# OxyPC Inventory — single-service compose file.
+#
+# Deliberately one service: PostgreSQL stays a native install on the Internal
+# Server for now (see docs/superpowers/specs/2026-10-01-docker-containerization-design.md
+# §3 for why). This file is the natural place to add a `postgres:` service
+# later if that changes — not needed today.
+#
+# network_mode: host — the app binds 0.0.0.0:8000 and reaches Postgres via
+# OXYPC_DATABASE_URL exactly as it does outside a container today (localhost
+# or the host's address). Bridge networking + port mapping is cleaner
+# long-term but adds a networking variable to the first production cutover;
+# host mode keeps this a pure "same process, different box around it" change.
+
+services:
+  oxypc-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: oxypc-app
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
+    volumes:
+      # Bind mounts, not named volumes — a container replace/rebuild doesn't
+      # lose data, and the existing nightly backup script (scripts/backup_db.py,
+      # oxypc-backup.service) keeps working against the same host paths
+      # unchanged.
+      - ./uploads:/app/uploads
+      - ./backups:/app/backups
+      - ./static/stress_reports:/app/static/stress_reports
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3

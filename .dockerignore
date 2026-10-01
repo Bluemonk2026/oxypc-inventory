@@ -1,0 +1,65 @@
+# Version control / local tooling
+.git
+.github
+.gstack
+.claude
+.agents
+.venv-migrate
+.pytest_cache
+__pycache__
+**/__pycache__
+
+# Secrets — never bake into an image layer
+.env
+
+# Runtime data — bind-mounted in production, irrelevant (and potentially
+# stale/sensitive) inside a build context
+uploads/*
+backups/*
+static/stress_reports/*
+!uploads/.gitkeep
+!backups/.gitkeep
+!static/stress_reports/.gitkeep
+
+# Local scratch scripts (verify_*, _check*, _chk_*) and one-off working dirs —
+# never shipped, just repo-root clutter
+_check*.py
+_chk_*.py
+_verify_*.py
+_brand_probe.py
+_dup_*.csv
+_ready_rendered.html
+_server.log
+New folder/
+
+# Stray local-dev artifacts discovered during the first local build (none of
+# these are needed by the FastAPI app at runtime, and wa-service/ + venv/
+# aren't even git-tracked — they can't be on the Internal Server today):
+# - wa-service/   — untracked Node.js service, 1.7GB mostly node_modules
+# - venv/         — untracked stray local Python venv
+# - oxyqc-agent/  — separate OxyQC standalone EXE's build/dist artifacts
+# - downloads/    — distributable installer EXE/zip, not app code
+# - *.log         — manual debug-session output
+wa-service/
+venv/
+oxyqc-agent/
+downloads/
+*.log
+server_ps.log
+server_test.log
+
+# Business documents — large, irrelevant to the running app, and no reason to
+# ship them inside a container image
+*.docx
+*.xlsx
+*.pptx
+
+# Docs / specs — not needed at runtime
+docs/
+
+# Test artifacts
+tests/
+.pytest_cache
+
+# OxyQC standalone agent — separate build target, not part of this app
+../oxyqc-standalone

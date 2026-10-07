@@ -62,7 +62,7 @@ from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS, DROP
 from models.work_order import WorkOrder
 from models.lot import Lot
 from utils.attendance_groups import managed_usernames
-from services.pna_lookup import active_pna_parts
+from services.pna_lookup import active_pna_parts, pna_history
 from auth.dependencies import get_current_user
 
 router = APIRouter(tags=["workid_status"])
@@ -94,6 +94,47 @@ def _pna_fields(parts) -> dict:
         "pna_marked_by": ", ".join(marked_by),
         "pna_marked_at": max(times).strftime("%d-%m-%Y %H:%M") if times else "",
     }
+
+
+def _pna_history_lines(parts, start, end) -> list:
+    """PNA mark/clear events that overlap one WorkID's working window.
+
+    A part counts for a WorkID when it was PNA at any moment between the
+    WorkID's Assigned Date and its Completed Date (open-ended while ongoing) --
+    i.e. while that engineer held the tag. `parts` are ALL DevicePNAPart rows of
+    the tag, active or cleared. Returns display-ready dicts, oldest mark first."""
+    lines = []
+    for p in parts or []:
+        marked = getattr(p, "marked_at", None)
+        cleared = getattr(p, "cleared_at", None) if not getattr(p, "is_active", True) else None
+        if start and cleared and cleared < start:
+            continue          # cleared before this WorkID began
+        if end and marked and marked > end:
+            continue          # marked after this WorkID finished
+        src = "L3/L4" if getattr(p, "source", "") == "l3l4" else "L1/L2"
+        lines.append({
+            "part": p.part_name,
+            "source": src,
+            "marked_by": (getattr(p, "marked_by", None) or "").strip(),
+            "marked_at": marked.strftime("%d-%m-%Y %H:%M") if marked else "",
+            "cleared_by": (getattr(p, "cleared_by", None) or "").strip() if cleared else "",
+            "cleared_at": cleared.strftime("%d-%m-%Y %H:%M") if cleared else "",
+            "active": bool(getattr(p, "is_active", True)),
+        })
+    return lines
+
+
+def _pna_history_text(lines) -> str:
+    """One CSV/plain-text cell: 'Part (L1/L2): marked by X dd-mm-yyyy hh:mm; cleared by Y ...' joined by ' | '."""
+    out = []
+    for l in lines:
+        s = f"{l['part']} ({l['source']}): marked by {l['marked_by'] or '—'} {l['marked_at']}".rstrip()
+        if l["cleared_at"] or l["cleared_by"]:
+            s += f"; cleared by {l['cleared_by'] or '—'} {l['cleared_at']}".rstrip()
+        else:
+            s += "; still PNA"
+        out.append(s)
+    return " | ".join(out)
 
 
 def _multi(value) -> list:
@@ -363,8 +404,13 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
 
     # PNA (Part Not Available) — one lookup for every device in `items`.
     pna_by_device = await active_pna_parts(db, all_device_ids) if all_device_ids else {}
+    pna_hist_by_device = await pna_history(db, all_device_ids) if all_device_ids else {}
     for it in items:
         it.update(_pna_fields(pna_by_device.get(it.get("device_id"), [])))
+        it["pna_history"] = _pna_history_lines(
+            pna_hist_by_device.get(it.get("device_id"), []),
+            it.get("assigned_date"), it.get("completed_at"))
+        it["pna_history_text"] = _pna_history_text(it["pna_history"])
 
     # ── Completed Date / Stage / Exclude Admin filters — applied here (not in
     # the SQL stmt above) so they narrow the SAME values the Completed Date
@@ -477,7 +523,7 @@ async def workid_status_export(request: Request, db: AsyncSession = Depends(get_
     buf = _io.StringIO()
     w = _csv.writer(buf)
     w.writerow(["Tag Number", "Lot Number", "Make", "Model", "Engineer Name", "Stage",
-                "Assigned Date", "Completed Date", "PNA"])
+                "Assigned Date", "Completed Date", "PNA", "PNA History"])
     for it in items:
         w.writerow([
             it.get("barcode") or "",
@@ -489,6 +535,7 @@ async def workid_status_export(request: Request, db: AsyncSession = Depends(get_
             it["assigned_date"].strftime("%d-%m-%Y %H:%M") if it.get("assigned_date") else "",
             it["completed_at"].strftime("%d-%m-%Y %H:%M") if it.get("completed_at") else "",
             "Yes" if it.get("pna") else "No",
+            it.get("pna_history_text") or "",
         ])
     # utf-8-sig so Excel opens it without mangling non-ASCII names.
     data = buf.getvalue().encode("utf-8-sig")

@@ -63,13 +63,13 @@ def _export_rows(items, monkeypatch):
 
 def test_export_pna_column(monkeypatch):
     rows = _export_rows([_item("TAG-PNA", [_part("Keyboard")]), _item("TAG-NONE")], monkeypatch)
-    assert rows[0][-1] == "PNA"
-    assert rows[0][:-1] == ["Tag Number", "Lot Number", "Make", "Model", "Engineer Name",
+    assert rows[0][-2:] == ["PNA", "PNA History"]
+    assert rows[0][:-2] == ["Tag Number", "Lot Number", "Make", "Model", "Engineer Name",
                             "Stage", "Assigned Date", "Completed Date"]
     by_tag = {r[0]: r for r in rows[1:]}
-    assert by_tag["TAG-PNA"][-1] == "Yes"
+    assert by_tag["TAG-PNA"][-2] == "Yes"
     # inactive parts are filtered out by active_pna_parts, so the tag gets no parts
-    assert by_tag["TAG-NONE"][-1] == "No"
+    assert by_tag["TAG-NONE"][-2] == "No"
 
 
 def test_page_template_shows_pna_badge():

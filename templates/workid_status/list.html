@@ -136,7 +136,7 @@
         <thead class="table-dark">
           <tr>
             <th>Tag Number</th><th>WorkID</th><th>Model</th><th>Stage</th>
-            <th>Aging</th><th>Assigned Date</th><th>Completed Date</th><th>Notes</th><th>Assigned Engineer</th><th>PNA</th>
+            <th>Aging</th><th>Assigned Date</th><th>Completed Date</th><th>Notes</th><th>Assigned Engineer</th><th>PNA</th><th>PNA History</th>
           </tr>
         </thead>
         <tbody>
@@ -186,9 +186,20 @@
                     title="Parts: {{ it.pna_parts | join(', ') }}{% if it.pna_marked_by %}, Marked by: {{ it.pna_marked_by }}{% endif %}{% if it.pna_marked_at %}, at: {{ it.pna_marked_at }}{% endif %}">PNA</span>
               {% else %}<span class="text-muted">—</span>{% endif %}
             </td>
+            <td class="small">
+              {# PNA history: every part that was PNA while THIS WorkID was open
+                 (active or since cleared) -- who marked it, from which screen,
+                 and who cleared it. Data: device_pna_parts. #}
+              {% for h in it.pna_history %}
+              <div class="text-nowrap">
+                <span class="badge bg-{{ 'danger' if h.active else 'secondary' }}">{{ h.part }}</span>
+                <span class="text-muted">{{ h.source }} · marked by {{ h.marked_by or '—' }} {{ h.marked_at }}{% if not h.active %} · cleared by {{ h.cleared_by or '—' }} {{ h.cleared_at }}{% endif %}</span>
+              </div>
+              {% else %}<span class="text-muted">—</span>{% endfor %}
+            </td>
           </tr>
           {% else %}
-          <tr><td colspan="10" class="text-center text-muted py-4">No WorkIDs found.</td></tr>
+          <tr><td colspan="11" class="text-center text-muted py-4">No WorkIDs found.</td></tr>
           {% endfor %}
         </tbody>
       </table>

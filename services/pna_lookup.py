@@ -44,3 +44,27 @@ async def active_pna_parts(
         for r in rows:
             out.setdefault(r.device_id, []).append(r)
     return out
+
+
+async def pna_history(
+    db: AsyncSession, device_ids: Iterable[uuid.UUID]
+) -> dict[uuid.UUID, list[DevicePNAPart]]:
+    """Map device_id -> EVERY PNA part row, active or cleared, oldest mark first.
+
+    Unmarking only flips is_active (see DevicePNAPart), so cleared rows are the
+    history of what was once PNA. Re-marking a cleared part reopens its row, so
+    each part contributes its latest mark/clear cycle."""
+    ids = list(device_ids)
+    out: dict[uuid.UUID, list[DevicePNAPart]] = {}
+    for i in range(0, len(ids), _CHUNK):
+        chunk = ids[i : i + _CHUNK]
+        rows = (
+            await db.execute(
+                select(DevicePNAPart)
+                .where(DevicePNAPart.device_id.in_(chunk))
+                .order_by(DevicePNAPart.marked_at, DevicePNAPart.part_name)
+            )
+        ).scalars().all()
+        for r in rows:
+            out.setdefault(r.device_id, []).append(r)
+    return out

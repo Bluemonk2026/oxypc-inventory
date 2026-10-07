@@ -764,8 +764,42 @@ def _unit_stock_price(device, lot) -> float:
     return 0.0
 
 
+def _parse_price_groups(raw: str):
+    """Validate the New Sale form's `price_groups` JSON.
+
+    Returns {barcode: per-unit Decimal price} in tag order, or an error string.
+    A tag may appear in only one group (it would otherwise be sold twice at two
+    prices), every group needs at least one tag and a valid non-negative price."""
+    import json
+    try:
+        groups = json.loads(raw)
+    except ValueError:
+        return "Invalid price groups — please reload the page and try again"
+    if not isinstance(groups, list) or not groups:
+        return "Add at least one tag group with a price"
+    out: dict = {}
+    for n, g in enumerate(groups, 1):
+        if not isinstance(g, dict):
+            return f"Group {n} is invalid"
+        tags = [t.strip() for t in str(g.get("barcodes", "")).split(",") if t.strip()]
+        if not tags:
+            return f"Group {n} has no tag numbers"
+        try:
+            price = Decimal(str(g.get("price", "")).strip())
+        except Exception:
+            return f"Group {n} has an invalid price"
+        if price < 0:
+            return f"Group {n} has a negative price"
+        for t in tags:
+            if t in out:
+                return f"Tag {t} appears in more than one group"
+            out[t] = price
+    return out
+
+
 async def _sale_new_response(request: Request, barcode: str, barcodes: str, qty: int,
-                             embed: int, db: AsyncSession, current_user: User):
+                             embed: int, db: AsyncSession, current_user: User,
+                             template: str = "sales/new.html"):
     """Shared by GET /sales/new (a single Sell link, or a small ?barcodes=
     list — still fine in a query string) and POST /sales/new (Multi-Sell
     with a large selection, which a GET would otherwise cram into the URL
@@ -814,7 +848,7 @@ async def _sale_new_response(request: Request, barcode: str, barcodes: str, qty:
             stock_price = _unit_stock_price(device, lot)
     next_num = await _next_sale_number(db)
     from utils.sales_person import sales_person_options
-    return templates.TemplateResponse("sales/new.html", {
+    return templates.TemplateResponse(template, {
         "request": request, "device": device, "lot": lot,
         "sales_person_options": await sales_person_options(db),
         "next_sale_number": next_num, "current_user": current_user,
@@ -832,6 +866,66 @@ async def sale_new_form(request: Request, barcode: str = None,
                         db: AsyncSession = Depends(get_db),
                         current_user: User = Depends(allowed)):
     return await _sale_new_response(request, barcode, barcodes, qty, embed, db, current_user)
+
+
+MAX_TAG_INFO = 10000
+
+
+@router.post("/sales/new-tag-sale/tag-info")
+async def sale_new_tag_info(barcodes: str = Form(""),
+                            db: AsyncSession = Depends(get_db),
+                            current_user: User = Depends(allowed)):
+    """Model / category / stage for the tags typed or scanned on New Tag Sale, so its
+    per-tag price table can label each row and apply a price to a category.
+    Category is the Ready to Sale page's definition (device type, else sub-
+    category). Tags the DB does not know come back with found=false; the sale
+    itself is still validated server-side on submit."""
+    codes, seen = [], set()
+    for c in barcodes.split(","):
+        c = c.strip()
+        if c and c not in seen:
+            seen.add(c); codes.append(c)
+    codes = codes[:MAX_TAG_INFO]
+    rows = {}
+    if codes:
+        for d in (await db.execute(select(Device).where(Device.barcode.in_(codes)))).scalars().all():
+            rows[d.barcode] = d
+    out = []
+    for c in codes:
+        d = rows.get(c)
+        if not d:
+            out.append({"barcode": c, "found": False, "category": "—", "model": "", "stage": ""})
+            continue
+        out.append({
+            "barcode": c, "found": True,
+            "category": d.device_type or d.sub_category or "—",
+            "model": " ".join(x for x in (d.brand, d.model) if x),
+            "stage": getattr(d.current_stage, "value", d.current_stage) or "",
+        })
+    return JSONResponse({"tags": out})
+
+
+# ── New Tag Sale — the per-tag-price sale page, a separate page so the original
+# New Sale above stays exactly as it was. Same prefill + same POST /sales/new
+# create logic (the form posts sale_page=tag so a failure re-renders THIS page).
+@router.get("/sales/new-tag-sale", response_class=HTMLResponse)
+async def sale_new_tag_form(request: Request, barcode: str = None,
+                            barcodes: str = None, qty: int = None,
+                            db: AsyncSession = Depends(get_db),
+                            current_user: User = Depends(allowed)):
+    return await _sale_new_response(request, barcode, barcodes, qty, 0, db, current_user,
+                                    template="sales/new_tag_sale.html")
+
+
+@router.post("/sales/new-tag-sale/prefill", response_class=HTMLResponse)
+async def sale_new_tag_form_prefill(request: Request, barcode: str = Form(default=None),
+                                    barcodes: str = Form(default=None), qty: int = Form(default=None),
+                                    db: AsyncSession = Depends(get_db),
+                                    current_user: User = Depends(allowed)):
+    """POST twin of GET /sales/new-tag-sale for a large tag selection (a bulk sale
+    can be thousands of tags; a query string could not carry them)."""
+    return await _sale_new_response(request, barcode, barcodes, qty, 0, db, current_user,
+                                    template="sales/new_tag_sale.html")
 
 
 @router.post("/sales/new/prefill", response_class=HTMLResponse)
@@ -852,8 +946,10 @@ async def sale_new_form_prefill(request: Request, barcode: str = Form(default=No
 async def create_sale(
     request: Request,
     background_tasks: BackgroundTasks,
-    barcode: str = Form(...),
-    sale_price: str = Form(...),
+    barcode: str = Form(""),
+    sale_price: str = Form(""),
+    price_groups: str = Form(""),
+    sale_page: str = Form(""),
     customer_name: str = Form(""),
     sales_person: str = Form(""),
     customer_phone: str = Form(""),
@@ -879,28 +975,48 @@ async def create_sale(
     async def _fail(message: str, device=None, lot=None, status: int = 400):
         if xhr:
             return JSONResponse({"ok": False, "error": message}, status_code=status)
-        return templates.TemplateResponse("sales/new.html", {
+        return templates.TemplateResponse(
+            "sales/new_tag_sale.html" if sale_page == "tag" else "sales/new.html", {
             "request": request, "device": device, "lot": lot,
             "next_sale_number": await _next_sale_number(db),
             "current_user": current_user, "error": message,
             "today": app_today().isoformat(),
+            # New Tag Sale keeps the tags on the form after an error: re-picking
+            # thousands of tags would be a punishing way to report "no price".
+            "prefill_barcode": (barcode or None) if sale_page == "tag" else None,
         })
 
     # ── Multi-sale support: barcode field may be a comma-separated tag list ──
-    codes, _seen = [], set()
-    for c in barcode.split(","):
-        c = c.strip()
-        if c and c not in _seen:
-            _seen.add(c); codes.append(c)
+    # One invoice can carry several price groups (different categories, or the
+    # same category at different prices): `price_groups` is a JSON list of
+    # {"barcodes": "A,B", "price": "<per-unit>"} and gives each tag its own
+    # price. Every other field (invoice, customer, state, ...) is shared. Without
+    # it the form behaves exactly as before: one price for every tag.
+    price_by_code = {}
+    if price_groups.strip():
+        parsed = _parse_price_groups(price_groups)
+        if isinstance(parsed, str):
+            return await _fail(parsed)
+        price_by_code = parsed
+        codes = list(price_by_code)
+    else:
+        codes, _seen = [], set()
+        for c in barcode.split(","):
+            c = c.strip()
+            if c and c not in _seen:
+                _seen.add(c); codes.append(c)
     is_multi = len(codes) > 1
 
-    if qty > 1 and not is_multi:
+    if qty > 1 and not is_multi and not price_by_code:
         notes = f"[Qty:{qty}] {notes}".strip()
 
-    try:
-        price = Decimal(sale_price)  # per-unit price (form divides Total ÷ Qty)
-    except Exception:
-        return await _fail("Invalid sale price — please enter a valid number")
+    if price_by_code:
+        price = None      # per-tag from price_by_code
+    else:
+        try:
+            price = Decimal(sale_price)  # per-unit price (form divides Total ÷ Qty)
+        except Exception:
+            return await _fail("Invalid sale price — please enter a valid number")
 
     # warranty_type is submitted as whatever raw label the admin has
     # configured in Master Data (sale_warranty_type) — "30 Days", "60 Days",
@@ -1017,6 +1133,7 @@ async def create_sale(
             continue
 
         # ── Cost Engine: below-cost warning (first one reported) ─────────
+        price = price_by_code.get(code, price)
         w = below_cost_warning_for(costings.get(device.id), price)
         if w and not warn:
             warn = w

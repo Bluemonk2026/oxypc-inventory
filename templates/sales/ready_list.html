@@ -51,6 +51,12 @@
       <button type="button" id="multiSellBtn" class="btn btn-sm btn-outline-success" disabled>
         <i class="bi bi-cart-plus me-1"></i>Multi-Sell with selected (<span id="readySelCount2">0</span>)
       </button>
+      {# New Bulk Sale: same selection as Multi-Sell, opens the separate New Tag Sale
+         page (per-tag prices, no quantity cap). Multi-Sell above is unchanged. #}
+      <button type="button" id="newBulkSaleBtn" class="btn btn-sm btn-success" disabled
+              title="Open the New Tag Sale page with the selected tags">
+        <i class="bi bi-cart-plus me-1"></i>New Bulk Sale (<span id="readySelCount4">0</span>)
+      </button>
       <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#bulkTagModal">
         <i class="bi bi-upload me-1"></i>Bulk Upload Tags
       </button>
@@ -150,6 +156,9 @@
             </button>
             <button type="button" class="btn btn-sm btn-outline-success py-0 px-2 as-is-lot-sell-btn"
                     data-barcodes='{{ r.barcodes | tojson }}'>Sell</button>
+            <button type="button" class="btn btn-sm btn-success py-0 px-2 as-is-lot-newsell-btn"
+                    title="Open the New Tag Sale page with this lot's tags"
+                    data-barcodes='{{ r.barcodes | tojson }}'>New Sell</button>
           </td>
           <td class="d-none">{{ r.cpu }}</td>
           <td class="d-none">{{ r.ram }}</td>
@@ -377,6 +386,14 @@
   <input type="hidden" name="qty" id="multiSellQty">
 </form>
 
+<!-- New Tag Sale hidden form: same idea as the Multi-sell form above, but to the
+     separate New Tag Sale page (POST, so any number of tags fits). -->
+<form method="post" action="/sales/new-tag-sale/prefill" id="tagSaleForm" class="d-none">
+  <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+  <input type="hidden" name="barcodes" id="tagSaleBarcodes">
+  <input type="hidden" name="qty" id="tagSaleQty">
+</form>
+
 <!-- Bulk Upload Tags modal: CSV of tag numbers → ticks the matching ready rows -->
 <div class="modal fade" id="bulkTagModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
@@ -591,6 +608,8 @@ function updateReadySel(){
   $('#readySelCount').text(n);
   $('#readySelCount2').text(n);
   $('#readySelCount3').text(n);
+  $('#readySelCount4').text(n);
+  $('#newBulkSaleBtn').prop('disabled', n === 0);
   $('#multiRequestBtn').prop('disabled', n === 0);
   $('#multiSellBtn').prop('disabled', n === 0);
   $('#bulkSetPriceBtn').prop('disabled', n === 0);
@@ -614,6 +633,16 @@ function sellBarcodesList(bcs){
 }
 document.getElementById('multiSellBtn').addEventListener('click', function(){
   sellBarcodesList(selectedReadyBarcodes());
+});
+// New Tag Sale (separate page): same POST pattern, different destination.
+function tagSaleBarcodesList(bcs){
+  if (!bcs || !bcs.length) return;
+  document.getElementById('tagSaleBarcodes').value = bcs.join(',');
+  document.getElementById('tagSaleQty').value = bcs.length;
+  document.getElementById('tagSaleForm').submit();
+}
+document.getElementById('newBulkSaleBtn').addEventListener('click', function(){
+  tagSaleBarcodesList(selectedReadyBarcodes());
 });
 // As-Is Lot / Model Summary "Sell" buttons carry a potentially large
 // barcode list too (a whole sub-lot or an entire model's stock) — same 414
@@ -710,6 +739,11 @@ function wireAsIsLotButtons(){
   document.querySelectorAll('.as-is-lot-sell-btn').forEach(function(btn){
     btn.addEventListener('click', function(){
       sellBarcodesList(JSON.parse(this.getAttribute('data-barcodes') || '[]'));
+    });
+  });
+  document.querySelectorAll('.as-is-lot-newsell-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      tagSaleBarcodesList(JSON.parse(this.getAttribute('data-barcodes') || '[]'));
     });
   });
 }

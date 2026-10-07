@@ -1,0 +1,444 @@
+{% extends "embed_base.html" if embed else "base.html" %}
+{% block title %}New Tag Sale — OxyPC{% endblock %}
+{% block page_title %}New Tag Sale{% endblock %}
+{% block content %}
+<style>
+  /* New Sale uses 80% of the page width on desktop (was a narrow col-lg-7), full width on small screens */
+  .sale-wrap { width: 100%; }
+  @media (min-width: 992px) { .sale-wrap { width: 80%; } }
+</style>
+<div class="row justify-content-center">
+  <div class="sale-wrap px-2">
+    <!-- PDF Invoice/PO Import -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+          <div>
+            <h6 class="fw-bold mb-1"><i class="bi bi-file-earmark-pdf me-2 text-danger"></i>Import Invoice / PO (PDF)</h6>
+            <span class="text-muted small">Upload a PDF invoice or purchase order to auto-fill sale details.</span>
+          </div>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <input type="file" id="pdfImportFile" accept="application/pdf,.pdf" class="form-control form-control-sm" style="max-width:280px">
+            <button type="button" id="pdfImportBtn" class="btn btn-sm btn-outline-danger text-nowrap" onclick="importPDF()">
+              <i class="bi bi-cloud-upload me-1"></i>Parse &amp; Autofill
+            </button>
+            <span id="pdfImportStatus" class="small text-muted"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold"><i class="bi bi-cart-plus me-2"></i>Record Sale</div>
+      <div class="card-body">
+        {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+        <form action="/sales/new" method="post" id="saleForm">
+          <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
+          <input type="hidden" name="sale_page" value="tag">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Device Tag Number <span class="text-danger">*</span>{% if multi_count is defined and multi_count and multi_count > 1 %} <span class="badge bg-primary">{{ multi_count }} tags selected</span>{% endif %}</label>
+            <input type="text" name="barcode" id="barcode" class="form-control barcode-field font-monospace"
+              value="{{ prefill_barcode if prefill_barcode is defined and prefill_barcode else (device.barcode if device else '') }}" placeholder="Scan tag number" autofocus required>
+            <div class="form-text small text-muted">For multi-sale, enter comma-separated tag numbers.</div>
+          </div>
+          {% if device %}
+          <div class="alert alert-success py-2 mb-3 small">
+            <strong>{{ device.brand }} {{ device.model }}</strong> &bull; Grade: {{ device.grade }} &bull;
+            RAM: {{ device.ram_gb }}GB &bull; Storage: {{ device.storage_gb }}GB {{ device.storage_type }}
+            {% if lot %} &bull; Lot: {{ lot.lot_number }} (₹{{ "{:,.0f}".format(lot.buying_price/lot.qty if lot.qty else 0) }}/unit cost){% endif %}
+          </div>
+          {% endif %}
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Sale Date</label>
+              <input type="date" name="sale_date" class="form-control" value="{{ today }}" max="{{ today }}">
+              <div class="form-text small text-muted">Defaults to today</div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Quantity</label>
+              {% if approved_qty %}
+              <input type="number" id="qtyInput" class="form-control" value="{{ approved_qty }}" disabled
+                     title="Quantity locked to approved telecaller request">
+              <input type="hidden" name="qty" value="{{ approved_qty }}">
+              <div class="form-text small text-muted">Locked to approved request quantity ({{ approved_qty }})</div>
+              {% else %}
+              <input type="number" name="qty" id="qtyInput" class="form-control" value="{{ prefill_qty if prefill_qty is defined and prefill_qty else 1 }}" min="1"
+                     title="Number of units (for bulk sale record). Each device still needs individual barcode.">
+              {% endif %}
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">Sale Price (₹) <span class="text-danger">*</span></label>
+              <div class="input-group">
+                <span class="input-group-text">₹</span>
+                <input type="number" name="sale_price" id="salePrice" class="form-control" placeholder="0" min="0" step="0.01" required>
+              </div>
+              <div class="form-text small text-muted">Per-unit price</div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Total Sale Price (₹)</label>
+              <div class="input-group">
+                <span class="input-group-text">₹</span>
+                <input type="number" id="totalSalePrice" class="form-control" placeholder="0" min="0" step="0.01">
+              </div>
+              <div class="form-text small text-muted">Either field fills the other</div>
+            </div>
+          </div>
+          {# One invoice, several prices: with 2+ tags a table lists every tag with its
+             own price box, plus bulk "apply to ticked / all / one category". A tag
+             without its own price uses the Sale Price above. On submit the rows are
+             grouped by price into one JSON field, price_groups; everything else on
+             the form (invoice, customer, state, warranty...) is shared. #}
+          <div class="border rounded p-3 mt-3 bg-body-tertiary d-none" id="tagTableBox">
+            <div class="fw-semibold small mb-1"><i class="bi bi-tags me-1"></i>Price each tag <span class="badge bg-secondary" id="ttCount"></span></div>
+            <div class="form-text small mb-2">Different prices in one invoice? Tags without their own price use the Sale Price above. Give a price to a whole category, to the tags you tick, or to a single tag &mdash; all are recorded under this one invoice.</div>
+            <div class="row g-2 align-items-end mb-2">
+              <div class="col-md-4">
+                <label class="form-label small mb-0">Apply to</label>
+                <select id="ttTarget" class="form-select form-select-sm"></select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small mb-0">Price per unit (&#8377;)</label>
+                <input type="number" id="ttPrice" class="form-control form-control-sm" min="0" step="0.01" placeholder="0">
+              </div>
+              <div class="col-md-2"><button type="button" class="btn btn-sm btn-primary w-100" id="ttApply">Apply</button></div>
+              <div class="col-md-3 d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-outline-primary flex-grow-1" id="ttUploadBtn" title="Upload a CSV of tag numbers &mdash; the matching rows are ticked for you"><i class="bi bi-upload me-1"></i>Tags</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="ttClear" title="Reset: clear all tag prices" aria-label="Reset tag prices"><i class="bi bi-arrow-counterclockwise"></i></button>
+              </div>
+              <input type="file" id="ttUploadFile" accept=".csv,.txt,text/csv,text/plain" class="d-none">
+            </div>
+            <div class="small mb-2 d-none" id="ttUploadMsg"></div>
+            <div id="ttScroll" style="overflow-y:auto" class="border rounded bg-body">
+              <table class="table table-sm align-middle mb-0 small">
+                <thead class="table-light" style="position:sticky;top:0">
+                  <tr><th style="width:34px"><input type="checkbox" id="ttAll" class="form-check-input" title="Tick all"></th>
+                      <th>Tag</th><th>Category</th><th class="text-end" style="width:150px">Sale Price (&#8377;)</th></tr>
+                </thead>
+                <tbody id="ttBody"></tbody>
+              </table>
+            </div>
+            <div class="small mt-2" id="ttSummary"></div>
+          </div>
+          <input type="hidden" name="price_groups" id="priceGroups" value="">
+          <div class="row g-3 mt-0">
+            <div class="col-md-4">
+              <label class="form-label">Payment Mode</label>
+              <select name="payment_mode" class="form-select">
+                {% for p in master_options('payment_mode') %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+              </select>
+            </div>
+            {# Who gets credit for the sale. Deliberately free text and separate
+               from the logged-in user recorded in sold_by: counter and floor
+               staff are credited but do not all have platform logins. #}
+            <div class="col-md-4">
+              <label class="form-label">Sales Person Name</label>
+              <input type="text" name="sales_person" class="form-control"
+                     list="salesPersonList" placeholder="Who made this sale">
+              <datalist id="salesPersonList">
+                {% for sp in sales_person_options | default([]) %}<option value="{{ sp }}">{% endfor %}
+              </datalist>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Invoice No.</label>
+              <input type="text" name="invoice_no" class="form-control" placeholder="Invoice number">
+            </div>
+          </div>
+          <div class="row g-3 mt-0">
+            <div class="col-md-4">
+              <label class="form-label">Customer Name</label>
+              <input type="text" name="customer_name" class="form-control" placeholder="Customer name">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Customer Phone</label>
+              <input type="tel" name="customer_phone" class="form-control" placeholder="Phone number">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Customer State</label>
+              <select name="customer_state" class="form-select">
+                {% for s in master_options('customer_state') %}
+                <option value="{{ s }}" {% if s == 'Haryana' %}selected{% endif %}>{{ 'Other State (IGST)' if s == 'Other State' else s }}</option>
+                {% endfor %}
+              </select>
+              <div class="form-text small">Defaults to Haryana; pick another state to change the GST split</div>
+            </div>
+          </div>
+          <div class="row g-3 mt-0">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Warranty</label>
+              <select name="warranty_type" class="form-select">
+                {% for w in master_options('sale_warranty_type') %}
+                <option value="{{ w }}" {% if w == 'none' %}selected{% endif %}>{{ 'No Warranty' if w == 'none' else w | replace('_',' ') | title }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Address</label>
+              <input type="text" name="customer_address" class="form-control" placeholder="Customer address">
+            </div>
+          </div>
+          <div class="row g-3 mt-0">
+            <div class="col-12">
+              <label class="form-label">Notes</label>
+              <textarea name="notes" class="form-control" rows="2" placeholder="Additional notes"></textarea>
+            </div>
+          </div>
+          <input type="hidden" name="invoice_file_path" id="invoiceFilePath" value="">
+          <div class="mt-4 d-flex gap-2">
+            <button type="submit" class="btn btn-success px-4"><i class="bi bi-check-circle me-2"></i>Record Sale</button>
+            <a href="/sales/ready" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Sale Price <-> Total Sale Price, both driven by Quantity. Filling either one
+// fills the other (previously only Total -> Sale Price worked).
+function _saleQty(){
+  var qtyEl = document.getElementById('qtyInput');
+  var q = parseInt(qtyEl ? qtyEl.value : '1', 10);
+  return (!q || q < 1) ? 1 : q;
+}
+function recalcTotalFromUnit(){
+  var u = parseFloat(document.getElementById('salePrice').value);
+  if (isNaN(u)) return;
+  document.getElementById('totalSalePrice').value = (u * _saleQty()).toFixed(2);
+}
+function recalcUnitFromTotal(){
+  var t = parseFloat(document.getElementById('totalSalePrice').value);
+  if (isNaN(t)) return;
+  document.getElementById('salePrice').value = (t / _saleQty()).toFixed(2);
+}
+document.getElementById('salePrice').addEventListener('input', recalcTotalFromUnit);
+document.getElementById('totalSalePrice').addEventListener('input', recalcUnitFromTotal);
+(function(){
+  var qtyEl = document.getElementById('qtyInput');
+  if (qtyEl) qtyEl.addEventListener('input', recalcTotalFromUnit);
+})();
+function getCookie(name) {
+  var m = document.cookie.match('(?:^|;)\\s*' + name + '=([^;]*)');
+  return m ? decodeURIComponent(m[1]) : '';
+}
+async function importPDF() {
+  var fileInput = document.getElementById('pdfImportFile');
+  var status = document.getElementById('pdfImportStatus');
+  if (!fileInput.files.length) { status.textContent = 'Select a PDF file first.'; return; }
+  status.textContent = 'Parsing…';
+  document.getElementById('pdfImportBtn').disabled = true;
+  var fd = new FormData();
+  fd.append('pdf', fileInput.files[0]);
+  fd.append('csrf_token', getCookie('csrf_token'));
+  try {
+    var r = await fetch('/sales/parse-invoice-pdf', {method:'POST', body: fd});
+    var d = await r.json();
+    if (d.error) { status.textContent = 'Error: ' + d.error; return; }
+    function set(name, val) {
+      if (!val) return;
+      var el = document.querySelector('[name="' + name + '"]');
+      if (el) { el.value = val; el.dispatchEvent(new Event('change')); }
+    }
+    if (d.customer_name) set('customer_name', d.customer_name);
+    if (d.sale_price)    set('sale_price', d.sale_price);
+    if (d.payment_mode)  set('payment_mode', d.payment_mode);
+    if (d.invoice_no)    set('invoice_no', d.invoice_no);
+    if (d.file_path)     document.getElementById('invoiceFilePath').value = d.file_path;
+    status.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Autofilled from PDF</span>';
+  } catch(e) {
+    status.textContent = 'Failed to parse PDF.';
+  } finally {
+    document.getElementById('pdfImportBtn').disabled = false;
+  }
+}
+// ── Per-tag price table (one invoice, several prices) ───────────────────────
+var TT = {info: {}, price: {}, ticked: {}, fetching: false};
+function _tags(str){
+  var seen = {}, out = [];
+  (str || '').split(',').forEach(function(t){ t = t.trim(); if (t && !seen[t]) { seen[t] = 1; out.push(t); } });
+  return out;
+}
+function _money(n){ return '\u20b9' + n.toLocaleString('en-IN', {maximumFractionDigits: 2}); }
+function _esc(v){ var d = document.createElement('div'); d.textContent = v == null ? '' : v; return d.innerHTML; }
+function _defaultPrice(){ var v = document.getElementById('salePrice').value; return v === '' ? null : parseFloat(v); }
+function _effective(t){
+  var own = TT.price[t];
+  if (own !== undefined && own !== '' && !isNaN(parseFloat(own))) return parseFloat(own);
+  return _defaultPrice();
+}
+function _hasOwn(t){ var o = TT.price[t]; return o !== undefined && o !== '' && !isNaN(parseFloat(o)); }
+
+function renderTable(){
+  var tags = _tags(document.getElementById('barcode').value);
+  var box = document.getElementById('tagTableBox');
+  if (tags.length < 2) { box.classList.add('d-none'); refreshTable(); return; }
+  box.classList.remove('d-none');
+  Object.keys(TT.price).forEach(function(t){ if (tags.indexOf(t) < 0) delete TT.price[t]; });
+  Object.keys(TT.ticked).forEach(function(t){ if (tags.indexOf(t) < 0) delete TT.ticked[t]; });
+  var body = document.getElementById('ttBody');
+  body.innerHTML = tags.map(function(t){
+    var inf = TT.info[t] || {};
+    var cat = inf.found === false ? '<span class="badge bg-danger">not found</span>' : _esc(inf.category || '\u2026');
+    return '<tr data-tag="' + _esc(t) + '">' +
+      '<td><input type="checkbox" class="form-check-input tt-tick"' + (TT.ticked[t] ? ' checked' : '') + '></td>' +
+      '<td class="font-monospace">' + _esc(t) + '</td>' +
+      '<td>' + cat + '</td>' +
+      '<td><input type="number" class="form-control form-control-sm text-end tt-price" min="0" step="0.01" placeholder="' +
+        (_defaultPrice() === null ? '0' : _esc(String(_defaultPrice()))) + '" value="' + _esc(TT.price[t] === undefined ? '' : TT.price[t]) + '"></td>' +
+      '</tr>';
+  }).join('');
+  // target dropdown: ticked / all / each category present
+  var cats = {}, order = [];
+  tags.forEach(function(t){ var c = (TT.info[t] && TT.info[t].category) || null; if (c) { if (!cats[c]) { cats[c] = 0; order.push(c); } cats[c]++; } });
+  var sel = document.getElementById('ttTarget'), keep = sel.value;
+  sel.innerHTML = '<option value="__ticked">Ticked tags</option><option value="__all">All ' + tags.length + ' tags</option>' +
+    order.map(function(c){ return '<option value="c:' + _esc(c) + '">Category: ' + _esc(c) + ' (' + cats[c] + ')</option>'; }).join('');
+  if (keep) sel.value = keep;
+  if (!sel.value) sel.value = '__ticked';
+  // Show at most 6 rows; the rest scroll vertically inside the box (no pagination).
+  var wrap = document.getElementById('ttScroll'), first = body.querySelector('tr');
+  var headH = wrap.querySelector('thead').offsetHeight;
+  wrap.style.maxHeight = first ? (headH + 6 * first.offsetHeight + 2) + 'px' : '';
+  refreshTable();
+}
+function refreshTable(){
+  var tags = _tags(document.getElementById('barcode').value);
+  var visible = tags.length >= 2;
+  var q = document.getElementById('qtyInput'), tot = document.getElementById('totalSalePrice');
+  var sp = document.getElementById('salePrice');
+  if (!visible) { sp.required = true; tot.readOnly = false; return; }
+  var own = tags.filter(_hasOwn).length, missing = tags.filter(function(t){ return _effective(t) === null; }).length;
+  sp.required = own < tags.length;      // every tag priced individually: the default Sale Price is not needed
+  document.getElementById('ttCount').textContent = tags.length + ' tags';
+  var grand = 0, distinct = {};
+  tags.forEach(function(t){ var p = _effective(t); if (p !== null) { grand += p; distinct[p] = 1; } });
+  var nd = Object.keys(distinct).length;
+  document.getElementById('ttSummary').innerHTML =
+    'Invoice total: <strong>' + _money(grand) + '</strong> &middot; ' + tags.length + ' tags &middot; ' + nd + ' price' + (nd === 1 ? '' : 's') +
+    (missing ? ' &middot; <span class="text-danger fw-semibold">' + missing + ' tag' + (missing === 1 ? ' has' : 's have') + ' no price</span>' : '');
+  if (q && !q.disabled) q.value = tags.length;
+  if (own > 0) { tot.readOnly = true; tot.value = grand.toFixed(2); }   // Total Sale Price above = true invoice total
+  else { tot.readOnly = false; recalcTotalFromUnit(); }
+}
+function fetchTagInfo(){
+  var need = _tags(document.getElementById('barcode').value).filter(function(t){ return !TT.info[t]; });
+  if (!need.length) { renderTable(); return; }
+  var fd = new FormData();
+  fd.append('barcodes', need.join(','));
+  fd.append('csrf_token', getCookie('csrf_token'));
+  fetch('/sales/new-tag-sale/tag-info', {method: 'POST', body: fd, credentials: 'same-origin'})
+    .then(function(r){ return r.ok ? r.json() : {tags: []}; })
+    .then(function(d){ (d.tags || []).forEach(function(i){ TT.info[i.barcode] = i; }); renderTable(); })
+    .catch(function(){ renderTable(); });
+}
+var _ttTimer = null;
+document.getElementById('barcode').addEventListener('input', function(){
+  clearTimeout(_ttTimer); _ttTimer = setTimeout(function(){ renderTable(); fetchTagInfo(); }, 350);
+});
+document.getElementById('salePrice').addEventListener('input', function(){
+  // placeholders show the default price
+  document.querySelectorAll('#ttBody .tt-price').forEach(function(i){ i.placeholder = this.value === '' ? '0' : this.value; }, this);
+  refreshTable();
+});
+document.getElementById('ttBody').addEventListener('input', function(e){
+  if (!e.target.classList.contains('tt-price')) return;
+  TT.price[e.target.closest('tr').dataset.tag] = e.target.value;
+  refreshTable();
+});
+document.getElementById('ttBody').addEventListener('change', function(e){
+  if (!e.target.classList.contains('tt-tick')) return;
+  TT.ticked[e.target.closest('tr').dataset.tag] = e.target.checked;
+});
+document.getElementById('ttAll').addEventListener('change', function(e){
+  document.querySelectorAll('#ttBody .tt-tick').forEach(function(c){ c.checked = e.target.checked; TT.ticked[c.closest('tr').dataset.tag] = e.target.checked; });
+});
+document.getElementById('ttApply').addEventListener('click', function(){
+  var v = document.getElementById('ttPrice').value;
+  if (v === '' || isNaN(parseFloat(v)) || parseFloat(v) < 0) { alert('Enter a price to apply.'); return; }
+  var target = document.getElementById('ttTarget').value, n = 0;
+  _tags(document.getElementById('barcode').value).forEach(function(t){
+    var hit = target === '__all' || (target === '__ticked' && TT.ticked[t]) ||
+              (target.indexOf('c:') === 0 && TT.info[t] && TT.info[t].category === target.slice(2));
+    if (hit) { TT.price[t] = v; n++; }
+  });
+  if (!n) { alert(target === '__ticked' ? 'Tick at least one tag first.' : 'No tags matched.'); return; }
+  _syncPriceInputs();
+});
+function _syncPriceInputs(){
+  // push TT.price into the existing rows (no full re-render: 4,500 rows would take seconds)
+  document.querySelectorAll('#ttBody tr').forEach(function(tr){
+    var v = TT.price[tr.dataset.tag];
+    tr.querySelector('.tt-price').value = v === undefined ? '' : v;
+  });
+  refreshTable();
+}
+document.getElementById('ttClear').addEventListener('click', function(){ TT.price = {}; _syncPriceInputs(); });
+
+// Upload Tags: a CSV/TXT of tag numbers (one per line, or a "Tag Number"/"tag_number"/
+// "barcode"/"Tag No" column) ticks the matching rows, so a price can then be applied to
+// exactly that set with "Ticked tags". Read in the browser; nothing is sent to the server.
+function _parseTagFile(text){
+  text = text.replace(/^\uFEFF/, '');
+  var lines = text.split(/\r?\n/).filter(function(l){ return l.trim() !== ''; });
+  if (!lines.length) return [];
+  function cells(l){ return l.split(/[,;\t]/).map(function(c){ return c.trim().replace(/^"+|"+$/g, '').trim(); }); }
+  var head = cells(lines[0]).map(function(c){ return c.toLowerCase(); });
+  var col = -1, names = ['tag_number', 'tag number', 'tag no', 'tag_no', 'barcode', 'tag'];
+  for (var i = 0; i < names.length && col < 0; i++) col = head.indexOf(names[i]);
+  var start = col >= 0 ? 1 : 0;
+  if (col < 0) col = 0;
+  var out = [];
+  for (var r = start; r < lines.length; r++) { var v = cells(lines[r])[col]; if (v) out.push(v); }
+  return out;
+}
+document.getElementById('ttUploadBtn').addEventListener('click', function(){ document.getElementById('ttUploadFile').click(); });
+document.getElementById('ttUploadFile').addEventListener('change', function(e){
+  var f = e.target.files && e.target.files[0];
+  if (!f) return;
+  var msg = document.getElementById('ttUploadMsg');
+  var reader = new FileReader();
+  reader.onload = function(){
+    var uploaded = _parseTagFile(String(reader.result || ''));
+    var tags = _tags(document.getElementById('barcode').value);
+    var upper = {}; tags.forEach(function(t){ upper[t.toUpperCase()] = t; });
+    TT.ticked = {};
+    var hit = {}, missing = [];
+    uploaded.forEach(function(u){
+      var t = upper[u.toUpperCase()];
+      if (t) { hit[t] = 1; TT.ticked[t] = true; } else if (missing.indexOf(u) < 0) missing.push(u);
+    });
+    var n = Object.keys(hit).length;
+    document.getElementById('ttTarget').value = '__ticked';
+    renderTable();
+    msg.classList.remove('d-none');
+    msg.className = 'small mb-2 ' + (n ? 'text-success' : 'text-danger');
+    msg.innerHTML = '<i class="bi bi-' + (n ? 'check-circle' : 'exclamation-circle') + ' me-1"></i>' +
+      '<strong>' + n + '</strong> of ' + tags.length + ' tags ticked from ' + _esc(f.name) +
+      (n ? ' &mdash; enter a price and click Apply.' : '.') +
+      (missing.length ? ' <span class="text-danger">' + missing.length + ' in the file not on this invoice: ' +
+        _esc(missing.slice(0, 8).join(', ')) + (missing.length > 8 ? ', \u2026' : '') + '</span>' : '');
+    e.target.value = '';
+  };
+  reader.onerror = function(){ msg.classList.remove('d-none'); msg.className = 'small mb-2 text-danger'; msg.textContent = 'Could not read the file.'; };
+  reader.readAsText(f);
+});
+
+document.getElementById('saleForm').addEventListener('submit', function(e){
+  var hidden = document.getElementById('priceGroups');
+  hidden.value = '';
+  var tags = _tags(document.getElementById('barcode').value);
+  if (tags.length < 2 || !tags.some(_hasOwn)) return;          // one price for everything: unchanged behaviour
+  var groups = [], byKey = {};
+  for (var i = 0; i < tags.length; i++) {
+    var p = _effective(tags[i]);
+    if (p === null) { e.preventDefault(); alert('Tag ' + tags[i] + ' has no price \u2014 enter one in the table or in Sale Price.'); return; }
+    var key = String(p);
+    if (!(key in byKey)) { byKey[key] = {barcodes: [], price: key}; groups.push(byKey[key]); }
+    byKey[key].barcodes.push(tags[i]);
+  }
+  hidden.value = JSON.stringify(groups.map(function(g){ return {barcodes: g.barcodes.join(','), price: g.price}; }));
+});
+// initial state (tags prefilled from Ready to Sale)
+renderTable(); fetchTagInfo();
+</script>
+{% endblock %}

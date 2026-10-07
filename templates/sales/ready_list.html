@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_multiselect_filter.html" as ms %}
 {% block title %}Ready to Sale — OxyPC{% endblock %}
 {% block page_title %}Ready to Sale{% endblock %}
 {% block content %}
@@ -45,6 +46,8 @@
          out of the dom string. #}
       <input type="text" id="readyScanInput" class="d-none form-control form-control-sm font-monospace"
              style="max-width:280px" autocomplete="off" placeholder="Scan Tag/Serial, or search…">
+      {# Entity filter: reloads the table server-side (and Select All follows it). #}
+      {{ ms.multiselect_inline('entity', 'Entity', entity_options, '') }}
       <button type="button" id="multiRequestBtn" class="btn btn-sm btn-outline-primary d-none" disabled>
         <i class="bi bi-telephone-outbound me-1"></i>Multi-Request with selected (<span id="readySelCount">0</span>)
       </button>
@@ -481,6 +484,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="/static/js/tag-scan-autocheck.js?v={{ ASSET_VERSION }}"></script>
+<script src="/static/js/multiselect-filter.js?v={{ ASSET_VERSION }}"></script>
 <script>
 var readyDt;
 // Selected barcodes persist here rather than being read off checkbox state in
@@ -507,6 +511,7 @@ $(document).ready(function(){
          '<"d-flex justify-content-end align-items-center flex-wrap gap-3 mt-3"<"small text-muted"i>p>',
     ajax: {
       url: '/sales/ready/data',
+      data: function (d) { d.entity = (document.getElementById('ms_val_entity') || {}).value || ''; },
       dataSrc: function (json) { return json.data; },
     },
     // Warranty column index shifts by 1 depending on whether Unit Cost
@@ -526,6 +531,11 @@ $(document).ready(function(){
 
   // Scan box lives in the table's own toolbar, top right.
   $('#readyScanArea').append($('#readyScanInput').removeClass('d-none'));
+
+  // Entity filter: reload the table (page 1) whenever the multi-select changes.
+  document.getElementById('ms_val_entity').addEventListener('ms:change', function () {
+    readyDt.ajax.reload(null, true);
+  });
 
   // Scan a tag/serial to select it: the search narrows the table server-side,
   // the match is ticked, and the input re-highlights so the gun's next value
@@ -663,7 +673,7 @@ $('#readyTable').on('change', '.readyChk', function(){
 document.getElementById('readySelectAll').addEventListener('change', async function(){
   var ck = this.checked;
   if (ck) {
-    var r = await fetch('/sales/ready/barcodes');
+    var r = await fetch('/sales/ready/barcodes?entity=' + encodeURIComponent((document.getElementById('ms_val_entity') || {}).value || ''));
     var d = await r.json();
     (d.barcodes || []).forEach(function(bc){ readySelected.add(bc); });
   } else {

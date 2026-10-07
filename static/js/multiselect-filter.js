@@ -24,7 +24,10 @@
     var boxes = menu.querySelectorAll('.ms-opt');
     var picked = [];
     boxes.forEach(function (b) { if (b.checked) picked.push(b.value); });
-    document.getElementById('ms_val_' + name).value = picked.join(',');
+    var hidden = document.getElementById('ms_val_' + name);
+    hidden.value = picked.join(',');
+    // AJAX tables (e.g. Ready to Sale) listen for this to reload; form-based pages ignore it.
+    hidden.dispatchEvent(new CustomEvent('ms:change', {bubbles: true, detail: {name: name, value: hidden.value}}));
     var label = wrap.querySelector('.ms-label');
     label.textContent = picked.length
       ? picked.length + ' selected'

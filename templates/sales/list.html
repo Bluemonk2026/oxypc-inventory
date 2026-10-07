@@ -116,7 +116,7 @@
           <th>Sale#</th><th>Date</th><th>Tag Number</th>
           <th>Brand/Model</th>
           <th>Lot</th>
-          <th>Grade</th>{% if can_view_pricing(current_user) %}<th>Cost/Unit</th><th>Price</th><th>Margin</th>{% endif %}
+          <th>Grade</th><th>Stock Type</th>{% if can_view_pricing(current_user) %}<th>Cost/Unit</th><th>Price</th><th>Margin</th>{% endif %}
           <th>Customer</th>
           <th>Payment</th><th>By</th><th>Sales Person</th><th>Download</th><th></th>
         </tr>
@@ -238,10 +238,11 @@ function exportSelected() {
 // answered by the server instead of by the browser, so nothing is hidden.
 $(document).ready(function() {
   var showPricing = {{ 'true' if can_view_pricing(current_user) else 'false' }};
-  // Column indices shift when pricing columns are hidden from the role.
-  var lastTwo = showPricing ? [14, 15] : [11, 12];
+  // Column indices shift when pricing columns are hidden from the role. Stock
+  // Type (column 7, after Grade) pushed everything after it one place later.
+  var lastTwo = showPricing ? [15, 16] : [12, 13];
   // Brand/Model, Lot and Customer: present and searchable, not displayed.
-  var hiddenCols = showPricing ? [4, 5, 10] : [4, 5, 7];
+  var hiddenCols = showPricing ? [4, 5, 11] : [4, 5, 8];
 
   var dt = $('#salesTable').DataTable({
     serverSide: true,
@@ -268,7 +269,7 @@ $(document).ready(function() {
     },
     columnDefs: [
       { orderable: false, targets: [0].concat(lastTwo) },
-      { orderable: false, targets: showPricing ? [7, 9] : [] },  // cost & margin are computed
+      { orderable: false, targets: showPricing ? [8, 10] : [] },  // cost & margin are computed
       { visible: false, targets: hiddenCols },
     ],
     // Re-apply row checkbox state after every draw: server-side paging

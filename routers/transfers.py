@@ -71,6 +71,28 @@ async def _next_scrap_id(db: AsyncSession) -> str:
     return f"{n:04d}"
 
 
+# "Ready for Sale" is now called "Finish Good" in the UI (2026-10-07). The stored /
+# posted value stays "ready_for_sale" (older rows also hold "Ready to Sale"), and a
+# posted "Finish Good" must do exactly what "ready_for_sale" always did — so every
+# spelling is folded to the one canonical value before any logic looks at it.
+_FINISH_GOOD_ALIASES = {"ready_for_sale", "ready for sale", "ready to sale", "finish good", "finish_good"}
+# every spelling that can be stored on a StockTransfer row, for the list filter
+_FINISH_GOOD_STORED = ["ready_for_sale", "Ready for Sale", "Ready to Sale", "Finish Good", "finish_good"]
+
+
+def canonical_transfer_type(value) -> str:
+    v = (value or "").strip()
+    return "ready_for_sale" if v.lower() in _FINISH_GOOD_ALIASES else v
+
+
+def transfer_type_label(value) -> str:
+    """Text for the Type column / export: Ready for Sale (any spelling) shows as
+    "Finish Good"; every other type keeps its existing wording."""
+    if canonical_transfer_type(value) == "ready_for_sale":
+        return "Finish Good"
+    return (value or "").replace("_", " ").title()
+
+
 async def _maybe_create_scrap_batch(db: AsyncSession, transfer_type: str, assigned_user, current_user):
     """When Transfer Type == Scrap for Sale, one new ScrapForSale row is
     created per submission (not per device/part) — every StockTransfer row
@@ -210,7 +232,10 @@ def _transfers_list_filters(q, transfer_type, transferred_by, location_id, date_
     if q:
         w.append(StockTransfer.barcode.ilike(f"%{q}%"))
     if transfer_type:
-        w.append(StockTransfer.transfer_type == transfer_type)
+        if canonical_transfer_type(transfer_type) == "ready_for_sale":
+            w.append(StockTransfer.transfer_type.in_(_FINISH_GOOD_STORED))
+        else:
+            w.append(StockTransfer.transfer_type == transfer_type)
     if transferred_by:
         w.append(StockTransfer.transferred_by == transferred_by)
     if location_id:
@@ -265,6 +290,7 @@ async def list_transfers(
         t._display_transferred_by = name_map.get(t.transferred_by, t.transferred_by)
         t._display_received_by = name_map.get(t.received_by, t.received_by)
         t._display_stage = STAGE_LABELS.get(live_stage, live_stage.value) if live_stage else (t.product_stage or "—")
+        t._display_type = transfer_type_label(t.transfer_type)
         transfers.append(t)
 
     transferred_by_raw = [r[0] for r in (await db.execute(
@@ -361,7 +387,7 @@ async def export_transfers(
         w.writerow([
             t.transfer_date.strftime("%d-%m-%Y %H:%M") if t.transfer_date else "",
             location_by_id.get(str(t.to_location_id), "") if t.to_location_id else "",
-            (t.transfer_type or "").replace("_", " ").title(),
+            transfer_type_label(t.transfer_type),
             t.barcode or "",
             f"{t.make or ''} {t.model or ''}".strip(),
             t.quantity if t.quantity is not None else "",
@@ -575,6 +601,7 @@ async def create_transfer(
     "as_is_lot" and as_is_lot_choice == "new_sub_lot" — bulk-writes
     Device.sub_lot_number across every scanned Tag Number below. "Current
     Lot" (the default radio) intentionally does nothing, per spec."""
+    transfer_type = canonical_transfer_type(transfer_type)
     apply_sub_lot = (transfer_type == "as_is_lot" and as_is_lot_choice == "new_sub_lot"
                      and sub_lot_value.strip())
     barcodes = [b.strip() for b in barcode if b and b.strip()]
@@ -749,6 +776,7 @@ async def create_parts_transfer(
     """Move Parts tab — a spare-parts stock movement, not tied to a specific
     device. Part Name lands in `model` (the same cell the list table already
     shows as "Make / Model"); quantity in the dedicated `quantity` column."""
+    transfer_type = canonical_transfer_type(transfer_type)
     if quantity < 1:
         return RedirectResponse(url="/transfers/new?error=Quantity+must+be+at+least+1", status_code=302)
 
@@ -817,6 +845,7 @@ async def _move_devices_bulk(
     """Shared bulk-assign logic for Move Bucket / Move Lot tabs — creates one
     StockTransfer row per member device and a WorkOrder recording the device
     against the chosen employee. No device stage move, no repair-stage logic."""
+    transfer_type = canonical_transfer_type(transfer_type)
     t_date = app_now()
 
     loc = None

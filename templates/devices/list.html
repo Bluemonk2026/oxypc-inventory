@@ -123,10 +123,7 @@
             <th>RAM</th>
             <th>Storage</th>
             <th>Grade</th>
-            {% if can_view_pricing(current_user) %}
-            <th>Stock Price</th>
-            <th>Sale Price</th>
-            {% endif %}
+            <th>Stock Type</th>
             <th>Stage</th>
             <th>Updated</th>
             <th></th>
@@ -434,14 +431,11 @@ var CAN_VIEW_PRICING = {{ 'true' if can_view_pricing(current_user) else 'false' 
 var devicesSelected = new Set();
 
 $(document).ready(function() {
-  // Stock Price / Sale Price are 2 columns that only exist when this role can
-  // view pricing (CAN_VIEW_PRICING) — "Updated" (and its index) shifts left by
-  // 2 when they're hidden. A role with pricing off (e.g. Production Manager)
-  // previously got an order[0][column] pointing at a column that doesn't
-  // exist, which threw inside DataTables' init and left the whole table
-  // permanently stuck on "Processing…" — the actual data from /devices/data
-  // was fine the whole time.
-  var UPDATED_COL = CAN_VIEW_PRICING ? 14 : 12;
+  // Stock Price / Sale Price columns were removed (2026-10-07) and Stock Type
+  // sits after Grade, so every role sees the same layout and "Updated" is
+  // always column 13. (A role-dependent index used to leave the table stuck on
+  // "Processing…" for roles without pricing — see the git history.)
+  var UPDATED_COL = 13;
   // Global Table behavior (static/js/global-table.js): scrollX + frozen first
   // column, 32-character clamp+tooltip on every free-text column, the
   // Page-view-dropdown-and-count-badge / search-and-pagination toolbar split,

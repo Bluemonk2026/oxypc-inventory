@@ -16,9 +16,11 @@ def test_order_column_shifts_with_pricing_visibility(app_client, make_user):  # 
     _login(app_client, username, password)
     html = app_client.get("/devices", follow_redirects=True).text
 
-    assert "var UPDATED_COL = CAN_VIEW_PRICING ? 14 : 12;" in html
+    # Stock Price / Sale Price columns are gone for every role and Stock Type sits
+    # after Grade, so the layout (and the Updated column, 13) no longer depends on role.
+    assert "var UPDATED_COL = 13;" in html
     assert "order: [[UPDATED_COL, 'desc']]" in html
-    # The old hard-coded form must be gone, not just supplemented.
+    assert "<th>Stock Type</th>" in html and "<th>Stock Price</th>" not in html and "<th>Sale Price</th>" not in html
     assert "order: [[14, 'desc']]" not in html
 
 
@@ -26,5 +28,6 @@ def test_server_side_col_map_shifts_with_show_pricing():
     from routers import devices as dv
 
     src = inspect.getsource(dv.device_search_data)
-    assert "updated_col = 14 if show_pricing else 12" in src
+    assert "updated_col = 13" in src
     assert "updated_col: Device.updated_at" in src
+    assert "11: stock_type_expr" in src            # Stock Type is sortable (sub-lot or not)

@@ -474,16 +474,16 @@ async def device_search_data(
         (await db.execute(count_base.where(*page_filters, *search_filters))).scalar() or 0)
 
     # Column 3 is Location ID (inserted after Lot) — every index from Brand
-    # onward shifts by one to make room for it. Stock Price / Sale Price are
-    # two MORE columns inserted after Grade, but only when this role can view
-    # pricing (`can_view_pricing`, checked below to build `show_pricing`) — a
-    # role with pricing hidden has 2 fewer columns, so "Updated" (and every
-    # column after it) sits 2 indices earlier. Without this offset, a role
-    # with pricing hidden sends an order[0][column] the table doesn't have,
-    # which crashed DataTables' init entirely and left the Tags Table empty.
-    updated_col = 14 if show_pricing else 12
+    # onward shifts by one to make room for it. Column 11 is Stock Type (after
+    # Grade). Stock Price / Sale Price are no longer shown for ANY role
+    # (2026-10-07), so the column layout is the same for everyone and "Updated"
+    # is always column 13 — which also removes the old per-role index shift that
+    # once left the table stuck on "Processing…" for roles without pricing.
+    updated_col = 13
+    stock_type_expr = case((func.coalesce(Device.sub_lot_number, "") != "", 1), else_=0)
     col_map = {1: Device.barcode, 2: Lot.lot_number, 4: Device.brand, 5: Device.model,
-               6: Device.device_type, 7: Device.cpu, 10: Device.grade, updated_col: Device.updated_at}
+               6: Device.device_type, 7: Device.cpu, 10: Device.grade, 11: stock_type_expr,
+               updated_col: Device.updated_at}
     try:
         order_col = int(request.query_params.get("order[0][column]", updated_col))
     except ValueError:
@@ -522,20 +522,6 @@ async def device_search_data(
             )).all():
                 location_map[str(did)] = (unit_id, slot)
 
-    stock_price_map, sale_price_map = {}, {}
-    if show_pricing and device_ids:
-        for c in (await db.execute(select(DeviceCosting).where(DeviceCosting.device_id.in_(device_ids)))).scalars().all():
-            stock_price_map[str(c.device_id)] = c.total_cost
-        for d, _ in rows:
-            did = str(d.id)
-            if did not in stock_price_map and d.device_price:
-                stock_price_map[did] = d.device_price * (d.qty or 1)
-        for did, sp in (await db.execute(
-            select(Sale.device_id, func.max(Sale.sale_price))
-            .where(Sale.device_id.in_(device_ids)).group_by(Sale.device_id)
-        )).all():
-            sale_price_map[str(did)] = sp
-
     def esc(v):
         return escape(str(v)) if v is not None else ""
 
@@ -563,12 +549,10 @@ async def device_search_data(
             esc(d.brand or "—"), esc(d.model or "—"), esc(d.device_type or "—"), esc(d.cpu or "—"),
             esc(ram), esc(storage),
             (f'<span class="badge bg-{gcls}">{esc(g)}</span>' if g else "—"),
+            # Stock Type: "As-Is" when the tag has a sub-lot, else "Finish Good"
+            ('<span class="badge bg-warning text-dark">As-Is</span>' if (d.sub_lot_number or "").strip()
+             else '<span class="badge bg-success">Finish Good</span>'),
         ]
-        if show_pricing:
-            sp = stock_price_map.get(str(d.id))
-            salep = sale_price_map.get(str(d.id))
-            cells.append(f'₹{float(sp):,.0f}' if sp is not None else "—")
-            cells.append(f'₹{float(salep):,.0f}' if salep is not None else "—")
         cells += [
             f'<span class="badge bg-{_STAGE_BADGE.get(stage_val, "light text-dark")}">{esc(stage_lbl)}</span>',
             d.updated_at.strftime("%d-%m-%Y") if d.updated_at else "—",
@@ -1040,14 +1024,13 @@ def _pna_label(device, pna_device_ids) -> str:
 
 
 def _stock_label(device) -> str:
-    """Stock classification: a Ready to Sale tag with a sub-lot is "As-Is Lot",
-    otherwise "Ready for Sale". A sold tag is "Sold"; every other stage is
-    "In Process"."""
-    if device.current_stage == DeviceStage.sold:
-        return "Sold"
-    if device.current_stage != DeviceStage.ready_to_sale:
-        return "In Process"
-    return "As-Is Lot" if (device.sub_lot_number or "").strip() else "Ready for Sale"
+    """Stock classification for the export: a Ready to Sale tag is "As-Is" when it
+    has a sub-lot, else "Finish Good"; every other live stage is "In Progress".
+    A SOLD tag gets the same Finish Good / As-Is label (so sold items filter by
+    what they were), never "In Progress"."""
+    if device.current_stage in (DeviceStage.ready_to_sale, DeviceStage.sold):
+        return "As-Is" if (device.sub_lot_number or "").strip() else "Finish Good"
+    return "In Progress"
 
 
 async def _export_rows(db: AsyncSession, rows) -> StreamingResponse:

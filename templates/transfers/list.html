@@ -32,7 +32,7 @@
           'showroom_lot': 'Showroom Lot',
           'internal': 'Internal',
           'as_is_lot': 'As-Is Lot',
-          'ready_for_sale': 'Ready for Sale',
+          'ready_for_sale': 'Finish Good',
           'scrap_for_sale': 'Scrap for Sale',
         } %}
         <select name="transfer_type" class="form-select form-select-sm">
@@ -142,7 +142,7 @@
               {% elif t.transfer_type == 'showroom_to_trc' %}
                 <span class="badge bg-warning text-dark">Showroom → TRC</span>
               {% else %}
-                <span class="badge bg-secondary">{{ t.transfer_type | replace('_', ' ') | title }}</span>
+                <span class="badge bg-secondary">{{ t._display_type }}</span>
               {% endif %}
             </td>
             <td><span class="badge bg-secondary">{{ t._display_stage }}</span></td>

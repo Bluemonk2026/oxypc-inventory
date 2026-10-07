@@ -2,8 +2,8 @@
 
 PNA   = "Yes" only when the tag is in the Production Manager PNA summary scope
         (active PNA part AND stage in l1/l2/l3 AND is_active AND not trashed).
-Stock = ready_to_sale tags: sub-lot present -> "As-Is Lot", else
-        "Ready for Sale"; sold -> "Sold"; every other stage -> "In Process".
+Stock = ready_to_sale AND sold tags: sub-lot present -> "As-Is", else "Finish Good"
+        (so sold items filter by what they were); every other stage -> "In Progress".
 
 Calls routers.devices._export_rows directly with transient Device objects and
 a stubbed session, so no database is touched.
@@ -67,12 +67,14 @@ def test_header_ends_with_pna_and_stock():
 
 
 def test_stock_label_rules():
-    assert _stock_label(_dev("A", DeviceStage.ready_to_sale)) == "Ready for Sale"
-    assert _stock_label(_dev("B", DeviceStage.ready_to_sale, sub_lot="  ")) == "Ready for Sale"
-    assert _stock_label(_dev("C", DeviceStage.ready_to_sale, sub_lot="SL-9")) == "As-Is Lot"
-    assert _stock_label(_dev("D", DeviceStage.l2, sub_lot="SL-9")) == "In Process"
-    assert _stock_label(_dev("E", DeviceStage.iqc)) == "In Process"
-    assert _stock_label(_dev("F", DeviceStage.sold)) == "Sold"
+    assert _stock_label(_dev("A", DeviceStage.ready_to_sale)) == "Finish Good"
+    assert _stock_label(_dev("B", DeviceStage.ready_to_sale, sub_lot="  ")) == "Finish Good"
+    assert _stock_label(_dev("C", DeviceStage.ready_to_sale, sub_lot="SL-9")) == "As-Is"
+    assert _stock_label(_dev("D", DeviceStage.l2, sub_lot="SL-9")) == "In Progress"
+    assert _stock_label(_dev("E", DeviceStage.iqc)) == "In Progress"
+    # sold items carry the same Finish Good / As-Is label (never "In Progress")
+    assert _stock_label(_dev("F", DeviceStage.sold)) == "Finish Good"
+    assert _stock_label(_dev("G", DeviceStage.sold, sub_lot="SL-9")) == "As-Is"
 
 
 def test_pna_label_scope():
@@ -114,11 +116,11 @@ def test_export_rows_end_to_end_values(monkeypatch):
     def cells(b):
         return by_barcode[b][pna_i], by_barcode[b][stock_i]
 
-    assert cells("T-PNA-L2") == ("Yes", "In Process")
-    assert cells("T-L2-CLEAN") == ("No", "In Process")
-    assert cells("T-PNA-RTS") == ("No", "Ready for Sale")
-    assert cells("T-RTS") == ("No", "Ready for Sale")
-    assert cells("T-RTS-SUB") == ("No", "As-Is Lot")
-    assert cells("T-IQC") == ("No", "In Process")
-    assert cells("T-SOLD") == ("No", "Sold")
+    assert cells("T-PNA-L2") == ("Yes", "In Progress")
+    assert cells("T-L2-CLEAN") == ("No", "In Progress")
+    assert cells("T-PNA-RTS") == ("No", "Finish Good")
+    assert cells("T-RTS") == ("No", "Finish Good")
+    assert cells("T-RTS-SUB") == ("No", "As-Is")
+    assert cells("T-IQC") == ("No", "In Progress")
+    assert cells("T-SOLD") == ("No", "Finish Good")
     assert all(len(r) == len(header) for r in by_barcode.values())

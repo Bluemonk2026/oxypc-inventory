@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import csv
 import io
-from sqlalchemy import select, func, text, or_, update
+from sqlalchemy import select, func, text, or_, update, case
 from fastapi.responses import StreamingResponse
 
 from database import get_db
@@ -63,8 +63,15 @@ async def _next_sale_number(db: AsyncSession) -> str:
     return f"SALE-{seq:04d}"
 
 
+def _entity_values(raw: str) -> list:
+    """Entity multi-select posts one comma-separated value (see
+    templates/_multiselect_filter.html); entity names never contain a comma."""
+    return [v.strip() for v in (raw or "").split(",") if v.strip()]
+
+
 @router.get("/sales/ready/barcodes")
 async def ready_list_barcodes(
+    entity: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(ready_allowed),
 ):
@@ -77,11 +84,13 @@ async def ready_list_barcodes(
     deliberately cheap (barcodes only) rather than reusing /data, which builds
     full row HTML per device.
     """
+    entities = _entity_values(entity)
     barcodes = (await db.execute(
         select(Device.barcode).where(
             Device.current_stage == DeviceStage.ready_to_sale,
             Device.is_trashed == False,
             or_(Device.sub_lot_number.is_(None), Device.sub_lot_number == ""),
+            *([Device.entity.in_(entities)] if entities else []),
         )
     )).scalars().all()
     return {"barcodes": [b for b in barcodes if b]}
@@ -91,6 +100,7 @@ async def ready_list_barcodes(
 async def ready_list_data(
     request: Request,
     draw: int = 1, start: int = 0, length: int = 25,
+    entity: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(ready_allowed),
 ):
@@ -117,14 +127,20 @@ async def ready_list_data(
     # Lot table until released via "Open Tag" — excluded here so they never
     # also show in the Tag Table while still grouped.
     not_as_is = or_(Device.sub_lot_number.is_(None), Device.sub_lot_number == "")
+    # Entity filter (multi-select above the table): applies to the rows, the
+    # totals and the paging alike, so the table and its counts always agree.
+    entities = _entity_values(entity)
+    entity_filter = [Device.entity.in_(entities)] if entities else []
 
     base = (
         select(Device, Lot.lot_number, Lot.buying_price, Lot.qty, Lot.selling_price)
         .join(Lot, Device.lot_id == Lot.id)
-        .where(Device.current_stage == DeviceStage.ready_to_sale, Device.is_trashed == False, not_as_is)
+        .where(Device.current_stage == DeviceStage.ready_to_sale, Device.is_trashed == False, not_as_is,
+               *entity_filter)
     )
     count_q = select(func.count()).select_from(Device).where(
-        Device.current_stage == DeviceStage.ready_to_sale, Device.is_trashed == False, not_as_is)
+        Device.current_stage == DeviceStage.ready_to_sale, Device.is_trashed == False, not_as_is,
+        *entity_filter)
     total = (await db.execute(count_q)).scalar() or 0
 
     search = (request.query_params.get("search[value]") or "").strip()
@@ -140,7 +156,7 @@ async def ready_list_data(
         filtered_q = (
             select(func.count()).select_from(Device).join(Lot, Device.lot_id == Lot.id)
             .where(Device.current_stage == DeviceStage.ready_to_sale, Device.is_trashed == False,
-                   not_as_is, *search_filters)
+                   not_as_is, *entity_filter, *search_filters)
         )
         filtered = (await db.execute(filtered_q)).scalar() or 0
     else:
@@ -488,7 +504,9 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
             })
         as_is_lots.sort(key=lambda r: (r["lot_number"] or "", r["sub_lot_number"] or ""))
 
+    from utils.master_data import entity_values
     return templates.TemplateResponse("sales/ready_list.html", {
+        "entity_options": await entity_values(db),
         "request": request, "devices": devices, "current_user": current_user,
         "interested_dealers": interested_dealers,
         "model_summary_ready": model_summary_ready,
@@ -1546,7 +1564,7 @@ async def sales_list_data(
 
     base_join = (
         select(Sale, Device.barcode, Device.brand, Device.model, Device.grade,
-               Lot.lot_number, Lot.buying_price, Lot.qty)
+               Lot.lot_number, Lot.buying_price, Lot.qty, Device.sub_lot_number)
         .join(Device, Sale.device_id == Device.id)
         .join(Lot, Device.lot_id == Lot.id)
     )
@@ -1577,13 +1595,17 @@ async def sales_list_data(
 
     # Sorting. Only columns with a real SQL expression are sortable; anything
     # else falls back to sale date so an unmapped index cannot 500 the table.
+    # Column 7 is Stock Type (after Grade), so every column after it sits one
+    # place later than before: with pricing (Cost/Unit, Price, Margin at 8-10)
+    # Customer=11, Payment=12, By=13, Sales Person=14; without pricing
+    # Customer=8, Payment=9, By=10, Sales Person=11.
+    stock_type_expr = case((func.coalesce(Device.sub_lot_number, "") != "", 1), else_=0)
     col_map = {1: Sale.sale_number, 2: Sale.sold_at, 3: Device.barcode,
-               6: Device.grade, 11: Sale.payment_mode, 12: Sale.sold_by}
+               6: Device.grade, 7: stock_type_expr}
     if show_pricing:
-        col_map[8] = Sale.sale_price
-        col_map[13] = Sale.sales_person
+        col_map.update({9: Sale.sale_price, 12: Sale.payment_mode, 13: Sale.sold_by, 14: Sale.sales_person})
     else:
-        col_map[10] = Sale.sales_person
+        col_map.update({9: Sale.payment_mode, 10: Sale.sold_by, 11: Sale.sales_person})
     try:
         order_col = int(request.query_params.get("order[0][column]", 2))
     except ValueError:
@@ -1615,6 +1637,9 @@ async def sales_list_data(
             f'<a href="/devices?lot={esc(r.lot_number)}" class="text-decoration-none">'
             f'<span class="badge bg-info text-dark">{esc(r.lot_number)}</span></a>',
             esc(gv),
+            # Stock Type: "As-Is Lot" when the tag has a sub-lot, else "Finish Good"
+            ('<span class="badge bg-warning text-dark">As-Is Lot</span>' if (r.sub_lot_number or "").strip()
+             else '<span class="badge bg-success">Finish Good</span>'),
         ]
         if show_pricing:
             cost_unit = 0.0

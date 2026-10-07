@@ -48,7 +48,7 @@ was narrowed to exactly Tag Number / Lot Number / Make / Model / Engineer
 Name / Stage / Assigned Date / Completed Date; Lot Number is looked up once
 across every device appearing in `items`.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, Request, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -213,6 +213,16 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
     # showed (the reported "Completed Date filter not applying" bug).
     cf = _parse_date(completed_from)
     ct = _parse_date(completed_to)
+    # The Completed From/To window also goes into the SQL BEFORE the row cap
+    # below (2026-10-07: a WorkID completed on 6 Oct was "missing" because the
+    # cap keeps only the MAIN_ROW_CAP most recently ASSIGNED WorkIDs, and the
+    # date filter further down only ever saw those). WorkOrder.completed_at is
+    # within seconds of the Completed Date shown (the matched movement), so the
+    # SQL window is widened a little and the exact filter below still decides.
+    if cf:
+        stmt = stmt.where(WorkOrder.completed_at >= cf - timedelta(days=1))
+    if ct:
+        stmt = stmt.where(WorkOrder.completed_at <= ct.replace(hour=23, minute=59, second=59) + timedelta(days=2))
 
     is_admin = current_user.role.value == "admin"
 
@@ -273,7 +283,8 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
                 continue
             movements_by_device.setdefault(str(mv.device_id), []).append(mv)
 
-        usernames = {mv.moved_by for mv in move_rows if mv.moved_by}
+        usernames = ({mv.moved_by for mv in move_rows if mv.moved_by}
+                     | {wo.assigned_username for wo, _d in rows if wo.assigned_username})
         if usernames:
             u_rows = (await db.execute(
                 select(User.username, User.full_name).where(User.username.in_(usernames))
@@ -347,6 +358,17 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
                 engineer_username = mv.moved_by
             else:
                 stage_value, stage_label, movement_engineer = "", "—", "—"
+                engineer_username = wo.assigned_username
+            # Assigned Engineer is the user the WorkID was ASSIGNED TO. The
+            # movement's "By" is only who clicked the move — often an admin
+            # bulk-moving or reassigning someone else's tag (2026-10-07: a WorkID
+            # assigned to Saroj showed Chandrabhan because an admin bulk-moved
+            # the tag). Falls back to the movement's user for WorkIDs with no
+            # assignee (receiving / unassigned queue rows).
+            if wo.assigned_username:
+                movement_engineer = (wo.assigned_name
+                                     or display_name_by_username.get(wo.assigned_username)
+                                     or wo.assigned_username)
                 engineer_username = wo.assigned_username
             # Completed Date only reflects a genuine hand-off: the WorkOrder
             # itself must actually be completed (wo.completed_at set). A

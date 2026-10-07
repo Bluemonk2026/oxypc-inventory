@@ -56,7 +56,7 @@
               <input type="hidden" name="qty" value="{{ approved_qty }}">
               <div class="form-text small text-muted">Locked to approved request quantity ({{ approved_qty }})</div>
               {% else %}
-              <input type="number" name="qty" id="qtyInput" class="form-control" value="{{ prefill_qty if prefill_qty is defined and prefill_qty else 1 }}" min="1" max="500"
+              <input type="number" name="qty" id="qtyInput" class="form-control" value="{{ prefill_qty if prefill_qty is defined and prefill_qty else 1 }}" min="1"
                      title="Number of units (for bulk sale record). Each device still needs individual barcode.">
               <div class="form-text small text-muted">Units in this sale (informational — each device still tracked by barcode)</div>
               {% endif %}

@@ -20,6 +20,7 @@ from auth.dependencies import get_current_user, require_roles, verify_csrf
 from services.notifications import create_notification
 from services.location_defaults import ensure_stage_location
 from services.audit_engine import audit
+from services.work_order_close import close_open_work_orders
 
 router = APIRouter(tags=["buckets"], dependencies=[Depends(verify_csrf)])
 allowed = require_roles(UserRole.admin, UserRole.inventory_manager)
@@ -677,6 +678,7 @@ async def _apply_department_move(
         moved_by=current_user.username, notes=move_note,
     ))
     if engineer:
+        await close_open_work_orders(db, device.id)   # previous assignee's WorkID completes now
         work_id = await _gen_work_id(db)
         db.add(WorkOrder(
             work_id=work_id, device_id=device.id, barcode=device.barcode,
@@ -834,6 +836,7 @@ async def assign_device(
         moved_by=current_user.username,
         notes=f"Assigned to {engineer.full_name or engineer.username}",
     ))
+    await close_open_work_orders(db, device.id)   # previous assignee's WorkID completes now
     work_id = await _gen_work_id(db)
     db.add(WorkOrder(
         work_id=work_id, device_id=device.id, barcode=device.barcode,
@@ -932,6 +935,7 @@ async def bulk_assign_devices_l1l2(
             moved_by=current_user.username,
             notes=f"Bulk assigned to {engineer.full_name or engineer.username}",
         ))
+        await close_open_work_orders(db, device.id)   # previous assignee's WorkID completes now
         work_id = await _gen_work_id(db)
         db.add(WorkOrder(
             work_id=work_id, device_id=device.id, barcode=device.barcode,

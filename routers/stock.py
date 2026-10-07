@@ -36,6 +36,7 @@ from models.bucket import Bucket, _new_bucket_number
 from models.pna_part import DevicePNAPart
 from routers.transfers import _gen_work_id
 from services.notifications import create_notification
+from services.work_order_close import close_open_work_orders
 from services.location_defaults import ensure_stage_location
 
 _log = logging.getLogger(__name__)
@@ -1929,6 +1930,7 @@ async def change_engineer(
         notes=f"Changed engineer to {user.full_name or user.username} via Production Manager",
     ))
 
+    await close_open_work_orders(db, device.id)   # previous engineer's WorkID completes now
     work_id = await _gen_work_id(db)
     db.add(WorkOrder(
         work_id=work_id, device_id=device.id, barcode=device.barcode,

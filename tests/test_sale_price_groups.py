@@ -92,11 +92,11 @@ def test_tag_info_endpoint_labels_tags_with_category_and_model():
 
 
 def test_original_new_sale_page_is_untouched():
-    """The existing New Sale page keeps its look and its 500 cap; only New Tag Sale changed."""
+    """The existing New Sale page keeps its look; only its Quantity cap was lifted (2026-10-07)."""
     from templates_config import templates
     src = open(templates.env.get_template("sales/new.html").filename, encoding="utf-8").read()
     assert "tagTableBox" not in src and "price_groups" not in src and "Haryana" not in src
-    assert 'max="500"' in src and "Delhi (default)" in src
+    assert 'max="500"' not in src and "Delhi (default)" in src
 
 
 def test_ready_to_sale_has_new_buttons_and_old_ones_remain():

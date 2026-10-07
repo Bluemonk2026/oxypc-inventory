@@ -103,8 +103,9 @@ def test_stage_completed_date_and_engineer_come_from_asset_history(app_client, m
         assert "IQC" in row.upper()
         assert "Cleaning" not in row
 
-        # Assigned Engineer = display name resolved from moved_by (a real
-        # username), NOT the WorkOrder's own assigned_name ("Someone Else").
+        # Assigned Engineer = the user the WorkID was ASSIGNED TO ("Someone Else"),
+        # NOT the movement's "By" (the mover is whoever clicked the move, e.g. an
+        # admin bulk-moving someone else's tag — changed 2026-10-07).
         u_full_name = _run(f"""
 import asyncio, sys
 sys.path.insert(0, r"{ROOT}")
@@ -119,8 +120,8 @@ async def main():
 
 asyncio.run(main())
 """)
-        assert u_full_name in row
-        assert "Someone Else" not in row
+        assert "Someone Else" in row
+        assert u_full_name not in row
     finally:
         _cleanup_device(barcode)
 

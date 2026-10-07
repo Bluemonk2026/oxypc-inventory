@@ -141,7 +141,7 @@ async def lot_pl_report(request: Request, db: AsyncSession = Depends(get_db), cu
 _EXCLUDED_DAILY_STOCK_USERNAMES = ("admin", "test_user", "test_man")
 
 
-def _stock_reconstruction_sql(exclude_admin: bool) -> str:
+def _stock_reconstruction_sql(exclude_admin: bool, as_of_param: str = "as_of") -> str:
     """Shared DISTINCT ON reconstruction — see _stock_as_of's docstring.
     `exclude_admin` drops any StageMovement performed by an admin-role user,
     or by one of _EXCLUDED_DAILY_STOCK_USERNAMES, from consideration
@@ -149,7 +149,17 @@ def _stock_reconstruction_sql(exclude_admin: bool) -> str:
     before `as_of` was an admin/test action is reconstructed as
     not-yet-existing at that point rather than sitting in whatever stage
     that action left it in. Added for exactly that case: QA/test movements
-    skewing the real operational numbers."""
+    skewing the real operational numbers.
+
+    A move INTO "sold" is timed by its Sale's sold_at (the Sale Date the user
+    picked), not by when it was keyed in: the movement note carries the
+    sale number ("Sold — SALE-1234"). A sale back-dated to 3 Oct but recorded on
+    6 Oct is therefore a 3 Oct sale here, matching the Sales list — before
+    this (2026-10-07) 772 sales dated 1-5 Oct were counted as sold on 6 Oct.
+    The back-dated time is only used when it is EARLIER than the entry time, and
+    never earlier than the tag's previous movement (a tag cannot be sold before
+    it reached the stage it was sold from — otherwise a back-dated sale would
+    sort BEFORE that earlier move and the tag would reappear in stock)."""
     admin_join = "LEFT JOIN users u ON u.username = sm.moved_by" if exclude_admin else ""
     if exclude_admin:
         excluded_list = ", ".join(f"'{u}'" for u in _EXCLUDED_DAILY_STOCK_USERNAMES)
@@ -157,13 +167,55 @@ def _stock_reconstruction_sql(exclude_admin: bool) -> str:
     else:
         admin_filter = ""
     return f"""
-        SELECT DISTINCT ON (sm.device_id) sm.device_id, sm.to_stage
-        FROM stage_movements sm
-        {admin_join}
-        WHERE sm.moved_at <= :as_of
-        {admin_filter}
-        ORDER BY sm.device_id, sm.moved_at DESC
+        SELECT DISTINCT ON (ev.device_id) ev.device_id, ev.to_stage
+        FROM (
+            SELECT sm.device_id, sm.to_stage, sm.moved_at,
+                   CASE WHEN sm.to_stage = 'sold' AND sl.sold_at IS NOT NULL AND sl.sold_at < sm.moved_at
+                        THEN GREATEST(sl.sold_at,
+                                      COALESCE(LAG(sm.moved_at) OVER (PARTITION BY sm.device_id
+                                                                      ORDER BY sm.moved_at), sl.sold_at))
+                        ELSE sm.moved_at END AS ev_at
+            FROM stage_movements sm
+            {admin_join}
+            LEFT JOIN sales sl ON sm.to_stage = 'sold'
+                              AND sl.sale_number = substring(sm.notes from 'SALE-[0-9]+')
+            WHERE 1 = 1
+            {admin_filter}
+        ) ev
+        WHERE ev.ev_at <= :{as_of_param}
+        ORDER BY ev.device_id, ev.ev_at DESC, ev.moved_at DESC
     """
+
+
+# Stages that are not "stock on hand": a sold tag has left, and "GRN Receipt" rows
+# duplicate the IQC / Stock In record of the same tag (they are receipt paperwork).
+_NOT_STOCK_STAGES = ("sold", "grn")
+
+
+def _stock_scope_sql(exclude_admin: bool, open_param: str | None) -> str:
+    """Extra WHERE for a query aliasing the reconstruction as `latest`:
+    drops sold / GRN rows, and — when `open_param` is given (the Closing
+    snapshot) — keeps only tags that were already in stock at the day's opening,
+    so Closing = Opening - what was sold that day (tags first received during the
+    day are not counted: the GRN count is excluded)."""
+    not_stock = ", ".join(f"'{x}'" for x in _NOT_STOCK_STAGES)
+    clause = f"AND latest.to_stage NOT IN ({not_stock})"
+    if open_param:
+        clause += f"""
+        AND latest.device_id IN (
+            SELECT o.device_id
+            FROM ({_stock_reconstruction_sql(exclude_admin, open_param)}) o
+            JOIN devices od ON od.id = o.device_id
+            WHERE o.to_stage NOT IN ({not_stock})
+              AND (od.trashed_at IS NULL OR od.trashed_at > :{open_param}))"""
+    return clause
+
+
+def _bind(as_of: datetime, open_as_of: datetime | None) -> dict:
+    params = {"as_of": as_of}
+    if open_as_of is not None:
+        params["open_as_of"] = open_as_of
+    return params
 
 
 def _entity_filter_clause(entities: list | None) -> str:
@@ -178,7 +230,7 @@ def _entity_filter_clause(entities: list | None) -> str:
 
 
 async def _stock_as_of(db: AsyncSession, as_of: datetime, exclude_admin: bool = False,
-                        entities: list | None = None) -> dict:
+                        entities: list | None = None, open_as_of: datetime | None = None) -> dict:
     """Count of devices by stage, reconstructed as of a point in time —
     the most recent StageMovement.to_stage at or before `as_of` per device
     (SQL DISTINCT ON, Postgres-only like the rest of this app). This reads
@@ -196,14 +248,36 @@ async def _stock_as_of(db: AsyncSession, as_of: datetime, exclude_admin: bool = 
         FROM ({_stock_reconstruction_sql(exclude_admin)}) latest
         JOIN devices d ON d.id = latest.device_id
         WHERE (d.trashed_at IS NULL OR d.trashed_at > :as_of)
+        {_stock_scope_sql(exclude_admin, "open_as_of" if open_as_of is not None else None)}
         {_entity_filter_clause(entities)}
         GROUP BY latest.to_stage
-    """), {"as_of": as_of})).all()
+    """), _bind(as_of, open_as_of))).all()
     return {r[0]: r[1] for r in rows}
 
 
+async def _sold_in_day(db: AsyncSession, day_start: datetime, day_end: datetime,
+                       exclude_admin: bool = False, entities: list | None = None) -> int:
+    """Tags that were in stock at the day's opening and are sold by its close —
+    i.e. the day's sale records (Sale Date inside the day), which is what turns
+    Opening into Closing."""
+    not_stock = ", ".join(f"'{x}'" for x in _NOT_STOCK_STAGES)
+    return (await db.execute(sa_text(f"""
+        SELECT count(*)
+        FROM ({_stock_reconstruction_sql(exclude_admin)}) latest
+        JOIN devices d ON d.id = latest.device_id
+        WHERE latest.to_stage = 'sold'
+          AND latest.device_id IN (
+              SELECT o.device_id
+              FROM ({_stock_reconstruction_sql(exclude_admin, "open_as_of")}) o
+              JOIN devices od ON od.id = o.device_id
+              WHERE o.to_stage NOT IN ({not_stock})
+                AND (od.trashed_at IS NULL OR od.trashed_at > :open_as_of))
+        {_entity_filter_clause(entities)}
+    """), {"as_of": day_end, "open_as_of": day_start})).scalar() or 0
+
+
 async def _stock_tags_as_of(db: AsyncSession, as_of: datetime, exclude_admin: bool = False,
-                             entities: list | None = None) -> list:
+                             entities: list | None = None, open_as_of: datetime | None = None) -> list:
     """Same reconstruction as _stock_as_of, but returns the actual (stage,
     barcode) pairs instead of a count per stage — powers the Tag Based
     export, which lists every tag making up each number instead of just the
@@ -213,14 +287,15 @@ async def _stock_tags_as_of(db: AsyncSession, as_of: datetime, exclude_admin: bo
         FROM ({_stock_reconstruction_sql(exclude_admin)}) latest
         JOIN devices d ON d.id = latest.device_id
         WHERE (d.trashed_at IS NULL OR d.trashed_at > :as_of)
+        {_stock_scope_sql(exclude_admin, "open_as_of" if open_as_of is not None else None)}
         {_entity_filter_clause(entities)}
         ORDER BY latest.to_stage, d.barcode
-    """), {"as_of": as_of})).all()
+    """), _bind(as_of, open_as_of))).all()
     return [(r[0], r[1]) for r in rows]
 
 
 async def _stock_by_zone_as_of(db: AsyncSession, as_of: datetime, exclude_admin: bool = False,
-                                entities: list | None = None) -> dict:
+                                entities: list | None = None, open_as_of: datetime | None = None) -> dict:
     """Count of devices by (stage, zone), reconstructed as of a point in
     time — powers the Location Export. Zone comes from the same latest-
     log-at-or-before-`as_of` pattern as stage (DISTINCT ON over
@@ -245,9 +320,10 @@ async def _stock_by_zone_as_of(db: AsyncSession, as_of: datetime, exclude_admin:
         LEFT JOIN latest_loc ON latest_loc.device_id = d.id
         LEFT JOIN storage_locations cur_sl ON cur_sl.id = d.location_id
         WHERE (d.trashed_at IS NULL OR d.trashed_at > :as_of)
+        {_stock_scope_sql(exclude_admin, "open_as_of" if open_as_of is not None else None)}
         {_entity_filter_clause(entities)}
         GROUP BY latest.to_stage, COALESCE(latest_loc.zone::text, cur_sl.zone::text, 'unassigned')
-    """), {"as_of": as_of})).all()
+    """), _bind(as_of, open_as_of))).all()
     return {(r[0], r[1]): r[2] for r in rows}
 
 
@@ -287,13 +363,16 @@ async def daily_stock_report(
     entities = _parse_multi(entity)
 
     opening_counts = await _stock_as_of(db, day_start, exclude_admin, entities)
-    closing_counts = await _stock_as_of(db, day_end, exclude_admin, entities)
+    closing_counts = await _stock_as_of(db, day_end, exclude_admin, entities, open_as_of=day_start)
+    sold_today = await _sold_in_day(db, day_start, day_end, exclude_admin, entities)
 
     rows = []
     total_open = total_close = 0
     for s in DeviceStage:
         if s == DeviceStage.l2:
             continue  # legacy stage, see DROPDOWN_STAGES comment in models/device.py
+        if s.value in _NOT_STOCK_STAGES:
+            continue  # sold tags have left; GRN Receipt duplicates the IQC/Stock In record
         o = opening_counts.get(s.value, 0)
         c = closing_counts.get(s.value, 0)
         if o == 0 and c == 0:
@@ -313,6 +392,7 @@ async def daily_stock_report(
         "entity_options": master_options("entity"),
         "rows": rows,
         "total_open": total_open, "total_close": total_close, "total_net": total_close - total_open,
+        "sold_today": sold_today,
         "is_today": day == app_now().date(),
     })
 
@@ -335,13 +415,13 @@ async def daily_stock_export_overall(
     entities = _parse_multi(entity)
 
     opening_counts = await _stock_as_of(db, day_start, exclude_admin, entities)
-    closing_counts = await _stock_as_of(db, day_end, exclude_admin, entities)
+    closing_counts = await _stock_as_of(db, day_end, exclude_admin, entities, open_as_of=day_start)
 
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["Report Date", "Stage", "Opening Stock", "Closing Stock", "Net Change"])
     for s in DeviceStage:
-        if s == DeviceStage.l2:
+        if s == DeviceStage.l2 or s.value in _NOT_STOCK_STAGES:
             continue
         o = opening_counts.get(s.value, 0)
         c = closing_counts.get(s.value, 0)
@@ -372,7 +452,7 @@ async def daily_stock_export_tags(
     entities = _parse_multi(entity)
 
     opening_tags = await _stock_tags_as_of(db, day_start, exclude_admin, entities)
-    closing_tags = await _stock_tags_as_of(db, day_end, exclude_admin, entities)
+    closing_tags = await _stock_tags_as_of(db, day_end, exclude_admin, entities, open_as_of=day_start)
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -405,14 +485,14 @@ async def daily_stock_export_location(
     entities = _parse_multi(entity)
 
     opening_counts = await _stock_by_zone_as_of(db, day_start, exclude_admin, entities)
-    closing_counts = await _stock_by_zone_as_of(db, day_end, exclude_admin, entities)
+    closing_counts = await _stock_by_zone_as_of(db, day_end, exclude_admin, entities, open_as_of=day_start)
 
     keys = sorted(set(opening_counts) | set(closing_counts))
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["Report Date", "Stage", "Zone", "Opening Stock", "Closing Stock", "Net Change"])
     for stage, zone in keys:
-        if stage == DeviceStage.l2.value:
+        if stage == DeviceStage.l2.value or stage in _NOT_STOCK_STAGES:
             continue
         o = opening_counts.get((stage, zone), 0)
         c = closing_counts.get((stage, zone), 0)

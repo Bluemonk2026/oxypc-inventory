@@ -40,9 +40,22 @@
       {% if not is_today %}
       <span class="badge bg-warning text-dark">Historical — reconstructed from the Stage Movement log</span>
       {% endif %}
-      <span class="text-muted small">Opening = stock at 00:00 this day · Closing = stock at 00:00 the next day</span>
+      <span class="text-muted small">Opening = stock at 00:00 this day, excluding tags sold on or before the previous day · Closing = Opening − tags sold this day</span>
     </div>
   </div>
+  {# Reconciliation: Closing is Opening minus this day's sale records. Sold tags and
+     GRN Receipt rows are not stock, and tags first received during the day are not
+     added (the GRN count is excluded). Anything else (e.g. a tag trashed that day)
+     shows as "other". #}
+  {% if rows %}
+  {% set other = total_close - (total_open - sold_today) %}
+  <div class="px-3 py-2 border-bottom small bg-body-tertiary">
+    <span class="fw-semibold">Opening</span> <span class="font-monospace">{{ total_open }}</span>
+    <span class="mx-1">−</span> <span class="fw-semibold">Sold on {{ selected_date }}</span> <span class="font-monospace">{{ sold_today }}</span>
+    {% if other != 0 %}<span class="mx-1">{{ '+' if other > 0 else '−' }}</span> <span class="fw-semibold">Other</span> <span class="font-monospace">{{ other|abs }}</span>{% endif %}
+    <span class="mx-1">=</span> <span class="fw-semibold">Closing</span> <span class="font-monospace">{{ total_close }}</span>
+  </div>
+  {% endif %}
   <div class="card-body p-0">
     <table class="table table-hover mb-0 small">
       <thead class="table-dark">

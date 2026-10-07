@@ -285,12 +285,19 @@ async def _sold_in_day(db: AsyncSession, day_start: datetime, day_end: datetime,
 
 async def _stock_tags_as_of(db: AsyncSession, as_of: datetime, exclude_admin: bool = False,
                              entities: list | None = None, open_as_of: datetime | None = None) -> list:
-    """Same reconstruction as _stock_as_of, but returns the actual (stage,
-    barcode) pairs instead of a count per stage — powers the Tag Based
-    export, which lists every tag making up each number instead of just the
-    number."""
+    """Same reconstruction as _stock_as_of, but returns the actual tags instead
+    of a count per stage — powers the Tag Based export, which lists every tag
+    making up each number. Each row is (stage, barcode, category, make, model,
+    cpu, ram, storage, grade, entity); Category follows the Ready to Sale page
+    (device type, else sub-category)."""
     rows = (await db.execute(sa_text(f"""
-        SELECT latest.to_stage, d.barcode
+        SELECT latest.to_stage, d.barcode,
+               COALESCE(d.device_type, d.sub_category) AS category,
+               d.brand, d.model, d.cpu,
+               CASE WHEN d.ram_gb IS NOT NULL THEN d.ram_gb || 'GB' END AS ram,
+               CASE WHEN d.storage_gb IS NOT NULL
+                    THEN d.storage_gb || 'GB' || COALESCE(' ' || d.storage_type, '') END AS storage,
+               d.grade::text AS grade, d.entity
         FROM ({_stock_reconstruction_sql(exclude_admin)}) latest
         JOIN devices d ON d.id = latest.device_id
         WHERE (d.trashed_at IS NULL OR d.trashed_at > :as_of)
@@ -298,7 +305,7 @@ async def _stock_tags_as_of(db: AsyncSession, as_of: datetime, exclude_admin: bo
         {_entity_filter_clause(entities)}
         ORDER BY latest.to_stage, d.barcode
     """), _bind(as_of, open_as_of))).all()
-    return [(r[0], r[1]) for r in rows]
+    return [tuple(r) for r in rows]
 
 
 async def _stock_by_zone_as_of(db: AsyncSession, as_of: datetime, exclude_admin: bool = False,
@@ -443,11 +450,12 @@ async def build_tags_csv(db: AsyncSession, day, exclude_admin: bool = False,
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Report Date", "Snapshot", "Stage", "Tag Number"])
-    for stage, barcode in opening_tags:
-        writer.writerow([day.isoformat(), "Opening", STAGE_LABELS.get(DeviceStage(stage), stage), barcode])
-    for stage, barcode in closing_tags:
-        writer.writerow([day.isoformat(), "Closing", STAGE_LABELS.get(DeviceStage(stage), stage), barcode])
+    writer.writerow(["Report Date", "Snapshot", "Stage", "Tag Number",
+                     "Category", "Make", "Model", "CPU", "RAM", "Storage", "Grade", "Entity"])
+    for snapshot, tags in (("Opening", opening_tags), ("Closing", closing_tags)):
+        for stage, barcode, *details in tags:
+            writer.writerow([day.isoformat(), snapshot, STAGE_LABELS.get(DeviceStage(stage), stage), barcode,
+                             *["" if v is None else v for v in details]])
     return output.getvalue()
 
 

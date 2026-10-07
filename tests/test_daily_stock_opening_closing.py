@@ -61,7 +61,8 @@ async def main():
     async with AsyncSessionLocal() as db:
         lot = (await db.execute(select(Lot).limit(1))).scalars().first()
         def dev(code, stage):
-            d = Device(barcode=f"{{ENT}}-{{code}}", lot_id=lot.id, brand="T", model="T", entity=ENT, current_stage=stage)
+            d = Device(barcode=f"{{ENT}}-{{code}}", lot_id=lot.id, brand="Lenovo", model="T490", entity=ENT, current_stage=stage,
+                       device_type="Laptop", cpu="i5-8350U", ram_gb=8, storage_gb=256, storage_type="SSD")
             db.add(d); return d
         A, B, C, E, N = dev("A", DeviceStage.sold), dev("B", DeviceStage.sold), dev("C", DeviceStage.ready_to_sale), \
                         dev("E", DeviceStage.grn), dev("N", DeviceStage.stock_in)
@@ -91,9 +92,10 @@ async def main():
             o = await rp._stock_as_of(db, DAY0, False, [ENT])
             c = await rp._stock_as_of(db, DAY1, False, [ENT], open_as_of=DAY0)
             sold = await rp._sold_in_day(db, DAY0, DAY1, False, [ENT])
-            tags_o = [t for _s, t in await rp._stock_tags_as_of(db, DAY0, False, [ENT])]
-            tags_c = [t for _s, t in await rp._stock_tags_as_of(db, DAY1, False, [ENT], open_as_of=DAY0)]
-            print(json.dumps({{"open": o, "close": c, "sold": sold,
+            tags_o = [r[1] for r in await rp._stock_tags_as_of(db, DAY0, False, [ENT])]
+            tags_c = [r[1] for r in await rp._stock_tags_as_of(db, DAY1, False, [ENT], open_as_of=DAY0)]
+            csv_text = await rp.build_tags_csv(db, DAY0.date(), False, [ENT])
+            print(json.dumps({{"csv": csv_text, "open": o, "close": c, "sold": sold,
                               "tags_open": sorted(t.split("-")[-1] for t in tags_o),
                               "tags_close": sorted(t.split("-")[-1] for t in tags_c)}}))
         finally:
@@ -119,6 +121,16 @@ def test_opening_closing_sold_and_grn_rules_on_real_rows():
     assert out["tags_close"] == ["C"]
     assert out["close"] == {"ready_to_sale": 1}
     assert out["sold"] == 1
+    # Tag Based export: both snapshots carry the tag details
+    import csv, io
+    rows = list(csv.reader(io.StringIO(out["csv"])))
+    assert rows[0] == ["Report Date", "Snapshot", "Stage", "Tag Number", "Category", "Make", "Model",
+                       "CPU", "RAM", "Storage", "Grade", "Entity"]
+    body = {(r[1], r[3].split("-")[-1]): r for r in rows[1:]}
+    assert set(body) == {("Opening", "B"), ("Opening", "C"), ("Closing", "C")}
+    for r in body.values():
+        assert r[4:8] == ["Laptop", "Lenovo", "T490", "i5-8350U"] and r[8:10] == ["8GB", "256GB SSD"]
+        assert r[10] == "" and r[11] == r[3].rsplit("-", 1)[0]       # grade not set; entity = the test entity
 
 
 def test_page_shows_opening_minus_sold_equals_closing(monkeypatch):

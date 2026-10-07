@@ -96,6 +96,41 @@
   </div>
 </div>
 
+{# Daily Report: the three Daily Stock exports, generated automatically every day at
+   9:00 PM (services/daily_stock_reports.py) and kept as downloadable files. Global
+   table (search / paging / sticky header); newest date first. #}
+<div class="card border-0 shadow-sm mt-3">
+  <div class="card-header bg-transparent d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <span class="fw-semibold"><i class="bi bi-calendar2-check me-2"></i>Daily Report</span>
+    <span class="text-muted small">Generated automatically every day at 9:00 PM &middot; earlier days rebuilt from the Stage Movement log</span>
+  </div>
+  <div class="card-body p-0">
+    <table id="dailyReportTable" class="table table-hover mb-0 small align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th>Report Date</th>
+          <th>Overall</th>
+          <th>Tag Based</th>
+          <th>Location Based</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in daily_reports %}
+        <tr>
+          {# data-order makes the column sort chronologically, not alphabetically by "06-Oct-2026" #}
+          <td data-order="{{ r.date }}" class="fw-semibold">{{ r.label }}</td>
+          <td><a class="btn btn-sm btn-outline-success py-0" href="/reports/daily-stock/report/{{ r.date }}/overall"><i class="bi bi-download me-1"></i>Overall</a></td>
+          <td><a class="btn btn-sm btn-outline-success py-0" href="/reports/daily-stock/report/{{ r.date }}/tags"><i class="bi bi-download me-1"></i>Tag Based</a></td>
+          <td><a class="btn btn-sm btn-outline-success py-0" href="/reports/daily-stock/report/{{ r.date }}/location"><i class="bi bi-download me-1"></i>Location Based</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center text-muted py-4">No daily reports yet &mdash; the first one is generated at 9:00 PM.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 {% endblock %}
 {% block scripts %}
 <script src="/static/js/multiselect-filter.js?v={{ ASSET_VERSION }}"></script>
@@ -120,6 +155,12 @@ document.getElementById('dsExportOverall').addEventListener('click', function (e
 document.getElementById('dsExportTags').addEventListener('click', function (e) {
   e.preventDefault();
   window.location.href = dsExportUrl('/reports/daily-stock/export/tags');
+});
+// Daily Report table — global table module, newest date first (skipped on the empty-state row).
+$(function () {
+  if ($('#dailyReportTable tbody tr td').length > 1) {
+    initGlobalTable('#dailyReportTable', { order: [[0, 'desc']] });
+  }
 });
 document.getElementById('dsExportLocation').addEventListener('click', function (e) {
   e.preventDefault();

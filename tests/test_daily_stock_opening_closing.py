@@ -65,6 +65,9 @@ async def main():
             db.add(d); return d
         A, B, C, E, N = dev("A", DeviceStage.sold), dev("B", DeviceStage.sold), dev("C", DeviceStage.ready_to_sale), \
                         dev("E", DeviceStage.grn), dev("N", DeviceStage.stock_in)
+        T, X = dev("T", DeviceStage.ready_to_sale), dev("X", DeviceStage.ready_to_sale)
+        T.is_active = False          # deactivated tag
+        X.is_trashed = True          # trashed tag
         await db.flush()
         def mv(d, frm, to, at, note=None):
             db.add(StageMovement(device_id=d.id, from_stage=frm, to_stage=to, moved_by="itest", moved_at=D(at), notes=note))
@@ -81,6 +84,8 @@ async def main():
         mv(E, None, DeviceStage.grn, "2026-10-02T10:00:00")
         # N: first received during the day (GRN)                        -> not in Closing (not in Opening)
         mv(N, None, DeviceStage.stock_in, "2026-10-06T15:00:00")
+        # T deactivated, X trashed: in stock per the movement log, but not stock anywhere else -> excluded
+        mv(T, DeviceStage.l1, R, "2026-10-01T10:00:00"); mv(X, DeviceStage.l1, R, "2026-10-01T10:00:00")
         await db.commit()
         try:
             o = await rp._stock_as_of(db, DAY0, False, [ENT])
@@ -92,7 +97,7 @@ async def main():
                               "tags_open": sorted(t.split("-")[-1] for t in tags_o),
                               "tags_close": sorted(t.split("-")[-1] for t in tags_c)}}))
         finally:
-            ids = [d.id for d in (A, B, C, E, N)]
+            ids = [d.id for d in (A, B, C, E, N, T, X)]
             await db.execute(text("delete from sales where device_id = any(:i)"), {{"i": ids}})
             await db.execute(text("delete from stage_movements where device_id = any(:i)"), {{"i": ids}})
             await db.execute(text("delete from devices where id = any(:i)"), {{"i": ids}})
@@ -107,7 +112,7 @@ def test_opening_closing_sold_and_grn_rules_on_real_rows():
     ent = "ITDS" + uuid.uuid4().hex[:6]
     n = str(uuid.uuid4().int)[:8]
     out = json.loads(_run(SCRIPT.format(root=ROOT, ent=ent, n=n)))
-    # Opening: A (sale dated 3 Oct) and E (GRN stage) are not stock; B and C are.
+    # Opening: A (sale dated 3 Oct), E (GRN stage), T (deactivated), X (trashed) are not stock; B and C are.
     assert out["tags_open"] == ["B", "C"]
     assert out["open"] == {"ready_to_sale": 2}
     # Closing = Opening - the day's sale (B). N (first received that day) is not added.

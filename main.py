@@ -723,6 +723,14 @@ async def startup_event():
     asyncio.create_task(_refresh_all_caches_periodically())
     print("  [CacheRefresh] Periodic cache refresh started (60s interval)")
 
+    # ── Daily Report: Daily Stock exports generated every day at 9:00 PM ──────
+    try:
+        from services.daily_stock_reports import scheduler_loop as _daily_report_loop
+        asyncio.create_task(_daily_report_loop())
+        print("  [DailyReport] Scheduler started (generates at 9:00 PM)")
+    except Exception as _dre:           # never block startup
+        print(f"  [DailyReport] Scheduler not started: {_dre}")
+
     # ── Print startup banner ───────────────────────────────────────────────────
     print(f"\n  {APP_NAME} started successfully")
     print(f"  URL: http://localhost:{APP_PORT}")

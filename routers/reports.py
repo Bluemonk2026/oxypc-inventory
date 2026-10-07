@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from utils.timezone import app_now
-from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import extract, select, func, text as sa_text
@@ -49,6 +49,8 @@ _require_financials = require_roles(
     UserRole.inventory_manager,
     UserRole.sales_manager,
 )
+from services.daily_stock_reports import list_reports
+
 router = APIRouter(
     prefix="/reports",
     tags=["reports"],
@@ -199,7 +201,10 @@ def _stock_scope_sql(exclude_admin: bool, open_param: str | None) -> str:
     so Closing = Opening - what was sold that day (tags first received during the
     day are not counted: the GRN count is excluded)."""
     not_stock = ", ".join(f"'{x}'" for x in _NOT_STOCK_STAGES)
-    clause = f"AND latest.to_stage NOT IN ({not_stock})"
+    # Deactivated / trashed tags are not stock anywhere else in the app (All
+    # Inventory, Dashboard), so they are not counted here at any date either
+    # (2026-10-07: 1,482 of them made Daily Stock 1.8k higher than All Inventory).
+    clause = f"AND latest.to_stage NOT IN ({not_stock}) AND d.is_active AND NOT d.is_trashed"
     if open_param:
         clause += f"""
         AND latest.device_id IN (
@@ -207,6 +212,7 @@ def _stock_scope_sql(exclude_admin: bool, open_param: str | None) -> str:
             FROM ({_stock_reconstruction_sql(exclude_admin, open_param)}) o
             JOIN devices od ON od.id = o.device_id
             WHERE o.to_stage NOT IN ({not_stock})
+              AND od.is_active AND NOT od.is_trashed
               AND (od.trashed_at IS NULL OR od.trashed_at > :{open_param}))"""
     return clause
 
@@ -271,6 +277,7 @@ async def _sold_in_day(db: AsyncSession, day_start: datetime, day_end: datetime,
               FROM ({_stock_reconstruction_sql(exclude_admin, "open_as_of")}) o
               JOIN devices od ON od.id = o.device_id
               WHERE o.to_stage NOT IN ({not_stock})
+                AND od.is_active AND NOT od.is_trashed
                 AND (od.trashed_at IS NULL OR od.trashed_at > :open_as_of))
         {_entity_filter_clause(entities)}
     """), {"as_of": day_end, "open_as_of": day_start})).scalar() or 0
@@ -393,27 +400,20 @@ async def daily_stock_report(
         "rows": rows,
         "total_open": total_open, "total_close": total_close, "total_net": total_close - total_open,
         "sold_today": sold_today,
+        "daily_reports": list_reports(),
         "is_today": day == app_now().date(),
     })
 
 
-@router.get("/daily-stock/export/overall")
-async def daily_stock_export_overall(
-    date: str = Query(default=""),
-    exclude_admin: bool = Query(default=False),
-    entity: str = Query(default=""),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+async def build_overall_csv(db: AsyncSession, day, exclude_admin: bool = False,
+                            entities: list | None = None) -> str:
     """The on-screen table as-is (Stage/Opening/Closing/Net), with the
     Report Date repeated on every row — same convention as every other
     export in this app (e.g. Block Tags), so the file is self-describing
-    even once detached from the page it came from."""
-    day = _parse_daily_stock_date(date)
+    even once detached from the page it came from. Shared by the on-demand
+    export below and the 9 PM Daily Report generator (services/daily_stock_reports)."""
     day_start = datetime.combine(day, datetime.min.time())
     day_end = day_start + timedelta(days=1)
-    entities = _parse_multi(entity)
-
     opening_counts = await _stock_as_of(db, day_start, exclude_admin, entities)
     closing_counts = await _stock_as_of(db, day_end, exclude_admin, entities, open_as_of=day_start)
 
@@ -428,29 +428,16 @@ async def daily_stock_export_overall(
         if o == 0 and c == 0:
             continue
         writer.writerow([day.isoformat(), STAGE_LABELS.get(s, s.value), o, c, c - o])
-    output.seek(0)
-    return StreamingResponse(
-        io.BytesIO(output.getvalue().encode()), media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=daily_stock_overall_{day.isoformat()}.csv"},
-    )
+    return output.getvalue()
 
 
-@router.get("/daily-stock/export/tags")
-async def daily_stock_export_tags(
-    date: str = Query(default=""),
-    exclude_admin: bool = Query(default=False),
-    entity: str = Query(default=""),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+async def build_tags_csv(db: AsyncSession, day, exclude_admin: bool = False,
+                         entities: list | None = None) -> str:
     """Same Opening/Closing reconstruction as the page, but one row per tag
     instead of a count per stage — the actual Tag Numbers behind each
     number in the Overall export."""
-    day = _parse_daily_stock_date(date)
     day_start = datetime.combine(day, datetime.min.time())
     day_end = day_start + timedelta(days=1)
-    entities = _parse_multi(entity)
-
     opening_tags = await _stock_tags_as_of(db, day_start, exclude_admin, entities)
     closing_tags = await _stock_tags_as_of(db, day_end, exclude_admin, entities, open_as_of=day_start)
 
@@ -461,29 +448,16 @@ async def daily_stock_export_tags(
         writer.writerow([day.isoformat(), "Opening", STAGE_LABELS.get(DeviceStage(stage), stage), barcode])
     for stage, barcode in closing_tags:
         writer.writerow([day.isoformat(), "Closing", STAGE_LABELS.get(DeviceStage(stage), stage), barcode])
-    output.seek(0)
-    return StreamingResponse(
-        io.BytesIO(output.getvalue().encode()), media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=daily_stock_tags_{day.isoformat()}.csv"},
-    )
+    return output.getvalue()
 
 
-@router.get("/daily-stock/export/location")
-async def daily_stock_export_location(
-    date: str = Query(default=""),
-    exclude_admin: bool = Query(default=False),
-    entity: str = Query(default=""),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+async def build_location_csv(db: AsyncSession, day, exclude_admin: bool = False,
+                             entities: list | None = None) -> str:
     """The on-screen table split out by Zone — one row per (Stage, Zone)
     that held any stock that day, instead of one row per Stage. See
     _stock_by_zone_as_of for how Zone is resolved at a historical cutoff."""
-    day = _parse_daily_stock_date(date)
     day_start = datetime.combine(day, datetime.min.time())
     day_end = day_start + timedelta(days=1)
-    entities = _parse_multi(entity)
-
     opening_counts = await _stock_by_zone_as_of(db, day_start, exclude_admin, entities)
     closing_counts = await _stock_by_zone_as_of(db, day_end, exclude_admin, entities, open_as_of=day_start)
 
@@ -499,11 +473,69 @@ async def daily_stock_export_location(
         zone_label = "Unassigned" if zone == "unassigned" else ZONE_LABELS.get(ZoneType(zone), zone)
         stage_label = STAGE_LABELS.get(DeviceStage(stage), stage)
         writer.writerow([day.isoformat(), stage_label, zone_label, o, c, c - o])
-    output.seek(0)
+    return output.getvalue()
+
+
+def _csv_response(text: str, filename: str) -> StreamingResponse:
     return StreamingResponse(
-        io.BytesIO(output.getvalue().encode()), media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=daily_stock_location_{day.isoformat()}.csv"},
+        io.BytesIO(text.encode()), media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+@router.get("/daily-stock/export/overall")
+async def daily_stock_export_overall(
+    date: str = Query(default=""),
+    exclude_admin: bool = Query(default=False),
+    entity: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    day = _parse_daily_stock_date(date)
+    text = await build_overall_csv(db, day, exclude_admin, _parse_multi(entity))
+    return _csv_response(text, f"daily_stock_overall_{day.isoformat()}.csv")
+
+
+@router.get("/daily-stock/export/tags")
+async def daily_stock_export_tags(
+    date: str = Query(default=""),
+    exclude_admin: bool = Query(default=False),
+    entity: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    day = _parse_daily_stock_date(date)
+    text = await build_tags_csv(db, day, exclude_admin, _parse_multi(entity))
+    return _csv_response(text, f"daily_stock_tags_{day.isoformat()}.csv")
+
+
+@router.get("/daily-stock/export/location")
+async def daily_stock_export_location(
+    date: str = Query(default=""),
+    exclude_admin: bool = Query(default=False),
+    entity: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    day = _parse_daily_stock_date(date)
+    text = await build_location_csv(db, day, exclude_admin, _parse_multi(entity))
+    return _csv_response(text, f"daily_stock_location_{day.isoformat()}.csv")
+
+
+@router.get("/daily-stock/report/{report_date}/{kind}")
+async def daily_stock_saved_report(
+    report_date: str,
+    kind: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Download one file of the "Daily Report" table (generated daily at 9 PM)."""
+    from fastapi.responses import FileResponse
+    from services.daily_stock_reports import report_file
+    path = report_file(report_date, kind)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return FileResponse(path, media_type="text/csv",
+                        filename=f"daily_stock_{kind}_{report_date}.csv")
 
 
 @router.get("/stage-movement", response_class=HTMLResponse)

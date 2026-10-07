@@ -2,8 +2,8 @@
 
 PNA   = "Yes" only when the tag is in the Production Manager PNA summary scope
         (active PNA part AND stage in l1/l2/l3 AND is_active AND not trashed).
-Stock = only for ready_to_sale tags: sub-lot present -> "As-Is Lot", else
-        "Ready for Sale"; blank for every other stage.
+Stock = ready_to_sale tags: sub-lot present -> "As-Is Lot", else
+        "Ready for Sale"; sold -> "Sold"; every other stage -> "In Process".
 
 Calls routers.devices._export_rows directly with transient Device objects and
 a stubbed session, so no database is touched.
@@ -70,8 +70,9 @@ def test_stock_label_rules():
     assert _stock_label(_dev("A", DeviceStage.ready_to_sale)) == "Ready for Sale"
     assert _stock_label(_dev("B", DeviceStage.ready_to_sale, sub_lot="  ")) == "Ready for Sale"
     assert _stock_label(_dev("C", DeviceStage.ready_to_sale, sub_lot="SL-9")) == "As-Is Lot"
-    assert _stock_label(_dev("D", DeviceStage.l2, sub_lot="SL-9")) == ""
-    assert _stock_label(_dev("E", DeviceStage.iqc)) == ""
+    assert _stock_label(_dev("D", DeviceStage.l2, sub_lot="SL-9")) == "In Process"
+    assert _stock_label(_dev("E", DeviceStage.iqc)) == "In Process"
+    assert _stock_label(_dev("F", DeviceStage.sold)) == "Sold"
 
 
 def test_pna_label_scope():
@@ -97,13 +98,14 @@ def test_export_rows_end_to_end_values(monkeypatch):
     rts_plain = _dev("T-RTS", DeviceStage.ready_to_sale)
     rts_sublot = _dev("T-RTS-SUB", DeviceStage.ready_to_sale, sub_lot="SL-1")
     iqc_dev = _dev("T-IQC", DeviceStage.iqc)
+    sold_dev = _dev("T-SOLD", DeviceStage.sold)
     # l2_no_pna stands in for a device whose only PNA row is inactive: the
     # lookup (active_pna_parts) never returns it, so it is absent from pna_ids.
     pna_ids = {pna_l2.id, pna_other_stage.id}
 
     header, by_barcode = _run_export(
         monkeypatch,
-        [pna_l2, l2_no_pna, pna_other_stage, rts_plain, rts_sublot, iqc_dev],
+        [pna_l2, l2_no_pna, pna_other_stage, rts_plain, rts_sublot, iqc_dev, sold_dev],
         pna_ids,
     )
     assert header[-2:] == ["PNA", "Stock"]
@@ -112,10 +114,11 @@ def test_export_rows_end_to_end_values(monkeypatch):
     def cells(b):
         return by_barcode[b][pna_i], by_barcode[b][stock_i]
 
-    assert cells("T-PNA-L2") == ("Yes", "")
-    assert cells("T-L2-CLEAN") == ("No", "")
+    assert cells("T-PNA-L2") == ("Yes", "In Process")
+    assert cells("T-L2-CLEAN") == ("No", "In Process")
     assert cells("T-PNA-RTS") == ("No", "Ready for Sale")
     assert cells("T-RTS") == ("No", "Ready for Sale")
     assert cells("T-RTS-SUB") == ("No", "As-Is Lot")
-    assert cells("T-IQC") == ("No", "")
+    assert cells("T-IQC") == ("No", "In Process")
+    assert cells("T-SOLD") == ("No", "Sold")
     assert all(len(r) == len(header) for r in by_barcode.values())

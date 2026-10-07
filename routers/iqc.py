@@ -1115,13 +1115,10 @@ async def iqc_bulk_apply_grade_type(
             # different) stage forever. Same fix already applied to the
             # dedicated manual-move endpoint in routers/repair.py.
             if prev in (DeviceStage.l1, DeviceStage.l2) and new_stage not in (DeviceStage.l1, DeviceStage.l2):
-                from sqlalchemy import update as sa_update
-                await db.execute(
-                    sa_update(WorkOrder)
-                    .where(WorkOrder.device_id == device.id, WorkOrder.work_id.like("L1L2-%"),
-                           WorkOrder.status != "completed")
-                    .values(status="completed", completed_at=app_now())
-                )
+                # Also matches stage l1/l2 WorkIDs (the plain engineer-pick
+                # ones), not just "L1L2-" — those were left open here.
+                from routers.repair import _close_l1l2_work_orders
+                await _close_l1l2_work_orders(db, device.id)
             elif prev == DeviceStage.l3 and new_stage != DeviceStage.l3:
                 from sqlalchemy import update as sa_update
                 await db.execute(

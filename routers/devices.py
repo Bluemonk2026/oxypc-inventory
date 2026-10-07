@@ -1040,11 +1040,13 @@ def _pna_label(device, pna_device_ids) -> str:
 
 
 def _stock_label(device) -> str:
-    """Stock classification — only meaningful for Ready to Sale tags: a tag
-    with a sub-lot is "As-Is Lot", otherwise "Ready for Sale". Blank for every
-    other stage."""
+    """Stock classification: a Ready to Sale tag with a sub-lot is "As-Is Lot",
+    otherwise "Ready for Sale". A sold tag is "Sold"; every other stage is
+    "In Process"."""
+    if device.current_stage == DeviceStage.sold:
+        return "Sold"
     if device.current_stage != DeviceStage.ready_to_sale:
-        return ""
+        return "In Process"
     return "As-Is Lot" if (device.sub_lot_number or "").strip() else "Ready for Sale"
 
 

@@ -104,6 +104,24 @@ async def _gen_prefixed_work_id(db: AsyncSession, prefix: str) -> str:
     raise HTTPException(500, "Could not allocate a WorkID")
 
 
+async def _close_l1l2_work_orders(db: AsyncSession, device_id) -> None:
+    """Mark every open L1/L2 WorkOrder of a tag completed, stamped now.
+
+    Called whenever the tag leaves L1/L2 (job completed, scrapped, sent back to
+    Stock Inward). Without it the WorkID stays "pending" forever, so WorkID
+    Status shows no Completed Date for it and under-counts an engineer's day
+    (found 2026-10-07: 1,306 of 1,638 open L1/L2 WorkIDs belonged to tags that
+    had already moved on). Same predicate l1l2_complete_to_stress uses."""
+    from sqlalchemy import update as sa_update
+    await db.execute(
+        sa_update(WorkOrder)
+        .where(WorkOrder.device_id == device_id,
+               or_(WorkOrder.work_id.like("L1L2-%"), WorkOrder.stage.in_(["l1", "l2"])),
+               WorkOrder.status != "completed")
+        .values(status="completed", completed_at=app_now())
+    )
+
+
 async def _create_work_order_with_unique_id(db: AsyncSession, prefix: str, **fields) -> WorkOrder:
     """Generate a prefixed WorkID and insert the WorkOrder, retrying under a
     SAVEPOINT if a concurrent request already claimed the ID in between
@@ -1413,6 +1431,7 @@ async def complete_repair(
         if prev_mv:
             prev_mv.exited_at = app_now()
         await auto_scrap_device(device, reason, db, current_user.username)
+        await _close_l1l2_work_orders(db, device.id)
         await audit(db, user=current_user,
                     action="AUTO_SCRAP" if force_scrap else "MANUAL_SCRAP",
                     table_name="devices", record_id=str(device.id), notes=reason, request=request)
@@ -1492,6 +1511,7 @@ async def complete_repair(
                              notes=f"{job.stage} completed — moved back to Stock Inward"))
         device.current_stage = DeviceStage.stock_in
         device.updated_at    = app_now()
+        await _close_l1l2_work_orders(db, device.id)
         await ensure_stage_location(db, device, DeviceStage.stock_in, current_user)
         await create_notification(
             db,
@@ -1530,6 +1550,7 @@ async def complete_repair(
         device.current_stage = DeviceStage.qc_check
         device.l1l2_status   = "Completed"
         device.updated_at    = app_now()
+        await _close_l1l2_work_orders(db, device.id)
         db.add(StageMovement(device_id=device.id, from_stage=current,
                              to_stage=DeviceStage.qc_check,
                              moved_by=current_user.username,
@@ -1580,6 +1601,8 @@ async def complete_repair(
                                  moved_by=current_user.username,
                                  notes=f"{job.stage} completed — {final_status or 'OK'}"))
             device.current_stage = next_s; device.updated_at = app_now()
+            if current in (DeviceStage.l1, DeviceStage.l2):
+                await _close_l1l2_work_orders(db, device.id)
             # Keep the L1/L2 status column consistent when completing via the
             # side Complete-Job panel (the old path predates l1l2_status).
             if current in (DeviceStage.l1, DeviceStage.l2):

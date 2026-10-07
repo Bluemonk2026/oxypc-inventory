@@ -464,6 +464,37 @@ COST_CONFIG_DEFS = [
      "Shown on Process Return when the device's Warranty Status is Out of Warranty. Default: Rs 1500"),
 ]
 
+# Ready to Sale margins (services/ready_pricing.py). Each is EITHER an Amount
+# or a Percentage, never both — stored as two cost_config keys
+# (<prefix>_amount / <prefix>_percent) with the unused one zeroed on save.
+MARGIN_DEFS = [
+    ("margin_item", "Margin for Individual Item",
+     "Added to every Ready to Sale tag's Min Selling Price (Unit price + Other Rates + this margin). "
+     "A percentage is applied to the tag's unit price."),
+    ("margin_asis", "Margin for As-Is Lot",
+     "Added to every As-Is Lot's Min Selling Price (Lot Price + this margin). "
+     "A percentage is applied to the lot price."),
+]
+
+
+def _margin_state(rows: dict, prefix: str) -> dict:
+    amt = rows.get(f"{prefix}_amount")
+    pct = rows.get(f"{prefix}_percent")
+    a = amt.value if amt is not None and amt.value else Decimal("0")
+    p = pct.value if pct is not None and pct.value else Decimal("0")
+    if p > 0 and a <= 0:
+        return {"type": "percent", "value": p}
+    return {"type": "amount", "value": a}
+
+
+async def _upsert_cost_config(db: AsyncSession, key: str, value: Decimal, username: str) -> None:
+    row = (await db.execute(select(CostConfig).where(CostConfig.key == key))).scalar_one_or_none()
+    if row:
+        row.value = value
+        row.updated_by = username
+    else:
+        db.add(CostConfig(key=key, value=value, updated_by=username))
+
 
 @router.get("/cost-config", response_class=HTMLResponse)
 async def cost_config_view(
@@ -484,6 +515,8 @@ async def cost_config_view(
         "current_user": current_user,
         "defs": COST_CONFIG_DEFS,
         "rows": rows,
+        "margin_defs": MARGIN_DEFS,
+        "margins": {prefix: _margin_state(rows, prefix) for prefix, *_ in MARGIN_DEFS},
     })
 
 
@@ -508,9 +541,28 @@ async def cost_config_save(
         else:
             db.add(CostConfig(key=key, value=new_val, updated_by=current_user.username))
 
+    audited_margins = {}
+    for prefix, _label, _hint in MARGIN_DEFS:
+        mtype = "percent" if form.get(f"{prefix}_type") == "percent" else "amount"
+        raw = (form.get(f"{prefix}_value") or "").strip()
+        try:
+            val = Decimal(raw) if raw else Decimal("0")
+        except Exception:
+            continue
+        if val < 0:
+            continue
+        # One field, one mode: the unused key is zeroed so a switch from
+        # Amount to Percentage (or back) can never leave both populated.
+        zero = Decimal("0")
+        amount, percent = (zero, val) if mtype == "percent" else (val, zero)
+        await _upsert_cost_config(db, f"{prefix}_amount", amount, current_user.username)
+        await _upsert_cost_config(db, f"{prefix}_percent", percent, current_user.username)
+        audited_margins[prefix] = {"type": mtype, "value": str(val)}
+
     await audit(db, action="COST_CONFIG_UPDATE", user=current_user,
                 table_name="cost_config",
-                new_value={k: form.get(k) for k, _, _ in COST_CONFIG_DEFS},
+                new_value={**{k: form.get(k) for k, _, _ in COST_CONFIG_DEFS},
+                           **audited_margins},
                 request=request)
     await db.commit()
     return RedirectResponse(url="/admin/cost-config?success=Rates+saved", status_code=302)

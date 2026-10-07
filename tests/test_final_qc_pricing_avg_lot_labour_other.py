@@ -143,7 +143,9 @@ def test_labour_and_other_price_rows_read_cost_config(app_client, make_user):  #
 
         row = html.split(f'href="/devices/{barcode}"', 1)[1][:20000]
         assert "Labour Price" in row and "175.00" in row
-        assert "Other Price" in row and "65.00" in row
+        # Other Price was removed from the Pricing section 2026-10-07 — Other
+        # Rates now feed Ready to Sale's Min Selling Price instead.
+        assert "Other Price" not in row
     finally:
         _cleanup(barcode)
         # Restore the seeded defaults so other tests/pages aren't affected.

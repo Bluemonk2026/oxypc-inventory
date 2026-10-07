@@ -1021,7 +1021,31 @@ _EXPORT_HEADER = [
     "Touchpad Cosmetic", "Bottom Base Cosmetic", "Palmrest Cosmetic",
     "Device Price", "Grade", "Stage", "Final QC Status", "Stage History",
     "Location ID", "Zone", "Warehouse", "Notes", "Created", "Updated",
+    "PNA", "Stock",
 ]
+
+
+def _pna_label(device, pna_device_ids) -> str:
+    """"Yes" iff the tag is in the Production Manager PNA summary: it has an
+    active PNA part (id in pna_device_ids) AND sits in a PNA_SUMMARY_STAGE AND
+    is active and not trashed — the same scope the summary page lists."""
+    from services.pna_lookup import PNA_SUMMARY_STAGES
+    in_scope = (
+        device.id in pna_device_ids
+        and device.current_stage in PNA_SUMMARY_STAGES
+        and bool(device.is_active)
+        and not device.is_trashed
+    )
+    return "Yes" if in_scope else "No"
+
+
+def _stock_label(device) -> str:
+    """Stock classification — only meaningful for Ready to Sale tags: a tag
+    with a sub-lot is "As-Is Lot", otherwise "Ready for Sale". Blank for every
+    other stage."""
+    if device.current_stage != DeviceStage.ready_to_sale:
+        return ""
+    return "As-Is Lot" if (device.sub_lot_number or "").strip() else "Ready for Sale"
 
 
 async def _export_rows(db: AsyncSession, rows) -> StreamingResponse:
@@ -1034,6 +1058,7 @@ async def _export_rows(db: AsyncSession, rows) -> StreamingResponse:
     parameter limit (see CHUNK below) can fetch it in batches itself before
     handing the merged rows in here."""
     from services.part_estimate_matrix import PART_GROUPS
+    from services.pna_lookup import active_pna_parts
 
     device_ids = [device.id for device, _ in rows]
 
@@ -1047,7 +1072,12 @@ async def _export_rows(db: AsyncSession, rows) -> StreamingResponse:
     id_chunks = [device_ids[i:i + CHUNK] for i in range(0, len(device_ids), CHUNK)] if device_ids else []
 
     movements_by_device, iqc_by_device, location_map = {}, {}, {}
+    pna_device_ids = set()
     for chunk in id_chunks:
+        # Chunked like the lookups below (active_pna_parts also chunks
+        # internally, but this keeps each call well under the param cap).
+        pna_device_ids.update((await active_pna_parts(db, chunk)).keys())
+
         mv_result = await db.execute(
             select(StageMovement)
             .where(StageMovement.device_id.in_(chunk))
@@ -1131,6 +1161,8 @@ async def _export_rows(db: AsyncSession, rows) -> StreamingResponse:
             location_display, zone_display, device.warehouse, device.notes,
             device.created_at.strftime("%d-%m-%Y %H:%M") if device.created_at else "",
             device.updated_at.strftime("%d-%m-%Y %H:%M") if device.updated_at else "",
+            _pna_label(device, pna_device_ids),
+            _stock_label(device),
         ]
         # A silent column-count mismatch (e.g. an IQC/cosmetic helper
         # returning the wrong placeholder count for a device missing that

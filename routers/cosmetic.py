@@ -673,16 +673,16 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
             for did, buying_price, qty in lot_rows:
                 lot_avg_by_device[str(did)] = float(buying_price / qty) if qty else 0.0
 
-            # Labour Price / Other Price — Admin -> Cost Config's Labour Rate
-            # (repair_labour_rate) and Other Rates (cosmetic_rate, labelled
-            # "Cosmetic Rework" before 2026-09-14) flat rates, same CostConfig
-            # rows routers/dashboard.py and routers/stock.py already read for
-            # Lot P&L. Informational rows only — not folded into After Repair
-            # Price / Updated Price, which stay parts-cost-only as before.
+            # Labour Price — Admin -> Cost Config's Labour Rate
+            # (repair_labour_rate), the same CostConfig row routers/dashboard.py
+            # and routers/stock.py already read for Lot P&L. Informational
+            # only — not folded into After Repair Price / Updated Price, which
+            # stay parts-cost-only as before. (The "Other Price" row that used
+            # to sit beside it was removed 2026-10-07; Other Rates now feed the
+            # Ready to Sale Min Selling Price instead — services/ready_pricing.py.)
             _cfg_rows = (await db.execute(select(CostConfig))).scalars().all()
             _cfg = {r.key: float(r.value) for r in _cfg_rows}
             labour_rate = _cfg.get("repair_labour_rate", 150.0)
-            other_rate = _cfg.get("cosmetic_rate", 50.0)
 
             for d, _ in devices:
                 if d.device_price is not None:
@@ -703,7 +703,6 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
                     "after_repair_price": after_repair_price,
                     "updated_price": after_repair_price,
                     "labour_price": labour_rate,
-                    "other_price": other_rate,
                 }
 
         bucket_ids_for_page = {d.bucket_id for d, _ in devices if d.bucket_id}

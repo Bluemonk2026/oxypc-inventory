@@ -66,3 +66,4 @@ from .care import (
 # distinct from InventoryAudit/AuditScanItem above (the zone/scan-batch tool)
 from .audit_record import AuditRecord, AuditRecordItem
 from .block_tags import BlockRecord, BlockRecordItem, BlockItemStatus
+from .as_is_lot_price import AsIsLotPrice

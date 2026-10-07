@@ -47,6 +47,37 @@
             {% endif %}
           </div>
           {% endfor %}
+
+          <hr class="my-4">
+          <h6 class="fw-semibold mb-1"><i class="bi bi-tags me-2"></i>Ready to Sale Margins</h6>
+          <p class="text-muted small mb-3">
+            Each margin is either an <strong>Amount</strong> or a <strong>Percentage</strong> — not both.
+            Leave the value at 0 for no margin.
+          </p>
+          {% for prefix, label, hint in margin_defs %}
+          {% set m = margins[prefix] %}
+          <div class="mb-4">
+            <label class="form-label fw-semibold">{{ label }}</label>
+            <div class="input-group input-group-sm" style="max-width:340px">
+              <select name="{{ prefix }}_type" class="form-select margin-type" data-target="{{ prefix }}_value"
+                      style="max-width:150px">
+                <option value="amount" {% if m.type == 'amount' %}selected{% endif %}>Amount (Rs)</option>
+                <option value="percent" {% if m.type == 'percent' %}selected{% endif %}>Percentage (%)</option>
+              </select>
+              <input type="number" step="0.01" min="0" name="{{ prefix }}_value" id="{{ prefix }}_value"
+                     class="form-control" value="{{ m.value }}" placeholder="0.00">
+            </div>
+            <div class="form-text">{{ hint }}</div>
+            {% set ref = rows.get(prefix ~ '_amount') or rows.get(prefix ~ '_percent') %}
+            {% if ref and ref.updated_by %}
+            <div class="form-text text-muted">
+              Last updated by <strong>{{ ref.updated_by }}</strong>
+              {% if ref.updated_at %}on {{ ref.updated_at.strftime('%d %b %Y %H:%M') }}{% endif %}
+            </div>
+            {% endif %}
+          </div>
+          {% endfor %}
+
           <div class="d-flex gap-2">
             <button type="submit" class="btn btn-primary btn-sm px-4">
               <i class="bi bi-save me-1"></i>Save Rates
@@ -58,4 +89,17 @@
     </div>
   </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+// Placeholder follows the selected mode so it's obvious which unit the value is in.
+document.querySelectorAll('.margin-type').forEach(function (sel) {
+  function sync() {
+    var inp = document.getElementById(sel.getAttribute('data-target'));
+    if (inp) inp.placeholder = sel.value === 'percent' ? 'e.g. 10.00 (%)' : 'e.g. 500.00 (Rs)';
+  }
+  sel.addEventListener('change', sync);
+  sync();
+});
+</script>
 {% endblock %}

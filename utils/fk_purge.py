@@ -65,6 +65,30 @@ async def _children_of(db: AsyncSession, table: str):
     return (await db.execute(_FK_CHILDREN, {"parent": table})).all()
 
 
+async def referenced_parent_ids(
+    db: AsyncSession, parent_table: str, parent_ids: list,
+) -> set:
+    """Which of `parent_ids` still have rows in ANY table referencing them.
+
+    Read-only counterpart to purge_references, for callers that must NOT
+    cascade — e.g. permanently deleting a sale must never silently take its
+    credit notes with it, so those sales are skipped instead. Reads the same
+    live FK catalog, so a table added next month is covered automatically.
+    Table/column names come from the catalog, never from user input.
+    """
+    ids = [str(i) for i in parent_ids]
+    if not ids:
+        return set()
+    found: set = set()
+    for child_tbl, child_col, _not_null in await _children_of(db, parent_table):
+        rows = (await db.execute(
+            text(f"SELECT DISTINCT {child_col} FROM {child_tbl} WHERE {child_col} = ANY(:ids)"),
+            {"ids": ids},
+        )).scalars().all()
+        found.update(rows)
+    return found
+
+
 async def purge_references(
     db: AsyncSession,
     parent_table: str,

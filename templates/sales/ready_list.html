@@ -93,6 +93,9 @@
         <tr>
           <th>Lot Number</th><th>Sub Lot</th><th>Device Type</th><th>Model Name</th>
           <th>Total Quantities</th><th>Availability</th>
+          {% if can_view_pricing(current_user) %}
+          <th title="Sum of the available tags' unit prices (availability × device price)">Lot Price</th>
+          {% endif %}
           <th>Min Selling Price</th><th>Max Selling Price</th><th>Assigned To</th><th>Action</th>
           {# Hidden — searchable only, so the toolbar search box can match these too #}
           <th class="d-none">CPU</th><th class="d-none">RAM</th><th class="d-none">Storage</th>
@@ -124,15 +127,19 @@
           </td>
           <td>{{ r.total_qty }}</td>
           <td>{{ r.availability }}</td>
-          <td>{% if r.min_price is not none %}₹{{ "{:,.0f}".format(r.min_price) }}{% else %}—{% endif %}</td>
+          {% if can_view_pricing(current_user) %}
+          <td>{% if r.lot_price is not none %}₹{{ "{:,.0f}".format(r.lot_price) }}{% else %}—{% endif %}</td>
+          {% endif %}
+          <td>{% if r.min_price is not none %}₹{{ "{:,.0f}".format(r.min_price) }}{% if r.min_is_auto %}<span class="text-muted ms-1" style="font-size:.7rem" title="Calculated: Lot Price + As-Is margin. Use Set price to override.">auto</span>{% endif %}{% else %}—{% endif %}</td>
           <td>{% if r.max_price is not none %}₹{{ "{:,.0f}".format(r.max_price) }}{% else %}—{% endif %}</td>
           <td>{{ r.assigned_to_name }}</td>
           <td class="text-nowrap">
             <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 as-is-lot-edit-btn"
                     data-lot-id="{{ r.lot_id }}" data-sub-lot="{{ r.sub_lot_number }}"
                     data-lot-number="{{ r.lot_number or '' }}"
-                    data-min="{{ r.min_price if r.min_price is not none else '' }}"
-                    data-max="{{ r.max_price if r.max_price is not none else '' }}">
+                    data-min="{{ r.min_override }}"
+                    data-auto="{{ r.min_auto }}"
+                    data-max="{{ r.max_override }}">
               <i class="bi bi-tag"></i> Set price
             </button>
             <button type="button" class="btn btn-sm btn-outline-warning py-0 px-2 as-is-lot-open-btn"
@@ -177,7 +184,8 @@
           <label class="form-label fw-semibold">Max Selling Price</label>
           <input type="number" step="0.01" min="0" name="max_selling_price" id="ail_max" class="form-control">
         </div>
-        <div class="form-text">Applied to every Tag Number in this Lot + Sub-Lot.</div>
+        <div class="form-text">Sets the price for this whole Lot + Sub-Lot, replacing the calculated Min Selling
+          Price (Lot Price + As-Is margin). Leave both blank to go back to the calculated price.</div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -412,6 +420,8 @@
           <label class="form-label fw-semibold">Max Selling Price</label>
           <input type="number" step="0.01" min="0" name="max_selling_price" id="tsp_max" class="form-control">
         </div>
+        <div class="form-text">Min Selling Price is calculated (Unit price + Other Rates + margin). A value here
+          replaces it for this tag; leave Min blank to keep the calculated price.</div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -524,7 +534,10 @@ if (_dm) {
 // so this is a delegated handler, not a per-element .forEach() wire-up. ──────
 $('#readyTable').on('click', '.tag-set-price-btn', function () {
   document.getElementById('tsp_barcode').value = this.getAttribute('data-barcode');
-  document.getElementById('tsp_min').value = this.getAttribute('data-min') || '';
+  var tspMin = document.getElementById('tsp_min');
+  tspMin.value = this.getAttribute('data-min') || '';
+  var tspAuto = this.getAttribute('data-auto');
+  tspMin.placeholder = tspAuto ? 'Calculated: ' + Number(tspAuto).toFixed(2) : '';
   document.getElementById('tsp_max').value = this.getAttribute('data-max') || '';
   document.getElementById('tsp_label').textContent = this.getAttribute('data-barcode') || '';
   document.getElementById('tsp_error').classList.add('d-none');
@@ -656,9 +669,11 @@ function buildAsIsLotTable(){
   dtAsIsLot = initGlobalTable('#asIsLotTable', {
     order: [[0, 'asc']],
     language: { emptyTable: "No As-Is Lot tags currently Ready to Sale." },
+    // Lot Price (pricing-gated) shifts every column after it by one — Jinja
+    // already knows can_view_pricing at render time, same as the Tag table.
     columnDefs: [
-      { orderable: false, targets: [9] },
-      { visible: false, targets: [10, 11, 12, 13, 14] },
+      { orderable: false, targets: [{{ 10 if can_view_pricing(current_user) else 9 }}] },
+      { visible: false, targets: [{% if can_view_pricing(current_user) %}11, 12, 13, 14, 15{% else %}10, 11, 12, 13, 14{% endif %}] },
     ],
   });
   $(dtAsIsLot.table().container()).find('input[type="search"]')
@@ -669,7 +684,10 @@ function wireAsIsLotButtons(){
     btn.addEventListener('click', function(){
       document.getElementById('ail_lot_id').value = this.getAttribute('data-lot-id');
       document.getElementById('ail_sub_lot').value = this.getAttribute('data-sub-lot');
-      document.getElementById('ail_min').value = this.getAttribute('data-min') || '';
+      var ailMin = document.getElementById('ail_min');
+      ailMin.value = this.getAttribute('data-min') || '';
+      var ailAuto = this.getAttribute('data-auto');
+      ailMin.placeholder = ailAuto ? 'Calculated: ' + Number(ailAuto).toFixed(2) : '';
       document.getElementById('ail_max').value = this.getAttribute('data-max') || '';
       document.getElementById('ail_label').textContent =
         (this.getAttribute('data-lot-number') || '') + ' / ' + this.getAttribute('data-sub-lot');

@@ -26,6 +26,7 @@ from models.user import User, UserRole
 from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS
 from models.lot import Lot
 from models.location import StorageLocation
+from models.as_is_lot_price import AsIsLotPrice
 from models.sales import Sale, Return, CN_STAGES, CN_STAGE_ACTION_LABELS
 from models.company import Company
 from models.crm import CRMSalesOpportunity, CRMContact
@@ -36,6 +37,9 @@ from services.cost_engine import (
     check_below_cost_warning, get_or_create_costings, below_cost_warning_for,
 )
 from services.audit_engine import audit
+from services.ready_pricing import (
+    load_ready_rates, unit_price, tag_min_price, lot_price, as_is_min_price,
+)
 from services.event_bus import EventType, publish
 from services.location_defaults import ensure_stage_location
 from utils.warranty import (
@@ -107,6 +111,7 @@ async def ready_list_data(
 
     role = getattr(current_user.role, "value", current_user.role)
     show_pricing = _cvp(role)
+    rates = await load_ready_rates(db)
 
     # As-Is sub-lot devices (non-empty sub_lot_number) are locked to the As-Is
     # Lot table until released via "Open Tag" — excluded here so they never
@@ -211,12 +216,15 @@ async def ready_list_data(
     data = []
     for d, lot_number, buying_price, lot_qty, selling_price in rows:
         did = str(d.id)
-        if d.device_price:
-            unit_cost, cost_source = float(d.device_price), "device"
-        elif lot_qty:
-            unit_cost, cost_source = float(buying_price or 0) / lot_qty, "lot"
-        else:
+        unit = unit_price(d, buying_price, lot_qty)
+        if unit is None:
             unit_cost, cost_source = 0.0, "none"
+        else:
+            unit_cost, cost_source = float(unit), ("device" if d.device_price else "lot")
+        # Min Selling Price = unit price + Other Rates + margin for each item
+        # (services/ready_pricing.py). A price saved via "Set price" is an
+        # explicit override and always wins over the formula.
+        auto_min = tag_min_price(unit, rates)
         gv = getattr(d.grade, "value", d.grade) if d.grade else ""
         gcls = ("success" if gv == "A" else "warning text-dark" if gv == "B" else
                 "danger" if gv in ("C", "D", "scrap") else "secondary")
@@ -259,8 +267,15 @@ async def ready_list_data(
             (esc(assigned_name) if assigned_name else '<span class="text-muted">—</span>')
             + f'<br>{assign_badge}'
         )
-        cells.append(f'₹{float(d.min_selling_price):,.0f}' if d.min_selling_price is not None
-                    else '<span class="text-muted">—</span>')
+        if d.min_selling_price is not None:
+            cells.append(f'₹{float(d.min_selling_price):,.0f}')
+        elif auto_min is not None:
+            cells.append(
+                f'₹{float(auto_min):,.0f}'
+                '<span class="text-muted ms-1" style="font-size:.7rem" '
+                'title="Calculated: unit price + Other Rates + margin. Use Set price to override.">auto</span>')
+        else:
+            cells.append('<span class="text-muted">—</span>')
         cells.append(f'₹{float(d.max_selling_price):,.0f}' if d.max_selling_price is not None
                     else '<span class="text-muted">—</span>')
         action = f'<a href="/sales/new?barcodes={esc(d.barcode)}&qty=1" class="btn btn-sm btn-success">Sell</a>'
@@ -276,6 +291,7 @@ async def ready_list_data(
         action += (f'<button type="button" class="btn btn-sm btn-outline-dark ms-1 tag-set-price-btn" '
                   f'data-barcode="{esc(d.barcode)}" '
                   f'data-min="{d.min_selling_price if d.min_selling_price is not None else ""}" '
+                  f'data-auto="{auto_min if auto_min is not None else ""}" '
                   f'data-max="{d.max_selling_price if d.max_selling_price is not None else ""}">Set price</button>')
         cells.append(f'<div class="d-flex gap-1 flex-nowrap text-nowrap">{action}</div>')
         data.append(cells)
@@ -375,14 +391,14 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
     # pair's device count across EVERY stage, not just ready-to-sale. ───────
     from collections import Counter
     as_is_groups: dict = {}
-    for device, lot_number, *_rest in devices:
+    for device, lot_number, buying_price, lot_qty, _selling_price in devices:
         if not device.sub_lot_number:
             continue
         key = (device.lot_id, device.sub_lot_number)
         g = as_is_groups.setdefault(key, {
             "lot_number": lot_number, "device_types": Counter(),
             "models": Counter(), "cpus": set(), "rams": set(), "storages": set(),
-            "availability": 0, "barcodes": [], "min_prices": [], "max_prices": [],
+            "availability": 0, "barcodes": [], "unit_prices": [], "max_prices": [],
             "assigned_to_user_id": device.assigned_to_user_id,
         })
         # device_type is blank on a lot of real records; sub_category ("Laptop"/
@@ -399,8 +415,7 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
             g["storages"].add(f"{device.storage_gb} GB" + (f" {device.storage_type}" if device.storage_type else ""))
         g["availability"] += 1
         g["barcodes"].append(device.barcode)
-        if device.min_selling_price is not None:
-            g["min_prices"].append(float(device.min_selling_price))
+        g["unit_prices"].append(unit_price(device, buying_price, lot_qty))
         if device.max_selling_price is not None:
             g["max_prices"].append(float(device.max_selling_price))
         # First device in the group wins — sub-lots are assigned in bulk
@@ -419,6 +434,14 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
         )).all()
         total_map = {(lid, sl): c for lid, sl, c in total_rows}
 
+        rates = await load_ready_rates(db)
+        override_map = {
+            (o.lot_id, o.sub_lot_number): o
+            for o in (await db.execute(
+                select(AsIsLotPrice).where(AsIsLotPrice.lot_id.in_(lot_ids))
+            )).scalars().all()
+        }
+
         assigned_ids = {g["assigned_to_user_id"] for g in as_is_groups.values() if g["assigned_to_user_id"]}
         user_name_map = {}
         if assigned_ids:
@@ -430,6 +453,15 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
         for (lot_id, sub_lot), g in as_is_groups.items():
             device_type_breakdown = [{"name": n, "count": c} for n, c in sorted(g["device_types"].items())]
             model_breakdown = [{"name": n, "count": c} for n, c in sorted(g["models"].items())]
+            # Lot Price = what the available tags are worth together (sum of
+            # their unit prices); Min Selling Price = Lot Price + As-Is margin
+            # unless "Set price" saved an explicit override for this lot.
+            priced = [u for u in g["unit_prices"] if u is not None]
+            lot_total = lot_price(priced) if priced else None
+            auto_min = as_is_min_price(lot_total, rates) if lot_total is not None else None
+            override = override_map.get((lot_id, sub_lot))
+            override_min = override.min_selling_price if override else None
+            override_max = override.max_selling_price if override else None
             as_is_lots.append({
                 "lot_id": str(lot_id), "lot_number": g["lot_number"],
                 "sub_lot_number": sub_lot,
@@ -442,8 +474,15 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
                 "storage": ", ".join(sorted(g["storages"])),
                 "total_qty": total_map.get((lot_id, sub_lot), g["availability"]),
                 "availability": g["availability"],
-                "min_price": min(g["min_prices"]) if g["min_prices"] else None,
-                "max_price": max(g["max_prices"]) if g["max_prices"] else None,
+                "lot_price": float(lot_total) if lot_total is not None else None,
+                "min_price": float(override_min if override_min is not None else auto_min)
+                             if (override_min is not None or auto_min is not None) else None,
+                "min_is_auto": override_min is None,
+                "min_override": str(override_min) if override_min is not None else "",
+                "min_auto": str(auto_min) if auto_min is not None else "",
+                "max_price": float(override_max) if override_max is not None
+                             else (max(g["max_prices"]) if g["max_prices"] else None),
+                "max_override": str(override_max) if override_max is not None else "",
                 "barcodes": g["barcodes"],
                 "assigned_to_name": user_name_map.get(g["assigned_to_user_id"], "—"),
             })
@@ -467,9 +506,13 @@ async def set_as_is_lot_price(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
 ):
-    """Ready to Sale As-Is Lot table's Edit modal — bulk-writes Min/Max
-    Selling Price across every Tag Number sharing this (Lot, Sub-Lot) pair,
-    same bulk-write shape as the Sub-Lot Number features it builds on."""
+    """Ready to Sale As-Is Lot table's Set price modal — stores a LOT-level
+    Min/Max Selling Price override for this (Lot, Sub-Lot) pair in
+    as_is_lot_prices, replacing the table's computed Min Selling Price (Lot
+    Price + As-Is margin). Both fields blank clears the override and the lot
+    goes back to the formula. Deliberately not written to Device.min_selling_
+    price: that column is per-tag, and a lot total there would become every
+    tag's price once the lot is opened."""
     try:
         lid = _uuid.UUID(lot_id)
     except ValueError:
@@ -483,15 +526,33 @@ async def set_as_is_lot_price(
     except Exception:
         return RedirectResponse(url="/sales/ready?error=Invalid+price", status_code=302)
 
-    result = await db.execute(
-        update(Device).where(Device.lot_id == lid, Device.sub_lot_number == sub_lot)
-        .values(min_selling_price=min_val, max_selling_price=max_val)
-    )
+    existing = (await db.execute(
+        select(AsIsLotPrice).where(AsIsLotPrice.lot_id == lid,
+                                   AsIsLotPrice.sub_lot_number == sub_lot)
+    )).scalar_one_or_none()
+    old_value = ({"min_selling_price": str(existing.min_selling_price)
+                  if existing.min_selling_price is not None else None,
+                  "max_selling_price": str(existing.max_selling_price)
+                  if existing.max_selling_price is not None else None}
+                 if existing else None)
+
+    if min_val is None and max_val is None:
+        if existing:
+            await db.delete(existing)
+    elif existing:
+        existing.min_selling_price = min_val
+        existing.max_selling_price = max_val
+        existing.updated_by = current_user.username
+    else:
+        db.add(AsIsLotPrice(lot_id=lid, sub_lot_number=sub_lot,
+                            min_selling_price=min_val, max_selling_price=max_val,
+                            updated_by=current_user.username))
+
     await audit(db, user=current_user, action="AS_IS_LOT_PRICE_SET",
-                table_name="devices", record_id=f"{lot_id}:{sub_lot}",
+                table_name="as_is_lot_prices", record_id=f"{lot_id}:{sub_lot}",
+                old_value=old_value,
                 new_value={"min_selling_price": str(min_val) if min_val is not None else None,
-                           "max_selling_price": str(max_val) if max_val is not None else None,
-                           "tags_updated": result.rowcount},
+                           "max_selling_price": str(max_val) if max_val is not None else None},
                 request=request)
     await db.commit()
     return RedirectResponse(url="/sales/ready?success=Selling+price+updated", status_code=302)
@@ -525,6 +586,15 @@ async def open_as_is_lot(
     )
     if not result.rowcount:
         return JSONResponse({"ok": False, "error": "No tags found for this Sub-Lot"}, status_code=404)
+
+    # The lot no longer exists as a lot, so its price override goes with it —
+    # otherwise a later sub-lot reusing this number would inherit a stale price.
+    stale = (await db.execute(
+        select(AsIsLotPrice).where(AsIsLotPrice.lot_id == lid,
+                                   AsIsLotPrice.sub_lot_number == sub_lot)
+    )).scalar_one_or_none()
+    if stale:
+        await db.delete(stale)
 
     await audit(db, user=current_user, action="AS_IS_LOT_OPENED",
                 table_name="devices", record_id=f"{lot_id}:{sub_lot}",
@@ -1029,6 +1099,144 @@ async def create_sale(
     return RedirectResponse(url=redirect, status_code=302)
 
 
+MAX_SALES_DELETE = 2000
+
+
+def _can_delete_sales(user: User) -> bool:
+    # Admin-only on purpose: this permanently removes financial records, and the
+    # Module Permission matrix defaults to "allow" for any role it has no row
+    # for, so a matrix gate here would open it to far more roles than intended.
+    return getattr(user.role, "value", user.role) == "admin"
+
+
+@router.post("/sales/bulk-delete")
+async def bulk_delete_sales(
+    request: Request,
+    sale_ids: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Sales List's Delete Selected — PERMANENTLY removes the chosen sale records.
+
+    Guard rails, because this is a hard delete of financial data:
+      * admin only;
+      * a sale that anything else references (credit-note Returns, customer
+        receipts, care warranties/tickets/pairings — read live from the FK
+        catalog) is SKIPPED and reported, never cascaded: deleting a sale must
+        not silently take its credit notes or payment receipts with it;
+      * each sale is audited (SALE_DELETED, with its old values) before removal;
+      * a device left in "sold" with no sale behind it is moved back to the
+        stage it was sold from, with a StageMovement, so inventory stays true.
+    The uploaded invoice PDF, if any, is left on disk.
+    """
+    from sqlalchemy.exc import IntegrityError
+    from utils.fk_purge import referenced_parent_ids
+
+    if not _can_delete_sales(current_user):
+        raise HTTPException(status_code=403, detail="Only an admin can permanently delete sales.")
+
+    ids: list = []
+    for raw in sale_ids.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            ids.append(_uuid.UUID(raw))
+        except ValueError:
+            continue
+    ids = list(dict.fromkeys(ids))
+    if not ids:
+        return RedirectResponse(url="/sales?error=Select+at+least+one+sale", status_code=302)
+    if len(ids) > MAX_SALES_DELETE:
+        return RedirectResponse(
+            url=f"/sales?error=Select+at+most+{MAX_SALES_DELETE}+sales+per+delete", status_code=302)
+
+    sales = (await db.execute(select(Sale).where(Sale.id.in_(ids)))).scalars().all()
+    blocked_ids = await referenced_parent_ids(db, "sales", [s.id for s in sales])
+    deletable = [s for s in sales if s.id not in blocked_ids]
+    blocked_n = len(sales) - len(deletable)
+
+    deleted_n = reverted_n = 0
+    if deletable:
+        device_ids = {s.device_id for s in deletable}
+        devices = {d.id: d for d in (await db.execute(
+            select(Device).where(Device.id.in_(device_ids)))).scalars().all()}
+
+        sale_nos_by_device: dict = {}
+        for s in deletable:
+            dev = devices.get(s.device_id)
+            sale_nos_by_device.setdefault(s.device_id, []).append(s.sale_number)
+            await audit(db, user=current_user, action="SALE_DELETED",
+                        table_name="sales", record_id=str(s.id),
+                        old_value={
+                            "sale_number": s.sale_number,
+                            "barcode": dev.barcode if dev else None,
+                            "price": str(s.sale_price),
+                            "customer": s.customer_name,
+                            "invoice_no": s.invoice_no,
+                            "sold_by": s.sold_by,
+                            "sold_at": s.sold_at.isoformat() if s.sold_at else None,
+                        },
+                        request=request)
+            await db.delete(s)
+        await db.flush()
+        deleted_n = len(deletable)
+
+        # Devices that no longer have ANY sale and are still sitting in "sold".
+        still_sold_ids = set((await db.execute(
+            select(Sale.device_id).where(Sale.device_id.in_(device_ids)).distinct()
+        )).scalars().all())
+        to_revert = [d for did, d in devices.items()
+                     if did not in still_sold_ids and d.current_stage == DeviceStage.sold]
+        if to_revert:
+            latest_into_sold = {
+                mv.device_id: mv for mv in (await db.execute(
+                    select(StageMovement)
+                    .where(StageMovement.device_id.in_([d.id for d in to_revert]),
+                           StageMovement.to_stage == DeviceStage.sold)
+                    .order_by(StageMovement.device_id, StageMovement.moved_at.desc())
+                    .distinct(StageMovement.device_id)
+                )).scalars().all()
+            }
+            for dev in to_revert:
+                mv = latest_into_sold.get(dev.id)
+                back_to = (mv.from_stage if mv and mv.from_stage and mv.from_stage != DeviceStage.sold
+                           else DeviceStage.ready_to_sale)
+                if mv and mv.exited_at is None:
+                    mv.exited_at = app_now()
+                dev.current_stage = back_to
+                dev.updated_at = app_now()
+                db.add(StageMovement(
+                    device_id=dev.id, from_stage=DeviceStage.sold, to_stage=back_to,
+                    moved_by=current_user.username,
+                    notes=f"Sale deleted — {', '.join(sale_nos_by_device.get(dev.id, []))}"))
+                reverted_n += 1
+
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            return RedirectResponse(
+                url="/sales?error=Could+not+delete+—+a+selected+sale+is+still+referenced+elsewhere",
+                status_code=302)
+
+    qs = []
+    if deleted_n:
+        msg = f"{deleted_n} sale(s) permanently deleted"
+        if reverted_n:
+            msg += f"; {reverted_n} tag(s) moved back out of Sold"
+        qs.append("success=" + quote_plus(msg))
+    skipped_msgs = []
+    if blocked_n:
+        skipped_msgs.append(f"{blocked_n} not deleted — linked to credit notes, receipts or warranty records")
+    missing_n = len(ids) - len(sales)
+    if missing_n:
+        skipped_msgs.append(f"{missing_n} not found")
+    if skipped_msgs:
+        qs.append("error=" + quote_plus("; ".join(skipped_msgs)))
+    return RedirectResponse(url="/sales" + ("?" + "&".join(qs) if qs else ""), status_code=302)
+
+
 @router.get("/sales/export-selected", response_class=HTMLResponse)
 async def export_selected_get(request: Request, current_user: User = Depends(allowed)):
     """Redirect GET to sales list (form should POST)."""
@@ -1522,6 +1730,7 @@ async def sales_list(
         "selected_lot": lot_id,
         "current_user": current_user,
         "total": total,
+        "can_delete_sales": _can_delete_sales(current_user),
         # Filters
         "q": q,
         "sale_no": sale_no,

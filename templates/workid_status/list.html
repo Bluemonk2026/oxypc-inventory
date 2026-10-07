@@ -136,7 +136,7 @@
         <thead class="table-dark">
           <tr>
             <th>Tag Number</th><th>WorkID</th><th>Model</th><th>Stage</th>
-            <th>Aging</th><th>Assigned Date</th><th>Completed Date</th><th>Notes</th><th>Assigned Engineer</th>
+            <th>Aging</th><th>Assigned Date</th><th>Completed Date</th><th>Notes</th><th>Assigned Engineer</th><th>PNA</th>
           </tr>
         </thead>
         <tbody>
@@ -178,9 +178,17 @@
             </td>
             <td class="text-muted">{{ it.notes or '' }}</td>
             <td>{{ it.engineer }}</td>
+            <td class="text-nowrap">
+              {# PNA (Part Not Available): tag has >=1 active device_pna_parts
+                 row. Tooltip captures the marking action (parts / who / when). #}
+              {% if it.pna %}
+              <span class="badge bg-danger"
+                    title="Parts: {{ it.pna_parts | join(', ') }}{% if it.pna_marked_by %}, Marked by: {{ it.pna_marked_by }}{% endif %}{% if it.pna_marked_at %}, at: {{ it.pna_marked_at }}{% endif %}">PNA</span>
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
           </tr>
           {% else %}
-          <tr><td colspan="9" class="text-center text-muted py-4">No WorkIDs found.</td></tr>
+          <tr><td colspan="10" class="text-center text-muted py-4">No WorkIDs found.</td></tr>
           {% endfor %}
         </tbody>
       </table>

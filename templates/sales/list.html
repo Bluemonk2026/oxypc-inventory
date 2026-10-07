@@ -69,6 +69,11 @@
         <button type="button" id="exportSelectedBtn" class="btn btn-sm btn-outline-warning" onclick="exportSelected()" disabled>
           <i class="bi bi-download me-1"></i>Export Selected
         </button>
+        {% if can_delete_sales %}
+        <button type="button" id="deleteSelectedBtn" class="btn btn-sm btn-outline-danger" onclick="deleteSelected()" disabled>
+          <i class="bi bi-trash me-1"></i>Delete Selected
+        </button>
+        {% endif %}
         <a id="exportFilteredBtn" class="btn btn-sm btn-outline-success"
            href="/sales/export?q={{ q | urlencode }}&sale_no={{ sale_no | urlencode }}&sold_by_filter={{ sold_by_filter | urlencode }}&customer={{ customer | urlencode }}&grade={{ grade | urlencode }}&lot_id={{ selected_lot | urlencode }}&date_from={{ date_from | urlencode }}&date_to={{ date_to | urlencode }}">
           <i class="bi bi-download me-1"></i>Export
@@ -83,6 +88,13 @@
       <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
       <input type="hidden" name="sale_ids" id="selectedIds">
     </form>
+    {% if can_delete_sales %}
+    {# Hidden form for POST bulk-delete (permanent, admin only) #}
+    <form id="deleteForm" action="/sales/bulk-delete" method="post" style="display:none">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') if request else '' }}">
+      <input type="hidden" name="sale_ids" id="deleteIds">
+    </form>
+    {% endif %}
   </div>
 </div>
 
@@ -194,6 +206,22 @@ function updateExportBtn() {
   } else {
     exportBtn.innerHTML = '<i class="bi bi-download me-1"></i>Export Selected';
   }
+  const delBtn = document.getElementById('deleteSelectedBtn');
+  if (delBtn) {
+    delBtn.disabled = checked === 0;
+    delBtn.innerHTML = '<i class="bi bi-trash me-1"></i>Delete Selected' + (checked > 0 ? ` (${checked})` : '');
+  }
+}
+
+function deleteSelected() {
+  const ids = Array.from(selectedSaleIds);
+  if (!ids.length) return;
+  const msg = 'PERMANENTLY delete ' + ids.length + ' sale record(s)?\n\n' +
+    'This cannot be undone. Tags that were sold only by these sales go back to the stage they were sold from. ' +
+    'Sales that have credit notes, receipts or warranty records are skipped automatically.';
+  if (!confirm(msg)) return;
+  document.getElementById('deleteIds').value = ids.join(',');
+  document.getElementById('deleteForm').submit();
 }
 
 function exportSelected() {

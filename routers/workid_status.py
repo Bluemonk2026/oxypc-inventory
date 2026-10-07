@@ -62,6 +62,7 @@ from models.device import Device, DeviceStage, StageMovement, STAGE_LABELS, DROP
 from models.work_order import WorkOrder
 from models.lot import Lot
 from utils.attendance_groups import managed_usernames
+from services.pna_lookup import active_pna_parts
 from auth.dependencies import get_current_user
 
 router = APIRouter(tags=["workid_status"])
@@ -76,6 +77,23 @@ def _parse_date(s):
         except (ValueError, AttributeError):
             pass
     return None
+
+
+def _pna_fields(parts) -> dict:
+    """PNA columns for one tag from its ACTIVE DevicePNAPart rows (may be empty)."""
+    parts = list(parts or [])
+    marked_by = []
+    for p in parts:
+        mb = (getattr(p, "marked_by", None) or "").strip()
+        if mb and mb not in marked_by:
+            marked_by.append(mb)
+    times = [p.marked_at for p in parts if getattr(p, "marked_at", None)]
+    return {
+        "pna": bool(parts),
+        "pna_parts": [p.part_name for p in parts if getattr(p, "part_name", None)],
+        "pna_marked_by": ", ".join(marked_by),
+        "pna_marked_at": max(times).strftime("%d-%m-%Y %H:%M") if times else "",
+    }
 
 
 def _multi(value) -> list:
@@ -343,6 +361,11 @@ async def workid_status(request: Request, db: AsyncSession = Depends(get_db),
     for it in items:
         it["lot_number"] = lot_number_by_device.get(str(it.get("device_id")), "—")
 
+    # PNA (Part Not Available) — one lookup for every device in `items`.
+    pna_by_device = await active_pna_parts(db, all_device_ids) if all_device_ids else {}
+    for it in items:
+        it.update(_pna_fields(pna_by_device.get(it.get("device_id"), [])))
+
     # ── Completed Date / Stage / Exclude Admin filters — applied here (not in
     # the SQL stmt above) so they narrow the SAME values the Completed Date
     # and Stage columns display (Asset History's When/From), not the
@@ -454,7 +477,7 @@ async def workid_status_export(request: Request, db: AsyncSession = Depends(get_
     buf = _io.StringIO()
     w = _csv.writer(buf)
     w.writerow(["Tag Number", "Lot Number", "Make", "Model", "Engineer Name", "Stage",
-                "Assigned Date", "Completed Date"])
+                "Assigned Date", "Completed Date", "PNA"])
     for it in items:
         w.writerow([
             it.get("barcode") or "",
@@ -465,6 +488,7 @@ async def workid_status_export(request: Request, db: AsyncSession = Depends(get_
             it.get("stage_label") or "",
             it["assigned_date"].strftime("%d-%m-%Y %H:%M") if it.get("assigned_date") else "",
             it["completed_at"].strftime("%d-%m-%Y %H:%M") if it.get("completed_at") else "",
+            "Yes" if it.get("pna") else "No",
         ])
     # utf-8-sig so Excel opens it without mangling non-ASCII names.
     data = buf.getvalue().encode("utf-8-sig")

@@ -1551,6 +1551,33 @@ async def bulk_move_to_l1l2(
     return JSONResponse({"ok": True, "moved": moved, "requested": len(bc_list)})
 
 
+def _prod_tile_criteria():
+    """Single source of truth for the Production Manager summary tiles:
+    tile key -> (label, where-clause). Used by BOTH the tile counts in
+    trc_production_list and the per-tile CSV (trc_production_tile_summary),
+    so a tile's number and its export can never disagree. Ignores the
+    page's date filter, like the tile counts."""
+    active = and_(Device.is_active == True, Device.is_trashed == False)
+    final_qc_stages = [DeviceStage.final_qc, DeviceStage.final_qc_pass_hold, DeviceStage.final_qc_fail_hold]
+    returned_pipeline_stages = (
+        [DeviceStage.trc_production, DeviceStage.l1, DeviceStage.l2, DeviceStage.l3, DeviceStage.qc_check]
+        + list(COSMETIC_STAGES) + final_qc_stages
+    )
+    return {
+        "at-you": ("Total Tags at You", and_(Device.current_stage == DeviceStage.trc_production, active)),
+        "l1-l2": ("Total Tags in L1/L2", and_(Device.current_stage.in_([DeviceStage.l1, DeviceStage.l2]), active)),
+        "l3-l4": ("Total Tags in L3/L4", and_(Device.current_stage == DeviceStage.l3, active)),
+        "stress": ("Total Tags in Stress", and_(Device.current_stage == DeviceStage.qc_check, active)),
+        "cosmetic": ("Total Tags in Cosmetic", and_(Device.current_stage.in_(COSMETIC_STAGES), active)),
+        "final-qc": ("Total Tags in Final QC", and_(Device.current_stage.in_(final_qc_stages), active)),
+        # Internal Tag tab devices sent for repair, anywhere across the
+        # pipeline the other tiles cover (At You through Final QC).
+        "returned": ("Tags Returned", and_(
+            Device.tag_return_status == "Return for Repair",
+            Device.current_stage.in_(returned_pipeline_stages), active)),
+    }
+
+
 @router.get("/trc-production", response_class=HTMLResponse)
 async def trc_production_list(
     request: Request,
@@ -1687,45 +1714,26 @@ async def trc_production_list(
     #    / Final QC") — simple stage-scoped counts, each is_active-filtered
     #    to match every other count on this page. ─────────────────────────
     tiles_active = and_(Device.is_active == True, Device.is_trashed == False)
-    tags_at_you = (await db.execute(
-        select(func.count(Device.id)).where(Device.current_stage == DeviceStage.trc_production, tiles_active)
-    )).scalar() or 0
-    tags_l1l2 = (await db.execute(
-        select(func.count(Device.id)).where(Device.current_stage.in_([DeviceStage.l1, DeviceStage.l2]), tiles_active)
-    )).scalar() or 0
-    tags_l3l4 = (await db.execute(
-        select(func.count(Device.id)).where(Device.current_stage == DeviceStage.l3, tiles_active)
-    )).scalar() or 0
+    tile_criteria = _prod_tile_criteria()
+
+    async def _tile_count(key):
+        return (await db.execute(
+            select(func.count(Device.id)).where(tile_criteria[key][1])
+        )).scalar() or 0
+
+    tags_at_you = await _tile_count("at-you")
+    tags_l1l2 = await _tile_count("l1-l2")
+    tags_l3l4 = await _tile_count("l3-l4")
     tags_pna = (await db.execute(
         select(func.count(func.distinct(Device.id)))
         .join(DevicePNAPart, DevicePNAPart.device_id == Device.id)
         .where(Device.current_stage.in_([DeviceStage.l1, DeviceStage.l2]),
                tiles_active, DevicePNAPart.is_active == True)
     )).scalar() or 0
-    tags_stress = (await db.execute(
-        select(func.count(Device.id)).where(Device.current_stage == DeviceStage.qc_check, tiles_active)
-    )).scalar() or 0
-    tags_final_qc = (await db.execute(
-        select(func.count(Device.id)).where(
-            Device.current_stage.in_([DeviceStage.final_qc, DeviceStage.final_qc_pass_hold, DeviceStage.final_qc_fail_hold]),
-            tiles_active)
-    )).scalar() or 0
-    tags_cosmetic = (await db.execute(
-        select(func.count(Device.id)).where(Device.current_stage.in_(COSMETIC_STAGES), tiles_active)
-    )).scalar() or 0
-    # "Tags Returned" — Internal Tag tab devices sent for repair
-    # (tag_return_status == "Return for Repair"), anywhere across the
-    # pipeline these other tiles cover (At You through Final QC).
-    returned_pipeline_stages = (
-        [DeviceStage.trc_production, DeviceStage.l1, DeviceStage.l2, DeviceStage.l3, DeviceStage.qc_check]
-        + list(COSMETIC_STAGES)
-        + [DeviceStage.final_qc, DeviceStage.final_qc_pass_hold, DeviceStage.final_qc_fail_hold]
-    )
-    tags_returned = (await db.execute(
-        select(func.count(Device.id)).where(
-            Device.tag_return_status == "Return for Repair",
-            Device.current_stage.in_(returned_pipeline_stages), tiles_active)
-    )).scalar() or 0
+    tags_stress = await _tile_count("stress")
+    tags_final_qc = await _tile_count("final-qc")
+    tags_cosmetic = await _tile_count("cosmetic")
+    tags_returned = await _tile_count("returned")
 
     return templates.TemplateResponse("lots/trc_production.html", {
         "request": request, "devices": devices, "current_user": current_user,
@@ -1739,6 +1747,48 @@ async def trc_production_list(
         "tags_cosmetic": tags_cosmetic, "tags_returned": tags_returned,
         "change_engineer_stages": [(s.value, label) for s, label in CHANGE_ENGINEER_STAGES],
     })
+
+
+@router.get("/trc-production/summary/{tile}")
+async def trc_production_tile_summary(
+    tile: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """CSV for a Production Manager summary tile's "Summary" button — exactly
+    the tags that tile counts (shared criterion via _prod_tile_criteria)."""
+    criteria = _prod_tile_criteria().get(tile)
+    if criteria is None:
+        raise HTTPException(status_code=404, detail="Unknown tile")
+    is_returned = tile == "returned"
+    result = await db.execute(
+        select(Device.barcode, Device.brand, Device.model, Device.current_stage,
+               Device.updated_at, Device.tag_return_status, Lot.lot_number)
+        .outerjoin(Lot, Device.lot_id == Lot.id)
+        .where(criteria[1])
+        .order_by(Device.barcode)
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    header = ["Tag Number", "Brand", "Model", "Lot Number", "Stage", "Updated At"]
+    if is_returned:
+        header.append("Return Status")
+    writer.writerow(header)
+    for barcode, brand, model, stage, updated_at, return_status, lot_number in result.all():
+        row = [
+            barcode or "", brand or "", model or "", lot_number or "",
+            STAGE_LABELS.get(stage, stage.value if stage else ""),
+            updated_at.strftime("%d-%m-%Y %H:%M") if updated_at else "",
+        ]
+        if is_returned:
+            row.append(return_status or "")
+        writer.writerow(row)
+    output.seek(0)
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode()), media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=trc_{tile.replace('-', '_')}_summary.csv"},
+    )
 
 
 @router.get("/trc-production/pna-summary")

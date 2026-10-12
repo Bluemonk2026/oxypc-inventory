@@ -172,10 +172,10 @@ def test_data_feeds_show_stock_type_and_entity_filter(app_client, make_user):  #
         assert "As-Is" in by_code[tag + "S"][11] and "Finish Good" in by_code[tag + "P"][11]
         assert all("₹" not in c for cells in by_code.values() for c in cells)
 
-        # Sales: Stock Type at index 7
+        # Sales: Stock Type at index 8 (Invoice added at 3)
         s = app_client.get("/sales/data", params={"q": tag, "length": 50}).json()
-        sales = {c[3].split("<code>")[1].split("</code>")[0]: c for c in s["data"]}
-        assert "As-Is Lot" in sales[tag + "X"][7] and "Finish Good" in sales[tag + "Y"][7]
+        sales = {c[4].split("<code>")[1].split("</code>")[0]: c for c in s["data"]}
+        assert "As-Is Lot" in sales[tag + "X"][8] and "Finish Good" in sales[tag + "Y"][8]
 
         # Ready to Sale tags table: Entity filter narrows rows, totals and Select All
         allr = app_client.get("/sales/ready/data", params={"search[value]": tag, "length": 50}).json()

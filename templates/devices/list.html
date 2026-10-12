@@ -14,12 +14,15 @@
       <div class="col-md-4">
         <label class="form-label small fw-semibold mb-1">Search</label>
         <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm barcode-field font-monospace"
-               placeholder="Tag Number, brand, model, serial, CPU, GRN…">
+               placeholder="Tag, make, model, CPU, RAM, storage, serial, GRN… e.g. HP 840 16GB i5 512">
       </div>
       {{ ms.multiselect('stage', 'Stage', stage_choices, stage) }}
       {{ ms.multiselect('lot', 'Lot', lot_choices, lot) }}
       {{ ms.multiselect('grade', 'Grade', grade_options(), grade) }}
+      {{ ms.multiselect('make', 'Make', make_options, make) }}
       {{ ms.multiselect('device_type', 'Device Type', device_type_options, device_type) }}
+      {{ ms.multiselect('touch', 'Touch Type', touch_options, touch) }}
+      {{ ms.multiselect('stock_type', 'Stock Type', stock_type_options, stock_type) }}
       {{ ms.multiselect('employee', 'Employee', employee_options, employee) }}
       {{ ms.multiselect('entity', 'Entity', entity_options, entity) }}
       {% include "_date_range_fields.html" %}
@@ -101,7 +104,7 @@
         <i class="bi bi-upload me-1"></i>Upload Tags
       </button>
       <a id="exportCsvLink"
-         href="/devices/export?q={{ q | urlencode }}&stage={{ stage | urlencode }}&lot={{ lot | urlencode }}&grade={{ grade | urlencode }}&category={{ category | urlencode }}&device_type={{ device_type | urlencode }}&entity={{ entity | urlencode }}&date_from={{ date_from | urlencode }}&date_to={{ date_to | urlencode }}"
+         href="/devices/export?q={{ q | urlencode }}&stage={{ stage | urlencode }}&lot={{ lot | urlencode }}&grade={{ grade | urlencode }}&category={{ category | urlencode }}&device_type={{ device_type | urlencode }}&entity={{ entity | urlencode }}&make={{ make | urlencode }}&touch={{ touch | urlencode }}&stock_type={{ stock_type | urlencode }}&date_from={{ date_from | urlencode }}&date_to={{ date_to | urlencode }}"
          class="btn btn-sm btn-outline-success" onclick="return submitExport(event)"
          title="Exports the selected Tag Numbers, or every filtered result if none are ticked">
         <i class="bi bi-download me-1"></i>Export CSV
@@ -180,9 +183,9 @@
 <!-- Model Based Table -->
 <div class="card border-0 shadow-sm mt-3">
   {# Global Table convention (static/js/global-table.js): search lives in the
-     table's own toolbar now, scoped to the Model Names column via the
-     columnDefs searchable:false/true pair on its initGlobalTable call below
-     — no separate header search box duplicating it. No .table-responsive
+     table's own toolbar (server-side: Make / Model / CPU / RAM / Storage
+     tokens, see /devices/model-summary/data) — no separate header search box
+     duplicating it. No .table-responsive
      wrapper either, for the same reason devicesTable above has none:
      initGlobalTable's own scrollX already owns horizontal scrolling. #}
   <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
@@ -192,36 +195,24 @@
       <table id="modelSummaryTable" class="table table-hover table-sm mb-0">
         <thead class="table-dark">
           <tr>
-            <th>Model Names</th>
-            <th>Model Make</th>
+            <th>Make</th>
+            <th>Model</th>
             <th>Device Type</th>
+            <th>CPU</th>
+            <th>RAM</th>
+            <th>Storage</th>
+            <th>Touch Type</th>
+            <th>Grade</th>
+            <th>Stock Type</th>
             <th>Total Count</th>
             {% if can_view_pricing(current_user) %}<th>Total Price</th>{% endif %}
-            <th>Repaired</th>
             <th></th>
           </tr>
         </thead>
-        <tbody>
-          {% for g in model_summary %}
-          <tr>
-            <td class="small">{{ g.model }}</td>
-            <td class="small">{{ g.make }}</td>
-            <td class="small">{{ g.device_type }}</td>
-            <td class="small">{{ g.total_count }}</td>
-            {% if can_view_pricing(current_user) %}<td class="small">₹{{ "{:,.0f}".format(g.total_price) }}</td>{% endif %}
-            <td class="small">{{ g.repaired_count }}</td>
-            <td class="text-nowrap">
-              <button type="button" class="btn btn-xs btn-outline-primary py-0 px-1 small"
-                      title="View" onclick='showModelDetail({{ g | tojson }})'>
-                <i class="bi bi-eye"></i>
-              </button>
-            </td>
-          </tr>
-          {% endfor %}
-          {% if not model_summary %}
-          <tr><td colspan="7" class="text-center text-muted small py-3">No models found.</td></tr>
-          {% endif %}
-        </tbody>
+        {# Rows (and the Total row, always last) come from /devices/model-summary/data,
+           built from the same filtered tag set as the Tag table above. The old
+           "Repaired" column is hidden: still computed server-side, no longer shown. #}
+        <tbody></tbody>
       </table>
   </div>
 </div>
@@ -430,6 +421,19 @@ var CAN_VIEW_PRICING = {{ 'true' if can_view_pricing(current_user) else 'false' 
 // otherwise only ever reach whatever page happened to be on screen.
 var devicesSelected = new Set();
 
+// Every page filter the Tag table, its Select All, the Model Based Summary and the
+// summary's tag modal share — they all read the same URL query, so they agree.
+var INV_FILTER_KEYS = ['q', 'stage', 'lot', 'grade', 'category', 'device_type', 'employee', 'entity',
+                       'date_from', 'date_to', 'exclude_sold', 'fs', 'make', 'touch', 'stock_type'];
+// Query for the summary feed / modal: page filters + the Tag table's own search box.
+function summaryFilterParams() {
+  var p = new URLSearchParams(window.location.search);
+  var out = new URLSearchParams();
+  INV_FILTER_KEYS.forEach(function (k) { out.set(k, p.get(k) || ''); });
+  out.set('tag_search', (window._dtDevices ? window._dtDevices.search() : '') || '');
+  return out;
+}
+
 $(document).ready(function() {
   // Stock Price / Sale Price columns were removed (2026-10-07) and Stock Type
   // sits after Grade, so every role sees the same layout and "Updated" is
@@ -449,8 +453,7 @@ $(document).ready(function() {
       url: '/devices/data',
       data: function (d) {
         var p = new URLSearchParams(window.location.search);
-        ['q', 'stage', 'lot', 'grade', 'category', 'device_type', 'employee', 'entity', 'date_from', 'date_to', 'exclude_sold', 'fs']
-          .forEach(function (k) { d[k] = p.get(k) || ''; });
+        INV_FILTER_KEYS.forEach(function (k) { d[k] = p.get(k) || ''; });
       },
       dataSrc: function (json) { return json.data; },
     },
@@ -530,8 +533,7 @@ $(document).ready(function() {
     if (checked) {
       var p = new URLSearchParams(window.location.search);
       var params = new URLSearchParams();
-      ['q', 'stage', 'lot', 'grade', 'category', 'device_type', 'employee', 'entity', 'date_from', 'date_to', 'exclude_sold', 'fs']
-        .forEach(function (k) { params.set(k, p.get(k) || ''); });
+      INV_FILTER_KEYS.forEach(function (k) { params.set(k, p.get(k) || ''); });
       var r = await fetch('/devices/barcodes?' + params.toString());
       var d = await r.json();
       (d.barcodes || []).forEach(function(bc){ devicesSelected.add(bc); });
@@ -552,26 +554,38 @@ $(document).ready(function() {
     f.submit();
   });
 
-  // Model Based table (Global Table module — static/js/global-table.js).
-  // The old header search box only ever searched the Model Names column
-  // (never Make/Device Type/counts); reusing initGlobalTable's own search
-  // box for that means restricting *it* to column 0 instead, or the box
-  // would start matching Make/Device Type too — a real behavior change,
-  // not just a relocation. NOT a targets:'_all'+override:0 pair — DataTables
-  // resolves '_all' columnDefs last regardless of array position, so a
-  // more-specific same-key override placed after it (or before it) still
-  // loses to '_all'; found live 2026-09-03 (search for "HP" against Model
-  // Make matched despite the "override" entry). Listing the actual
-  // not-column-0 indices sidesteps that resolution order entirely.
-  var MODEL_NOT_SEARCHABLE_COLS = CAN_VIEW_PRICING ? [1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5];
+  // Model Based Summary (Global Table module — static/js/global-table.js), server-side.
+  // Rows come from /devices/model-summary/data, built from the SAME filtered tag
+  // set as the Tag table above (page filters + the Tag table's own search box),
+  // then narrowed further by this table's own search box (Make / Model / CPU / RAM
+  // / Storage, token-wise). The final row of every response is the Total row for
+  // the whole filtered set, so it follows every filter and search.
   var dtModel = initGlobalTable('#modelSummaryTable', {
-    order: [],
-    columnDefs: [
-      { orderable: false, targets: [-1] },
-      { searchable: false, targets: MODEL_NOT_SEARCHABLE_COLS },
-    ],
+    serverSide: true,
+    processing: true,
+    searchDelay: 400,
+    order: [[9, 'desc']],   // Total Count, biggest first
+    ajax: {
+      url: '/devices/model-summary/data',
+      data: function (d) { summaryFilterParams().forEach(function (v, k) { d[k] = v; }); },
+    },
+    columnDefs: [{ orderable: false, targets: [6, 7, 8, -1] }],   // badge columns + actions
+    createdRow: function (row, data) {
+      if (String(data[0]).indexOf('summary-total-label') !== -1) {
+        $(row).addClass('summary-total-row table-secondary');
+      }
+    },
   });
-  $(dtModel.table().container()).find('input[type="search"]').attr('placeholder', 'Search Model Names…');
+  $(dtModel.table().container()).find('input[type="search"]').attr('placeholder', 'Search make, model, CPU, RAM, storage…');
+  // Typing in the Tag table's search box narrows the tag set, so the summary follows.
+  var lastTagSearch = '';
+  dt.on('xhr.dt', function () {
+    var s = dt.search() || '';
+    if (s !== lastTagSearch) { lastTagSearch = s; dtModel.ajax.reload(null, true); }
+  });
+  $(dtModel.table().container()).on('click', 'button[data-group]', function () {
+    showModelDetail($(this).data('group'));
+  });
 
   // Lot Based table (Global Table module). Unlike Model Based above, the old
   // header search box here already searched every column (dtLot.search(),
@@ -626,7 +640,7 @@ function openCustomiseModal(source){
 }
 
 function showModelDetail(g){
-  $('#modelDetailTitle').text(g.model + ' (' + g.make + ')');
+  $('#modelDetailTitle').text(g.model + ' (' + g.make + ') · ' + [g.cpu, g.ram, g.storage].join(' · '));
   $('#mdGradeA').text(g.grade_counts.A || 0);
   $('#mdGradeB').text(g.grade_counts.B || 0);
   $('#mdGradeC').text(g.grade_counts.C || 0);
@@ -640,9 +654,10 @@ function showModelDetail(g){
   // The whole inventory's tag list used to be serialised into this HTML —
   // ~22,000 entries — just so a modal could read one group of it.
   // The page's own filters ride along so the modal shows what the row counted.
-  var params = new URLSearchParams(window.location.search);
-  params.set('model', g.model);
-  params.set('make', g.make);
+  var params = summaryFilterParams();
+  [['g_make', 'make'], ['g_model', 'model'], ['g_device_type', 'device_type'],
+   ['g_cpu', 'cpu'], ['g_ram', 'ram'], ['g_storage', 'storage']]
+    .forEach(function (kv) { params.set(kv[0], g[kv[1]] || ''); });
   fetch('/devices/model-summary/tags?' + params.toString())
     .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function(d){

@@ -30,6 +30,12 @@ from services.parts_required import compute_required, LEGACY_LABELS
 from auth.dependencies import get_current_user, require_roles, verify_csrf, require_additional_perm
 from utils.warranty import effective_warranty_for_sale, warranty_status_for_sale
 from utils.master_data import master_values, entity_values
+from utils.touch_type import touch_badge_html
+from utils.inventory_summary import (
+    device_search_clause, make_filter_clause, touch_filter_clause, stock_filter_clause,
+    stock_type_expr, touch_expr, summary_label_exprs, fold_summary_rows,
+    group_row_cells, total_row_cells, STOCK_ORDER,
+)
 
 router = APIRouter(prefix="/devices", tags=["devices"], dependencies=[Depends(verify_csrf)])
 # All logged-in users can search/view; only admin+invmgr can edit
@@ -318,7 +324,8 @@ def _multi(value) -> list:
     return [v.strip() for v in raw if v and str(v).strip()]
 
 
-def _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to, entity="", exclude_sold=False):
+def _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to, entity="", exclude_sold=False,
+                           make="", touch="", stock_type=""):
     """Filter clauses shared by the Inventory Search page and its data endpoint.
 
     `employee` is deliberately NOT handled here — Device has no direct
@@ -330,12 +337,11 @@ def _device_search_filters(q, stage, lot, grade, category, device_type, date_fro
     """
     w = []
     if q:
-        q_like = f"%{q}%"
-        w.append(or_(
-            Device.barcode.ilike(q_like), Device.brand.ilike(q_like),
-            Device.model.ilike(q_like), Device.serial_no.ilike(q_like),
-            Device.cpu.ilike(q_like), Device.grn_number.ilike(q_like),
-        ))
+        # Token-wise AND (utils/inventory_summary.py): "HP 840 16GB i5 512" needs
+        # every word to hit Make / Model / CPU / RAM / Storage / tag / serial / GRN.
+        q_clause = device_search_clause(q, extra_cols=(Device.barcode, Device.serial_no, Device.grn_number))
+        if q_clause is not None:
+            w.append(q_clause)
 
     stage_vals = _multi(stage)
     if stage_vals:
@@ -402,6 +408,11 @@ def _device_search_filters(q, stage, lot, grade, category, device_type, date_fro
     iqc_filter = _iqc_date_filter(date_from, date_to)
     if iqc_filter is not None:
         w.append(iqc_filter)
+    for clause in (make_filter_clause(_multi(make)) if make else None,
+                   touch_filter_clause(_multi(touch)) if touch else None,
+                   stock_filter_clause(_multi(stock_type)) if stock_type else None):
+        if clause is not None:
+            w.append(clause)
     return w
 
 
@@ -414,6 +425,27 @@ async def _employee_device_id_filter(db: AsyncSession, employee: str):
     )).scalars().all())
     return Device.id.in_(emp_device_ids) if emp_device_ids else Device.id.in_([])
 
+
+async def _inventory_filters(db: AsyncSession, q="", stage="", lot="", grade="", category="",
+                             device_type="", date_from="", date_to="", employee="", entity="",
+                             exclude_sold="", fs="", make="", touch="", stock_type="") -> list:
+    """The one filter list behind the Tag table, its barcode list, the Model
+    Based Summary and the summary's tag modal — so they can never disagree."""
+    filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to,
+                                     entity=entity, exclude_sold=_exclude_sold(exclude_sold, fs),
+                                     make=make, touch=touch, stock_type=stock_type)
+    if employee:
+        filters.append(await _employee_device_id_filter(db, employee))
+    return filters
+
+
+def _tag_table_search_clause(search: str):
+    """The Tag table's own DataTables search box (also used to narrow the summary)."""
+    return device_search_clause(search, extra_cols=(
+        Device.barcode, Device.serial_no, Lot.lot_number, Device.device_type))
+
+
+_STOCK_BADGE = {"Finish Good": "success", "As-Is": "warning text-dark", "In Progress": "info text-dark"}
 
 _STAGE_BADGE = {
     "iqc": "secondary", "stock_in": "info text-dark", "l1": "warning text-dark",
@@ -431,6 +463,7 @@ async def device_search_data(
     q: str = "", stage: str = "", lot: str = "", grade: str = "",
     category: str = "", device_type: str = "", date_from: str = "", date_to: str = "",
     employee: str = "", entity: str = "", exclude_sold: str = "", fs: str = "",
+    make: str = "", touch: str = "", stock_type: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(view_allowed),
 ):
@@ -449,22 +482,17 @@ async def device_search_data(
     role = getattr(current_user.role, "value", current_user.role)
     show_pricing = _cvp(role)
 
-    page_filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to,
-                                     entity=entity, exclude_sold=_exclude_sold(exclude_sold, fs))
-    if employee:
-        page_filters.append(await _employee_device_id_filter(db, employee))
+    page_filters = await _inventory_filters(db, q, stage, lot, grade, category, device_type, date_from, date_to,
+                                            employee=employee, entity=entity, exclude_sold=exclude_sold, fs=fs,
+                                            make=make, touch=touch, stock_type=stock_type)
     base = select(Device, Lot.lot_number).join(Lot, Device.lot_id == Lot.id).where(Device.is_trashed == False)
     count_base = select(func.count()).select_from(Device).join(Lot, Device.lot_id == Lot.id).where(Device.is_trashed == False)
 
+    # Token-wise AND over Tag / serial / Lot / Type plus Make, Model, CPU, RAM and
+    # Storage — each word may hit a different column ("HP 840 16GB i5 512").
     search = (request.query_params.get("search[value]") or "").strip()
-    search_filters = []
-    if search:
-        like = f"%{search}%"
-        search_filters.append(or_(
-            Device.barcode.ilike(like), Device.brand.ilike(like), Device.model.ilike(like),
-            Device.cpu.ilike(like), Device.serial_no.ilike(like), Lot.lot_number.ilike(like),
-            Device.device_type.ilike(like),
-        ))
+    search_clause = _tag_table_search_clause(search)
+    search_filters = [search_clause] if search_clause is not None else []
 
     total = (await db.execute(count_base.where(*page_filters))).scalar() or 0
     # With no search term the two counts are the same query over 22k+ rows, and
@@ -480,9 +508,8 @@ async def device_search_data(
     # is always column 13 — which also removes the old per-role index shift that
     # once left the table stuck on "Processing…" for roles without pricing.
     updated_col = 13
-    stock_type_expr = case((func.coalesce(Device.sub_lot_number, "") != "", 1), else_=0)
     col_map = {1: Device.barcode, 2: Lot.lot_number, 4: Device.brand, 5: Device.model,
-               6: Device.device_type, 7: Device.cpu, 10: Device.grade, 11: stock_type_expr,
+               6: Device.device_type, 7: Device.cpu, 10: Device.grade, 11: stock_type_expr(),
                updated_col: Device.updated_at}
     try:
         order_col = int(request.query_params.get("order[0][column]", updated_col))
@@ -537,6 +564,7 @@ async def device_search_data(
         cells = [
             f'<input type="checkbox" class="form-check-input rowChk" value="{esc(d.barcode)}">',
             (f'<a href="/devices/{esc(d.barcode)}" class="font-monospace fw-bold text-decoration-none">{esc(d.barcode)}</a>'
+             + touch_badge_html(d.touch_type) +
              f'<div><span class="badge bg-light text-dark border">{esc(d.entity) if d.entity else "—"}</span></div>'),
             (f'<a href="/devices?lot={esc(lot_number)}" class="btn btn-sm py-0 px-2 small text-decoration-none" '
              f'style="background-color:#ffffff;border:1px solid #6C757D;color:#6C757D;">{esc(lot_number)}</a>'),
@@ -549,9 +577,10 @@ async def device_search_data(
             esc(d.brand or "—"), esc(d.model or "—"), esc(d.device_type or "—"), esc(d.cpu or "—"),
             esc(ram), esc(storage),
             (f'<span class="badge bg-{gcls}">{esc(g)}</span>' if g else "—"),
-            # Stock Type: "As-Is" when the tag has a sub-lot, else "Finish Good"
-            ('<span class="badge bg-warning text-dark">As-Is</span>' if (d.sub_lot_number or "").strip()
-             else '<span class="badge bg-success">Finish Good</span>'),
+            # Stock Type via _stock_label (same rule the summary's SQL twin uses):
+            # Ready to Sale / Sold -> "As-Is" with a sub-lot else "Finish Good";
+            # every other live stage -> "In Progress".
+            (lambda s: f'<span class="badge bg-{_STOCK_BADGE[s]}">{s}</span>')(_stock_label(d)),
         ]
         cells += [
             f'<span class="badge bg-{_STAGE_BADGE.get(stage_val, "light text-dark")}">{esc(stage_lbl)}</span>',
@@ -573,6 +602,7 @@ async def device_barcodes(
     q: str = "", stage: str = "", lot: str = "", grade: str = "",
     category: str = "", device_type: str = "", date_from: str = "", date_to: str = "",
     employee: str = "", entity: str = "", exclude_sold: str = "", fs: str = "",
+    make: str = "", touch: str = "", stock_type: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(view_allowed),
 ):
@@ -580,10 +610,9 @@ async def device_barcodes(
     every page and the tag-upload bulk-select feature below. Neither can rely
     on DataTables' serverSide rows() API, which only reaches the currently
     rendered page."""
-    page_filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to,
-                                     entity=entity, exclude_sold=_exclude_sold(exclude_sold, fs))
-    if employee:
-        page_filters.append(await _employee_device_id_filter(db, employee))
+    page_filters = await _inventory_filters(db, q, stage, lot, grade, category, device_type, date_from, date_to,
+                                            employee=employee, entity=entity, exclude_sold=exclude_sold, fs=fs,
+                                            make=make, touch=touch, stock_type=stock_type)
     barcodes = (await db.execute(
         select(Device.barcode).join(Lot, Device.lot_id == Lot.id)
         .where(Device.is_trashed == False, *page_filters)
@@ -686,6 +715,9 @@ async def device_search(
     entity: str = "",
     exclude_sold: str = "",
     fs: str = "",
+    make: str = "",
+    touch: str = "",
+    stock_type: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(view_allowed),
 ):
@@ -699,10 +731,9 @@ async def device_search(
     so fetching the full result set here would cost real query time and memory
     for output nothing on the page uses.
     """
-    filters = _device_search_filters(q, stage, lot, grade, category, device_type, date_from, date_to,
-                                     entity=entity, exclude_sold=_exclude_sold(exclude_sold, fs))
-    if employee:
-        filters.append(await _employee_device_id_filter(db, employee))
+    filters = await _inventory_filters(db, q, stage, lot, grade, category, device_type, date_from, date_to,
+                                       employee=employee, entity=entity, exclude_sold=exclude_sold, fs=fs,
+                                       make=make, touch=touch, stock_type=stock_type)
 
     count_query = (
         select(func.count())
@@ -718,8 +749,12 @@ async def device_search(
     lots_result = await db.execute(select(Lot).order_by(Lot.lot_number))
     lots = lots_result.scalars().all()
 
-    model_summary = await _build_model_summary(db, filters)
+    # The Model Based Summary is fed by /devices/model-summary/data (same filters).
     lot_summary = await _build_lot_summary(db, filters)
+    make_options = [b for b in (await db.execute(
+        select(Device.brand).where(Device.is_trashed == False, Device.brand.isnot(None))  # noqa: E712
+        .distinct().order_by(Device.brand)
+    )).scalars().all() if b and b.strip()]
 
     # Per-entity counts over the currently filtered set (not a separate
     # unfiltered query) — the summary strip above the Tag Number table.
@@ -754,13 +789,16 @@ async def device_search(
         "lot_choices": [l.lot_number for l in lots if l.lot_number],
         "q": q, "stage": stage, "lot": lot, "grade": grade, "category": category,
         "device_type": device_type, "employee": employee, "entity": entity,
+        "make": make, "touch": touch, "stock_type": stock_type,
+        "make_options": make_options,
+        "touch_options": [("Touch", "Touch (T)"), ("Non-Touch", "Non-Touch (NT)")],
+        "stock_type_options": STOCK_ORDER,
         "exclude_sold": _exclude_sold(exclude_sold, fs),
         "device_type_options": await master_values(db, "device_type"),
         "employee_options": employee_options, "entity_options": entity_options,
         "stage_options": [(s.value, STAGE_LABELS.get(s, s.value)) for s in DROPDOWN_STAGES],
         "storage_locations": storage_locations,
         "total": total,
-        "model_summary": model_summary,
         "lot_summary": lot_summary,
         "entity_counts": entity_counts,
     })
@@ -937,38 +975,148 @@ async def _build_model_summary(db: AsyncSession, filters: list) -> list:
     return summary
 
 
+async def _build_grouped_summary(db: AsyncSession, filters: list, search_filters=()):
+    """All Inventory Model Based Summary: the Tag table's filtered device set,
+    regrouped by (Make, Model, Device Type, CPU, RAM, Storage).
+
+    `filters` + `search_filters` are the very clauses /devices/data applies, so
+    the summary can only ever describe the tags the Tag table lists. Aggregated
+    in SQL (one row per group x touch x grade x stock x entity) and folded into
+    badge columns in Python (utils/inventory_summary.py); the group-key labels
+    are computed in an inner query so GROUP BY sees plain columns (see the
+    bind-parameter note in _build_model_summary).
+
+    Returns (groups, totals) — totals covers the whole filtered set.
+    """
+    costing = (
+        select(DeviceCosting.device_id.label("device_id"),
+               func.max(DeviceCosting.total_cost).label("total_cost"))
+        .group_by(DeviceCosting.device_id).subquery()
+    )
+    consumed = select(SparePartConsumption.device_id.label("device_id")).distinct().subquery()
+    labels = summary_label_exprs()
+    inner = (
+        select(
+            *[expr.label(name) for name, expr in labels.items()],
+            touch_expr().label("touch"),
+            Device.grade.label("grade"),
+            stock_type_expr().label("stock"),
+            func.coalesce(func.nullif(func.trim(Device.entity), ""), "Unassigned").label("entity"),
+            _device_price_expr(costing).label("price"),
+            case((consumed.c.device_id.isnot(None), 1), else_=0).label("repaired"),
+        )
+        .select_from(Device)
+        .join(Lot, Device.lot_id == Lot.id)
+        .outerjoin(costing, costing.c.device_id == Device.id)
+        .outerjoin(consumed, consumed.c.device_id == Device.id)
+        .where(Device.is_trashed == False, *filters, *search_filters)  # noqa: E712
+    ).subquery()
+    keys = [*labels, "touch", "grade", "stock", "entity"]
+    rows = (await db.execute(
+        select(*[inner.c[k] for k in keys],
+               func.count().label("n"),
+               func.sum(inner.c.price).label("price"),
+               func.sum(inner.c.repaired).label("repaired"))
+        .group_by(*[inner.c[k] for k in keys])
+    )).all()
+    return fold_summary_rows([dict(r._mapping) for r in rows])
+
+
+# Summary table column index -> sort key (badge / action columns do not sort).
+_SUMMARY_SORT_KEYS = {0: "make", 1: "model", 2: "device_type", 3: "cpu", 4: "ram", 5: "storage", 9: "total_count"}
+
+
+@router.get("/model-summary/data")
+async def model_summary_data(
+    request: Request,
+    draw: int = 1, start: int = 0, length: int = 12,
+    q: str = "", stage: str = "", lot: str = "", grade: str = "",
+    category: str = "", device_type: str = "", date_from: str = "", date_to: str = "",
+    employee: str = "", entity: str = "", exclude_sold: str = "", fs: str = "",
+    make: str = "", touch: str = "", stock_type: str = "", tag_search: str = "",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(view_allowed),
+):
+    """DataTables server-side feed for the Model Based Summary.
+
+    Same filters as the Tag table (plus `tag_search`, the Tag table's own search
+    box) and its own search box, matched token-wise against Make / Model / CPU /
+    RAM / Storage. The last row of every response is the Total row for the WHOLE
+    filtered set, not just the page, so it always follows the active filters.
+    """
+    from html import escape
+    from models.role_permissions import can_view_pricing as _cvp
+    import json
+
+    role = getattr(current_user.role, "value", current_user.role)
+    show_pricing = _cvp(role)
+
+    filters = await _inventory_filters(db, q, stage, lot, grade, category, device_type, date_from, date_to,
+                                       employee=employee, entity=entity, exclude_sold=exclude_sold, fs=fs,
+                                       make=make, touch=touch, stock_type=stock_type)
+    extra = [c for c in (_tag_table_search_clause((tag_search or "").strip()),
+                         device_search_clause((request.query_params.get("search[value]") or "").strip()))
+             if c is not None]
+    groups, totals = await _build_grouped_summary(db, filters, extra)
+
+    sort_keys = dict(_SUMMARY_SORT_KEYS)
+    if show_pricing:
+        sort_keys[10] = "total_price"
+    try:
+        order_col = int(request.query_params.get("order[0][column]", 9))
+    except ValueError:
+        order_col = 9
+    sort_key = sort_keys.get(order_col, "total_count")
+    reverse = request.query_params.get("order[0][dir]", "desc") == "desc"
+    groups.sort(key=lambda g: (g[sort_key].lower() if isinstance(g[sort_key], str) else g[sort_key],
+                               g["make"].lower(), g["model"].lower()), reverse=reverse)
+
+    begin = max(0, start)
+    page = groups[begin:] if length <= 0 else groups[begin:begin + length]
+    data = []
+    for g in page:
+        payload = {k: g[k] for k in ("make", "model", "device_type", "cpu", "ram", "storage",
+                                      "grade_counts", "unit_price", "total_price")}
+        actions = (f'<button type="button" class="btn btn-xs btn-outline-primary py-0 px-1 small" title="View" '
+                   f'data-group="{escape(json.dumps(payload), quote=True)}"><i class="bi bi-eye"></i></button>')
+        data.append(group_row_cells(g, show_pricing, actions))
+    if groups:
+        data.append(total_row_cells(totals, show_pricing))
+
+    return {"draw": draw, "recordsTotal": len(groups), "recordsFiltered": len(groups),
+            "data": data, "showPricing": show_pricing,
+            "totals": {k: totals[k] for k in ("total_count", "total_price", "touch_counts", "grade_counts",
+                                              "stock_counts", "entity_counts")}}
+
+
 @router.get("/model-summary/tags")
 async def model_summary_tags(
-    model: str = "",
-    make: str = "",
-    q: str = "",
-    stage: str = "",
-    lot: str = "",
-    grade: str = "",
-    category: str = "",
-    device_type: str = "",
-    date_from: str = "",
-    date_to: str = "",
-    employee: str = "",
-    entity: str = "",
+    g_make: str = "", g_model: str = "", g_device_type: str = "",
+    g_cpu: str = "", g_ram: str = "", g_storage: str = "",
+    q: str = "", stage: str = "", lot: str = "", grade: str = "",
+    category: str = "", device_type: str = "", date_from: str = "", date_to: str = "",
+    employee: str = "", entity: str = "", exclude_sold: str = "", fs: str = "",
+    make: str = "", touch: str = "", stock_type: str = "", tag_search: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(view_allowed),
 ):
     """Per-tag detail for one Model Based row, loaded when the modal opens.
 
-    Takes the same filter parameters as the page so the modal shows the same
-    devices the summary counted. "Unknown Model" / "Unknown Make" match rows
-    whose column is NULL or empty, mirroring how the summary folds them.
+    Takes the same filter parameters as the page (`g_*` carry the row's own
+    group key — they cannot reuse make/device_type, which are page filters) so
+    the modal lists exactly the devices the row counted. Group keys are matched
+    with the same label expressions the summary grouped on.
     """
-    filters = _device_search_filters(q, stage, lot, grade, category, device_type,
-                                     date_from, date_to, entity=entity)
-    if employee:
-        filters.append(await _employee_device_id_filter(db, employee))
-
-    def _match(col, value, unknown_label):
-        if value == unknown_label:
-            return or_(col.is_(None), col == "")
-        return col == value
+    filters = await _inventory_filters(db, q, stage, lot, grade, category, device_type, date_from, date_to,
+                                       employee=employee, entity=entity, exclude_sold=exclude_sold, fs=fs,
+                                       make=make, touch=touch, stock_type=stock_type)
+    tag_clause = _tag_table_search_clause((tag_search or "").strip())
+    if tag_clause is not None:
+        filters.append(tag_clause)
+    labels = summary_label_exprs()
+    group_key = {"make": g_make, "model": g_model, "device_type": g_device_type,
+                 "cpu": g_cpu, "ram": g_ram, "storage": g_storage}
+    group_match = [labels[k] == v for k, v in group_key.items() if v]
 
     rows = (await db.execute(
         select(Device.barcode, Device.grade, StorageLocation.unit_id,
@@ -976,9 +1124,7 @@ async def model_summary_tags(
         .select_from(Device)
         .join(Lot, Device.lot_id == Lot.id)
         .outerjoin(StorageLocation, Device.location_id == StorageLocation.id)
-        .where(Device.is_trashed == False, *filters,
-               _match(Device.model, model, "Unknown Model"),
-               _match(Device.brand, make, "Unknown Make"))
+        .where(Device.is_trashed == False, *filters, *group_match)  # noqa: E712
         .order_by(Device.barcode)
     )).all()
 
@@ -1178,6 +1324,9 @@ async def export_devices(
     date_from: str = "",
     date_to: str = "",
     entity: str = "",
+    make: str = "",
+    touch: str = "",
+    stock_type: str = "",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(view_allowed),
 ):
@@ -1200,7 +1349,8 @@ async def export_devices(
         .outerjoin(Lot, Device.lot_id == Lot.id)
         .where(Device.is_trashed == False,
               *_device_search_filters(q, stage, lot, grade, category, device_type,
-                                      date_from, date_to, entity=entity))
+                                      date_from, date_to, entity=entity,
+                                      make=make, touch=touch, stock_type=stock_type))
         .order_by(Device.updated_at.desc())
     )
     rows = (await db.execute(query)).all()

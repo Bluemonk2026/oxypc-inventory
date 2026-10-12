@@ -20,10 +20,10 @@ import uuid as _uuid
 from datetime import datetime, date as _date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Form, Request, Query
+from fastapi import APIRouter, Depends, File, Form, Request, Query, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, and_
+from sqlalchemy import select, func, or_, and_, case
 
 from database import get_db
 from templates_config import templates
@@ -33,6 +33,7 @@ from models.device import Device, DeviceStage
 from models.location import UnitType, ZoneType, UNIT_TYPE_LABELS, ZONE_LABELS
 from models.block_tags import BlockRecord, BlockRecordItem, BlockItemStatus, BLOCK_ITEM_STATUS_LABELS
 from routers.inventory_location import _zone_dropdown_options
+from utils.csv_decode import decode_csv_bytes
 
 router = APIRouter(prefix="/block-tags", tags=["block-tags"], dependencies=[Depends(verify_csrf)])
 
@@ -94,6 +95,67 @@ def _block_filters(q, block_date, container, block_for, location_zone):
         except ValueError:
             pass
     return w
+
+
+# Header spellings accepted by the Upload (select-by-file) feature, compared
+# after lower-casing and stripping everything but letters/digits, so
+# "block_id" / "Block ID" / "BlockID" all land on "blockid".
+_UPLOAD_BLOCK_HEADERS = ("blockid", "blockno", "blocknumber", "block")
+_UPLOAD_TAG_HEADERS = ("tagnumber", "tagno", "tag", "barcode")
+
+
+def _norm_header(v) -> str:
+    return "".join(ch for ch in str(v or "").lower() if ch.isalnum())
+
+
+def parse_block_tag_upload(filename: str, raw: bytes):
+    """Parse an uploaded CSV/XLSX with (blockid, tag_number) columns.
+
+    Returns (pairs, errors): `pairs` is a de-duplicated list of
+    (block_id, tag_number) strings as typed in the file; `errors` is a list of
+    human-readable problems (missing header, empty cells). Never raises on bad
+    content — a bad file yields ([], [message])."""
+    name = (filename or "").lower()
+    rows: list[list[str]] = []
+    try:
+        if name.endswith((".xlsx", ".xlsm")):
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+            ws = wb.active
+            for r in ws.iter_rows(values_only=True):
+                rows.append(["" if c is None else str(c).strip() for c in r])
+            wb.close()
+        else:
+            import csv
+            text = decode_csv_bytes(raw)
+            first = text.split("\n", 1)[0]
+            delim = max((",", ";", "\t"), key=first.count)
+            rows = [[(c or "").strip() for c in r] for r in csv.reader(io.StringIO(text), delimiter=delim)]
+    except Exception:
+        return [], ["Could not read the file - upload a .csv or .xlsx."]
+
+    rows = [r for r in rows if any(c for c in r)]
+    if not rows:
+        return [], ["The file is empty."]
+    head = [_norm_header(c) for c in rows[0]]
+    bi = next((head.index(h) for h in _UPLOAD_BLOCK_HEADERS if h in head), -1)
+    ti = next((head.index(h) for h in _UPLOAD_TAG_HEADERS if h in head), -1)
+    if bi < 0 or ti < 0:
+        return [], ["File must have 'blockid' (Block ID) and 'tag_number' (Tag Number) column headers."]
+
+    pairs, errors, seen = [], [], set()
+    for n, r in enumerate(rows[1:], start=2):
+        b = r[bi].strip() if bi < len(r) else ""
+        t = r[ti].strip() if ti < len(r) else ""
+        if not b or not t:
+            errors.append(f"Row {n}: blockid or tag_number is empty")
+            continue
+        key = (b.upper(), t.upper())
+        if key in seen:
+            continue
+        seen.add(key)
+        pairs.append((b, t))
+    return pairs, errors
 
 
 async def _release_items(db: AsyncSession, item_ids: list, current_user: User):
@@ -238,6 +300,48 @@ async def block_tags_ids(
     return JSONResponse({"ids": [str(i) for i in ids], "truncated": len(ids) == MAX_SELECT_ALL})
 
 
+@router.post("/upload-select")
+async def upload_select(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_module_perm("block_tags")),
+):
+    """Upload a CSV/XLSX of (blockid, tag_number) pairs and return the ids of
+    the still-blocked rows that match, so the page can add them to its
+    cross-page selection set (selectedBlockIds) and enable the bulk actions.
+    Read-only: selects nothing server-side, changes nothing. Matching is
+    case-insensitive on both columns; pairs that match no still-blocked row
+    are listed in `not_found`."""
+    raw = await file.read()
+    pairs, errors = parse_block_tag_upload(file.filename, raw)
+    if not pairs:
+        return JSONResponse({"ok": False, "error": (errors[0] if errors else "No rows found in file."),
+                             "errors": errors}, status_code=400)
+
+    rows = (await db.execute(
+        select(BlockRecordItem.id, BlockRecord.block_id, BlockRecordItem.barcode)
+        .join(BlockRecord, BlockRecordItem.block_record_id == BlockRecord.id)
+        .where(
+            BlockRecordItem.status == BlockItemStatus.blocked,
+            func.upper(BlockRecord.block_id).in_({b.upper() for b, _ in pairs}),
+            func.upper(BlockRecordItem.barcode).in_({t.upper() for _, t in pairs}),
+        )
+    )).all()
+    by_pair = {}
+    for item_id, block_id, barcode in rows:
+        by_pair.setdefault(((block_id or "").upper(), (barcode or "").upper()), []).append(str(item_id))
+
+    ids, not_found = [], []
+    for b, t in pairs:
+        hit = by_pair.get((b.upper(), t.upper()))
+        if hit:
+            ids.extend(hit)
+        else:
+            not_found.append(f"{b} / {t}")
+    return JSONResponse({"ok": True, "ids": ids, "matched": len(pairs) - len(not_found),
+                         "total": len(pairs), "not_found": not_found, "errors": errors})
+
+
 # ── New Block Tags modal: tag search + create ────────────────────────────────
 
 @router.get("/search-tags")
@@ -257,7 +361,11 @@ async def search_tags(
             Device.is_trashed == False,
             Device.is_blocked == False,
             or_(Device.barcode.ilike(like), Device.model.ilike(like), Device.brand.ilike(like)),
-        ).limit(50)
+        )
+        # Exact tag first so a scan of "T1" is never crowded out of the 50-row
+        # cap by T10, T11... - the modal auto-selects on an exact match.
+        .order_by(case((func.upper(Device.barcode) == q.strip().upper(), 0), else_=1), Device.barcode)
+        .limit(50)
     )).scalars().all()
     return JSONResponse({"data": [{
         "id": str(d.id), "barcode": d.barcode, "model": f"{d.brand or ''} {d.model or ''}".strip(),

@@ -63,7 +63,10 @@ def test_unchecking_a_pass_box_unchecks_all_pass(app_client, make_user):  # noqa
     html = app_client.get("/qc", follow_redirects=True).text
 
     fn = html.split("function onCheckChanged(slug, which) {", 1)[1].split("\n}", 1)[0]
-    assert "if (!pass.checked) document.getElementById('allPassCheck').checked = false;" in fn
+    # "All Pass" is re-derived from the row boxes (N/A items are skipped), so an
+    # unchecked Pass box always unchecks it.
+    assert "syncAllPass();" in fn
+    assert "function syncAllPass()" in html
 
 
 def test_pass_and_fail_are_mutually_exclusive_per_item(app_client, make_user):  # noqa: F811
@@ -72,5 +75,6 @@ def test_pass_and_fail_are_mutually_exclusive_per_item(app_client, make_user):  
     html = app_client.get("/qc", follow_redirects=True).text
 
     fn = html.split("function onCheckChanged(slug, which) {", 1)[1].split("\n}", 1)[0]
-    assert "if (which === 'pass' && pass.checked) fail.checked = false;" in fn
-    assert "if (which === 'fail' && fail.checked) pass.checked = false;" in fn
+    # Pass / Fail / N/A are one mutually-exclusive set per line item.
+    assert "if (boxes[which].checked)" in fn
+    assert "if (b && k !== which) b.checked = false;" in fn

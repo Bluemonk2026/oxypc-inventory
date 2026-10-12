@@ -26,9 +26,11 @@ from auth.dependencies import get_current_user, require_roles, verify_csrf, requ
 from models.work_order import WorkOrder
 from models.role_permissions import has_perm, is_narrowly_scoped_to
 from models.cosmetic_flow import CosmeticFlowRow
+from models.stress import StressTestResult
 from models.cost_config import CostConfig
 from models.master import EXTERNAL_PARTNER_TEST_ENTITY
 from utils.master_data import entity_values
+from utils.touch_type import normalize_touch
 from utils.attendance_groups import is_group_manager, managed_usernames
 from routers.transfers import _gen_work_id
 from routers.buckets import _apply_department_move
@@ -734,8 +736,22 @@ async def cosmetic_stage_list(stage_name: str, request: Request, db: AsyncSessio
             for did, name, _ in l1l2_rows.all():
                 l1l2_engineer_map.setdefault(str(did), name)
 
+        # ── Tags that already have a Stress/QC report on file — drives the
+        # "Export report" button next to each Tag Number (disabled when none).
+        stress_report_map: dict[str, int] = {}
+        if devices:
+            sr_rows = await db.execute(
+                select(StressTestResult.barcode, func.max(StressTestResult.id))
+                .where(StressTestResult.barcode.in_([d.barcode for d, _ in devices]))
+                .group_by(StressTestResult.barcode)
+            )
+            stress_report_map = {bc: rid for bc, rid in sr_rows.all()}
+
         return templates.TemplateResponse("cosmetic/final_qc.html", {
             "request": request, "current_user": current_user,
+            "stress_report_map": stress_report_map,
+            # Pre-selects the Touch Type radio (NULL -> Non-Touch default).
+            "touch_type_map": {str(d.id): normalize_touch(d.touch_type) for d, _ in devices},
             "stage": stage, "stage_label": STAGE_LABELS[stage],
             "devices": devices, "iqc_map": iqc_map, "repairs_map": repairs_map,
             "parts_map": parts_map, "price_map": price_map,
@@ -854,6 +870,7 @@ async def advance_stage(
     updated_generation: str = Form(""),
     updated_ram: str = Form(""),
     updated_hdd: str = Form(""),
+    touch_type: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(allowed),
 ):
@@ -939,6 +956,10 @@ async def advance_stage(
         if updated_cpu: device.cpu = updated_cpu
         if updated_generation: device.generation = updated_generation
         if warehouse: device.warehouse = warehouse
+        # Touch Type radio on the Final QC form (Touch / Non-Touch). Blank =
+        # field not posted (old client) -> leave the stored value alone.
+        if touch_type.strip():
+            device.touch_type = normalize_touch(touch_type)
         # Case-insensitive: master data stores "Fail"/"Pass" (title case), so an exact
         # == "fail" match silently treats every Fail as a Pass in production.
         _is_fail = final_qc_status.strip().lower() == "fail"

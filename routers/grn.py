@@ -95,27 +95,282 @@ async def _as_is_lot_map(db: AsyncSession, grns) -> dict:
     return result
 
 
+# ── Shared GRN table helpers: scope, Date of Invoice range, GRN sheet export ───
+# Used by GRN with Invoice (/grn), GRN post IQC (/grn/post-iqc) and the
+# Manage Lots "GRN & Lot" tab (routers/partner_admin.py) so the three tables
+# filter and export identically.
+
+GRN_SOURCE_LABELS = {
+    "invoice": "GRN with Invoice",
+    "post_iqc": "GRN post IQC",
+    "test": "Partner Test GRN",
+}
+
+
+def _grn_scope_filters(source: str) -> list:
+    """WHERE predicates for the GRN rows a page lists. NULL-safe: `source != X`
+    alone is SQL NULL (not TRUE) for a legacy NULL source, which would silently
+    drop those rows, so each exclusion is paired with `.is_(None)` — a NULL
+    source counts as an invoice GRN."""
+    if source == "post_iqc":
+        src = [GRNImport.source == "post_iqc"]
+    elif source == "test":
+        src = [GRNImport.source == EXTERNAL_PARTNER_TEST_GRN_SOURCE]
+    else:
+        src = [or_(GRNImport.source != "post_iqc", GRNImport.source.is_(None)),
+               or_(GRNImport.source != EXTERNAL_PARTNER_TEST_GRN_SOURCE, GRNImport.source.is_(None))]
+    return src + [GRNImport.is_deleted == False]  # noqa: E712
+
+
+# GRNImport.invoice_date is free text (parsed from a PDF or typed), so it has to
+# be parsed in Python rather than compared in SQL.
+_INVOICE_DATE_FORMATS = ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d",
+                         "%d.%m.%Y", "%d-%b-%Y", "%d %b %Y", "%d %B %Y", "%b %d, %Y",
+                         "%B %d, %Y", "%d-%b-%y", "%d/%m/%y")
+
+
+def parse_invoice_date(value):
+    """Free-text Date of Invoice -> datetime.date, or None if unparseable."""
+    s = (str(value) if value is not None else "").strip()
+    if not s:
+        return None
+    for fmt in _INVOICE_DATE_FORMATS:
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def filter_grns_by_invoice_date(grns, date_from: str = "", date_to: str = ""):
+    """Keep GRNs whose Date of Invoice falls in [date_from, date_to] (inclusive,
+    'YYYY-MM-DD'). A blank/invalid bound is ignored; with no valid bound the list
+    is returned untouched. While a range is active, a GRN whose invoice date is
+    missing/unparseable is excluded (it cannot be shown to be inside the range)."""
+    def _bound(s):
+        try:
+            return datetime.strptime((s or "").strip(), "%Y-%m-%d").date()
+        except ValueError:
+            return None
+    start, end = _bound(date_from), _bound(date_to)
+    if start is None and end is None:
+        return list(grns)
+    kept = []
+    for g in grns:
+        d = parse_invoice_date(g.invoice_date)
+        if d is None or (start and d < start) or (end and d > end):
+            continue
+        kept.append(g)
+    return kept
+
+
+async def _lots_by_grn(db: AsyncSession, grns) -> dict:
+    """{grn_number: [Lot, ...]} — every Lot whose grn_system_number points at the
+    GRN, plus the legacy GRNImport.lot_id link for rows never backfilled."""
+    numbers = [g.grn_number for g in grns if g.grn_number]
+    result: dict = {}
+    seen = set()
+    if numbers:
+        for l in (await db.execute(
+                select(Lot).where(Lot.grn_system_number.in_(numbers)).order_by(Lot.lot_number)
+        )).scalars().all():
+            result.setdefault(l.grn_system_number, []).append(l)
+            seen.add(l.id)
+    missing = {g.lot_id for g in grns if g.lot_id} - seen
+    if missing:
+        by_id = {l.id: l for l in (await db.execute(select(Lot).where(Lot.id.in_(missing)))).scalars().all()}
+        for g in grns:
+            if g.lot_id in by_id:
+                result.setdefault(g.grn_number, []).append(by_id[g.lot_id])
+    return result
+
+
+# One entry per exported column: (header, getter(grn, lot_or_None, ctx)).
+# ctx = {"stocked": {...}, "as_is": {...}, "lot_devices": {...}}. Every
+# meaningful GRNImport column and every Lot column is here — the sheet is one
+# row per GRN x mapped Lot (a GRN with no Lot gets a single row with the Lot
+# columns blank), so GRN-level figures repeat on each of a GRN's Lot rows.
+def _fnum(v):
+    return float(v) if v is not None else None
+
+
+def _fdt(v, fmt="%Y-%m-%d %H:%M"):
+    return v.strftime(fmt) if v else None
+
+
+def _fdate(v):
+    return _fdt(v, "%Y-%m-%d")
+
+
+def _inv_date_cell(g):
+    d = parse_invoice_date(g.invoice_date)
+    return d.strftime("%Y-%m-%d") if d else (g.invoice_date or None)
+
+
+GRN_EXPORT_COLUMNS = [
+    # ── GRN ──
+    ("GRN Number", lambda g, l, c: g.grn_number),
+    ("GRN Source", lambda g, l, c: GRN_SOURCE_LABELS.get(
+        "post_iqc" if g.source == "post_iqc"
+        else "test" if g.source == EXTERNAL_PARTNER_TEST_GRN_SOURCE else "invoice")),
+    ("Invoice Number", lambda g, l, c: g.invoice_number),
+    ("Date of Invoice", lambda g, l, c: _inv_date_cell(g)),
+    ("Vendor Name", lambda g, l, c: g.sender_name),
+    ("Invoice Quantity", lambda g, l, c: g.quantity),
+    ("Invoice Price (Amount)", lambda g, l, c: _fnum(g.amount)),
+    ("Stocked (Tags Mapped)", lambda g, l, c: c["stocked"].get(g.grn_number, 0)),
+    ("As-Is Sub-Lot", lambda g, l, c: c["as_is"].get(g.grn_number)),
+    ("Purchase Date", lambda g, l, c: _fdate(g.purchase_date)),
+    ("GRN Date", lambda g, l, c: _fdate(g.grn_date)),
+    ("PO Number", lambda g, l, c: g.po_number),
+    ("Vehicle Number", lambda g, l, c: g.vehicle_number),
+    ("E-Way Bill", lambda g, l, c: g.e_way_bill),
+    ("GRN Notes", lambda g, l, c: g.notes),
+    ("Validated", lambda g, l, c: "Yes" if g.validated else "No"),
+    ("Received Qty", lambda g, l, c: g.received_qty),
+    ("Validation Ref", lambda g, l, c: g.validation_ref),
+    ("Validation Notes", lambda g, l, c: g.validation_notes),
+    ("Invoice File", lambda g, l, c: g.file_name),
+    ("Received By (Created By)", lambda g, l, c: g.created_by),
+    ("GRN Created At", lambda g, l, c: _fdt(g.created_at)),
+    # ── Lot ──
+    ("Lot Number", lambda g, l, c: l.lot_number if l else (g.lot_number or None)),
+    ("Lot Supplier", lambda g, l, c: l.supplier_name if l else None),
+    ("Lot Vendor (PO)", lambda g, l, c: l.vendor_name if l else None),
+    ("Lot GRN System Number", lambda g, l, c: l.grn_system_number if l else None),
+    ("Lot GRN Date", lambda g, l, c: _fdate(l.grn_date) if l else None),
+    ("Lot Invoice No", lambda g, l, c: l.invoice_no if l else None),
+    ("Lot Invoice Date", lambda g, l, c: _fdate(l.invoice_date) if l else None),
+    ("Lot Invoice Value", lambda g, l, c: _fnum(l.invoice_value) if l else None),
+    ("Lot Taxable Amount", lambda g, l, c: _fnum(l.taxable_amount) if l else None),
+    ("SGST", lambda g, l, c: _fnum(l.sgst) if l else None),
+    ("CGST", lambda g, l, c: _fnum(l.cgst) if l else None),
+    ("IGST", lambda g, l, c: _fnum(l.igst) if l else None),
+    ("Lot Vehicle Number", lambda g, l, c: l.vehicle_number if l else None),
+    ("Lot E-Way Bill", lambda g, l, c: l.e_way_bill if l else None),
+    ("Lot PO Number", lambda g, l, c: l.po_number if l else None),
+    ("Lot Buying Price", lambda g, l, c: _fnum(l.buying_price) if l else None),
+    ("Lot Selling Price", lambda g, l, c: _fnum(l.selling_price) if l else None),
+    ("Lot Qty", lambda g, l, c: l.qty if l else None),
+    ("Lot Mapped Devices", lambda g, l, c: c["lot_devices"].get(l.id, 0) if l else None),
+    ("Lot Purchase Date", lambda g, l, c: _fdate(l.purchase_date) if l else None),
+    ("Lot Condition", lambda g, l, c: l.condition if l else None),
+    ("Lot Restricted", lambda g, l, c: ("Yes" if l.is_restricted else "No") if l else None),
+    ("Lot Notes", lambda g, l, c: l.notes if l else None),
+    ("Lot Created By", lambda g, l, c: l.created_by if l else None),
+    ("Lot Created At", lambda g, l, c: _fdt(l.created_at) if l else None),
+]
+
+
+async def build_grn_export(db: AsyncSession, source: str, ids: str = "",
+                           date_from: str = "", date_to: str = "", fmt: str = "xlsx"):
+    """GRN sheet (xlsx, or csv with fmt='csv') for one GRN table.
+
+    `ids` (comma-separated GRN UUIDs) = the user's selection; when blank the
+    sheet covers every GRN of `source` inside the Date of Invoice range — i.e.
+    exactly what the page lists under its current server-side filter."""
+    import csv
+    import io
+    import uuid as _u
+    from fastapi.responses import StreamingResponse
+
+    q = select(GRNImport).where(*_grn_scope_filters(source))
+    if (ids or "").strip():
+        sel = []
+        for s in ids.split(","):
+            try:
+                sel.append(_u.UUID(s.strip()))
+            except ValueError:
+                pass
+        q = q.where(GRNImport.id.in_(sel))
+    grns = (await db.execute(q.order_by(GRNImport.created_at.desc()))).scalars().all()
+    grns = filter_grns_by_invoice_date(grns, date_from, date_to)
+
+    lots = await _lots_by_grn(db, grns)
+    lot_ids = [l.id for ls in lots.values() for l in ls]
+    lot_devices = {}
+    if lot_ids:
+        lot_devices = dict((await db.execute(
+            select(Device.lot_id, func.count(Device.id))
+            .where(Device.lot_id.in_(lot_ids), Device.is_active == True, Device.is_trashed == False)  # noqa: E712
+            .group_by(Device.lot_id)
+        )).all())
+    ctx = {"stocked": await _stocked_map(db, grns), "as_is": await _as_is_lot_map(db, grns),
+           "lot_devices": lot_devices}
+
+    headers = [h for h, _ in GRN_EXPORT_COLUMNS]
+    data = []
+    for g in grns:
+        for l in (lots.get(g.grn_number) or [None]):
+            data.append([fn(g, l, ctx) for _, fn in GRN_EXPORT_COLUMNS])
+
+    stamp = app_now().strftime("%Y%m%d_%H%M")
+    if fmt == "csv":
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(headers)
+        w.writerows([["" if v is None else v for v in r] for r in data])
+        return StreamingResponse(
+            io.BytesIO(buf.getvalue().encode("utf-8-sig")), media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=grn_sheet_{stamp}.csv"})
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "GRN Sheet"
+    ws.append(headers)
+    for c in ws[1]:
+        c.font = Font(bold=True)
+    for r in data:
+        ws.append(r)
+    ws.freeze_panes = "B2"
+    for i, h in enumerate(headers, start=1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = max(14, min(len(h) + 4, 32))
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return StreamingResponse(
+        out, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=grn_sheet_{stamp}.xlsx"})
+
+
+@router.post("/export")
+async def grn_export(
+    source: str = Form("invoice"), ids: str = Form(""),
+    date_from: str = Form(""), date_to: str = Form(""), fmt: str = Form("xlsx"),
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(allowed),
+):
+    """Export GRN sheet — selected GRNs (ids), else all GRNs of `source` in the
+    Date of Invoice range. POST so a long selection never hits a URL limit."""
+    if source not in GRN_SOURCE_LABELS:
+        source = "invoice"
+    return await build_grn_export(db, source, ids, date_from, date_to, fmt)
+
+
 # ── GRN invoice import (the GRN nav page) ──────────────────────────────────────
 
 @router.get("", response_class=HTMLResponse)
 async def grn_import_list(request: Request, db: AsyncSession = Depends(get_db),
                           current_user: User = Depends(allowed),
-                          error: str = "", success: str = ""):
+                          error: str = "", success: str = "",
+                          date_from: str = "", date_to: str = ""):
     # GRN with Invoice page → invoice-source GRNs only (legacy NULL treated as
     # invoice). NULL-safe throughout: `source != X` alone evaluates to SQL
     # NULL (not TRUE) for a NULL source, which would silently drop those
     # legacy rows — each exclusion is paired with `.is_(None)` so a NULL
     # source is always treated as "not that value" rather than "unknown".
     rows = (await db.execute(
-        select(GRNImport)
-        .where(or_(GRNImport.source != "post_iqc", GRNImport.source.is_(None)),
-               or_(GRNImport.source != EXTERNAL_PARTNER_TEST_GRN_SOURCE, GRNImport.source.is_(None)),
-               GRNImport.is_deleted == False)
+        select(GRNImport).where(*_grn_scope_filters("invoice"))
         .order_by(GRNImport.created_at.desc())
     )).scalars().all()
+    # Date of Invoice range — applied here (server-side), not by a DataTables
+    # predicate, so the table and the Export GRN sheet agree on the same rows.
+    rows = filter_grns_by_invoice_date(rows, date_from, date_to)
     return templates.TemplateResponse("grn/import.html", {
         "request": request, "grns": rows, "current_user": current_user,
         "stocked": await _stocked_map(db, rows),
+        "date_from": date_from, "date_to": date_to,
         "error": error, "success": success,
     })
 
@@ -211,12 +466,14 @@ async def grn_post_iqc_data(
 @router.get("/post-iqc", response_class=HTMLResponse)
 async def grn_post_iqc(request: Request, db: AsyncSession = Depends(get_db),
                        current_user: User = Depends(allowed),
-                       error: str = "", success: str = "", highlight_tag: str = ""):
+                       error: str = "", success: str = "", highlight_tag: str = "",
+                       date_from: str = "", date_to: str = ""):
     grns = (await db.execute(
-        select(GRNImport).where(GRNImport.source == "post_iqc",
-                                GRNImport.is_deleted == False)
+        select(GRNImport).where(*_grn_scope_filters("post_iqc"))
         .order_by(GRNImport.created_at.desc())
     )).scalars().all()
+    # Date of Invoice range, applied server-side (same rows feed Export GRN).
+    grns = filter_grns_by_invoice_date(grns, date_from, date_to)
     # Pending = devices currently in IQC stage whose GRN field is still empty.
     # Rows for that table now come from /grn/post-iqc/data (DataTables
     # server-side) — only the count is needed here, for the header badge.
@@ -270,6 +527,7 @@ async def grn_post_iqc(request: Request, db: AsyncSession = Depends(get_db),
         "all_users": all_users,
         "current_user": current_user, "error": error, "success": success,
         "highlight_tag": highlight_tag,
+        "date_from": date_from, "date_to": date_to,
         "device_type_options": ["Laptop", "Desktop", "AIO", "Workstation", "Mini PC", "Server", "Tablet"],
         "lots_by_grn": lots_by_grn,
         "lots_json": lots_json,

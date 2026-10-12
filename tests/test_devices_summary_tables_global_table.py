@@ -30,18 +30,17 @@ def test_model_summary_table_uses_global_table():
     assert 'id="modelSearchBox"' not in src  # replaced by the module's own search box
 
 
-def test_model_summary_search_is_still_scoped_to_model_names_column():
-    # NOT targets:'_all' + a same-key override on targets:0 — DataTables
-    # resolves '_all' columnDefs last regardless of array position, so that
-    # pair silently leaves column 0 unsearchable too (found live 2026-09-03:
-    # searching "HP" against Model Make matched despite the "override").
-    # Listing the actual not-column-0 indices sidesteps the issue.
+def test_model_summary_search_is_server_side_and_covers_make_model_cpu_ram_storage():
+    # 2026-10-12: the Model Based Summary moved to a server-side feed
+    # (/devices/model-summary/data). Its search box is no longer a client-side
+    # Model-Names-only filter: the server matches Make / Model / CPU / RAM /
+    # Storage tokens (see tests/test_all_inventory_search_and_model_summary.py).
     src = _read()
-    block = src[src.index("initGlobalTable('#modelSummaryTable'"):][:700]
-    assert "_all" not in block
-    assert "MODEL_NOT_SEARCHABLE_COLS" in block
-    assert "[1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]" in src
-    assert "Search Model Names…" in src  # placeholder preserved on the relocated box
+    block = src[src.index("initGlobalTable('#modelSummaryTable'"):][:900]
+    assert "serverSide: true" in block
+    assert "/devices/model-summary/data" in block
+    assert "MODEL_NOT_SEARCHABLE_COLS" not in src
+    assert "Search make, model, CPU, RAM, storage" in src
 
 
 def test_lot_summary_table_uses_global_table():

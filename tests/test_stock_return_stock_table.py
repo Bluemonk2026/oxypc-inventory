@@ -265,9 +265,9 @@ asyncio.run(main())
         # Sale unconditionally) with the "Customer Return" label under Tag
         # Number, since a Return row now exists for this device.
         gp = app_client.get("/gate-pass/data?length=500", follow_redirects=True).json()
-        matching = [row for row in gp["data"] if barcode in row[1]]
+        matching = [row for row in gp["data"] if barcode in row[4]]
         assert matching, "re-sold tag did not surface on /gate-pass"
-        assert any("Customer Return" in row[1] for row in matching)
+        assert any("Customer Return" in row[4] for row in matching)
     finally:
         _cleanup_device(barcode)
 

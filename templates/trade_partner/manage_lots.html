@@ -66,9 +66,32 @@
       <input type="text" id="grnLotSearchInput" class="form-control form-control-sm"
              placeholder="Search GRN or Lot Number...">
     </div>
-    <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addGrnModal">
-      <i class="bi bi-plus-circle me-1"></i>Add GRN
-    </button>
+    <div class="d-flex align-items-end gap-2 flex-wrap">
+      <div>
+        <label class="form-label small fw-semibold mb-0">Date of Invoice — From</label>
+        <input type="date" id="grnFrom" class="form-control form-control-sm" value="{{ date_from or '' }}">
+      </div>
+      <div>
+        <label class="form-label small fw-semibold mb-0">Date of Invoice — To</label>
+        <input type="date" id="grnTo" class="form-control form-control-sm" value="{{ date_to or '' }}">
+      </div>
+      {% if date_from or date_to %}
+      <a href="/trade-partner/manage-lots" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x-circle me-1"></i>Clear</a>
+      {% endif %}
+      {# Ticked rows if any, otherwise every row the search + date range leave. #}
+      <button type="button" id="exportGrnBtn" class="btn btn-outline-success btn-sm">
+        <i class="bi bi-file-earmark-excel me-1"></i>Export GRN
+      </button>
+      <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addGrnModal">
+        <i class="bi bi-plus-circle me-1"></i>Add GRN
+      </button>
+    </div>
+    <form id="exportGrnForm" action="/trade-partner/manage-lots/export-grn" method="post" style="display:none">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="ids" id="exportGrnIds">
+      <input type="hidden" name="date_from" value="{{ date_from or '' }}">
+      <input type="hidden" name="date_to" value="{{ date_to or '' }}">
+    </form>
   </div>
 
   <div class="card border-0 shadow-sm">
@@ -78,7 +101,8 @@
         <table id="grnLotTable" class="table table-hover mb-0 small align-middle">
           <thead class="table-dark">
             <tr>
-              <th class="ps-3">GRN</th><th>Lot Number(s)</th><th>Invoice Number</th>
+              <th class="ps-3" style="width:36px"><input type="checkbox" id="grnSelectAll" class="form-check-input" title="Select all visible rows"></th>
+              <th>GRN</th><th>Lot Number(s)</th><th>Invoice Number</th><th>Date of Invoice</th>
               <th>Vendor Name</th><th>Quantity</th><th>Stocked</th><th>Amount</th><th style="width:230px">Action</th>
             </tr>
           </thead>
@@ -87,7 +111,8 @@
             {% set _lots = lots_by_grn.get(g.grn_number, []) %}
             <tr id="grn-{{ g.grn_number }}"
                 data-search="{{ (g.grn_number ~ ' ' ~ (_lots | map(attribute='lot_number') | join(' '))) | lower }}">
-              <td class="ps-3"><span class="font-monospace fw-bold">{{ g.grn_number }}</span></td>
+              <td class="ps-3"><input type="checkbox" class="form-check-input grn-row-chk" value="{{ g.id }}"></td>
+              <td><span class="font-monospace fw-bold">{{ g.grn_number }}</span></td>
               <td>
                 {% if _lots %}
                 <button type="button" class="btn btn-sm btn-link p-0 fw-semibold text-decoration-none lot-count-btn"
@@ -97,6 +122,7 @@
                 {% else %}<span class="text-muted">—</span>{% endif %}
               </td>
               <td>{{ g.invoice_number or '—' }}</td>
+              <td>{{ g.invoice_date or '—' }}</td>
               <td>{{ g.sender_name or '—' }}</td>
               <td>{{ g.quantity if g.quantity is not none else '—' }}</td>
               {% set _st = stocked.get(g.grn_number, 0) %}
@@ -135,9 +161,9 @@
               </td>
             </tr>
             {% else %}
-            <tr><td colspan="8" class="text-center text-muted py-4">
-              No test GRNs yet. Click <strong>Add GRN</strong> to start, then use
-              <strong>Add Lot</strong> with a Lot Number starting <code>{{ test_lot_prefix }}</code>.
+            <tr><td colspan="10" class="text-center text-muted py-4">
+              {% if date_from or date_to %}No test GRNs with a Date of Invoice in this range.{% else %}No test GRNs yet. Click <strong>Add GRN</strong> to start, then use
+              <strong>Add Lot</strong> with a Lot Number starting <code>{{ test_lot_prefix }}</code>.{% endif %}
             </td></tr>
             {% endfor %}
           </tbody>
@@ -682,6 +708,46 @@ if (grnLotSearch) {
     document.querySelectorAll('#grnLotTable tbody tr[data-search]').forEach(function(tr){
       tr.style.display = (!q || tr.getAttribute('data-search').indexOf(q) !== -1) ? '' : 'none';
     });
+  });
+}
+
+// GRN & Lot tab — Date of Invoice range is server-side: changing either date
+// reloads with ?date_from/&date_to (the Export GRN sheet uses the same range).
+function grnApplyDateRange() {
+  var p = new URLSearchParams();
+  var f = document.getElementById('grnFrom').value, t = document.getElementById('grnTo').value;
+  if (f) p.set('date_from', f);
+  if (t) p.set('date_to', t);
+  window.location.href = window.location.pathname + (p.toString() ? '?' + p.toString() : '');
+}
+['grnFrom', 'grnTo'].forEach(function(id){
+  var el = document.getElementById(id);
+  if (el) el.addEventListener('change', grnApplyDateRange);
+});
+
+// GRN & Lot tab — select-all (visible rows only, i.e. not hidden by the search box)
+// + Export GRN: ticked rows if any, otherwise every row the search/date range leave.
+function grnVisibleChks() {
+  return Array.prototype.filter.call(
+    document.querySelectorAll('#grnLotTable tbody tr[data-search]'),
+    function(tr){ return tr.style.display !== 'none'; }
+  ).map(function(tr){ return tr.querySelector('.grn-row-chk'); });
+}
+var grnSelectAll = document.getElementById('grnSelectAll');
+if (grnSelectAll) {
+  grnSelectAll.addEventListener('change', function(){
+    grnVisibleChks().forEach(function(c){ c.checked = grnSelectAll.checked; });
+  });
+}
+var grnExportBtn = document.getElementById('exportGrnBtn');
+if (grnExportBtn) {
+  grnExportBtn.addEventListener('click', function(){
+    var ids = Array.prototype.map.call(
+      document.querySelectorAll('#grnLotTable .grn-row-chk:checked'), function(c){ return c.value; });
+    if (!ids.length) ids = grnVisibleChks().map(function(c){ return c.value; });
+    if (!ids.length) { alert('No GRN rows to export.'); return; }
+    document.getElementById('exportGrnIds').value = ids.join(',');
+    document.getElementById('exportGrnForm').submit();
   });
 }
 

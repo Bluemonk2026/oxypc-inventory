@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from utils.timezone import app_now, app_today
+from utils.touch_type import touch_badge_html
 from decimal import Decimal
 from fastapi import APIRouter, Depends, Form, File, Request, HTTPException, Query, BackgroundTasks, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
@@ -253,7 +254,11 @@ async def ready_list_data(
         cells = [
             (f'<input type="checkbox" class="form-check-input readyChk" value="{esc(d.barcode)}" '
              f'data-serial="{esc(d.serial_no or "")}">'),
+            # Touch Type badge (T / NT, default NT) sits right after the barcode in
+            # the same cell; the barcode itself stays in the <code> and in the
+            # checkbox value, which is what the tag-scan JS reads.
             (f'<a href="/devices/{esc(d.barcode)}" class="text-decoration-none"><code class="fw-bold">{esc(d.barcode)}</code></a>'
+             + touch_badge_html(d.touch_type)
              + (f'<br><span class="badge bg-info text-dark">{esc(d.entity)}</span>' if d.entity else '')),
             (f'<a href="/devices?lot={esc(lot_number)}" class="btn btn-sm py-0 px-2 small text-decoration-none" '
              f'style="background-color:#ffffff;border:1px solid #6C757D;color:#6C757D;">{esc(lot_number)}</a>'),
@@ -329,7 +334,11 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
     # ── Model Summary for Ready to Sale: one row per (model, brand), aggregated
     # purchase/sale price using the same per-device-else-lot-average logic as
     # the main table's Unit Cost column. ──────────────────────────────────────
+    # Two summaries: plain Ready to Sale tags, and As-Is sub-lot tags (the As-Is
+    # Model Summary tab). Same per-model rows, split on whether the device is
+    # locked into an As-Is sub-lot, so each summary agrees with its own tag table.
     model_summary_ready: dict = {}
+    model_summary_as_is: dict = {}
     for device, lot_number, buying_price, lot_qty, selling_price in devices:
         if device.device_price:
             unit_cost = float(device.device_price)
@@ -339,21 +348,27 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
             unit_cost = 0.0
         unit_sale = (float(selling_price) / lot_qty) if (selling_price and lot_qty) else 0.0
         key = (device.model or "Unknown Model", device.brand or "Unknown Make")
-        g = model_summary_ready.setdefault(key, {
+        bucket = model_summary_as_is if device.sub_lot_number else model_summary_ready
+        g = bucket.setdefault(key, {
             "model": key[0], "make": key[1], "device_type": device.device_type or "—",
             "total_count": 0, "total_purchase_price": 0.0, "total_sale_price": 0.0,
-            "barcodes": [],
+            "barcodes": [], "sub_lots": set(),
         })
+        if device.sub_lot_number:
+            g["sub_lots"].add((device.lot_id, device.sub_lot_number))
         g["total_count"] += 1
         g["total_purchase_price"] += unit_cost
         g["total_sale_price"] += unit_sale
         g["barcodes"].append(device.barcode)
     model_summary_ready = sorted(model_summary_ready.values(), key=lambda g: g["total_count"], reverse=True)
+    model_summary_as_is = sorted(model_summary_as_is.values(), key=lambda g: g["total_count"], reverse=True)
+    for g in model_summary_ready + model_summary_as_is:
+        g["sub_lot_count"] = len(g.pop("sub_lots"))
 
     # ── Total Count Sold (item 2): historical sales count for this model/make,
     # regardless of current stage — lets the telecaller see how well a model sells. ──
     sold_count_by_model = {}
-    if model_summary_ready:
+    if model_summary_ready or model_summary_as_is:
         sold_rows = (await db.execute(
             select(Device.model, Device.brand, func.count(Sale.id))
             .join(Sale, Sale.device_id == Device.id)
@@ -361,7 +376,7 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
         )).all()
         for model, brand, cnt in sold_rows:
             sold_count_by_model[(model or "Unknown Model", brand or "Unknown Make")] = cnt
-    for g in model_summary_ready:
+    for g in model_summary_ready + model_summary_as_is:
         g["total_sold"] = sold_count_by_model.get((g["model"], g["make"]), 0)
 
     # Dispatch-request state (approved/requested/rejected) and warranty used to
@@ -510,6 +525,7 @@ async def ready_list(request: Request, db: AsyncSession = Depends(get_db),
         "request": request, "devices": devices, "current_user": current_user,
         "interested_dealers": interested_dealers,
         "model_summary_ready": model_summary_ready,
+        "model_summary_as_is": model_summary_as_is,
         "as_is_lots": as_is_lots,
     })
 
@@ -1524,6 +1540,7 @@ def _sales_search_filter(search: str):
         Device.model.ilike(like), Sale.sale_number.ilike(like),
         Sale.customer_name.ilike(like), Sale.sales_person.ilike(like),
         Sale.sold_by.ilike(like), Lot.lot_number.ilike(like),
+        Sale.invoice_no.ilike(like),
     )]
 
 
@@ -1595,17 +1612,17 @@ async def sales_list_data(
 
     # Sorting. Only columns with a real SQL expression are sortable; anything
     # else falls back to sale date so an unmapped index cannot 500 the table.
-    # Column 7 is Stock Type (after Grade), so every column after it sits one
-    # place later than before: with pricing (Cost/Unit, Price, Margin at 8-10)
-    # Customer=11, Payment=12, By=13, Sales Person=14; without pricing
-    # Customer=8, Payment=9, By=10, Sales Person=11.
+    # Column order: 0 checkbox, 1 Sale#, 2 Date, 3 Invoice, 4 Tag, 5 Brand/Model,
+    # 6 Lot, 7 Grade, 8 Stock Type. With pricing (Cost/Unit, Price, Margin at
+    # 9-11) Customer=12, Payment=13, By=14, Sales Person=15; without pricing
+    # Customer=9, Payment=10, By=11, Sales Person=12.
     stock_type_expr = case((func.coalesce(Device.sub_lot_number, "") != "", 1), else_=0)
-    col_map = {1: Sale.sale_number, 2: Sale.sold_at, 3: Device.barcode,
-               6: Device.grade, 7: stock_type_expr}
+    col_map = {1: Sale.sale_number, 2: Sale.sold_at, 3: Sale.invoice_no, 4: Device.barcode,
+               7: Device.grade, 8: stock_type_expr}
     if show_pricing:
-        col_map.update({9: Sale.sale_price, 12: Sale.payment_mode, 13: Sale.sold_by, 14: Sale.sales_person})
+        col_map.update({10: Sale.sale_price, 13: Sale.payment_mode, 14: Sale.sold_by, 15: Sale.sales_person})
     else:
-        col_map.update({9: Sale.payment_mode, 10: Sale.sold_by, 11: Sale.sales_person})
+        col_map.update({10: Sale.payment_mode, 11: Sale.sold_by, 12: Sale.sales_person})
     try:
         order_col = int(request.query_params.get("order[0][column]", 2))
     except ValueError:
@@ -1632,6 +1649,7 @@ async def sales_list_data(
             f'<input type="checkbox" class="row-check" value="{s.id}">',
             f'<a href="/sales/{s.id}" class="text-decoration-none fw-semibold">{esc(s.sale_number)}</a>',
             s.sold_at.strftime("%d-%m-%Y") if s.sold_at else "—",
+            esc(s.invoice_no) or "—",
             f'<a href="/devices/{esc(r.barcode)}" class="text-decoration-none"><code>{esc(r.barcode)}</code></a>',
             esc(f"{r.brand or ''} {r.model or ''}".strip()),
             f'<a href="/devices?lot={esc(r.lot_number)}" class="text-decoration-none">'

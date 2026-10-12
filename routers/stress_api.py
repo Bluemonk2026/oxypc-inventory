@@ -29,7 +29,7 @@ from auth.dependencies import get_current_user, verify_csrf
 from database import get_db
 from models.device import Device, DeviceStage, StageMovement
 from models.user import User, UserRole
-from models.stress import StressTestResult, STRESS_CHECKLIST_ITEMS
+from models.stress import StressTestResult, STRESS_CHECKLIST_ITEMS, STRESS_NA_ITEMS
 from models.work_order import WorkOrder
 from routers.transfers import _gen_work_id
 from services.audit_engine import audit
@@ -95,6 +95,8 @@ def _result_status_summary(entry) -> tuple[str, str]:
     if isinstance(entry, dict):
         return entry.get("status", "PENDING"), entry.get("summary", "—")
     if isinstance(entry, str):
+        if entry.lower() == "na":
+            return "N/A", "Not applicable for this device"
         return entry.upper(), "Manually checked on the Stress Test page"
     return "PENDING", "—"
 
@@ -115,6 +117,7 @@ def _pdf_fpdf(record: StressTestResult) -> bytes:
         "FAIL":    (248, 215, 218),
         "WARN":    (255, 243, 205),
         "SKIP":    (226, 227, 229),
+        "N/A":     (226, 227, 229),
         "RUNNING": (207, 226, 255),
         "PENDING": (226, 227, 229),
     }
@@ -185,7 +188,7 @@ def _pdf_fpdf(record: StressTestResult) -> bytes:
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Helvetica", "B", 9)
     pdf.cell(25, 7, "Status",  border=0, fill=True)
-    pdf.cell(40, 7, "Test",    border=0, fill=True)
+    pdf.cell(55, 7, "Test",    border=0, fill=True)
     pdf.cell(0,  7, "Summary", border=0, fill=True, ln=True)
 
     pdf.set_text_color(0, 0, 0)
@@ -193,7 +196,7 @@ def _pdf_fpdf(record: StressTestResult) -> bytes:
         st, summ = _result_status_summary(results.get(key))
         bg  = BADGE_BG.get(st, (240, 240, 240))
         name = NAMES.get(key, key)
-        summ = summ[:80]
+        summ = summ[:60]
 
         row_bg = (250, 250, 250) if idx % 2 == 0 else (255, 255, 255)
         pdf.set_fill_color(*row_bg)
@@ -205,7 +208,7 @@ def _pdf_fpdf(record: StressTestResult) -> bytes:
 
         pdf.set_fill_color(*row_bg)
         pdf.set_font("Helvetica", "B", 9)
-        pdf.cell(40, 7, _ascii(name), border=0, fill=True)
+        pdf.cell(55, 7, _ascii(name), border=0, fill=True)
         pdf.set_font("Helvetica", "", 9)
         pdf.cell(0, 7, _ascii(summ), border=0, fill=True, ln=True)
 
@@ -240,6 +243,56 @@ def _pdf_text(record: StressTestResult) -> bytes:
         st, summ = _result_status_summary(results.get(key))
         lines.append(f"{names.get(key, key):20s}  {st:10s}  {summ}")
     return "\n".join(lines).encode("utf-8")
+
+
+def _parse_na_items(raw: str) -> list[str]:
+    """Same convention as _parse_checklist_items, restricted to the items that
+    may be marked N/A (STRESS_NA_ITEMS, e.g. Touch Screen)."""
+    return [i for i in _parse_checklist_items(raw) if i in STRESS_NA_ITEMS]
+
+
+def _build_results(failed_list: list[str], na_list: list[str]) -> dict:
+    """Full checklist -> {item: "pass"|"fail"|"na"}. Fail wins over N/A."""
+    return {item: ("fail" if item in failed_list else "na" if item in na_list else "pass")
+            for item in STRESS_CHECKLIST_ITEMS}
+
+
+async def _upsert_manual_result(db: AsyncSession, device: Device, *, failed_list: list[str],
+                                na_list: list[str], run_by: str) -> StressTestResult:
+    """Record the manual checklist for a tag, keeping ONE attached Stress report.
+
+    When the tag comes back into the Stress stage (re-test after a fail, repeat
+    stress) the report already attached to it is UPDATED in place - same row, same
+    PDF file overwritten with the new results - instead of a second unrelated
+    report piling up. Rows holding an automated-benchmark / on-device-agent run
+    (different results_json shape) are never overwritten; those get a fresh row."""
+    results = _build_results(failed_list, na_list)
+    overall = "FAIL" if failed_list else "PASS"
+    record = (await db.execute(
+        select(StressTestResult).where(StressTestResult.barcode == device.barcode)
+        .order_by(desc(StressTestResult.id)).limit(1)
+    )).scalar_one_or_none()
+    if record is not None and any(k in (record.results_json or {}) for k in sr.ALL_KEYS):
+        record = None
+    if record is None:
+        record = StressTestResult(barcode=device.barcode)
+        db.add(record)
+    record.brand = device.brand
+    record.model_name = device.model
+    record.run_at = app_now()
+    record.overall_status = overall
+    record.results_json = results
+    record.run_by = run_by
+    await db.flush()
+
+    # Generate / refresh the PDF (non-fatal - the record is still saved)
+    try:
+        fpath = REPORTS_DIR / _pdf_filename(device.barcode, record.id)
+        fpath.write_bytes(_generate_pdf(record))
+        record.pdf_path = str(fpath)
+    except Exception:
+        pass
+    return record
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -289,41 +342,24 @@ async def stop_stress(barcode: str, current_user: User = Depends(get_current_use
 async def save_results(
     barcode: str,
     failed_items: str = Form(""),
+    na_items: str = Form(""),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Persist the current manual checklist state (without moving the device —
     that's what Fail/Complete do) and generate a downloadable PDF report.
-    `failed_items` is the same comma-separated checklist-item convention as
-    POST /{barcode}/fail."""
+    `failed_items` / `na_items` are the same comma-separated checklist-item
+    convention as POST /{barcode}/fail. A tag that already has a report gets it
+    updated in place (see _upsert_manual_result)."""
     dev = (await db.execute(select(Device).where(Device.barcode == barcode))).scalar_one_or_none()
     if not dev:
         raise HTTPException(404, f"Device {barcode} not found")
 
     try:
         failed_list = _parse_checklist_items(failed_items)
-        record = StressTestResult(
-            barcode=barcode,
-            brand=dev.brand,
-            model_name=dev.model,
-            run_at=app_now(),
-            overall_status="FAIL" if failed_list else "PASS",
-            results_json={item: ("fail" if item in failed_list else "pass")
-                          for item in STRESS_CHECKLIST_ITEMS},
-            run_by=current_user.username,
-        )
-        db.add(record)
-        await db.flush()
-
-        # Generate PDF (failure is non-fatal — record still saved)
-        try:
-            pdf_bytes = _generate_pdf(record)
-            fname     = _pdf_filename(barcode, record.id)
-            fpath     = REPORTS_DIR / fname
-            fpath.write_bytes(pdf_bytes)
-            record.pdf_path = str(fpath)
-        except Exception:
-            record.pdf_path = None
+        record = await _upsert_manual_result(
+            db, dev, failed_list=failed_list, na_list=_parse_na_items(na_items),
+            run_by=current_user.username)
 
         await db.commit()
         return {
@@ -487,6 +523,7 @@ async def stress_fail_assign(
     engineer_user_id: str = Form(...),
     notes: str = Form(""),
     failed_items: str = Form(""),
+    na_items: str = Form(""),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -557,12 +594,9 @@ async def stress_fail_assign(
     # StressTestResult rather than a new table — it was already a flexible
     # per-run JSON blob, just previously only ever populated by the automated
     # benchmark's Save button. Same table now also serves the manual result.
-    db.add(StressTestResult(
-        barcode=device.barcode, brand=device.brand, model_name=device.model,
-        run_at=app_now(), overall_status="FAIL",
-        results_json={item: ("fail" if item in failed_list else "pass") for item in STRESS_CHECKLIST_ITEMS},
-        run_by=current_user.username,
-    ))
+    # A repeat tag updates its already-attached report instead of adding another.
+    await _upsert_manual_result(db, device, failed_list=failed_list,
+                                na_list=_parse_na_items(na_items), run_by=current_user.username)
 
     # Self-attribution (2026-09-02, same pattern as Final QC's decision WorkID
     # in routers/cosmetic.py): whoever submits this Stress Test result gets
@@ -614,6 +648,7 @@ async def stress_complete_to_paint(
     barcode: str,
     engineer_user_id: str = Form(""),
     notes: str = Form(""),
+    na_items: str = Form(""),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -666,12 +701,9 @@ async def stress_complete_to_paint(
     db.add(StageMovement(device_id=device.id, from_stage=prev_stage, to_stage=DeviceStage.cosmetic_received,
                          moved_by=current_user.username, notes=move_notes))
 
-    db.add(StressTestResult(
-        barcode=device.barcode, brand=device.brand, model_name=device.model,
-        run_at=app_now(), overall_status="PASS",
-        results_json={item: "pass" for item in STRESS_CHECKLIST_ITEMS},
-        run_by=current_user.username,
-    ))
+    # A repeat tag updates its already-attached report instead of adding another.
+    await _upsert_manual_result(db, device, failed_list=[], na_list=_parse_na_items(na_items),
+                                run_by=current_user.username)
 
     # Self-attribution (2026-09-02, same pattern as Final QC's decision WorkID
     # in routers/cosmetic.py): whoever submits this Stress Test result gets

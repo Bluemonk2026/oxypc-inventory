@@ -41,15 +41,28 @@
         <input type="text" id="fVendor" class="form-control form-control-sm" placeholder="Vendor…">
       </div>
       <div class="col-md-2">
-        <label class="form-label small fw-semibold mb-1">From</label>
-        <input type="date" id="fFrom" class="form-control form-control-sm">
+        <label class="form-label small fw-semibold mb-1">Date of Invoice — From</label>
+        <input type="date" id="fFrom" class="form-control form-control-sm" value="{{ date_from or '' }}">
       </div>
       <div class="col-md-2">
-        <label class="form-label small fw-semibold mb-1">To</label>
-        <input type="date" id="fTo" class="form-control form-control-sm">
+        <label class="form-label small fw-semibold mb-1">Date of Invoice — To</label>
+        <input type="date" id="fTo" class="form-control form-control-sm" value="{{ date_to or '' }}">
       </div>
     </div>
-    <div class="mt-2"><button type="button" id="fReset" class="btn btn-outline-secondary btn-sm">Reset Filters</button></div>
+    <div class="mt-2 d-flex gap-2 flex-wrap">
+      <button type="button" id="fReset" class="btn btn-outline-secondary btn-sm">Reset Filters</button>
+      {# Selected rows if any are ticked, otherwise every row the filters leave. #}
+      <button type="button" id="exportGrnBtn" class="btn btn-outline-success btn-sm ms-auto">
+        <i class="bi bi-file-earmark-excel me-1"></i>Export GRN
+      </button>
+    </div>
+    <form id="exportGrnForm" action="/grn/export" method="post" style="display:none">
+      <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token','') }}">
+      <input type="hidden" name="source" value="post_iqc">
+      <input type="hidden" name="ids" id="exportGrnIds">
+      <input type="hidden" name="date_from" value="{{ date_from or '' }}">
+      <input type="hidden" name="date_to" value="{{ date_to or '' }}">
+    </form>
   </div>
 </div>
 
@@ -85,7 +98,8 @@
       <table id="grnTable" class="table table-hover mb-0 small align-middle">
         <thead class="table-dark">
           <tr>
-            <th class="ps-3">GRN</th><th>LOT</th><th>Invoice Number</th><th>Date of Invoice</th>
+            <th class="ps-3" style="width:36px"><input type="checkbox" id="grnSelectAll" class="form-check-input" title="Select all filtered rows"></th>
+            <th>GRN</th><th>LOT</th><th>Invoice Number</th><th>Date of Invoice</th>
             <th>Vendor Name</th><th>Quantity</th><th>Stocked</th><th>Amount</th><th>As-Is Lot</th><th>Download</th><th>Action</th>
           </tr>
         </thead>
@@ -93,7 +107,8 @@
           {% for g in grns %}
           {% set _lots = lots_by_grn.get(g.grn_number, []) if lots_by_grn is defined else [] %}
           <tr id="grn-{{ g.grn_number }}">
-            <td class="ps-3"><span class="font-monospace fw-bold">{{ g.grn_number }}</span></td>
+            <td class="ps-3"><input type="checkbox" class="form-check-input grn-row-chk" value="{{ g.id }}"></td>
+            <td><span class="font-monospace fw-bold">{{ g.grn_number }}</span></td>
             <td>
               {% if _lots %}
               <button type="button" class="btn btn-sm btn-link p-0 fw-semibold text-decoration-none lot-count-btn"
@@ -168,7 +183,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="11" class="text-center text-muted py-4">No GRN imports yet. Upload an invoice to begin.</td></tr>
+          <tr><td colspan="12" class="text-center text-muted py-4">{% if date_from or date_to %}No GRNs with a Date of Invoice in this range.{% else %}No GRN imports yet. Upload an invoice to begin.{% endif %}</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -442,34 +457,56 @@ $(document).ready(function(){
   }
 
   if ($('#grnTable tbody tr td').length > 1) {
-    var dt = window.dtGrn = $('#grnTable').DataTable({pageLength: 12, order: []});
+    var dt = window.dtGrn = $('#grnTable').DataTable({pageLength: 12, order: [], columnDefs: [{orderable: false, targets: 0}]});
     dt.on('draw.dt', function () {
       refreshCards(dt.rows({search: 'applied'}).nodes().toArray());
     });
     refreshCards(dt.rows({search: 'applied'}).nodes().toArray());
-    $.fn.dataTable.ext.search.push(function(settings, data){
-      if (settings.nTable.id !== 'grnTable') return true;
-      var from = document.getElementById('fFrom').value;
-      var to   = document.getElementById('fTo').value;
-      if (!from && !to) return true;
-      var d = (data[3] || '').trim();  // Date of Invoice — column 3 now that Lot Number is column 1
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
-      if (from && d < from) return false;
-      if (to && d > to) return false;
-      return true;
-    });
-    document.getElementById('fGrn').addEventListener('input', function(){ dt.column(0).search(this.value).draw(); });
-    document.getElementById('fInvoice').addEventListener('input', function(){ dt.column(2).search(this.value).draw(); });
-    document.getElementById('fVendor').addEventListener('input', function(){ dt.column(4).search(this.value).draw(); });
-    document.getElementById('fFrom').addEventListener('change', function(){ dt.draw(); });
-    document.getElementById('fTo').addEventListener('change', function(){ dt.draw(); });
+    // Columns: 0=checkbox, 1=GRN, 2=LOT, 3=Invoice, 4=Date of Invoice, 5=Vendor
+    document.getElementById('fGrn').addEventListener('input', function(){ dt.column(1).search(this.value).draw(); });
+    document.getElementById('fInvoice').addEventListener('input', function(){ dt.column(3).search(this.value).draw(); });
+    document.getElementById('fVendor').addEventListener('input', function(){ dt.column(5).search(this.value).draw(); });
     document.getElementById('fReset').addEventListener('click', function(){
-      ['fGrn','fInvoice','fVendor','fFrom','fTo'].forEach(function(id){ document.getElementById(id).value=''; });
-      dt.column(0).search('').column(2).search('').column(4).search('').draw();
+      if (document.getElementById('fFrom').value || document.getElementById('fTo').value) {
+        window.location.href = window.location.pathname;  // date range is server-side
+        return;
+      }
+      ['fGrn','fInvoice','fVendor'].forEach(function(id){ document.getElementById(id).value=''; });
+      dt.column(1).search('').column(3).search('').column(5).search('').draw();
+    });
+    // Select-all ticks every row the filters leave (all pages, not just this one)
+    var selAll = document.getElementById('grnSelectAll');
+    selAll.addEventListener('change', function(){
+      dt.rows({search: 'applied'}).nodes().to$().find('.grn-row-chk').prop('checked', selAll.checked);
     });
   } else {
     refreshCards([]);
   }
+
+  // Date of Invoice range is filtered server-side (table, cards and the export
+  // all see the same rows): changing either date reloads with ?date_from/&date_to.
+  function applyDateRange() {
+    var p = new URLSearchParams();
+    var f = document.getElementById('fFrom').value, t = document.getElementById('fTo').value;
+    if (f) p.set('date_from', f);
+    if (t) p.set('date_to', t);
+    window.location.href = window.location.pathname + (p.toString() ? '?' + p.toString() : '');
+  }
+  document.getElementById('fFrom').addEventListener('change', applyDateRange);
+  document.getElementById('fTo').addEventListener('change', applyDateRange);
+
+  // Export GRN — the ticked rows, else every row the filters currently leave.
+  document.getElementById('exportGrnBtn').addEventListener('click', function(){
+    var dtg = window.dtGrn;
+    var scope = dtg ? dtg.rows().nodes().to$() : $('#grnTable tbody');
+    var ids = scope.find('.grn-row-chk:checked').map(function(){ return this.value; }).get();
+    if (!ids.length && dtg) {
+      ids = dtg.rows({search: 'applied'}).nodes().to$().find('.grn-row-chk').map(function(){ return this.value; }).get();
+    }
+    if (!ids.length) { alert('No GRN rows to export.'); return; }
+    document.getElementById('exportGrnIds').value = ids.join(',');
+    document.getElementById('exportGrnForm').submit();
+  });
   // Server-side: the Invoice/PO/Device Type filters used to run as a
   // client-side ext.search predicate over rows already in the DOM. They now
   // travel to /grn/post-iqc/data as query params instead, since the row set

@@ -38,6 +38,7 @@ from routers.transfers import _gen_work_id
 from services.notifications import create_notification
 from services.work_order_close import close_open_work_orders
 from services.location_defaults import ensure_stage_location
+from services.device_flag import set_flag, clear_flag, flag_dict
 
 _log = logging.getLogger(__name__)
 
@@ -812,6 +813,37 @@ def _stock_filters(device_type, lot_number, date_from, date_to, entity=""):
     return w
 
 
+def _tooltip_attrs(lines):
+    """data-bs-* attributes for a Bootstrap HTML tooltip. `lines` is a list of
+    (label, value) pairs; both are escaped, then the whole HTML snippet is
+    escaped again to live safely inside the title="" attribute."""
+    from html import escape
+    body = "<br>".join(f"<b>{escape(lbl)}:</b> {escape(str(val) if val else '—')}" for lbl, val in lines)
+    return f'data-bs-toggle="tooltip" data-bs-html="true" data-bs-placement="top" title="{escape(body)}"'
+
+
+def _returned_cell_html(ret):
+    """Inventory Stock "Returned" cell: No, or Yes + an info icon whose tooltip
+    shows the latest return record's Reason / Condition / Complaint."""
+    if ret is None:
+        return '<span class="text-muted">No</span>'
+    tip = _tooltip_attrs([("Reason", ret.reason), ("Condition", ret.condition_on_return),
+                          ("Complaint", ret.complaint_text)])
+    return (f'<span class="badge bg-warning text-dark">Yes</span> '
+            f'<i class="bi bi-info-circle text-primary returned-info" style="cursor:help;" {tip}></i>')
+
+
+def _flag_badge_html(device):
+    """Small red flag next to the Tag Number of a flagged (urgent) tag, with the
+    flag details in its tooltip."""
+    fl = flag_dict(device)
+    if not fl:
+        return ""
+    tip = _tooltip_attrs([("Authorized By", fl["authorized_by"]), ("Requested", fl["request_date"]),
+                          ("Target", fl["target_date"]), ("Reason", fl["reason"])])
+    return f' <i class="bi bi-flag-fill text-danger stock-flag-icon" style="cursor:help;" {tip}></i>'
+
+
 @router.get("/stock/data")
 async def stock_in_data(
     request: Request,
@@ -856,29 +888,34 @@ async def stock_in_data(
     # Column 3 is Location ID (inserted after Lot) — every index from Brand
     # onward shifts by one to make room for it. RAM/Storage columns were
     # removed from the table entirely, so Grade moved from 9 to 7.
-    # Column 9 (Assigned User) sorts by the same timestamp that badge is
-    # actually derived from — the latest StockTransfer.transfer_date with a
-    # department set — so "Date Assigned" is a real value, not a stand-in
-    # like Device.updated_at, which also moves on edits that have nothing to
-    # do with assignment.
-    latest_assigned_at = (
-        select(func.max(StockTransfer.transfer_date))
-        .where(StockTransfer.device_id == Device.id, StockTransfer.department.isnot(None))
+    # Column 9 is "Returned" (replaced Assigned User, 2026-10-12): it sorts by
+    # the tag's latest customer-return date, un-returned tags last either way.
+    latest_return_at = (
+        select(func.max(Return.return_date))
+        .where(Return.device_id == Device.id)
         .correlate(Device)
         .scalar_subquery()
     )
     col_map = {1: Device.barcode, 2: Lot.lot_number, 4: Device.brand, 5: Device.model,
-               6: Device.device_type, 7: Device.grade, 9: latest_assigned_at}
-    try:
-        order_col = int(request.query_params.get("order[0][column]", 9))
-    except ValueError:
-        order_col = 9
+               6: Device.device_type, 7: Device.grade, 9: latest_return_at}
+    # No explicit sort (the table starts unsorted): flagged (urgent) tags first,
+    # then the most recently updated.
+    if "order[0][column]" in request.query_params:
+        try:
+            order_col = int(request.query_params.get("order[0][column]"))
+        except ValueError:
+            order_col = -1
+    else:
+        order_col = -1
     order_dir = request.query_params.get("order[0][dir]", "desc")
-    sort_expr = col_map.get(order_col, Device.updated_at)
-    order_by = _asc(sort_expr) if order_dir == "asc" else _desc(sort_expr)
+    if order_col in col_map:
+        sort_expr = col_map[order_col]
+        order_by = [_asc(sort_expr).nulls_last() if order_dir == "asc" else _desc(sort_expr).nulls_last()]
+    else:
+        order_by = [_desc(Device.flag_active), _desc(Device.updated_at)]
 
     rows = (await db.execute(
-        base.where(*search_filters).order_by(order_by, Device.barcode)
+        base.where(*search_filters).order_by(*order_by, Device.barcode)
         .offset(max(0, start)).limit(min(max(1, length), 5000))
     )).all()
 
@@ -903,25 +940,25 @@ async def stock_in_data(
             )).all():
                 location_map[str(did)] = unit_id
 
-    assigned_dept_map = {}
+    # "Returned" column: the tag's latest customer-return record (if any).
+    latest_return_map = {}
     if device_ids:
-        for did, dept in (await db.execute(
-            select(StockTransfer.device_id, StockTransfer.department)
-            .where(StockTransfer.device_id.in_(device_ids), StockTransfer.department != None)
-            .order_by(StockTransfer.transfer_date.desc())
-        )).all():
-            assigned_dept_map.setdefault(str(did), dept)
+        for ret in (await db.execute(
+            select(Return).where(Return.device_id.in_(device_ids))
+            .order_by(Return.return_date.desc())
+        )).scalars().all():
+            latest_return_map.setdefault(ret.device_id, ret)
 
     def esc(v):
         return escape(str(v)) if v is not None else ""
 
     data = []
     for d, lot_number_val in rows:
-        dept = assigned_dept_map.get(str(d.id))
         data.append([
             f'<input type="checkbox" class="form-check-input stockChk" value="{esc(d.barcode)}">',
             (f'<a href="/devices/{esc(d.barcode)}" class="font-monospace text-decoration-none">'
              f'<code>{esc(d.barcode)}</code></a>'
+             f'{_flag_badge_html(d)}'
              f'<div style="color:#999999;font-size:12px;">{esc(d.entity) if d.entity else "—"}</div>'),
             f'<span class="badge bg-info text-dark">{esc(lot_number_val)}</span>',
             (f'<span class="font-monospace small">{esc(location_map[str(d.id)])}</span>'
@@ -931,7 +968,7 @@ async def stock_in_data(
             esc(d.brand or "—"), esc(d.model or "—"), esc(d.device_type or "—"),
             esc(d.grade or "—"),
             f'<span class="bkt-cell" data-barcode="{esc(d.barcode)}"><span class="text-muted">—</span></span>',
-            (f'<span class="badge bg-secondary">{esc(dept)}</span>' if dept else '<span class="text-muted">—</span>'),
+            _returned_cell_html(latest_return_map.get(d.id)),
             # Every row here is already at Stock In (see _stock_filters), so
             # both actions are always valid. Move to Production is hidden
             # (d-none, not removed — same form/endpoint still works if it's
@@ -951,6 +988,107 @@ async def stock_in_data(
         ])
 
     return {"draw": draw, "recordsTotal": total, "recordsFiltered": filtered, "data": data}
+
+
+async def _flag_user_names(db: AsyncSession):
+    """Display names (full_name, else username) of every active user — the
+    "Flag Authorized By" dropdown, same source as Change Engineer's user list."""
+    rows = (await db.execute(
+        select(User).where(User.status == True).order_by(User.full_name)  # noqa: E712
+    )).scalars().all()
+    return [u.full_name or u.username for u in rows]
+
+
+async def _flag_devices(db: AsyncSession, barcodes: str):
+    bc_list = [b.strip() for b in (barcodes or "").split(",") if b.strip()]
+    if not bc_list:
+        raise HTTPException(400, "No tags selected")
+    devices = (await db.execute(
+        select(Device).where(Device.barcode.in_(bc_list), Device.is_active == True,  # noqa: E712
+                             Device.is_trashed == False)
+    )).scalars().all()
+    if not devices:
+        raise HTTPException(404, "Selected tags not found")
+    return devices
+
+
+@router.get("/stock/flag-details")
+async def stock_flag_details(
+    barcodes: str = Query(default=""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Data for the "Flag Items" modal: the authorizer dropdown plus the flag the
+    selected tags already carry (pre-fills Edit / enables Delete). `flag` is the
+    first flagged tag's values; `mixed` is true when the selected tags are not
+    all flagged with identical values (saving then overwrites them all)."""
+    devices = await _flag_devices(db, barcodes)
+    flags = [flag_dict(d) for d in devices]
+    flagged = [f for f in flags if f]
+    mixed = bool(flagged) and (len(flagged) != len(devices) or any(f != flagged[0] for f in flagged))
+    return JSONResponse({
+        "ok": True, "users": await _flag_user_names(db),
+        "total": len(devices), "flagged": len(flagged),
+        "flag": flagged[0] if flagged else None, "mixed": mixed,
+    })
+
+
+@router.post("/stock/flag")
+async def stock_flag_save(
+    barcodes: str = Form(...),
+    authorized_by: str = Form(...),
+    request_date: str = Form(...),
+    target_date: str = Form(...),
+    reason: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Add / Edit: flag every selected tag as urgent at inventory (overwrites
+    any flag a tag already has). The flag is removed automatically the next time
+    the tag moves into Stock In (see services/device_flag.py)."""
+    authorized_by, reason = authorized_by.strip(), reason.strip()
+    if not authorized_by:
+        raise HTTPException(400, "Flag Authorized By is required")
+    if not reason:
+        raise HTTPException(400, "Flag Reason is required")
+    try:
+        req_d = _dt.strptime(request_date.strip(), "%Y-%m-%d").date()
+        tgt_d = _dt.strptime(target_date.strip(), "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, "Flag Request Date and Flag Target Date must be valid dates")
+    if tgt_d < req_d:
+        raise HTTPException(400, "Flag Target Date cannot be before the Flag Request Date")
+    if authorized_by not in await _flag_user_names(db):
+        raise HTTPException(400, "Flag Authorized By must be an active user")
+    devices = await _flag_devices(db, barcodes)
+    for d in devices:
+        set_flag(d, authorized_by, req_d, tgt_d, reason)
+    await audit(db, user=current_user, action="TAG_FLAG_SET", table_name="devices",
+                record_id=f"bulk:{len(devices)}_tags",
+                new_value={"barcodes": [d.barcode for d in devices], "authorized_by": authorized_by,
+                           "request_date": req_d.isoformat(), "target_date": tgt_d.isoformat(),
+                           "reason": reason})
+    await db.commit()
+    return JSONResponse({"ok": True, "flagged": len(devices)})
+
+
+@router.post("/stock/flag/delete")
+async def stock_flag_delete(
+    barcodes: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(allowed),
+):
+    """Delete: clear the flag on every selected tag."""
+    devices = await _flag_devices(db, barcodes)
+    cleared = [d for d in devices if d.flag_active]
+    for d in cleared:
+        clear_flag(d)
+    if cleared:
+        await audit(db, user=current_user, action="TAG_FLAG_CLEARED", table_name="devices",
+                    record_id=f"bulk:{len(cleared)}_tags",
+                    new_value={"barcodes": [d.barcode for d in cleared]})
+    await db.commit()
+    return JSONResponse({"ok": True, "cleared": len(cleared)})
 
 
 @router.get("/stock", response_class=HTMLResponse)

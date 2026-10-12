@@ -113,7 +113,7 @@
              generated <td>, so the body would render columns the header hides
              and every column after Tag Number would line up against the wrong
              heading. Hidden this way they stay searchable. #}
-          <th>Sale#</th><th>Date</th><th>Tag Number</th>
+          <th>Sale#</th><th>Date</th><th>Invoice</th><th>Tag Number</th>
           <th>Brand/Model</th>
           <th>Lot</th>
           <th>Grade</th><th>Stock Type</th>{% if can_view_pricing(current_user) %}<th>Cost/Unit</th><th>Price</th><th>Margin</th>{% endif %}
@@ -238,11 +238,12 @@ function exportSelected() {
 // answered by the server instead of by the browser, so nothing is hidden.
 $(document).ready(function() {
   var showPricing = {{ 'true' if can_view_pricing(current_user) else 'false' }};
-  // Column indices shift when pricing columns are hidden from the role. Stock
-  // Type (column 7, after Grade) pushed everything after it one place later.
-  var lastTwo = showPricing ? [15, 16] : [12, 13];
+  // Column order: 0 checkbox, 1 Sale#, 2 Date, 3 Invoice, 4 Tag, 5 Brand/Model,
+  // 6 Lot, 7 Grade, 8 Stock Type, [9-11 Cost/Price/Margin], Customer, ...
+  // Indices shift when pricing columns are hidden from the role.
+  var lastTwo = showPricing ? [16, 17] : [13, 14];
   // Brand/Model, Lot and Customer: present and searchable, not displayed.
-  var hiddenCols = showPricing ? [4, 5, 11] : [4, 5, 8];
+  var hiddenCols = showPricing ? [5, 6, 12] : [5, 6, 9];
 
   var dt = $('#salesTable').DataTable({
     serverSide: true,
@@ -269,7 +270,7 @@ $(document).ready(function() {
     },
     columnDefs: [
       { orderable: false, targets: [0].concat(lastTwo) },
-      { orderable: false, targets: showPricing ? [8, 10] : [] },  // cost & margin are computed
+      { orderable: false, targets: showPricing ? [9, 11] : [] },  // cost & margin are computed
       { visible: false, targets: hiddenCols },
     ],
     // Re-apply row checkbox state after every draw: server-side paging

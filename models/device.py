@@ -1,9 +1,11 @@
 import uuid
 from datetime import datetime
 from utils.timezone import app_now
-from sqlalchemy import Column, String, DateTime, Integer, Float, Boolean, ForeignKey, Enum as SAEnum, Text, Numeric, text
+from sqlalchemy import Column, String, Date, DateTime, Integer, Float, Boolean, ForeignKey, Enum as SAEnum, Text, Numeric, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
+from sqlalchemy import event
+from services.device_flag import on_stage_set
 import enum
 from database import Base
 
@@ -194,6 +196,21 @@ class Device(Base):
     # no default/computed value.
     min_selling_price = Column(Numeric(12, 2), nullable=True)
     max_selling_price = Column(Numeric(12, 2), nullable=True)
+
+    # Touch / Non-Touch screen (2026-10-12): chosen on the Final QC form (radio).
+    # NULL means "not recorded" and is shown as Non-Touch (badge "NT"); only an
+    # explicit "Touch" is shown as "T". Additive; auto-provisioned by db_validator.
+    touch_type = Column(String(12), nullable=True)
+
+    # Inventory Manager "Flag Items" (2026-10-12): a tag flagged as urgent at the
+    # inventory stage. One flag per tag; Add / Edit / Delete from the Flag modal.
+    # The flag is cleared automatically every time the tag is moved (back) to Stock
+    # In. Additive; auto-provisioned by db_validator.
+    flag_active = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    flag_authorized_by = Column(String(100), nullable=True)
+    flag_request_date = Column(Date, nullable=True)
+    flag_target_date = Column(Date, nullable=True)
+    flag_reason = Column(Text, nullable=True)
     # Set in bulk by GRN Post-IQC's "Yes As-Is" modal or by /transfers when
     # Transfer Type is Ready for Sale / As-Is Lot / Scrap for Sale — the
     # employee this Tag Number is currently assigned to. Additive; auto-
@@ -247,6 +264,14 @@ class Device(Base):
     @property
     def stage_color(self):
         return STAGE_COLORS.get(self.current_stage, "secondary")
+
+
+# Inventory Manager "Flag Items": a tag's urgent flag is removed every time it moves
+# into Stock In. Central hook on the stage column so every stage-movement path
+# (GRN, IQC, repair, sales return, buckets, customise, API ...) is covered.
+@event.listens_for(Device.current_stage, "set")
+def _clear_flag_on_move_to_stock_in(target, value, oldvalue, initiator):
+    on_stage_set(target, value, oldvalue)
 
 
 class StageMovement(Base):

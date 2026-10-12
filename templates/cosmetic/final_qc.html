@@ -57,6 +57,23 @@
       <div class="card border-0 shadow-sm mb-2">
         <div class="card-body py-2 d-flex align-items-center gap-2">
           <a href="/devices/{{ device.barcode }}" class="font-monospace fw-semibold text-decoration-none">{{ device.barcode }}</a>
+          {# Export the Stress/QC report next to the Tag Number - same file the
+             Stress Test page attaches (/stress/{tag}/report). Disabled when the
+             tag has no report yet. #}
+          {% set sr_id = stress_report_map.get(device.barcode) %}
+          {% if sr_id %}
+          <a href="/stress/{{ device.barcode }}/report?result_id={{ sr_id }}"
+             class="btn btn-sm btn-outline-primary py-0 px-1 fqc-export-report"
+             title="Export Stress/QC report for {{ device.barcode }}">
+            <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
+          </a>
+          {% else %}
+          <span class="d-inline-block" title="No Stress/QC report on file for this tag">
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 fqc-export-report disabled" disabled>
+              <i class="bi bi-file-earmark-arrow-down me-1"></i>Export
+            </button>
+          </span>
+          {% endif %}
           <span class="badge bg-secondary">{{ lot_number }}</span>
           <span class="text-muted small">L1/L2 Engineer: <span class="fw-semibold">{{ l1l2_engineer_map.get(device.id|string, '—') }}</span></span>
           <span class="ms-auto small">Grade:
@@ -141,6 +158,20 @@
               <input type="text" name="bucket_name" class="form-control form-control-sm"
                      value="{{ bucket_name_map.get(device.id|string, '') }}"
                      placeholder="Type a bucket name…">
+            </div>
+            <div class="mb-2">
+              <label class="form-label small d-block">Touch Type</label>
+              {% set cur_touch = touch_type_map.get(device.id|string, 'Non-Touch') %}
+              <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="touch_type" id="tt-touch-{{ device.id }}"
+                       value="Touch" {{ 'checked' if cur_touch == 'Touch' }}>
+                <label class="form-check-label small" for="tt-touch-{{ device.id }}">Touch</label>
+              </div>
+              <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="touch_type" id="tt-nontouch-{{ device.id }}"
+                       value="Non-Touch" {{ 'checked' if cur_touch != 'Touch' }}>
+                <label class="form-check-label small" for="tt-nontouch-{{ device.id }}">Non-Touch</label>
+              </div>
             </div>
             <div class="mb-2">
               <label class="form-label small">Final Status</label>

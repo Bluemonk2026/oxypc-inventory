@@ -9,11 +9,19 @@
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-transparent d-flex align-items-center justify-content-between flex-wrap gap-2">
         <span class="fw-semibold"><i class="bi bi-lock me-2"></i>Tags Blocked</span>
-        <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newBlockModal">
-          <i class="bi bi-plus-lg me-1"></i>New Block Tags
-        </button>
+        <div class="d-flex gap-2">
+          <button type="button" id="blockUploadBtn" class="btn btn-sm btn-outline-secondary"
+                  title="Upload a CSV/XLSX with blockid and tag_number columns - the matching rows are ticked for you">
+            <i class="bi bi-upload me-1"></i>Upload
+          </button>
+          <input type="file" id="blockUploadFile" accept=".csv,.xlsx,.xlsm,.txt,text/csv" class="d-none">
+          <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newBlockModal">
+            <i class="bi bi-plus-lg me-1"></i>New Block Tags
+          </button>
+        </div>
       </div>
       <div class="card-body">
+        <div id="blockUploadMsg" class="small mb-2 d-none"></div>
         <div id="blockAlert" class="alert alert-success py-2 small d-none no-autohide"></div>
         <div id="blockErrorAlert" class="alert alert-danger py-2 small d-none"></div>
 
@@ -88,8 +96,10 @@
       <div class="modal-body">
         <div id="newBlockError" class="alert alert-danger py-2 small d-none"></div>
         <div class="mb-3">
-          <label class="form-label fw-semibold small">Search + Select Tags (multiple allowed)</label>
-          <input type="text" id="nbTagSearch" class="form-control" placeholder="Scan or search Tag Number / Model">
+          <label class="form-label fw-semibold small" for="nbTagSearch">Search Tags <span class="text-muted fw-normal">(selected: <span id="nbSelCount">0</span>)</span></label>
+          <input type="text" id="nbTagSearch" class="form-control" autocomplete="off"
+                 placeholder="Scan or search Tag Number / Model - an exact tag is selected automatically">
+          <div id="nbScanHint" class="small mt-1 d-none"></div>
           <div id="nbTagResults" class="list-group mt-1" style="max-height:160px;overflow-y:auto;"></div>
           <div id="nbTagSelected" class="d-flex flex-wrap gap-1 mt-2"></div>
         </div>
@@ -442,35 +452,86 @@ document.getElementById('ebSubmitBtn').addEventListener('click', async function 
 
 // ── New Block Tags modal: tag search + multi-select ─────────────────────────
 var nbSelectedTags = new Map(); // device_id -> {barcode, model}
-var nbSearchTimer;
+var nbSearchTimer, nbHintTimer, nbSearchSeq = 0;
+
+// Brief non-blocking status line under the search box (found / already / not found).
+function nbHint(msg, ok) {
+  var el = document.getElementById('nbScanHint');
+  el.textContent = msg;
+  el.className = 'small mt-1 ' + (ok ? 'text-success' : 'text-danger');
+  clearTimeout(nbHintTimer);
+  nbHintTimer = setTimeout(function () { el.classList.add('d-none'); }, 2500);
+}
+
+// Look the typed/scanned value up. An exact Tag Number match is ticked straight
+// away (scanner: fast keystrokes then Enter, or just stops typing), the box is
+// cleared and refocused for the next scan. Anything else shows the pick-list;
+// "not found" is only shouted on Enter or when nothing at all matches.
+async function nbSearch(q, fromEnter) {
+  var input = document.getElementById('nbTagSearch');
+  var box = document.getElementById('nbTagResults');
+  var seq = ++nbSearchSeq;
+  q = q.trim();
+  if (!q) { box.innerHTML = ''; return; }
+  var d;
+  try {
+    var r = await fetch('/block-tags/search-tags?q=' + encodeURIComponent(q), { credentials: 'same-origin' });
+    d = await r.json();
+  } catch (err) { nbHint('Search failed - try again.', false); return; }
+  if (seq !== nbSearchSeq || input.value.trim() !== q) return; // stale response
+  var rows = d.data || [];
+  var want = q.toUpperCase();
+  var exact = rows.find(function (t) { return (t.barcode || '').toUpperCase() === want; });
+  if (exact) {
+    if (nbSelectedTags.has(exact.id)) {
+      nbHint(exact.barcode + ' is already selected.', false);
+    } else {
+      nbSelectedTags.set(exact.id, exact);
+      renderNbSelected();
+      nbHint(exact.barcode + ' selected.', true);
+    }
+    input.value = ''; box.innerHTML = '';
+    input.focus();
+    return;
+  }
+  box.innerHTML = '';
+  rows.forEach(function (t) {
+    if (nbSelectedTags.has(t.id)) return;
+    var a = document.createElement('a');
+    a.href = '#'; a.className = 'list-group-item list-group-item-action py-1 small';
+    a.textContent = t.barcode + ' \u2014 ' + (t.model || '');
+    a.onclick = function (e) {
+      e.preventDefault();
+      nbSelectedTags.set(t.id, t);
+      renderNbSelected();
+      input.value = ''; box.innerHTML = '';
+      input.focus();
+    };
+    box.appendChild(a);
+  });
+  if (!rows.length || fromEnter) {
+    nbHint('"' + q + '" not found (must be Ready to Sale and not already blocked).', false);
+    if (fromEnter) { input.select(); }
+  }
+}
 document.getElementById('nbTagSearch').addEventListener('input', function () {
   clearTimeout(nbSearchTimer);
   var q = this.value;
-  nbSearchTimer = setTimeout(async function () {
-    if (!q.trim()) { document.getElementById('nbTagResults').innerHTML = ''; return; }
-    var r = await fetch('/block-tags/search-tags?q=' + encodeURIComponent(q));
-    var d = await r.json();
-    var box = document.getElementById('nbTagResults');
-    box.innerHTML = '';
-    (d.data || []).forEach(function (t) {
-      if (nbSelectedTags.has(t.id)) return;
-      var a = document.createElement('a');
-      a.href = '#'; a.className = 'list-group-item list-group-item-action py-1 small';
-      a.textContent = t.barcode + ' — ' + (t.model || '');
-      a.onclick = function (e) {
-        e.preventDefault();
-        nbSelectedTags.set(t.id, t);
-        renderNbSelected();
-        document.getElementById('nbTagSearch').value = '';
-        box.innerHTML = '';
-      };
-      box.appendChild(a);
-    });
-  }, 300);
+  nbSearchTimer = setTimeout(function () { nbSearch(q, false); }, 200);
+});
+document.getElementById('nbTagSearch').addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  clearTimeout(nbSearchTimer);
+  nbSearch(this.value, true);
+});
+document.getElementById('newBlockModal').addEventListener('shown.bs.modal', function () {
+  document.getElementById('nbTagSearch').focus();
 });
 function renderNbSelected() {
   var box = document.getElementById('nbTagSelected');
   box.innerHTML = '';
+  document.getElementById('nbSelCount').textContent = nbSelectedTags.size;
   nbSelectedTags.forEach(function (t, id) {
     var span = document.createElement('span');
     span.className = 'badge bg-secondary';
@@ -479,6 +540,49 @@ function renderNbSelected() {
     box.appendChild(span);
   });
 }
+
+// ── Upload (blockid, tag_number) file -> tick the matching table rows ────────
+// Server parses the CSV/XLSX and returns the matching BlockRecordItem ids; they
+// go into selectedBlockIds (the cross-page selection set), so rows on pages not
+// currently loaded are selected too and Export Selected / Bulk Release enable.
+function escBlock(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+document.getElementById('blockUploadBtn').addEventListener('click', function () {
+  document.getElementById('blockUploadFile').click();
+});
+document.getElementById('blockUploadFile').addEventListener('change', async function (e) {
+  var f = e.target.files && e.target.files[0];
+  if (!f) return;
+  var msg = document.getElementById('blockUploadMsg');
+  var fd = new FormData();
+  fd.append('csrf_token', blockCsrf());
+  fd.append('file', f);
+  var d;
+  try {
+    var r = await fetch('/block-tags/upload-select', { method: 'POST', body: fd, credentials: 'same-origin' });
+    d = await r.json();
+  } catch (err) { d = { ok: false, error: 'Upload failed.' }; }
+  e.target.value = '';
+  msg.classList.remove('d-none');
+  if (!d.ok) {
+    msg.className = 'small mb-2 text-danger';
+    msg.textContent = d.error || 'Upload failed.';
+    return;
+  }
+  (d.ids || []).forEach(function (id) { selectedBlockIds.add(id); });
+  document.querySelectorAll('.row-check').forEach(function (cb) { cb.checked = selectedBlockIds.has(cb.value); });
+  updateBlockExportBtn();
+  var nf = d.not_found || [];
+  msg.className = 'small mb-2 ' + (d.matched ? 'text-success' : 'text-danger');
+  msg.innerHTML = '<i class="bi bi-' + (d.matched ? 'check-circle' : 'exclamation-circle') + ' me-1"></i>' +
+    '<strong>' + d.matched + '</strong> of ' + d.total + ' rows selected from ' + escBlock(f.name) +
+    (d.matched ? ' &mdash; use Export Selected / Bulk Release.' : '.') +
+    (nf.length ? ' <span class="text-danger">' + nf.length + ' not found (block id / tag): ' +
+      escBlock(nf.slice(0, 15).join(', ')) + (nf.length > 15 ? ', \u2026' : '') + '</span>' : '');
+});
 
 document.getElementById('nbSubmitBtn').addEventListener('click', async function () {
   var err = document.getElementById('newBlockError'); err.classList.add('d-none');

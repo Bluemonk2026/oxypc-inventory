@@ -118,8 +118,8 @@ def test_ordinary_sale_has_no_customer_return_badge(app_client, make_user):  # n
         r = app_client.get(f"/gate-pass/data?length=500", follow_redirects=True)
         assert r.status_code == 200
         body = r.json()
-        row = next(row for row in body["data"] if barcode in row[1])
-        assert "Customer Return" not in row[1]
+        row = next(row for row in body["data"] if barcode in row[4])
+        assert "Customer Return" not in row[4]
     finally:
         _cleanup_device(barcode)
 
@@ -134,11 +134,11 @@ def test_re_sold_returned_tag_shows_customer_return_badge(app_client, make_user)
         r = app_client.get(f"/gate-pass/data?length=500", follow_redirects=True)
         assert r.status_code == 200
         body = r.json()
-        matching = [row for row in body["data"] if barcode in row[1]]
+        matching = [row for row in body["data"] if barcode in row[4]]
         # Both the original sale and the re-sale surface — both carry the tag,
         # so both carry the badge (the label is device-level, not sale-level).
         assert len(matching) == 2
         for row in matching:
-            assert "Customer Return" in row[1]
+            assert "Customer Return" in row[4]
     finally:
         _cleanup_device(barcode)

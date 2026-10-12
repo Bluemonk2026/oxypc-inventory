@@ -11,13 +11,19 @@ from database import Base
 # panel (each item gets a Pass/Fail checkbox pair) — replaces the earlier
 # automated 11-benchmark grid (stress_runner.py's TEST_NAMES/ALL_KEYS, still
 # used by the separate on-server/on-device automated run + PDF pipeline).
-# Persisted into StressTestResult.results_json as {item: "pass"|"fail"}.
+# Persisted into StressTestResult.results_json as {item: "pass"|"fail"|"na"}.
 STRESS_CHECKLIST_ITEMS = [
     "CPU", "RAM", "Hard Drive", "Screen", "Bezel", "Keyboard", "Touchpad",
     "Logic Card", "Camera", "Speaker", "Battery", "Wi-fi", "DC Jack",
     "LAN Port", "USB Ports", "Bluetooth", "Fingerprint", "Display & GPU",
     "Thermal", "Power Button",
+    "HDMI Port", "Microphone", "Touch Screen", "Cosmetic Check",
+    "Diagnostic Cleaning Test", "Startup/Critical Drivers", "Software/License Key",
 ]
+
+# Items that may be marked "N/A" instead of Pass/Fail (stored as "na"):
+# Touch Screen only applies when the device actually has one.
+STRESS_NA_ITEMS = ["Touch Screen"]
 
 
 class StressTestResult(Base):

@@ -1293,8 +1293,9 @@ async def manage_lots(
     request: Request,
     current_user: User = Depends(require_module_perm("trade_partner_manage_lots")),
     db: AsyncSession = Depends(get_db),
+    date_from: str = "", date_to: str = "",
 ):
-    from routers.grn import _stocked_map
+    from routers.grn import _stocked_map, filter_grns_by_invoice_date
 
     # ── Tab 1: GRN & Lot ──────────────────────────────────────────────────
     test_grns = (await db.execute(
@@ -1302,6 +1303,8 @@ async def manage_lots(
                                 GRNImport.is_deleted == False)
         .order_by(GRNImport.created_at.desc())
     )).scalars().all()
+    # Date of Invoice range (server-side; the Export GRN sheet applies the same).
+    test_grns = filter_grns_by_invoice_date(test_grns, date_from, date_to)
 
     grn_numbers = [g.grn_number for g in test_grns if g.grn_number]
     lots_by_grn: dict = {}
@@ -1367,6 +1370,7 @@ async def manage_lots(
     return templates.TemplateResponse("trade_partner/manage_lots.html", {
         "request": request, "current_user": current_user,
         "test_grns": test_grns, "lots_by_grn": lots_by_grn, "stocked": stocked,
+        "date_from": date_from, "date_to": date_to,
         "lots_json": lots_json,
         "test_devices": test_devices,
         "total_grns": len(test_grns), "total_lots": total_lots, "total_tags": len(test_devices),
@@ -1377,6 +1381,20 @@ async def manage_lots(
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
     })
+
+
+@router.post("/manage-lots/export-grn")
+async def manage_lots_export_grn(
+    ids: str = Form(""), date_from: str = Form(""), date_to: str = Form(""),
+    fmt: str = Form("xlsx"),
+    _csrf=Depends(verify_csrf),
+    current_user: User = Depends(require_module_perm("trade_partner_manage_lots")),
+    db: AsyncSession = Depends(get_db),
+):
+    """GRN & Lot tab's Export GRN — the ticked test GRNs (ids), else every test
+    GRN inside the Date of Invoice range. Shares the sheet builder with /grn."""
+    from routers.grn import build_grn_export
+    return await build_grn_export(db, "test", ids, date_from, date_to, fmt)
 
 
 @router.post("/manage-lots/map-grn")

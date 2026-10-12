@@ -81,6 +81,7 @@
                     data-barcode="{{ device.barcode }}"
                     data-brand="{{ device.brand or '' }}"
                     data-model="{{ device.model or '' }}"
+                    data-touch="{{ device.touch_type or '' }}"
                     onclick="activateStressTest(this)"
                     title="Start Stress Test for this device">
                     <i class="bi bi-lightning-charge-fill me-1"></i>Stress
@@ -126,7 +127,7 @@
             </div>
           </div>
 
-          {# 20 checklist items, each with a Pass / Fail checkbox pair #}
+          {# 27 checklist items, each with a Pass / Fail checkbox pair (Touch Screen also has N/A) #}
           <div id="stressChecklist" class="d-flex flex-column gap-1 mb-3"></div>
 
           <div class="d-flex gap-2 mt-2 pt-2 border-top">
@@ -206,6 +207,8 @@
 
 <script>
 const CHECKLIST_ITEMS = {{ checklist_items|tojson }};
+// Items that may be marked N/A instead of Pass/Fail ("if exists", e.g. Touch Screen)
+const NA_ITEMS = {{ checklist_na_items|default([])|tojson }};
 
 let _barcode = null;
 // Read CSRF token from cookie (set by server on login)
@@ -213,41 +216,60 @@ const CSRF = (document.cookie.split(';').find(c => c.trim().startsWith('csrf_tok
 
 function _slug(name) { return name.toLowerCase().replace(/[^a-z0-9]+/g, '-'); }
 
-function buildChecklist() {
+// `touch` = the device's stored Touch Type; the "if exists" items (Touch
+// Screen) start as N/A for a non-touch device and Pass for a touch one.
+function buildChecklist(touch) {
   const box = document.getElementById('stressChecklist');
   box.innerHTML = CHECKLIST_ITEMS.map(name => {
     const s = _slug(name);
+    const hasNA = NA_ITEMS.includes(name);
+    const startNA = hasNA && touch !== 'Touch';
     return `
     <div class="c-row" id="crow-${s}">
       <span class="c-name">${name}</span>
       <label class="c-check text-success mb-0">
-        <input type="checkbox" class="c-pass" id="cpass-${s}" data-item="${name}" checked
+        <input type="checkbox" class="c-pass" id="cpass-${s}" data-item="${name}" ${startNA ? '' : 'checked'}
                onchange="onCheckChanged('${s}', 'pass')"> Pass
       </label>
       <label class="c-check text-danger mb-0">
         <input type="checkbox" class="c-fail" id="cfail-${s}" data-item="${name}"
                onchange="onCheckChanged('${s}', 'fail')"> Fail
       </label>
+      ${hasNA ? `<label class="c-check text-secondary mb-0">
+        <input type="checkbox" class="c-na" id="cna-${s}" data-item="${name}" ${startNA ? 'checked' : ''}
+               onchange="onCheckChanged('${s}', 'na')"> N/A
+      </label>` : ''}
     </div>`;
   }).join('');
-  document.getElementById('allPassCheck').checked = true;
+  syncAllPass();
 }
 
-// Pass/Fail behave as a mutually-exclusive pair (checkbox buttons, not radios
-// per the design ask) — at a time only one of the two can be checked for a
-// given line item, never both.
+function _el(prefix, name) { return document.getElementById(prefix + '-' + _slug(name)); }
+
+// "All Pass" reflects reality: every item that is not marked N/A is on Pass.
+function syncAllPass() {
+  document.getElementById('allPassCheck').checked =
+    CHECKLIST_ITEMS.every(name => { const na = _el('cna', name); return (na && na.checked) || _el('cpass', name).checked; });
+}
+
+// Pass/Fail/N/A behave as a mutually-exclusive set (checkbox buttons, not
+// radios per the design ask) — at a time only one can be checked for a given
+// line item, never two. N/A exists only on the "if exists" items.
 function onCheckChanged(slug, which) {
   const pass = document.getElementById('cpass-' + slug);
   const fail = document.getElementById('cfail-' + slug);
+  const na   = document.getElementById('cna-' + slug);
   const row  = document.getElementById('crow-' + slug);
-  if (which === 'pass' && pass.checked) fail.checked = false;
-  if (which === 'fail' && fail.checked) pass.checked = false;
+  const boxes = {pass, fail, na};
+  if (boxes[which].checked) {
+    Object.entries(boxes).forEach(([k, b]) => { if (b && k !== which) b.checked = false; });
+  }
   row.classList.toggle('c-fail', fail.checked);
   // Unchecking a Pass box — whether the operator unchecked it directly, or it
   // got force-unchecked just now by checking that row's Fail box — means
   // "All Pass" no longer reflects reality until re-confirmed via the master
   // checkbox.
-  if (!pass.checked) document.getElementById('allPassCheck').checked = false;
+  syncAllPass();
 }
 
 function toggleAllPass(checked) {
@@ -255,6 +277,8 @@ function toggleAllPass(checked) {
     const s = _slug(name);
     const pass = document.getElementById('cpass-' + s);
     const fail = document.getElementById('cfail-' + s);
+    const na = document.getElementById('cna-' + s);
+    if (na && na.checked) return;          // an N/A item stays N/A
     if (checked) {
       pass.checked = true;
       fail.checked = false;
@@ -266,7 +290,11 @@ function toggleAllPass(checked) {
 }
 
 function collectFailedItems() {
-  return CHECKLIST_ITEMS.filter(name => document.getElementById('cfail-' + _slug(name)).checked);
+  return CHECKLIST_ITEMS.filter(name => _el('cfail', name).checked);
+}
+
+function collectNAItems() {
+  return NA_ITEMS.filter(name => { const b = _el('cna', name); return b && b.checked; });
 }
 
 function activateStressTest(btn) {
@@ -290,7 +318,7 @@ function activateStressTest(btn) {
   document.getElementById('stressIdleMsg').classList.add('d-none');
   document.getElementById('stressActiveArea').classList.remove('d-none');
 
-  buildChecklist();
+  buildChecklist(btn.dataset.touch || '');
 }
 
 function openFailModal() {
@@ -319,6 +347,7 @@ async function submitFail() {
       body: 'engineer_user_id=' + encodeURIComponent(engineerId) +
             '&notes=' + encodeURIComponent(notes) +
             '&failed_items=' + encodeURIComponent(failedItems) +
+            '&na_items=' + encodeURIComponent(collectNAItems().join(',')) +
             '&csrf_token=' + encodeURIComponent(CSRF),
     });
     if (!r.ok) {
@@ -349,7 +378,8 @@ async function submitComplete() {
     const r = await fetch(`/stress/${_barcode}/complete-to-paint`, {
       method: 'POST',
       headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF},
-      body: 'csrf_token=' + encodeURIComponent(CSRF),
+      body: 'na_items=' + encodeURIComponent(collectNAItems().join(',')) +
+            '&csrf_token=' + encodeURIComponent(CSRF),
     });
     if (!r.ok) {
       const text = await r.text().catch(() => '');
@@ -381,7 +411,9 @@ async function submitSave() {
     const r = await fetch(`/stress/${_barcode}/save`, {
       method: 'POST',
       headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': CSRF},
-      body: 'failed_items=' + encodeURIComponent(failedItems) + '&csrf_token=' + encodeURIComponent(CSRF),
+      body: 'failed_items=' + encodeURIComponent(failedItems) +
+            '&na_items=' + encodeURIComponent(collectNAItems().join(',')) +
+            '&csrf_token=' + encodeURIComponent(CSRF),
     });
     const d = await r.json();
     if (d.saved) {
